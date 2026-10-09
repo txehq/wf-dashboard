@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.interview/
+.spikes/
+.work/
+data/
+*.log
+.DS_Store
