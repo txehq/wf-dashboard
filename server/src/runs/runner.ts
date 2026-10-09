@@ -99,6 +99,7 @@ export class RunDriver {
   private readonly questionInputs = new Map<string, Record<string, unknown>>();
   private simulating = false;
   private ending: 'finish' | 'cancel' | null = null;
+  private shuttingDown = false;
   private failure: ((error: Error) => void) | null = null;
   private readonly failed: Promise<never>;
 
@@ -178,6 +179,7 @@ export class RunDriver {
     const proc = this.proc;
     if (proc === null) throw new Error('claude 进程没有启动');
     const exit = await Promise.race([proc.exited, this.failed]);
+    if (this.shuttingDown) throw new Error('服务关闭，运行中断');
     await this.teardown();
     if (this.ending === 'cancel') {
       this.setStatus('cancelled', { endedAt: new Date() });
@@ -241,6 +243,7 @@ export class RunDriver {
   }
 
   private async start(run: RunRow, initial: string) {
+    if (this.shuttingDown) throw new Error('服务关闭，运行中断');
     const runtime = this.deps.variants.runtimeEnv(run.variantId);
     const env: Record<string, string> = {
       ...runtime.env,
@@ -643,5 +646,14 @@ export class RunDriver {
 
   private cleanup() {
     this.setPending(null);
+  }
+
+  // 服务关闭：结束 claude 子进程，run 记为失败；准备阶段的 run 由下次启动时的状态修正处理
+  async shutdown() {
+    this.shuttingDown = true;
+    const proc = this.proc;
+    if (proc === null) return;
+    proc.terminate();
+    await this.done;
   }
 }

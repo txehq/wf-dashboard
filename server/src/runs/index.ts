@@ -48,6 +48,7 @@ export interface RunFilter {
 export function createRuns(deps: RunnerDeps) {
   const { db, settings } = deps;
   const drivers = new Map<string, RunDriver>();
+  let stopped = false;
 
   // 上次服务退出时仍在进行的 run 不会再继续
   db.update(runs)
@@ -57,7 +58,7 @@ export function createRuns(deps: RunnerDeps) {
 
   function pump() {
     const limit = settings.get().runConcurrency;
-    while (drivers.size < limit) {
+    while (!stopped && drivers.size < limit) {
       const next = db
         .select({ id: runs.id })
         .from(runs)
@@ -347,6 +348,12 @@ export function createRuns(deps: RunnerDeps) {
     // 测试与关闭服务时等待全部进行中的 run 结束
     active(): string[] {
       return [...drivers.keys()];
+    },
+
+    // 服务关闭时结束全部 claude 子进程；排队中的 run 保持 queued，下次启动继续
+    async shutdown() {
+      stopped = true;
+      await Promise.all([...drivers.values()].map((d) => d.shutdown()));
     },
   };
 }

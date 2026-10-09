@@ -50,6 +50,17 @@ describe('模拟用户（真实 gateway）', () => {
     expect(r.reply).not.toContain('localStorage');
   }, 120_000);
 
+  test('文字里列出 A/B 选项的提问：在 reply 中作答，没有 answers', async () => {
+    const r = await simulateUser(ctx, [initial], {
+      kind: 'text',
+      text: '历史记录怎么保存？\nA. 存在每台电脑自己的浏览器里，不联网也能看\nB. 存到学校服务器上，换电脑也能看\n请选 A 或 B。',
+    });
+    console.log('[text options]', r.reply);
+    expect(r.answers).toBeUndefined();
+    expect(r.done).toBe(false);
+    expect(r.reply).toMatch(/A/);
+  }, 120_000);
+
   const gateHistory: TranscriptEntry[] = [
     initial,
     {

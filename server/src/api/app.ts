@@ -70,6 +70,7 @@ export async function buildApp({ db, sseHeartbeatMs, logger, tasksDir, settingsP
   });
   await app.register(runRoutes, { runs, settings });
   await app.register(settingsRoutes, { settings });
+  app.addHook('onClose', () => runs.shutdown());
 
   return app;
 }

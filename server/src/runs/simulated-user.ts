@@ -37,10 +37,12 @@ export interface SimulatedReply {
   model: string;
 }
 
+// 文字提问的回答没有 answers 字段；AskUserQuestion 的回答必须给出 answers。
 // 结构化输出不支持任意键的对象，answers 以数组输出后再转成 Record
-const Output = z.object({
+const TextOutput = z.object({ reply: z.string(), done: z.boolean() });
+const QuestionOutput = z.object({
   reply: z.string(),
-  answers: z.array(z.object({ question: z.string(), answer: z.string() })).nullable(),
+  answers: z.array(z.object({ question: z.string(), answer: z.string() })).min(1),
   done: z.boolean(),
 });
 
@@ -100,8 +102,8 @@ export function systemPrompt(ctx: SimulatedUserContext): string {
     '',
     '## 输出',
     '- 文字中需要引号时一律用中文引号「」，不要用英文双引号。',
-    '- agent 用文字提问或汇报时：reply 是你要发给 agent 的话，answers 为 null。',
-    '- agent 用选项提问时：answers 为每个问题各给一项，question 是问题原文（一字不差），answer 是所选选项的 label 原文（只写 label，不带说明）；多选时用 ", " 连接多个 label；没有合适的选项时可以写你自己的简短回答。reply 用一句话说明你的选择。',
+    '- agent 用文字提问或汇报时（即使文字里列出了 A/B 之类的选项）：reply 是你要发给 agent 的话，在 reply 里写出你的选择。',
+    '- agent 用 AskUserQuestion 的选项提问时：answers 为每个问题各给一项，question 是问题原文（一字不差），answer 是所选选项的 label 原文（只写 label，不带说明）；多选时用 ", " 连接多个 label；没有合适的选项时可以写你自己的简短回答。reply 用一句话说明你的选择。',
   );
   return lines.join('\n');
 }
@@ -143,28 +145,31 @@ export async function simulateUser(
   transcript: TranscriptEntry[],
   prompt: AgentPrompt,
 ): Promise<SimulatedReply> {
-  const result = await parseStructured({
+  const call = {
     model: models.simulatedUser,
     system: systemPrompt(ctx),
     user: userPrompt(transcript, prompt),
-    schema: Output,
     maxTokens: 4096,
-  });
-  const { reply, done } = result.value;
+  };
+  let reply: string;
+  let done: boolean;
   let answers: Record<string, string> | undefined;
+  let cost: { costUsd: number; model: string };
   if (prompt.kind === 'questions') {
-    const given = result.value.answers ?? [];
-    answers = Object.fromEntries(given.map((a) => [a.question, a.answer]));
+    const result = await parseStructured({ ...call, schema: QuestionOutput });
+    ({ reply, done } = result.value);
+    cost = result;
+    answers = Object.fromEntries(result.value.answers.map((a) => [a.question, a.answer]));
     const expected = prompt.questions.map((q) => q.question).sort();
     if (JSON.stringify(Object.keys(answers).sort()) !== JSON.stringify(expected)) {
       throw new Error(
         `模拟用户回答的问题 ${JSON.stringify(Object.keys(answers))} 与提问 ${JSON.stringify(expected)} 不一致`,
       );
     }
-  } else if (result.value.answers !== null && result.value.answers.length > 0) {
-    throw new Error(
-      `agent 没有用选项提问，模拟用户却给出了 answers：${JSON.stringify(result.value)}`,
-    );
+  } else {
+    const result = await parseStructured({ ...call, schema: TextOutput });
+    ({ reply, done } = result.value);
+    cost = result;
   }
   if (ctx.task.kind === 'lfg') {
     const said = [reply, ...Object.values(answers ?? {})];
@@ -176,7 +181,7 @@ export async function simulateUser(
     reply,
     ...(answers === undefined ? {} : { answers }),
     done,
-    costUsd: result.costUsd,
-    model: result.model,
+    costUsd: cost.costUsd,
+    model: cost.model,
   };
 }
