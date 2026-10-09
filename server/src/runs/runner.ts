@@ -92,7 +92,7 @@ export class RunDriver {
   private prTimer: NodeJS.Timeout | null = null;
   private prPolling = false;
   private jsonl: string | null = null;
-  // 当前一轮中最后一次 tool 调用之后的回复文字
+  // 上一次回答之后主 session 的全部回复文字：提问可能出现在 tool 调用或后台任务之前
   private turnText: string[] = [];
   // pending 对应的 agent 消息 seq；模拟用户的对话记录截止到它之前
   private pendingSeq = -1;
@@ -319,7 +319,6 @@ export class RunDriver {
     if (isType(event, 'assistant') && event.parent_tool_use_id === null) {
       for (const block of event.message.content) {
         if (block.type === 'text' && typeof block.text === 'string') this.turnText.push(block.text);
-        if (block.type === 'tool_use') this.turnText = [];
       }
     } else if (isType(event, 'control_request')) {
       this.onControlRequest(event);
