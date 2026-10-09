@@ -1,21 +1,30 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { type FSWatcher, watch } from 'chokidar';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
 import {
   sessions,
+  STAGE_ANALYSIS_VERSION,
   stageAnalyses,
+  stageCycles,
   stageSpans,
   type StageStatus,
   type Workflow,
 } from '../db/schema.js';
 import { events } from '../events.js';
-import { advanceIc, BATCH_SIZE, behavioursOf, type IcBoundary } from '../stages/ic.js';
+import { models } from '../llm/client.js';
+import {
+  advanceIc,
+  BATCH_SIZE,
+  behavioursOf,
+  type IcBoundary,
+  type IcState,
+} from '../stages/ic.js';
 import { type LfgDoc, LfgTracker } from '../stages/lfg.js';
-import { icSpans, lfgSpans, type Span } from '../stages/report.js';
-import { loadSessionRows, type RequestRow } from '../stages/rows.js';
-import { type IcStage, LFG_STAGES, type LfgStage } from '../stages/workflow.js';
+import { type Cycle, cycleEnd, icCycle, lfgCycle } from '../stages/report.js';
+import { loadSessionRows, type RequestRow, type SessionRows } from '../stages/rows.js';
+import { LFG_STAGES, type LfgStage } from '../stages/workflow.js';
 import { upsertArtifact } from './records.js';
 
 interface LiveStagesOptions {
@@ -28,8 +37,8 @@ interface LiveStagesOptions {
   onError: (error: Error) => void;
 }
 
-// 实时运行的阶段判定（Contracts 7.3）：lfg 看 vault feature 目录中的产物，ic 用 Haiku 增量判定；
-// 结果写 stage_spans，变化时发 run.stage 与 stage.changed
+// 实时运行的阶段判定（Contracts 7.3）：lfg 看 vault feature 目录中的产物，ic 用 models.stageCheck 增量判定。
+// 一个 run 的 session 只有一轮流程：写 stage_cycles 第 1 轮与它的 stage_spans，变化时发 run.stage 与 stage.changed
 export abstract class LiveStages {
   protected readonly db: Db;
   protected readonly runId: string;
@@ -60,32 +69,47 @@ export abstract class LiveStages {
   // run 结束：做最后一次判定并停止监听
   abstract close(): Promise<void>;
 
-  protected mainRows(): RequestRow[] {
+  // jsonl 还没写出 session 时为 null
+  protected sessionRows(): SessionRows | null {
     this.opts.ingest();
     const session = this.db.select().from(sessions).where(eq(sessions.id, this.sessionId)).get();
-    if (session === undefined) return [];
-    return loadSessionRows(this.db, this.sessionId).main;
+    if (session === undefined) return null;
+    return loadSessionRows(this.db, this.sessionId);
   }
 
-  protected writeSpans(method: 'artifact' | 'llm', spans: Span[]) {
+  protected writeCycle(method: 'artifact' | 'llm', cycle: Cycle) {
     const { db, sessionId } = this;
     const workflow = this.opts.workflow;
     db.transaction((tx) => {
       if (!tx.select().from(stageAnalyses).where(eq(stageAnalyses.sessionId, sessionId)).get()) {
         tx.insert(stageAnalyses)
-          .values({ sessionId, hasLfg: workflow === 'lfg', hasIc: workflow === 'ic' })
+          .values({
+            sessionId,
+            version: STAGE_ANALYSIS_VERSION,
+            hasLfg: workflow === 'lfg',
+            hasIc: workflow === 'ic',
+          })
           .run();
       }
-      tx.delete(stageSpans)
-        .where(and(eq(stageSpans.sessionId, sessionId), eq(stageSpans.workflow, workflow)))
+      tx.delete(stageSpans).where(eq(stageSpans.sessionId, sessionId)).run();
+      tx.delete(stageCycles).where(eq(stageCycles.sessionId, sessionId)).run();
+      tx.insert(stageCycles)
+        .values({
+          sessionId,
+          workflow,
+          cycle: 1,
+          label: cycle.label,
+          startSeq: cycle.startSeq,
+          endSeq: cycle.endSeq,
+        })
         .run();
-      for (const s of spans) {
+      for (const s of cycle.spans) {
         tx.insert(stageSpans)
-          .values({ sessionId, workflow, method, ...s })
+          .values({ sessionId, workflow, cycle: 1, method, ...s })
           .run();
       }
     });
-    for (const s of spans) {
+    for (const s of cycle.spans) {
       if (this.statuses.get(s.stage) === s.status) continue;
       this.statuses.set(s.stage, s.status);
       events.publish({
@@ -161,8 +185,8 @@ export class LfgLiveStages extends LiveStages {
 
   private observe() {
     const progress = this.tracker.observe();
-    const rows = this.mainRows();
-    const lastSeq = lastSeqOf(rows);
+    const rows = this.sessionRows();
+    const lastSeq = rows === null ? -1 : lastSeqOf(rows.main);
     for (const stage of LFG_STAGES) {
       const doc = progress.stages[stage];
       if (doc === null || this.done.has(stage)) continue;
@@ -178,12 +202,10 @@ export class LfgLiveStages extends LiveStages {
     if (ticketing) {
       upsertArtifact(this.db, this.runId, 'tickets', ticketing.path, this.snapshot(ticketing));
     }
-    this.refresh(rows);
-  }
-
-  private refresh(rows: RequestRow[]) {
-    if (rows.length === 0) return;
-    this.writeSpans('artifact', lfgSpans(0, [...this.done.values()], lastSeqOf(rows)));
+    if (rows === null || rows.main.length === 0) return;
+    // 一轮从第一条请求（/lfg 初始消息）开始，dispatch gate 的回答之后结束
+    const { spans, endSeq } = lfgCycle(rows, 0, [...this.done.values()], lastSeq);
+    this.writeCycle('artifact', { label: this.runId, startSeq: 0, endSeq, spans });
   }
 
   onTurnEnd(): Promise<void> {
@@ -206,11 +228,22 @@ export class LfgLiveStages extends LiveStages {
 }
 
 export class IcLiveStages extends LiveStages {
-  private stage: IcStage = 'claim';
-  private readonly boundaries: IcBoundary[] = [];
+  // 与离线判定一样从流程外开始：/ic 的第一条动作进入 claim
+  private state: IcState = 'outside';
+  // 本轮进入各阶段的边界；离开本轮的边界（stage 为 outside）
+  private readonly entries: IcBoundary[] = [];
+  private leave: IcBoundary | undefined;
   // 已判定过的行为条数
   private judged = 0;
   private judging = false;
+
+  constructor(
+    opts: LiveStagesOptions,
+    // 轮次标签：工单 identifier
+    private readonly label: string,
+  ) {
+    super(opts);
+  }
 
   // 只判定已经完整的请求：最后一条请求在一轮结束前还可能追加 content block
   private behaviours(rows: RequestRow[], complete: boolean) {
@@ -219,20 +252,37 @@ export class IcLiveStages extends LiveStages {
   }
 
   private async judge(complete: boolean) {
-    const rows = this.mainRows();
-    if (rows.length === 0) return;
-    const fresh = this.behaviours(rows, complete).slice(this.judged);
-    if (fresh.length > 0 && this.stage !== 'ready-for-review') {
+    const rows = this.sessionRows();
+    if (rows === null || rows.main.length === 0) return;
+    const fresh = this.behaviours(rows.main, complete).slice(this.judged);
+    // run 在 ready-for-review 之后结束；离开本轮之后的行为不再判定
+    if (fresh.length > 0 && this.leave === undefined) {
       const result = await advanceIc(this.db, {
         sessionId: this.sessionId,
-        current: this.stage,
+        current: this.state,
         behaviours: fresh,
+        model: models.stageCheck,
       });
-      this.stage = result.stage;
-      this.boundaries.push(...result.boundaries);
+      this.state = result.stage;
+      for (const b of result.boundaries) {
+        if (this.leave !== undefined) break;
+        if (b.stage === 'outside') {
+          if (this.entries.length > 0) this.leave = b;
+        } else {
+          this.entries.push(b);
+        }
+      }
     }
     this.judged += fresh.length;
-    this.writeSpans('llm', icSpans(0, this.boundaries, lastSeqOf(this.mainRows())));
+    const first = this.entries[0];
+    if (first === undefined) return;
+    const lastSeq = lastSeqOf(this.sessionRows()?.main ?? []);
+    this.writeCycle('llm', {
+      label: this.label,
+      startSeq: first.seq,
+      endSeq: this.leave === undefined ? null : cycleEnd(this.leave),
+      spans: icCycle(this.entries, this.leave, lastSeq),
+    });
   }
 
   onTurnEnd(): Promise<void> {
@@ -242,8 +292,10 @@ export class IcLiveStages extends LiveStages {
   // 新增满 20 条行为时判定一次
   onSessionUpdated() {
     if (this.judging) return;
-    const rows = this.mainRows();
-    if (this.behaviours(rows, false).length - this.judged < BATCH_SIZE) return;
+    const rows = this.sessionRows();
+    if (rows === null || this.behaviours(rows.main, false).length - this.judged < BATCH_SIZE) {
+      return;
+    }
     this.judging = true;
     void this.enqueue(async () => {
       await this.judge(false);
@@ -253,9 +305,5 @@ export class IcLiveStages extends LiveStages {
 
   async close() {
     await this.enqueue(() => this.judge(true));
-  }
-
-  get current(): IcStage {
-    return this.stage;
   }
 }

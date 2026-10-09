@@ -282,7 +282,9 @@ export class RunDriver {
       await stages.start();
       this.stages = stages;
     } else {
-      this.stages = new IcLiveStages(stageOptions);
+      const ticket = this.row().linearIssueIdentifier;
+      if (ticket === null) throw new Error(`ic run ${this.runId} 没有工单`);
+      this.stages = new IcLiveStages(stageOptions, ticket);
       this.prTimer = setInterval(() => {
         this.guard(this.pollPr());
       }, PR_POLL_MS);

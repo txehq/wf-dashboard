@@ -14,7 +14,7 @@ import { detectFromToolCall, detectFromUserText, type WorkflowFlags } from '../i
 import { judgeIcSession, type IcBoundary } from './ic.js';
 import { lfgOfflineBoundaries, type LfgBoundary } from './lfg.js';
 import { loadSessionRows, type RequestRow, type SessionRows } from './rows.js';
-import { IC_STAGES, LFG_STAGES } from './workflow.js';
+import { IC_STAGES, LFG_STAGES, type LfgStage } from './workflow.js';
 
 export const StageStats = z.object({
   requests: z.number(),
@@ -63,7 +63,7 @@ export const StageReport = z.object({
 });
 export type StageReport = z.infer<typeof StageReport>;
 
-interface Span {
+export interface Span {
   stage: string;
   status: StageStatus;
   startSeq: number | null;
@@ -71,7 +71,7 @@ interface Span {
   evidence: unknown;
 }
 
-interface Cycle {
+export interface Cycle {
   label: string;
   startSeq: number;
   endSeq: number | null;
@@ -123,7 +123,13 @@ function gateEnd(rows: SessionRows, ticketingSeq: number): number | null {
   return before[before.length - 1]?.seq ?? ticketingSeq;
 }
 
-function lfgCycle(rows: SessionRows, start: number, boundaries: LfgBoundary[], lastSeq: number) {
+// 离线用 wf obsidian 边界；实时运行（runs 模块）用产物出现时的 seq
+export function lfgCycle(
+  rows: SessionRows,
+  start: number,
+  boundaries: { stage: LfgStage; seq: number }[],
+  lastSeq: number,
+) {
   const spans: Span[] = [];
   let cursor = start;
   let reachedEnd = false;
@@ -217,13 +223,17 @@ function icLabel(evidence: IcBoundary[], index: number): string {
 }
 
 // 离开的那一条之前结束；离开的那一条本身仍属于这一轮（inclusive）时，到这一条所在的请求为止
-function cycleEnd(leave: IcBoundary): number {
+export function cycleEnd(leave: IcBoundary): number {
   return leave.inclusive === true ? leave.seq : leave.seq - 1;
 }
 
 // 一轮 ic：进入的阶段之前的阶段 skipped；同一条上连续前进时中间的阶段 skipped；
 // 离开时 ready-for-review 到离开那一条之前为止；session 结束时还在的阶段 active
-function icCycle(entries: IcBoundary[], leave: IcBoundary | undefined, lastSeq: number): Span[] {
+export function icCycle(
+  entries: IcBoundary[],
+  leave: IcBoundary | undefined,
+  lastSeq: number,
+): Span[] {
   const first = entries[0];
   if (first === undefined) throw new Error('一轮至少有一个进入的阶段');
   const reached = new Map(entries.map((b) => [b.stage, b]));

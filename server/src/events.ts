@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { RunStatus, Workflow } from './db/schema.js';
+import type { RunStatus, StageStatus, Workflow } from './db/schema.js';
 import type { ArtifactView, Pending, RunMessageView } from './runs/views.js';
 
 // 进程内事件；run.* 由 runs 模块发布（Contracts 7.6）
@@ -10,7 +10,7 @@ export type AppEvent =
       sessionId: string;
       workflow: Workflow;
       stage: string;
-      status: 'done' | 'active' | 'skipped' | 'not-reached';
+      status: StageStatus;
     }
   // step 为正在执行的构建步骤；构建开始、完成与失败时为 null
   | {
@@ -27,7 +27,7 @@ export type AppEvent =
       runId: string;
       workflow: Workflow;
       stage: string;
-      status: 'done' | 'active' | 'skipped' | 'not-reached';
+      status: StageStatus;
     }
   | { type: 'run.artifact'; runId: string; artifact: ArtifactView }
   | { type: 'run.cost'; runId: string; costUsd: number };

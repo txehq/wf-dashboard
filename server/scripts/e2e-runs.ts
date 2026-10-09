@@ -18,6 +18,7 @@ if (scenario === undefined || variantId === undefined) {
 }
 
 const StageView = z.looseObject({ stage: z.string(), status: z.string() });
+const CycleView = z.looseObject({ stages: z.array(StageView) });
 const Question = z.looseObject({
   question: z.string(),
   options: z.array(z.looseObject({ label: z.string() })),
@@ -43,9 +44,8 @@ const Run = z.looseObject({
   artifacts: z.array(
     z.looseObject({ kind: z.string(), location: z.string(), snapshot: z.string().nullable() }),
   ),
-  stages: z
-    .looseObject({ lfg: z.array(StageView).nullable(), ic: z.array(StageView).nullable() })
-    .nullable(),
+  // 每个 workflow 是轮次的数组；一个 run 只有一轮
+  stages: z.looseObject({ lfg: z.array(CycleView), ic: z.array(CycleView) }).nullable(),
   links: z.record(z.enum(['repo', 'ticket', 'pr', 'vault']), z.string().nullable()),
 });
 type Run = z.infer<typeof Run>;
@@ -68,8 +68,14 @@ const terminal = new Set(['succeeded', 'failed', 'cancelled']);
 const started = Date.now();
 const elapsed = () => `${String(Math.round((Date.now() - started) / 1000))}s`;
 
+// 唯一一轮的阶段
+function stagesOf(run: Run, workflow: 'lfg' | 'ic') {
+  return run.stages?.[workflow][0]?.stages ?? [];
+}
+
 function stageLine(run: Run) {
-  const stages = run.stages?.lfg ?? run.stages?.ic ?? [];
+  const lfg = stagesOf(run, 'lfg');
+  const stages = lfg.length > 0 ? lfg : stagesOf(run, 'ic');
   return stages.map((s) => `${s.stage}:${s.status}`).join(' ');
 }
 
@@ -131,7 +137,7 @@ async function lfg() {
   for (const file of ['Brief.md', 'Research.md', 'Tickets.md']) {
     check(fs.existsSync(path.join(dir, file)), `vault 中有 ${path.join(dir, file)}`);
   }
-  const lfgStages = run.stages?.lfg ?? [];
+  const lfgStages = stagesOf(run, 'lfg');
   check(
     lfgStages.map((s) => `${s.stage}:${s.status}`).join(' ') ===
       'interview:done research:done plan:done ticketing:done',
@@ -210,7 +216,7 @@ async function ic() {
   const [id] = await createBatch(taskArg ?? 'ic-money-format', 1);
   if (id === undefined) throw new Error('batch 没有 run');
   const reachedFixPr = (r: Run) =>
-    (r.stages?.ic ?? []).some((s) => s.stage === 'fix-pr' && s.status !== 'not-reached');
+    stagesOf(r, 'ic').some((s) => s.stage === 'fix-pr' && s.status !== 'not-reached');
   let run = await waitRun(id, (r) => reachedFixPr(r) || terminal.has(r.status), 4 * 3600_000);
   console.log(`[${elapsed()}] fix-pr 阶段开始：${stageLine(run)}`);
   // 继续等到 ready-for-review 之后的结束，最多再等 90 分钟
