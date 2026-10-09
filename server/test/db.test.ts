@@ -131,6 +131,7 @@ describe('database', () => {
       'runs',
       'sessions',
       'sources',
+      'stage_analyses',
       'stage_checks',
       'stage_spans',
       'subagents',

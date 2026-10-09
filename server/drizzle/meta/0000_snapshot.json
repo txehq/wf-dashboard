@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "3168d22f-0589-4ffb-a4d6-366e5bad967c",
+  "id": "b0256d41-ec83-40cf-91e7-342d283db22b",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "artifacts": {
@@ -1065,6 +1065,59 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "stage_analyses": {
+      "name": "stage_analyses",
+      "columns": {
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "has_lfg": {
+          "name": "has_lfg",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "has_ic": {
+          "name": "has_ic",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsec') * 1000 as integer))"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "stage_analyses_session_id_sessions_id_fk": {
+          "name": "stage_analyses_session_id_sessions_id_fk",
+          "tableFrom": "stage_analyses",
+          "tableTo": "sessions",
+          "columnsFrom": [
+            "session_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "stage_checks": {
       "name": "stage_checks",
       "columns": {
@@ -1242,11 +1295,18 @@
           "notNull": true,
           "autoincrement": false
         },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "start_seq": {
           "name": "start_seq",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
         "end_seq": {

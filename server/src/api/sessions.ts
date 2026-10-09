@@ -10,8 +10,7 @@ import {
   requests,
   sessions,
   sources,
-  stageChecks,
-  stageSpans,
+  stageAnalyses,
   subagents,
   userMessages,
   workflows,
@@ -162,20 +161,15 @@ function summaries(db: Db, rows: SummaryRow[]): SessionSummary[] {
       .all()
       .map((t) => [t.sessionId, t]),
   );
-  const analyzed = new Set([
-    ...db
-      .selectDistinct({ id: stageSpans.sessionId })
-      .from(stageSpans)
-      .where(inArray(stageSpans.sessionId, ids))
+  // 判定完成时 stages 模块写 stage_analyses，不含 lfg 与 ic 的 session 也有一行
+  const analyzed = new Set(
+    db
+      .select({ id: stageAnalyses.sessionId })
+      .from(stageAnalyses)
+      .where(inArray(stageAnalyses.sessionId, ids))
       .all()
       .map((r) => r.id),
-    ...db
-      .selectDistinct({ id: stageChecks.sessionId })
-      .from(stageChecks)
-      .where(inArray(stageChecks.sessionId, ids))
-      .all()
-      .map((r) => r.id),
-  ]);
+  );
   return rows.map((r) => {
     const t = totals.get(r.id);
     return {

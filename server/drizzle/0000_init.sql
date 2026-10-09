@@ -147,6 +147,14 @@ CREATE TABLE `sources` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `sources_path_unique` ON `sources` (`path`);--> statement-breakpoint
+CREATE TABLE `stage_analyses` (
+	`session_id` text PRIMARY KEY NOT NULL,
+	`has_lfg` integer NOT NULL,
+	`has_ic` integer NOT NULL,
+	`created_at` integer DEFAULT (cast(unixepoch('subsec') * 1000 as integer)) NOT NULL,
+	FOREIGN KEY (`session_id`) REFERENCES `sessions`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
 CREATE TABLE `stage_checks` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`session_id` text NOT NULL,
@@ -173,7 +181,8 @@ CREATE TABLE `stage_spans` (
 	`session_id` text NOT NULL,
 	`workflow` text NOT NULL,
 	`stage` text NOT NULL,
-	`start_seq` integer NOT NULL,
+	`status` text NOT NULL,
+	`start_seq` integer,
 	`end_seq` integer,
 	`method` text NOT NULL,
 	`evidence` text,

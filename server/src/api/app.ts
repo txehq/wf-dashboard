@@ -4,6 +4,7 @@ import type { Db } from '../db/index.js';
 import { events } from '../events.js';
 import { defaultSourceDirs } from '../ingest/sources.js';
 import { sessionsRoutes } from './sessions.js';
+import { registerStageRoutes } from './stages.js';
 
 export interface AppOptions {
   db: Db;
@@ -31,6 +32,7 @@ export async function buildApp({ db, sseHeartbeatMs, logger }: AppOptions) {
   });
 
   await app.register(sessionsRoutes, { prefix: '/api', db, dirs: defaultSourceDirs });
+  registerStageRoutes(app, db);
 
   return app;
 }

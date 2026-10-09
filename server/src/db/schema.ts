@@ -308,6 +308,19 @@ export const userMessages = sqliteTable(
   ],
 );
 
+export const stageStatuses = ['done', 'active', 'skipped', 'not-reached'] as const;
+export type StageStatus = (typeof stageStatuses)[number];
+
+// 一个 session 完成离线阶段判定的记录；不含 lfg 与 ic 的 session 也有一行
+export const stageAnalyses = sqliteTable('stage_analyses', {
+  sessionId: text('session_id')
+    .primaryKey()
+    .references(() => sessions.id, { onDelete: 'cascade' }),
+  hasLfg: integer('has_lfg', { mode: 'boolean' }).notNull(),
+  hasIc: integer('has_ic', { mode: 'boolean' }).notNull(),
+  createdAt: createdAt(),
+});
+
 export const stageSpans = sqliteTable(
   'stage_spans',
   {
@@ -317,8 +330,9 @@ export const stageSpans = sqliteTable(
       .references(() => sessions.id, { onDelete: 'cascade' }),
     workflow: text('workflow', { enum: workflows }).notNull(),
     stage: text('stage').notNull(),
-    startSeq: integer('start_seq').notNull(),
-    // 实时运行中仍在进行的阶段为空
+    status: text('status', { enum: stageStatuses }).notNull(),
+    // 主 session 的 seq，含端点；skipped 为 [s, s-1]，not-reached 为空
+    startSeq: integer('start_seq'),
     endSeq: integer('end_seq'),
     method: text('method', { enum: ['artifact', 'llm'] }).notNull(),
     evidence: text('evidence', { mode: 'json' }),
