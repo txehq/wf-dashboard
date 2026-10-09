@@ -1,0 +1,32 @@
+{
+  "name": "wf-dashboard",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.10.1",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "concurrently --kill-others --names server,web --prefix-colors blue,magenta \"pnpm --filter @wf-dashboard/server dev\" \"pnpm --filter @wf-dashboard/web dev\"",
+    "build": "pnpm --recursive build",
+    "test": "pnpm --recursive test",
+    "e2e": "playwright test",
+    "typecheck": "tsc --project tsconfig.json && pnpm --recursive typecheck",
+    "lint": "eslint . && prettier --check .",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.64.0",
+    "@types/node": "26.6.4",
+    "concurrently": "10.0.6",
+    "eslint": "10.12.0",
+    "eslint-config-prettier": "10.1.8",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "eslint-plugin-react-refresh": "0.5.7",
+    "globals": "17.13.0",
+    "prettier": "3.9.9",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.71.1"
+  }
+}
