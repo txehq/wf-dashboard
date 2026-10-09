@@ -8,6 +8,7 @@
     "build": "tsc --project tsconfig.build.json",
     "typecheck": "tsc --project tsconfig.json",
     "test": "vitest run",
+    "test:external": "vitest run --config vitest.external.config.ts",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {

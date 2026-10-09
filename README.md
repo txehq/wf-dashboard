@@ -36,6 +36,15 @@ pnpm dev
 
 修改 `server/src/db/schema.ts` 后，在 `server/` 下执行 `pnpm db:generate --name <迁移名>` 生成新的迁移文件。
 
+## 测试
+
+服务端测试分两类，都使用真实服务，不使用 mock：
+
+- **默认测试** `pnpm test`：`server/test/*.test.ts`。真实 SQLite、真实 gateway 模型调用、在本地 fixture 仓库上用真实 vitest 生成 JUnit 并计分。不在 Linear 或 GitHub 中创建或修改任何对象，可以随时运行。
+- **外部系统测试** `pnpm test:external`：`server/test/*.external.test.ts`，配置在 `server/vitest.external.config.ts`。每次运行在 Linear TXE team 的 "Workflow Eval" project 中建 1 张带 `eval` label 的工单，在 txehq 组织下建 2 个私有仓库（`wfe-w7-<时间>` 与 `wfe-w7-lfg-<时间>`），对象全部保留，用时约 2 分钟。需要 Linear 已登录（`~/.mcp-auth` 中有 mcp-remote 的 token）与 `gh auth status` 已登录的 txehq 成员账号。只在修改 `server/src/external/` 后运行。
+
+`pnpm test` 默认排除 `*.external.test.ts`。
+
 ## 目录结构
 
 ```
