@@ -7,7 +7,7 @@ import { Readable } from 'node:stream';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { z } from 'zod';
-import type { IcTask } from './ic-task.js';
+import type { IcTask } from '../tasks/schema.js';
 
 // 与 txe-workflow 的 workflow/mcps/linear.yaml 相同的启动方式；OAuth token 由 mcp-remote 从 ~/.mcp-auth 读取
 export const LINEAR_MCP_URL = 'https://mcp.linear.app/mcp';

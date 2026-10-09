@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execa } from 'execa';
 import { config } from '../../src/config.js';
-import type { IcTask } from '../../src/external/ic-task.js';
+import type { IcTask } from '../../src/tasks/schema.js';
 
 export const fixtureDir = fileURLToPath(new URL('../fixtures/ic-task/', import.meta.url));
 
@@ -44,8 +44,11 @@ export async function buildFixtureTask(runId: string): Promise<IcTask> {
   });
   return {
     id: 'w7-fixture',
+    kind: 'ic',
     dir: taskDir,
     title: 'W7 fixture：subtract',
+    persona: 'math 模块的维护者，回答简短。',
+    hiddenRequirements: '- subtract(a, b) 返回 a - b\n- 不新增依赖',
     ticket: {
       title: '给 math 模块增加 subtract',
       body: '在 `src/math.js` 中导出 `subtract(a, b)`，返回 `a - b`。',

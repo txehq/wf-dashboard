@@ -3,7 +3,7 @@ import path from 'node:path';
 import { execa } from 'execa';
 import { z } from 'zod';
 import { config } from '../config.js';
-import type { IcTask } from './ic-task.js';
+import type { IcTask } from '../tasks/schema.js';
 
 export const ORG = 'txehq';
 // GitHub Actions app：只有 Actions 报告的 ci 才满足 required check，同名 commit status 无法冒充

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
 import { config } from '../src/config.js';
 import { openDatabase } from '../src/db/index.js';
+import { runHiddenTests } from '../src/grading/hidden-tests.js';
 import {
   applyReference,
   checkoutStartRepo,
@@ -24,6 +25,13 @@ afterAll(() => {
 });
 
 const icIds = readdirSync(config.tasksDir).filter((id) => id.startsWith('ic-'));
+
+// 构建 task 时起始仓库上通过的隐藏测试数（build-ic-task.ts 的输出）
+const expectedStartPassed: Record<string, number> = {
+  'ic-money-format': 4,
+  'ic-task-store-list': 0,
+  'ic-wrap-cli': 4,
+};
 
 // 每个 ic task：从 bundle clone 起始仓库，真实运行隐藏测试（npm ci + vitest）
 describe.concurrent.each(icIds)('%s', (id) => {
@@ -56,5 +64,26 @@ describe.concurrent.each(icIds)('%s', (id) => {
     expect(referenceRun.fileErrors).toEqual([]);
     expect(referenceScore.outcomes.filter((o) => o.outcome !== 'passed')).toEqual([]);
     expect(referenceScore.passed).toBe(declared);
+  }, 300_000);
+
+  // grading 的 runHiddenTests（评分时实际使用的入口）在同样的起始仓库与参考实现上得到相同结果
+  test('runHiddenTests 在起始仓库与参考实现上的结果与清单一致', async () => {
+    const task = loadIcTask(db, id);
+    const declared = Object.values(task.hiddenTests.manifest).flat().length;
+
+    const start = path.join(workDir, id, 'grading-start', 'checkout');
+    checkoutStartRepo(task, start);
+    const startResult = await runHiddenTests(start, task);
+    expect(startResult.head).toBe(task.repo.commit);
+    expect(startResult.declared).toBe(declared);
+    expect(startResult.passed).toBe(expectedStartPassed[id]);
+
+    const reference = path.join(workDir, id, 'grading-reference', 'checkout');
+    checkoutStartRepo(task, reference);
+    applyReference(task, reference);
+    const referenceResult = await runHiddenTests(reference, task);
+    expect(referenceResult.fileErrors).toEqual([]);
+    expect(referenceResult.outcomes.filter((o) => o.outcome !== 'passed')).toEqual([]);
+    expect(referenceResult.passed).toBe(declared);
   }, 300_000);
 });

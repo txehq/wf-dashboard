@@ -8,7 +8,12 @@ import { openDatabase } from '../src/db/index.js';
 
 const dbFile = path.join(config.repoRoot, '.work', 'test-db', `${randomUUID()}.sqlite`);
 const db = openDatabase(dbFile, config.migrationsDir);
-const app = await buildApp({ db, sseHeartbeatMs: config.sseHeartbeatMs, logger: false });
+const app = await buildApp({
+  db,
+  sseHeartbeatMs: config.sseHeartbeatMs,
+  logger: false,
+  tasksDir: config.tasksDir,
+});
 const marker = randomUUID().slice(0, 8);
 const createdIds: string[] = [];
 

@@ -12,7 +12,7 @@ import {
   requiredContexts,
   waitRuns,
 } from '../src/external/github.js';
-import type { IcTask } from '../src/external/ic-task.js';
+import type { IcTask } from '../src/tasks/schema.js';
 import { runHiddenTests } from '../src/grading/hidden-tests.js';
 import { buildFixtureTask, fixtureDir, git, testRunId } from './helpers/ic-fixture.js';
 

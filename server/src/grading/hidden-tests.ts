@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execa } from 'execa';
 import { parse, type TestSuite, type TestSuites } from 'junit2json';
-import type { IcTask } from '../external/ic-task.js';
+import type { IcTask } from '../tasks/schema.js';
 
 // 隐藏测试在 checkout 中的位置，与 Contracts 第 6 节一致
 export const HIDDEN_TESTS_DEST = 'test/hidden';

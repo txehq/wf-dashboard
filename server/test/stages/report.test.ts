@@ -8,7 +8,12 @@ import { openTestDb } from './db.js';
 import { ingestSample, SAMPLES, type Sample, seqOfToolLine } from './samples.js';
 
 const { db, close } = openTestDb();
-const app = await buildApp({ db, sseHeartbeatMs: config.sseHeartbeatMs, logger: false });
+const app = await buildApp({
+  db,
+  sseHeartbeatMs: config.sseHeartbeatMs,
+  logger: false,
+  tasksDir: config.tasksDir,
+});
 
 beforeAll(async () => {
   await app.ready();
