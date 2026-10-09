@@ -163,6 +163,7 @@ CREATE TABLE `sources` (
 CREATE UNIQUE INDEX `sources_path_unique` ON `sources` (`path`);--> statement-breakpoint
 CREATE TABLE `stage_analyses` (
 	`session_id` text PRIMARY KEY NOT NULL,
+	`version` integer NOT NULL,
 	`has_lfg` integer NOT NULL,
 	`has_ic` integer NOT NULL,
 	`created_at` integer DEFAULT (cast(unixepoch('subsec') * 1000 as integer)) NOT NULL,
@@ -173,6 +174,7 @@ CREATE TABLE `stage_checks` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`session_id` text NOT NULL,
 	`workflow` text NOT NULL,
+	`version` integer DEFAULT 2 NOT NULL,
 	`current_stage` text NOT NULL,
 	`next_stage` text NOT NULL,
 	`from_seq` integer NOT NULL,
@@ -190,10 +192,24 @@ CREATE TABLE `stage_checks` (
 );
 --> statement-breakpoint
 CREATE INDEX `stage_checks_session_idx` ON `stage_checks` (`session_id`,`workflow`);--> statement-breakpoint
+CREATE TABLE `stage_cycles` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`session_id` text NOT NULL,
+	`workflow` text NOT NULL,
+	`cycle` integer NOT NULL,
+	`label` text NOT NULL,
+	`start_seq` integer NOT NULL,
+	`end_seq` integer,
+	`created_at` integer DEFAULT (cast(unixepoch('subsec') * 1000 as integer)) NOT NULL,
+	FOREIGN KEY (`session_id`) REFERENCES `sessions`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `stage_cycles_session_workflow_cycle_idx` ON `stage_cycles` (`session_id`,`workflow`,`cycle`);--> statement-breakpoint
 CREATE TABLE `stage_spans` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`session_id` text NOT NULL,
 	`workflow` text NOT NULL,
+	`cycle` integer NOT NULL,
 	`stage` text NOT NULL,
 	`status` text NOT NULL,
 	`start_seq` integer,
@@ -204,7 +220,7 @@ CREATE TABLE `stage_spans` (
 	FOREIGN KEY (`session_id`) REFERENCES `sessions`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `stage_spans_session_workflow_stage_idx` ON `stage_spans` (`session_id`,`workflow`,`stage`);--> statement-breakpoint
+CREATE UNIQUE INDEX `stage_spans_session_workflow_cycle_stage_idx` ON `stage_spans` (`session_id`,`workflow`,`cycle`,`stage`);--> statement-breakpoint
 CREATE TABLE `subagents` (
 	`session_id` text NOT NULL,
 	`agent_id` text NOT NULL,

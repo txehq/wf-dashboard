@@ -17,7 +17,9 @@ import {
   type SessionDetail,
   type StageReport,
   type Workflow,
+  type WorkflowCycle,
 } from '@/lib/sessions-api';
+import { cycleName } from '@/lib/stage-status';
 
 function Elapsed() {
   const [start] = useState(() => Date.now());
@@ -108,67 +110,132 @@ function parseSelection(value: string | null): { workflow: Workflow; stage: stri
   return { workflow, stage };
 }
 
+function cycleRange(c: WorkflowCycle): string {
+  return `#${String(c.startSeq)} – ${c.endSeq === null ? '未结束' : `#${String(c.endSeq)}`}`;
+}
+
+// 一个 workflow 的轮次切换：标签取工单编号或 PR 编号
+function CycleTabs({
+  workflow,
+  cycles,
+  selected,
+  onSelect,
+}: {
+  workflow: Workflow;
+  cycles: WorkflowCycle[];
+  selected: number;
+  onSelect: (index: number) => void;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label={`/${workflow} 的轮次`}
+      className="flex flex-wrap gap-1"
+      data-testid={`cycles-${workflow}`}
+    >
+      {cycles.map((c) => (
+        <button
+          key={c.index}
+          type="button"
+          role="tab"
+          aria-selected={c.index === selected}
+          className="flex flex-col items-start rounded-md border px-3 py-1.5 text-left aria-selected:border-foreground aria-selected:bg-foreground aria-selected:text-background"
+          onClick={() => {
+            onSelect(c.index);
+          }}
+        >
+          <span className="text-sm font-medium">{cycleName(c)}</span>
+          <span className="text-xs tabular-nums opacity-70">{cycleRange(c)}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function StagesSection({ session, report }: { session: SessionDetail; report: StageReport }) {
   const [params, setParams] = useSearchParams();
   const selection = parseSelection(params.get('stage'));
   const detailRef = useRef<HTMLDivElement>(null);
-  const select = (workflow: Workflow, stage: string) => {
+  const update = (change: (next: URLSearchParams) => void) => {
     setParams(
       (prev) => {
         const next = new URLSearchParams(prev);
-        next.set('stage', `${workflow}:${stage}`);
+        change(next);
         return next;
       },
       { replace: true },
     );
+  };
+  // 每个 workflow 选中的轮次，默认第 1 轮
+  const cycleOf = (workflow: Workflow): WorkflowCycle | undefined => {
+    const cycles = report[workflow];
+    const index = Number(params.get(workflow) ?? '1');
+    return cycles.find((c) => c.index === index) ?? cycles[0];
+  };
+  const select = (workflow: Workflow, stage: string) => {
+    update((next) => {
+      next.set('stage', `${workflow}:${stage}`);
+    });
     requestAnimationFrame(() => {
       detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   };
+  const selectCycle = (workflow: Workflow, index: number) => {
+    update((next) => {
+      next.set(workflow, String(index));
+      if (parseSelection(next.get('stage'))?.workflow === workflow) next.delete('stage');
+    });
+  };
   const clear = () => {
-    setParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.delete('stage');
-        return next;
-      },
-      { replace: true },
-    );
+    update((next) => {
+      next.delete('stage');
+    });
   };
   const graphs = (['lfg', 'ic'] as const).flatMap((w) => {
-    const views = report[w];
-    return views === null ? [] : [{ workflow: w, views }];
+    const cycle = cycleOf(w);
+    return cycle === undefined ? [] : [{ workflow: w, cycle }];
   });
   const selectedView =
     selection === null
       ? undefined
-      : report[selection.workflow]?.find((v) => v.stage === selection.stage);
+      : cycleOf(selection.workflow)?.stages.find((v) => v.stage === selection.stage);
 
   return (
     <>
       <ChecksCost checks={report.checks} />
       {graphs.length === 0 && (
         <p className="rounded-lg border border-dashed px-4 py-4 text-sm text-muted-foreground">
-          这个 session 不含 /lfg 或 /ic，下面列出全部请求。
+          这个 session 不含 /lfg 或 /ic 的任何一轮，下面列出全部请求。
         </p>
       )}
-      {graphs.map(({ workflow, views }) => (
+      {graphs.map(({ workflow, cycle }) => (
         <section
           key={workflow}
           aria-label={workflowTitle[workflow]}
           className="flex flex-col gap-4 rounded-lg border px-4 py-4"
           data-testid={`workflow-${workflow}`}
         >
-          <h2 className="text-base font-semibold">{workflowTitle[workflow]}</h2>
+          <div className="flex flex-wrap items-center gap-4">
+            <h2 className="text-base font-semibold">{workflowTitle[workflow]}</h2>
+            <CycleTabs
+              workflow={workflow}
+              cycles={report[workflow]}
+              selected={cycle.index}
+              onSelect={(index) => {
+                selectCycle(workflow, index);
+              }}
+            />
+          </div>
           <StageGraph
+            key={cycle.index}
             workflow={workflow}
-            views={views}
+            views={cycle.stages}
             selected={selection?.workflow === workflow ? selection.stage : null}
             onSelect={(stage) => {
               select(workflow, stage);
             }}
           />
-          <StageBars views={views} />
+          <StageBars views={cycle.stages} />
         </section>
       ))}
       <div ref={detailRef} className="scroll-mt-4">
@@ -180,6 +247,7 @@ function StagesSection({ session, report }: { session: SessionDetail; report: St
             <StageDetail
               sessionId={session.id}
               workflow={selection.workflow}
+              cycle={cycleOf(selection.workflow)}
               view={selectedView}
               subagents={session.subagents}
             />
@@ -212,7 +280,7 @@ function SessionView({ session }: { session: SessionDetail }) {
   const stages = useQuery(stagesQuery(session.id));
   return (
     <div className="flex flex-col gap-6">
-      <SessionSummaryPanel session={session} />
+      <SessionSummaryPanel session={session} outside={stages.data?.outside ?? null} />
       {stages.isPending ? (
         <p className="text-sm text-muted-foreground">正在读取阶段判定…</p>
       ) : stages.isError ? (

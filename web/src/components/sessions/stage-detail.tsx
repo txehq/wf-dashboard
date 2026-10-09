@@ -3,7 +3,8 @@ import { RequestTimeline } from '@/components/sessions/request-timeline';
 import { ToolBars } from '@/components/sessions/session-summary';
 import { StatusLabel } from '@/components/sessions/status-label';
 import { formatCount, formatDuration, formatInteger, formatUsd } from '@/lib/format';
-import type { StageView, SubagentInfo, Workflow } from '@/lib/sessions-api';
+import type { StageView, SubagentInfo, Workflow, WorkflowCycle } from '@/lib/sessions-api';
+import { cycleName } from '@/lib/stage-status';
 
 function field(evidence: unknown, key: string): string | number | null {
   if (typeof evidence !== 'object' || evidence === null) return null;
@@ -52,9 +53,11 @@ function Evidence({ workflow, view }: { workflow: Workflow; view: StageView }) {
   if (summary === null)
     return (
       <p className="text-sm text-muted-foreground">
-        {view.stage === 'claim' && view.startSeq !== null
-          ? `从 /ic 的第一个标志（请求 #${String(view.startSeq)}）开始。`
-          : '没有判定证据。'}
+        {view.status === 'skipped'
+          ? '这一轮从后面的阶段开始，这个阶段被跳过。'
+          : view.status === 'not-reached'
+            ? '这一轮没有进入这个阶段。'
+            : '没有判定证据。'}
       </p>
     );
   return (
@@ -78,11 +81,13 @@ function rangeText(view: StageView): string {
 export function StageDetail({
   sessionId,
   workflow,
+  cycle,
   view,
   subagents,
 }: {
   sessionId: string;
   workflow: Workflow;
+  cycle: WorkflowCycle | undefined;
   view: StageView;
   subagents: SubagentInfo[];
 }) {
@@ -99,6 +104,11 @@ export function StageDetail({
           /{workflow} · {view.stage}
         </h2>
         <StatusLabel status={view.status} />
+        {cycle !== undefined && (
+          <span className="rounded border px-1.5 py-0.5 text-xs" data-testid="stage-cycle">
+            {cycleName(cycle)}
+          </span>
+        )}
         <span className="text-xs text-muted-foreground">
           {view.method === 'artifact' ? '按产物文件判定' : '由模型判定'} · {rangeText(view)}
         </span>

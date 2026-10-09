@@ -12,8 +12,10 @@ import {
   grades,
   requests,
   runMessages,
+  STAGE_ANALYSIS_VERSION,
   stageAnalyses,
   stageChecks,
+  stageCycles,
   stageSpans,
   type ToolCall,
 } from '../../src/db/schema.js';
@@ -101,6 +103,10 @@ function seedSession(
   }
   for (const r of rows) db.insert(requests).values(r).run();
   const stages = workflow === 'lfg' ? LFG_STAGES : IC_STAGES;
+  // dashboard 发起的运行只有一轮
+  db.insert(stageCycles)
+    .values({ sessionId, workflow, cycle: 1, label: '第 1 轮', startSeq: 0, endSeq: null })
+    .run();
   stages.forEach((stage, i) => {
     const span =
       i === 0
@@ -112,6 +118,7 @@ function seedSession(
       .values({
         sessionId,
         workflow,
+        cycle: 1,
         stage,
         method: workflow === 'lfg' ? 'artifact' : 'llm',
         evidence: null,
@@ -120,7 +127,12 @@ function seedSession(
       .run();
   });
   db.insert(stageAnalyses)
-    .values({ sessionId, hasLfg: workflow === 'lfg', hasIc: workflow === 'ic' })
+    .values({
+      sessionId,
+      version: STAGE_ANALYSIS_VERSION,
+      hasLfg: workflow === 'lfg',
+      hasIc: workflow === 'ic',
+    })
     .run();
   db.insert(stageChecks)
     .values({

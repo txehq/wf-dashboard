@@ -39,7 +39,8 @@ export default defineConfig({
     {
       command: `rm -rf ${dbDir} && pnpm --filter @wf-dashboard/server dev`,
       url: `http://127.0.0.1:${String(serverPort)}/api/health`,
-      env: { WFD_DB_PATH: path.join(dbDir, 'db.sqlite') },
+      // Sessions 的判定在 e2e 中使用 Sonnet
+      env: { WFD_DB_PATH: path.join(dbDir, 'db.sqlite'), WFD_STAGE_CHECK_MODEL: 'claude-sonnet-5' },
       reuseExistingServer: false,
     },
     {

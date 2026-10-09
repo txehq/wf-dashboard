@@ -34,7 +34,9 @@ const stripContextTag = (model: string) => model.replace(/\[[^\]]*\]$/, '');
 export const models = {
   simulatedUser: stripContextTag(env.ANTHROPIC_DEFAULT_SONNET_MODEL),
   judge: stripContextTag(env.ANTHROPIC_DEFAULT_OPUS_MODEL),
-  stageCheck: stripContextTag(env.ANTHROPIC_DEFAULT_HAIKU_MODEL),
+  // 阶段判定的默认模型：WFD_STAGE_CHECK_MODEL，未设置时为 haiku 别名；Settings 中的设置值优先于它
+  stageCheck:
+    process.env.WFD_STAGE_CHECK_MODEL ?? stripContextTag(env.ANTHROPIC_DEFAULT_HAIKU_MODEL),
 } as const;
 
 let client: Anthropic | undefined;

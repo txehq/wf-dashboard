@@ -8,7 +8,7 @@ import {
   formatInteger,
   formatUsd,
 } from '@/lib/format';
-import type { SessionDetail } from '@/lib/sessions-api';
+import type { SessionDetail, StageStats } from '@/lib/sessions-api';
 
 function Tile({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
@@ -68,7 +68,14 @@ export function ToolBars({ counts, label }: { counts: Record<string, number>; la
   );
 }
 
-export function SessionSummaryPanel({ session }: { session: SessionDetail }) {
+export function SessionSummaryPanel({
+  session,
+  outside,
+}: {
+  session: SessionDetail;
+  // 判定之后才有
+  outside: StageStats | null;
+}) {
   const t = session.tokens;
   return (
     <section
@@ -110,6 +117,23 @@ export function SessionSummaryPanel({ session }: { session: SessionDetail }) {
           sub={`tool 调用 ${formatInteger(session.toolCallCount)} 次`}
         />
       </div>
+      {outside !== null && (
+        <div
+          className="flex flex-wrap items-baseline gap-x-6 gap-y-1 rounded-lg border border-dashed px-4 py-3 text-sm"
+          data-testid="outside-stats"
+        >
+          <h2 className="font-medium">流程外</h2>
+          <span className="text-xs text-muted-foreground">不属于任何一轮 /lfg 或 /ic 的请求</span>
+          <span className="tabular-nums">
+            {formatInteger(outside.requests)} 次请求
+            <span className="text-muted-foreground">
+              （占 {Math.round((outside.requests / Math.max(session.requestCount, 1)) * 100)}%）
+            </span>
+          </span>
+          <span className="tabular-nums">{formatUsd(outside.costUsd)}</span>
+          <span className="tabular-nums">{formatDuration(outside.durationMs)}</span>
+        </div>
+      )}
       <div className="flex flex-col gap-2 rounded-lg border px-4 py-3">
         <h2 className="text-sm font-medium">tool 使用分布</h2>
         <ToolBars counts={session.toolCounts} label="各 tool 的调用次数" />

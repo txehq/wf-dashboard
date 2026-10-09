@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import { sessions } from '../db/schema.js';
+import { models } from '../llm/client.js';
 import { analyzeSession, readReport, StageReport } from '../stages/report.js';
 
 const Params = z.object({ id: z.string().min(1) });
@@ -13,7 +14,8 @@ export function registerStageRoutes(app: FastifyInstance, db: Db) {
     if (!db.select().from(sessions).where(eq(sessions.id, id)).get()) {
       return reply.code(404).send({ error: `session ${id} 不存在` });
     }
-    return StageReport.parse(await analyzeSession(db, id));
+    // W4 的 Settings API 合并前使用默认判定模型（WFD_STAGE_CHECK_MODEL 或 haiku 别名）
+    return StageReport.parse(await analyzeSession(db, id, models.stageCheck));
   });
 
   app.get('/api/sessions/:id/stages', async (request, reply) => {

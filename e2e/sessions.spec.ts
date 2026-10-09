@@ -10,9 +10,12 @@ const sourcePath = path.join(
 const sessionId = 'f0aca373-863f-4d62-babd-f48055092328';
 const shots = '.work/screenshots';
 
-test('Sessions：来源勾选、列表、详情、阶段判定、阶段请求、tool 调用与子代理', async ({ page }) => {
-  // 判定 f0aca373 需要约 30 次真实 Haiku 调用
-  test.setTimeout(300_000);
+test('Sessions：来源勾选、列表、详情、阶段判定、阶段请求、tool 调用与子代理', async ({
+  page,
+  request,
+}) => {
+  // 判定 f0aca373 需要数百次真实模型调用
+  test.setTimeout(900_000);
 
   await page.goto('/sessions');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sessions');
@@ -25,11 +28,17 @@ test('Sessions：来源勾选、列表、详情、阶段判定、阶段请求、
   await expect(page.getByTestId('import-result')).toContainText('已导入');
   await expect(checkbox).toBeChecked();
 
-  // 列表
+  // 列表：f0aca373 是本机仍在使用的 session，请求数以导入后 API 的值为准
   const row = page.getByTestId('session-row').filter({ hasText: sessionId.slice(0, 8) });
   await expect(row).toBeVisible();
+  const detailJson = (await (await request.get(`/api/sessions/${sessionId}`)).json()) as {
+    requestCount: number;
+    costUsd: number;
+  };
+  const requestCount = detailJson.requestCount.toLocaleString('en-US');
+  expect(detailJson.requestCount).toBeGreaterThanOrEqual(1297);
   await expect(row).toContainText('读一下这个项目，分析什么workflow');
-  await expect(row).toContainText('1,297');
+  await expect(row).toContainText(requestCount);
   await expect(row).toContainText('/lfg');
   await expect(row).toContainText('/ic');
   await expect(row).toContainText('未分析');
@@ -53,39 +62,64 @@ test('Sessions：来源勾选、列表、详情、阶段判定、阶段请求、
   await expect(summary.getByRole('heading', { level: 1 })).toHaveText(
     '读一下这个项目，分析什么workflow',
   );
-  await expect(summary).toContainText('1,297');
-  await expect(summary).toContainText('$265');
+  await expect(summary).toContainText(requestCount);
+  await expect(summary).toContainText(`$${Math.round(detailJson.costUsd).toLocaleString('en-US')}`);
   await expect(summary.getByRole('figure', { name: '各 tool 的调用次数' })).toContainText('Bash');
   await expect(page.getByRole('button', { name: '分析阶段' })).toBeVisible();
-  await page.screenshot({ path: `${shots}/w8-detail-top.png`, animations: 'disabled' });
+  await expect(page.getByTestId('outside-stats')).toHaveCount(0);
 
   // 分析：等待期间显示进度，完成后显示判定花费
   await page.getByRole('button', { name: '分析阶段' }).click();
   await expect(page.getByTestId('analyze-progress')).toBeVisible();
   await page.screenshot({ path: `${shots}/w8-analyzing.png`, animations: 'disabled' });
-  await expect(page.getByTestId('checks-cost')).toContainText('次模型调用', { timeout: 240_000 });
+  await expect(page.getByTestId('checks-cost')).toContainText('次模型调用', { timeout: 600_000 });
 
-  // 两张阶段图
+  // 汇总区的流程外统计
+  const outside = page.getByTestId('outside-stats');
+  await expect(outside).toContainText('流程外');
+  await expect(outside).toContainText('次请求');
+  await page.getByRole('link', { name: '全部 session' }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `${shots}/w8-detail-top.png`, animations: 'disabled' });
+
+  // 两张阶段图：lfg 一轮停在 interview；ic 的前三轮是 PR #72、#77、#78（session 之后的使用可能带来更多轮）
   const lfg = page.getByTestId('workflow-lfg');
   const ic = page.getByTestId('workflow-ic');
   await expect(lfg.getByTestId('stage-interview')).toHaveAttribute('data-status', 'active');
   await expect(lfg.getByTestId('stage-research')).toHaveAttribute('data-status', 'not-reached');
   await expect(lfg.getByTestId('stage-dispatch-gate')).toContainText('未到达');
-  for (const stage of ['claim', 'open-pr', 'fix-pr', 'ready-for-review'])
-    await expect(ic.getByTestId(`stage-${stage}`)).toHaveAttribute('data-status', 'done');
-  for (const stage of ['readiness', 'implement', 'acceptance'])
-    await expect(ic.getByTestId(`stage-${stage}`)).toHaveAttribute('data-status', 'skipped');
+  const tabs = ic.getByTestId('cycles-ic').getByRole('tab');
+  await expect(tabs.nth(2)).toBeVisible();
+  await expect(tabs.nth(0)).toContainText('PR #72');
+  await expect(tabs.nth(1)).toContainText('PR #77');
+  await expect(tabs.nth(2)).toContainText('PR #78');
+  await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true');
+  const expectCycleStatuses = async () => {
+    for (const stage of ['open-pr', 'fix-pr', 'ready-for-review'])
+      await expect(ic.getByTestId(`stage-${stage}`)).toHaveAttribute('data-status', 'done');
+    for (const stage of ['claim', 'acceptance'])
+      await expect(ic.getByTestId(`stage-${stage}`)).toHaveAttribute('data-status', 'skipped');
+  };
+  await expectCycleStatuses();
   await expect(ic.getByTestId('stage-acceptance')).toContainText('跳过');
   await expect(ic.getByText('各阶段花费')).toBeVisible();
   await expect(ic.getByText('各阶段耗时')).toBeVisible();
   await lfg.screenshot({ path: `${shots}/w8-lfg-graph.png`, animations: 'disabled' });
-  await ic.screenshot({ path: `${shots}/w8-ic-graph.png`, animations: 'disabled' });
 
-  // 点击 open-pr：只列出该阶段的请求，证据是 Skill open-pr
+  // 切换到第 2 轮（PR #77）
+  await tabs.nth(1).click();
+  await expect(page).toHaveURL(/ic=2/);
+  await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
+  await expectCycleStatuses();
+  await ic.screenshot({ path: `${shots}/w8-ic-graph.png`, animations: 'disabled' });
+  await tabs.nth(0).click();
+  await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true');
+
+  // 点击第 1 轮的 open-pr：只列出该阶段的请求，证据是 Skill open-pr
   await ic.getByTestId('stage-open-pr').click();
   await expect(page).toHaveURL(/stage=ic%3Aopen-pr/);
   const detail = page.getByTestId('stage-detail');
   await expect(detail.getByRole('heading', { level: 2 })).toHaveText('/ic · open-pr');
+  await expect(detail.getByTestId('stage-cycle')).toHaveText('第 1 轮 · PR #72');
   await expect(detail).toContainText('Skill: open-pr');
   await expect(detail).toContainText('#549 – #556');
   await expect(detail.getByTestId('request-row').first()).toContainText('#549');
@@ -106,9 +140,9 @@ test('Sessions：来源勾选、列表、详情、阶段判定、阶段请求、
   await detail.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `${shots}/w8-requests.png`, animations: 'disabled' });
 
-  // 子代理：claim 阶段中的 Agent 调用，展开后嵌套显示子代理的请求行
-  await ic.getByTestId('stage-claim').click();
-  await expect(detail.getByRole('heading', { level: 2 })).toHaveText('/ic · claim');
+  // 子代理：lfg interview 阶段中的 Agent 调用，展开后嵌套显示子代理的请求行
+  await lfg.getByTestId('stage-interview').click();
+  await expect(detail.getByRole('heading', { level: 2 })).toHaveText('/lfg · interview');
   await detail.getByTestId('subagent-jump').click();
   const nested = detail.getByTestId('subagent-rows');
   await expect(nested).toBeVisible();

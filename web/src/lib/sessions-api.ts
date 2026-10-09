@@ -114,10 +114,21 @@ export interface StageView {
   stats: StageStats;
 }
 
+export interface WorkflowCycle {
+  index: number;
+  // 工单编号、PR 编号或"第 N 轮"
+  label: string;
+  startSeq: number;
+  endSeq: number | null;
+  stages: StageView[];
+}
+
 export interface StageReport {
   sessionId: string;
-  lfg: StageView[] | null;
-  ic: StageView[] | null;
+  lfg: WorkflowCycle[];
+  ic: WorkflowCycle[];
+  // 不属于任何一轮流程的请求
+  outside: StageStats;
   checks: { count: number; inputTokens: number; outputTokens: number; costUsd: number };
 }
 

@@ -16,8 +16,10 @@ import {
   runMessages,
   runs,
   sessions,
+  STAGE_ANALYSIS_VERSION,
   stageAnalyses,
   stageChecks,
+  stageCycles,
   stageSpans,
   type ToolCall,
   variants as variantsTable,
@@ -293,6 +295,17 @@ function seedSession(plan: SessionPlan): number {
     spans.push({ stage: stage.stage, startSeq, endSeq: seq - 1 });
   }
   const order = workflow === 'lfg' ? LFG_STAGES : IC_STAGES;
+  // dashboard 发起的运行只有一轮
+  db.insert(stageCycles)
+    .values({
+      sessionId,
+      workflow,
+      cycle: 1,
+      label: '第 1 轮',
+      startSeq: 0,
+      endSeq: plan.lastStatus === 'active' ? null : seq - 1,
+    })
+    .run();
   order.forEach((stage, i) => {
     const span = spans.find((s) => s.stage === stage);
     const last = i === spans.length - 1;
@@ -300,6 +313,7 @@ function seedSession(plan: SessionPlan): number {
       .values({
         sessionId,
         workflow,
+        cycle: 1,
         stage,
         status:
           span === undefined
@@ -318,7 +332,12 @@ function seedSession(plan: SessionPlan): number {
       .run();
   });
   db.insert(stageAnalyses)
-    .values({ sessionId, hasLfg: workflow === 'lfg', hasIc: workflow === 'ic' })
+    .values({
+      sessionId,
+      version: STAGE_ANALYSIS_VERSION,
+      hasLfg: workflow === 'lfg',
+      hasIc: workflow === 'ic',
+    })
     .run();
   // ic 每 20 条行为判定一次；lfg 只看产物文件，没有 LLM 判定
   if (workflow === 'ic') {

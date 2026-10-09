@@ -10,6 +10,7 @@ import {
   requests,
   sessions,
   sources,
+  STAGE_ANALYSIS_VERSION,
   stageAnalyses,
   subagents,
   userMessages,
@@ -166,7 +167,12 @@ function summaries(db: Db, rows: SummaryRow[]): SessionSummary[] {
     db
       .select({ id: stageAnalyses.sessionId })
       .from(stageAnalyses)
-      .where(inArray(stageAnalyses.sessionId, ids))
+      .where(
+        and(
+          inArray(stageAnalyses.sessionId, ids),
+          eq(stageAnalyses.version, STAGE_ANALYSIS_VERSION),
+        ),
+      )
       .all()
       .map((r) => r.id),
   );

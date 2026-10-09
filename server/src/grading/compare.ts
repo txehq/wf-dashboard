@@ -117,8 +117,9 @@ function stageCosts(db: Db, graded: GradedRun[], kind: 'lfg' | 'ic'): StageCost[
   const reports = graded.map((g) => {
     const report = readReport(db, g.run.sessionId);
     if (report === null) throw new Error(`run ${g.run.id} 的 session 没有阶段判定结果`);
-    const views = report[kind];
-    if (views === null) throw new Error(`run ${g.run.id} 的阶段判定中没有 ${kind}`);
+    // dashboard 发起的运行只有一轮
+    const views = report[kind][0]?.stages;
+    if (views === undefined) throw new Error(`run ${g.run.id} 的阶段判定中没有 ${kind}`);
     return views;
   });
   return stages.map((stage) => {

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
 import { config } from '../../src/config.js';
-import type { ToolCall } from '../../src/db/schema.js';
+import { type ToolCall, userMessages } from '../../src/db/schema.js';
 import {
   featureDir,
   LfgTracker,
@@ -14,7 +14,7 @@ import {
 import { analyzeSession } from '../../src/stages/report.js';
 import type { RequestRow } from '../../src/stages/rows.js';
 import { insertSession, openTestDb } from './db.js';
-import { ingestSample, SAMPLES } from './samples.js';
+import { ingestSample, SAMPLES, TEST_STAGE_MODEL } from './samples.js';
 
 const VAULT = '/Users/linhaoz/Documents/Obsidian Vault';
 const work = path.join(config.repoRoot, '.work', 'stages-lfg');
@@ -174,17 +174,83 @@ describe('lfg 离线规则：wf obsidian 边界调用', () => {
     ]);
     const sessionId = 'lfg-offline-b';
     insertSession(db, sessionId, rows, ws);
-    const report = await analyzeSession(db, sessionId);
-    expect(report.ic).toBeNull();
+    const report = await analyzeSession(db, sessionId, TEST_STAGE_MODEL);
+    expect(report.ic).toEqual([]);
     expect(report.checks.count).toBe(0);
-    expect(report.lfg?.map((v) => [v.stage, v.status, v.startSeq, v.endSeq, v.method])).toEqual([
+    // dispatch gate 还没有回答：这一轮没有结束，ticketing 到 session 末尾
+    expect(report.lfg).toHaveLength(1);
+    const cycle = report.lfg[0];
+    expect(cycle).toMatchObject({
+      index: 1,
+      label: 'run-offline-b',
+      startSeq: 0,
+      endSeq: null,
+    });
+    const stages = cycle?.stages ?? [];
+    expect(stages.map((v) => [v.stage, v.status, v.startSeq, v.endSeq, v.method])).toEqual([
       ['interview', 'done', 0, 3, 'artifact'],
       ['research', 'done', 4, 4, 'artifact'],
       ['plan', 'skipped', 5, 4, 'artifact'],
       ['ticketing', 'done', 5, 6, 'artifact'],
     ]);
-    expect(report.lfg?.[2]?.evidence).toEqual({ note: '未检测到锁定标记' });
-    expect(report.lfg?.[0]?.stats.toolCalls).toEqual({ Skill: 1, Bash: 3 });
+    expect(stages[2]?.evidence).toEqual({ note: '未检测到锁定标记' });
+    expect(stages[0]?.stats.toolCalls).toEqual({ Skill: 1, Bash: 3 });
+    expect(report.outside.requests).toBe(0);
+  });
+
+  test('dispatch gate 回答之后这一轮结束，下一个 lfg 标志开始第二轮', async () => {
+    const t0 = Date.parse('2026-10-09T08:00:00.000Z');
+    const at = (seq: number) => new Date(t0 + seq * 1000);
+    const first = session('run-offline-d', locked);
+    const [reply] = dryRuns;
+    if (!reply) throw new Error('缺少模板请求');
+    const second = session('run-offline-e', locked);
+    const rows = [
+      ...first,
+      {
+        ...reply,
+        messageId: `${reply.messageId}-gate-reply`,
+        text: '好的，不派发。',
+        toolCalls: [],
+      },
+      ...second.map((r) => ({ ...r, messageId: `${r.messageId}-second` })),
+    ].map((r, seq) => ({ ...r, seq, timestamp: at(seq) }));
+    const sessionId = 'lfg-offline-cycles';
+    insertSession(db, sessionId, rows, ws);
+    // dispatch gate 的回答在 Tickets.md 写出（seq 6）之后，第二个想法在回答处理完（seq 7）之后
+    for (const [i, [seconds, text]] of [
+      [6.5, '不派发，到此结束。'],
+      [7.5, '再做一个想法'],
+    ].entries()) {
+      db.insert(userMessages)
+        .values({
+          sessionId,
+          agentId: null,
+          uuid: `gate-${String(i)}`,
+          kind: 'user',
+          timestamp: new Date(t0 + Number(seconds) * 1000),
+          text: String(text),
+        })
+        .run();
+    }
+    const report = await analyzeSession(db, sessionId, TEST_STAGE_MODEL);
+    expect(report.lfg.map((c) => [c.index, c.label, c.startSeq, c.endSeq])).toEqual([
+      [1, 'run-offline-d', 0, 7],
+      [2, 'run-offline-e', 8, null],
+    ]);
+    expect(report.lfg[0]?.stages.map((v) => [v.stage, v.status, v.startSeq, v.endSeq])).toEqual([
+      ['interview', 'done', 0, 3],
+      ['research', 'done', 4, 4],
+      ['plan', 'done', 5, 5],
+      ['ticketing', 'done', 6, 7],
+    ]);
+    expect(report.lfg[1]?.stages.map((v) => [v.stage, v.status])).toEqual([
+      ['interview', 'done'],
+      ['research', 'done'],
+      ['plan', 'done'],
+      ['ticketing', 'done'],
+    ]);
+    expect(report.outside.requests).toBe(0);
   });
 
   test('写出的文件被删除后不算边界', () => {

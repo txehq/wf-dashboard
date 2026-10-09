@@ -318,15 +318,41 @@ export const userMessages = sqliteTable(
 export const stageStatuses = ['done', 'active', 'skipped', 'not-reached'] as const;
 export type StageStatus = (typeof stageStatuses)[number];
 
+// 判定模型的版本；stage_analyses.version 与它不同的结果视为未分析
+export const STAGE_ANALYSIS_VERSION = 2;
+
 // 一个 session 完成离线阶段判定的记录；不含 lfg 与 ic 的 session 也有一行
 export const stageAnalyses = sqliteTable('stage_analyses', {
   sessionId: text('session_id')
     .primaryKey()
     .references(() => sessions.id, { onDelete: 'cascade' }),
+  version: integer('version').notNull(),
   hasLfg: integer('has_lfg', { mode: 'boolean' }).notNull(),
   hasIc: integer('has_ic', { mode: 'boolean' }).notNull(),
   createdAt: createdAt(),
 });
+
+// 一轮流程：同一 session 可以有多轮 /lfg 与 /ic
+export const stageCycles = sqliteTable(
+  'stage_cycles',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    sessionId: text('session_id')
+      .notNull()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
+    workflow: text('workflow', { enum: workflows }).notNull(),
+    // 从 1 开始
+    cycle: integer('cycle').notNull(),
+    label: text('label').notNull(),
+    startSeq: integer('start_seq').notNull(),
+    // 流程还没结束时为空
+    endSeq: integer('end_seq'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('stage_cycles_session_workflow_cycle_idx').on(t.sessionId, t.workflow, t.cycle),
+  ],
+);
 
 export const stageSpans = sqliteTable(
   'stage_spans',
@@ -336,6 +362,8 @@ export const stageSpans = sqliteTable(
       .notNull()
       .references(() => sessions.id, { onDelete: 'cascade' }),
     workflow: text('workflow', { enum: workflows }).notNull(),
+    // 所属轮次，对应 stage_cycles.cycle
+    cycle: integer('cycle').notNull(),
     stage: text('stage').notNull(),
     status: text('status', { enum: stageStatuses }).notNull(),
     // 主 session 的 seq，含端点；skipped 为 [s, s-1]，not-reached 为空
@@ -346,7 +374,12 @@ export const stageSpans = sqliteTable(
     createdAt: createdAt(),
   },
   (t) => [
-    uniqueIndex('stage_spans_session_workflow_stage_idx').on(t.sessionId, t.workflow, t.stage),
+    uniqueIndex('stage_spans_session_workflow_cycle_stage_idx').on(
+      t.sessionId,
+      t.workflow,
+      t.cycle,
+      t.stage,
+    ),
   ],
 );
 
@@ -359,7 +392,11 @@ export const stageChecks = sqliteTable(
       .notNull()
       .references(() => sessions.id, { onDelete: 'cascade' }),
     workflow: text('workflow', { enum: workflows }).notNull(),
+    // 判定时的 STAGE_ANALYSIS_VERSION；StageReport 的 checks 只统计当前版本
+    version: integer('version').notNull().default(STAGE_ANALYSIS_VERSION),
+    // 判定时的状态：阶段名，或流程外 outside
     currentStage: text('current_stage').notNull(),
+    // 问题所问的去向：下一阶段、进入流程 enter、离开流程 outside
     nextStage: text('next_stage').notNull(),
     // 这批新增行为的 seq 范围
     fromSeq: integer('from_seq').notNull(),
