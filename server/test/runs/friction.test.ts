@@ -108,7 +108,10 @@ describe('friction 报告（Contracts 7.10）', () => {
         'cd x && gh issue comment 80 -R txehq/txe-workflow --body-file b.md',
         `${ISSUE_80}#issuecomment-123`,
       ),
-      row('gh issue create --repo txehq/other --title t', 'https://github.com/txehq/other/issues/1'),
+      row(
+        'gh issue create --repo txehq/other --title t',
+        'https://github.com/txehq/other/issues/1',
+      ),
       row('gh issue create --repo txehq/txe-workflow --title t', 'HTTP 422', true),
     ]);
     expect(calls).toEqual([

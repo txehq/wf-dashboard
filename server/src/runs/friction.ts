@@ -9,7 +9,8 @@ import { upsertFriction } from './records.js';
 
 // Contracts 7.10：被测 agent 的 /report-friction 在 txehq/txe-workflow 提的 issue 与评论
 export const FRICTION_REPO = 'txehq/txe-workflow';
-const RESULT_URL = /https:\/\/github\.com\/txehq\/txe-workflow\/issues\/(\d+)(?:#issuecomment-\d+)?/;
+const RESULT_URL =
+  /https:\/\/github\.com\/txehq\/txe-workflow\/issues\/(\d+)(?:#issuecomment-\d+)?/;
 
 export interface FrictionCall {
   // gh 打印的 issue 或评论 URL
