@@ -114,7 +114,10 @@ function check(cond: boolean, message: string): void {
 }
 
 async function claudeAlive(sessionId: string): Promise<boolean> {
-  const result = await execa('pgrep', ['-f', `--session-id ${sessionId}`], { reject: false });
+  // 模式以 -- 开头，要放在 -- 之后，否则 pgrep 把它当作选项
+  const result = await execa('pgrep', ['-f', '--', `--session-id ${sessionId}`], {
+    reject: false,
+  });
   return result.stdout.trim() !== '';
 }
 

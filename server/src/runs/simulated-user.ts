@@ -99,6 +99,7 @@ export function systemPrompt(ctx: SimulatedUserContext): string {
     'done 为 true 时，reply 写一句简短的结束语，它不会发给 agent。',
     '',
     '## 输出',
+    '- 文字中需要引号时一律用中文引号「」，不要用英文双引号。',
     '- agent 用文字提问或汇报时：reply 是你要发给 agent 的话，answers 为 null。',
     '- agent 用选项提问时：answers 为每个问题各给一项，question 是问题原文（一字不差），answer 是所选选项的 label 原文（只写 label，不带说明）；多选时用 ", " 连接多个 label；没有合适的选项时可以写你自己的简短回答。reply 用一句话说明你的选择。',
   );

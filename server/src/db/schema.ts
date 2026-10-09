@@ -491,7 +491,10 @@ export const artifacts = sqliteTable(
     location: text('location').notNull(),
     snapshot: text('snapshot'),
     createdAt: createdAt(),
-    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+    // 内容快照最近一次改写的时间
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
   },
   (t) => [uniqueIndex('artifacts_run_kind_idx').on(t.runId, t.kind)],
 );
