@@ -5,7 +5,8 @@ import { z } from 'zod';
 
 // src/ 与 dist/ 都位于 server/ 下，两级之上即仓库根目录
 const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
-const dataDir = path.join(repoRoot, 'data');
+// e2e 用 WFD_DATA_DIR（相对仓库根目录或绝对路径）指向专用的数据目录
+const dataDir = path.resolve(repoRoot, process.env.WFD_DATA_DIR ?? 'data');
 
 export const config = {
   repoRoot,

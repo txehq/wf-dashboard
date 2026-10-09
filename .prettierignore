@@ -7,3 +7,5 @@ data/
 pnpm-lock.yaml
 server/drizzle/
 tasks/
+# 模拟 agent 产物的快照，保持原样
+server/scripts/fixtures/

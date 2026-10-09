@@ -51,7 +51,7 @@ export async function buildApp({ db, sseHeartbeatMs, logger, tasksDir }: AppOpti
   await app.register(variantRoutes, { variants });
 
   await app.register(gradeRoutes({ db }));
-  await app.register(compareRoutes({ db }));
+  await app.register(compareRoutes({ db, variants }));
 
   return app;
 }

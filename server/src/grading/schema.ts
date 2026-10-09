@@ -151,3 +151,46 @@ export const CompareResult = z.object({
   cells: z.array(CompareCell),
 });
 export type CompareResult = z.infer<typeof CompareResult>;
+
+// Compare 页面可选的 run：全部已评分（succeeded）的 run
+export const CompareRun = z.object({
+  id: z.string(),
+  variantId: z.string(),
+  taskId: z.string(),
+  humanIntervened: z.boolean(),
+  // ISO 时间，web 用同一个 schema 解析响应
+  createdAt: z.iso.datetime(),
+});
+export type CompareRun = z.infer<typeof CompareRun>;
+
+// 与 db/schema 的 artifactKinds 相同
+export const RunArtifact = z.object({
+  kind: z.enum(['brief', 'research', 'plan', 'tickets', 'pr', 'repo']),
+  location: z.string(),
+  snapshot: z.string().nullable(),
+});
+export type RunArtifact = z.infer<typeof RunArtifact>;
+
+export const RunArtifacts = z.object({
+  runId: z.string(),
+  prUrl: z.string().nullable(),
+  githubRepo: z.string().nullable(),
+  artifacts: z.array(RunArtifact),
+});
+export type RunArtifacts = z.infer<typeof RunArtifacts>;
+
+export const SkillFileDiff = z.object({
+  path: z.string(),
+  status: z.enum(['added', 'removed', 'modified']),
+  oldContent: z.string(),
+  newContent: z.string(),
+  patch: z.string(),
+});
+export type SkillFileDiff = z.infer<typeof SkillFileDiff>;
+
+export const SkillDiff = z.object({
+  from: z.string(),
+  to: z.string(),
+  files: z.array(SkillFileDiff),
+});
+export type SkillDiff = z.infer<typeof SkillDiff>;

@@ -1,0 +1,462 @@
+import { useQuery } from '@tanstack/react-query';
+import type { RubricArtifact } from '@wf-dashboard/server/tasks/schema';
+import type { TaskRecord } from '@wf-dashboard/server/tasks/schema';
+import { ExternalLink } from 'lucide-react';
+import { useState } from 'react';
+import Markdown from 'react-markdown';
+import { Link } from 'react-router';
+import remarkFrontmatter from 'remark-frontmatter';
+import remarkGfm from 'remark-gfm';
+import {
+  artifactLabel,
+  type CompareRun,
+  type RunGrades,
+  runArtifactsQuery,
+  runGradesQuery,
+  type SelectedVariant,
+} from '@/lib/compare';
+import { cn } from '@/lib/utils';
+
+const outcomeLabel = {
+  passed: '通过',
+  failed: '失败',
+  errored: '出错',
+  skipped: '跳过',
+  'not-run': '未运行',
+} as const;
+
+function RunSelect({
+  label,
+  value,
+  runs,
+  variants,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  runs: CompareRun[];
+  variants: SelectedVariant[];
+  onChange: (id: string) => void;
+}) {
+  return (
+    <label className="flex items-center gap-2 text-sm">
+      {label}
+      <select
+        aria-label={label}
+        className="h-8 rounded-md border bg-background px-2"
+        value={value}
+        onChange={(event) => {
+          onChange(event.target.value);
+        }}
+      >
+        {variants.map((v) => (
+          <optgroup key={v.id} label={v.name}>
+            {runs
+              .filter((r) => r.variantId === v.id)
+              .map((r) => (
+                <option key={r.id} value={r.id}>
+                  {v.name} · {r.id}
+                  {r.humanIntervened ? ' · 有人工干预' : ''}
+                </option>
+              ))}
+          </optgroup>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function RunHeading({ run, variants }: { run: CompareRun; variants: SelectedVariant[] }) {
+  const variant = variants.find((v) => v.id === run.variantId);
+  if (variant === undefined) throw new Error(`run ${run.id} 的 variant 未选中`);
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <span className="font-medium">{variant.name}</span>
+      <Link to={`/runs/${run.id}`} className="font-mono text-xs underline">
+        {run.id}
+      </Link>
+      {run.humanIntervened && (
+        <span className="rounded border px-1.5 text-xs text-muted-foreground">有人工干预</span>
+      )}
+    </div>
+  );
+}
+
+function groupOf(grades: RunGrades, artifact: RubricArtifact) {
+  const group = grades.lfg?.artifacts.find((a) => a.artifact === artifact);
+  if (group === undefined) throw new Error(`run ${grades.runId} 没有 ${artifact} 的评分`);
+  return group;
+}
+
+function MarkdownPane({ runId, artifact }: { runId: string; artifact: RubricArtifact }) {
+  const data = useQuery(runArtifactsQuery(runId));
+  if (data.isPending) return <p className="text-sm text-muted-foreground">加载中…</p>;
+  if (data.isError) return <p className="text-sm text-destructive">{data.error.message}</p>;
+  const found = data.data.artifacts.find((a) => a.kind === artifact);
+  if (found?.snapshot == null) {
+    return (
+      <p className="text-sm text-muted-foreground">这次 run 没有产出 {artifactLabel[artifact]}。</p>
+    );
+  }
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <p className="truncate font-mono text-xs text-muted-foreground" title={found.location}>
+        {found.location}
+      </p>
+      <article
+        data-testid="artifact-markdown"
+        className="prose prose-sm max-h-[640px] max-w-none overflow-auto rounded-lg border p-4 dark:prose-invert"
+      >
+        <Markdown remarkPlugins={[remarkFrontmatter, remarkGfm]}>{found.snapshot}</Markdown>
+      </article>
+    </div>
+  );
+}
+
+function LfgSideBySide({
+  left,
+  right,
+  runs,
+  variants,
+  artifact,
+  onArtifact,
+}: {
+  left: RunGrades;
+  right: RunGrades;
+  runs: [CompareRun, CompareRun];
+  variants: SelectedVariant[];
+  artifact: RubricArtifact;
+  onArtifact: (a: RubricArtifact) => void;
+}) {
+  const leftGroup = groupOf(left, artifact);
+  const rightGroup = groupOf(right, artifact);
+  return (
+    <div className="flex flex-col gap-4">
+      <div role="tablist" aria-label="产物" className="flex gap-1 border-b">
+        {(['brief', 'research', 'plan', 'tickets'] as const).map((a) => (
+          <button
+            key={a}
+            type="button"
+            role="tab"
+            aria-selected={artifact === a}
+            className={cn(
+              '-mb-px border-b-2 border-transparent px-3 py-1.5 text-sm text-muted-foreground',
+              artifact === a && 'border-foreground font-medium text-foreground',
+            )}
+            onClick={() => {
+              onArtifact(a);
+            }}
+          >
+            {artifactLabel[a]}
+          </button>
+        ))}
+      </div>
+      <table className="w-full table-fixed text-sm" data-testid="rubric-side-by-side">
+        <thead>
+          <tr className="border-b text-left text-xs text-muted-foreground">
+            <th className="w-1/4 py-1.5 pr-3 font-medium">rubric 条目</th>
+            <th className="px-3 py-1.5 font-medium">
+              <RunHeading run={runs[0]} variants={variants} />
+            </th>
+            <th className="px-3 py-1.5 font-medium">
+              <RunHeading run={runs[1]} variants={variants} />
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {leftGroup.items.map((item) => {
+            const other = rightGroup.items.find((x) => x.itemId === item.itemId);
+            return (
+              <tr key={item.itemId} className="border-b align-top last:border-0">
+                <td className="py-2 pr-3">
+                  <span className="mr-1 font-mono text-xs text-muted-foreground">
+                    {item.itemId}
+                  </span>
+                  {item.criterion}
+                </td>
+                {[item, other].map((x, i) => (
+                  <td key={i} className="px-3 py-2">
+                    {x === undefined ? (
+                      <span className="text-muted-foreground">—</span>
+                    ) : (
+                      <>
+                        <span
+                          className={cn(
+                            'font-semibold tabular-nums',
+                            other !== undefined &&
+                              other.score !== item.score &&
+                              'underline decoration-2',
+                          )}
+                        >
+                          {x.score} / {x.maxScore}
+                        </span>
+                        <p className="mt-0.5 text-muted-foreground">{x.reasoning}</p>
+                      </>
+                    )}
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
+          <tr className="border-t font-medium">
+            <td className="py-2 pr-3">合计</td>
+            <td className="px-3 py-2 tabular-nums">
+              {leftGroup.score} / {leftGroup.maxScore}
+            </td>
+            <td className="px-3 py-2 tabular-nums">
+              {rightGroup.score} / {rightGroup.maxScore}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="grid grid-cols-2 gap-4">
+        <MarkdownPane runId={runs[0].id} artifact={artifact} />
+        <MarkdownPane runId={runs[1].id} artifact={artifact} />
+      </div>
+    </div>
+  );
+}
+
+function IcSummary({
+  grades,
+  run,
+  variants,
+}: {
+  grades: RunGrades;
+  run: CompareRun;
+  variants: SelectedVariant[];
+}) {
+  if (grades.ic === null) throw new Error(`run ${grades.runId} 没有 ic 评分`);
+  const { detail, testsPassed, testsDeclared, reachedEnd } = grades.ic;
+  const endpoint = detail.endpoint;
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border p-4 text-sm" data-testid="ic-summary">
+      <RunHeading run={run} variants={variants} />
+      {detail.pr === null ? (
+        <p className="text-muted-foreground">没有 PR</p>
+      ) : (
+        <a
+          href={detail.pr.url}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 underline"
+        >
+          PR #{detail.pr.number} · {detail.pr.branch}
+          <ExternalLink className="size-3.5" />
+        </a>
+      )}
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
+        <dt className="text-muted-foreground">隐藏测试</dt>
+        <dd className="tabular-nums">
+          {testsPassed} / {testsDeclared} 通过
+        </dd>
+        <dt className="text-muted-foreground">终点</dt>
+        <dd>{reachedEnd ? '已到达（ready for review 且 CI 全绿）' : '未到达'}</dd>
+        {endpoint !== null && (
+          <>
+            <dt className="text-muted-foreground">CI</dt>
+            <dd>
+              {endpoint.ciGreen ? '全绿' : '未全绿'}
+              {endpoint.missingRequired.length > 0 &&
+                `，缺少必需检查：${endpoint.missingRequired.join('、')}`}
+            </dd>
+            <dt className="text-muted-foreground">PR 状态</dt>
+            <dd>{endpoint.isDraft ? '草稿' : 'ready for review'}</dd>
+          </>
+        )}
+      </dl>
+      {detail.fileErrors.map((e) => (
+        <p key={e.file} className="text-destructive">
+          <span className="font-mono text-xs">{e.file}</span>：{e.message}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function IcSideBySide({
+  left,
+  right,
+  runs,
+  variants,
+}: {
+  left: RunGrades;
+  right: RunGrades;
+  runs: [CompareRun, CompareRun];
+  variants: SelectedVariant[];
+}) {
+  const leftOutcomes = left.ic?.detail.outcomes ?? [];
+  const rightOutcomes = right.ic?.detail.outcomes ?? [];
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-2 gap-4">
+        <IcSummary grades={left} run={runs[0]} variants={variants} />
+        <IcSummary grades={right} run={runs[1]} variants={variants} />
+      </div>
+      <table className="w-full text-sm" data-testid="ic-tests">
+        <thead>
+          <tr className="border-b text-left text-xs text-muted-foreground">
+            <th className="py-1.5 pr-3 font-medium">隐藏测试</th>
+            <th className="w-28 px-3 py-1.5 font-medium">左</th>
+            <th className="w-28 px-3 py-1.5 font-medium">右</th>
+          </tr>
+        </thead>
+        <tbody>
+          {leftOutcomes.map((o) => {
+            const other = rightOutcomes.find((x) => x.file === o.file && x.name === o.name);
+            const differs = other?.outcome !== o.outcome;
+            return (
+              <tr
+                key={`${o.file}\0${o.name}`}
+                className={cn('border-b last:border-0', differs && 'bg-muted/50')}
+              >
+                <td className="py-1 pr-3">
+                  {o.name}
+                  <span className="ml-2 font-mono text-xs text-muted-foreground">{o.file}</span>
+                </td>
+                {[o, other].map((x, i) => (
+                  <td
+                    key={i}
+                    className={cn(
+                      'px-3 py-1',
+                      x?.outcome === 'passed'
+                        ? 'text-[var(--status-good)]'
+                        : 'text-[var(--status-critical)]',
+                    )}
+                  >
+                    {x === undefined ? '—' : outcomeLabel[x.outcome]}
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function ArtifactSideBySide({
+  tasks,
+  runs,
+  variants,
+}: {
+  tasks: TaskRecord[];
+  runs: CompareRun[];
+  variants: SelectedVariant[];
+}) {
+  const withRuns = tasks.filter((t) => runs.some((r) => r.taskId === t.task.id));
+  const [taskId, setTaskId] = useState<string | null>(null);
+  // 产物的选择在换 run 时保留
+  const [artifact, setArtifact] = useState<RubricArtifact>('brief');
+  const task = withRuns.find((t) => t.task.id === taskId) ?? withRuns[0];
+  const taskRuns = runs.filter((r) => r.taskId === task?.task.id);
+  // 默认左边是基线的第一次 run，右边是另一个 variant 的第一次 run
+  const [picked, setPicked] = useState<{ taskId: string; left: string; right: string } | null>(
+    null,
+  );
+  if (task === undefined) {
+    return <p className="text-sm text-muted-foreground">选中的 task 没有已评分的 run。</p>;
+  }
+  const defaults = () => {
+    const [baseline, ...others] = variants;
+    const left = taskRuns.find((r) => r.variantId === baseline?.id) ?? taskRuns[0];
+    const right =
+      taskRuns.find((r) => others.some((v) => v.id === r.variantId)) ??
+      taskRuns.find((r) => r.id !== left?.id) ??
+      left;
+    if (left === undefined || right === undefined) throw new Error('task 没有 run');
+    return { left: left.id, right: right.id };
+  };
+  const current =
+    picked !== null && picked.taskId === task.task.id
+      ? picked
+      : { taskId: task.task.id, ...defaults() };
+  const leftRun = taskRuns.find((r) => r.id === current.left);
+  const rightRun = taskRuns.find((r) => r.id === current.right);
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-4">
+        <label className="flex items-center gap-2 text-sm">
+          task
+          <select
+            aria-label="产物并排的 task"
+            className="h-8 rounded-md border bg-background px-2"
+            value={task.task.id}
+            onChange={(event) => {
+              setTaskId(event.target.value);
+              setPicked(null);
+            }}
+          >
+            {withRuns.map((t) => (
+              <option key={t.task.id} value={t.task.id}>
+                {t.task.title}
+              </option>
+            ))}
+          </select>
+        </label>
+        <RunSelect
+          label="左"
+          value={current.left}
+          runs={taskRuns}
+          variants={variants}
+          onChange={(id) => {
+            setPicked({ ...current, left: id });
+          }}
+        />
+        <RunSelect
+          label="右"
+          value={current.right}
+          runs={taskRuns}
+          variants={variants}
+          onChange={(id) => {
+            setPicked({ ...current, right: id });
+          }}
+        />
+      </div>
+      {leftRun !== undefined && rightRun !== undefined && (
+        <Pair
+          kind={task.task.kind}
+          runs={[leftRun, rightRun]}
+          variants={variants}
+          artifact={artifact}
+          onArtifact={setArtifact}
+        />
+      )}
+    </div>
+  );
+}
+
+function Pair({
+  kind,
+  runs,
+  variants,
+  artifact,
+  onArtifact,
+}: {
+  kind: 'lfg' | 'ic';
+  runs: [CompareRun, CompareRun];
+  variants: SelectedVariant[];
+  artifact: RubricArtifact;
+  onArtifact: (a: RubricArtifact) => void;
+}) {
+  const left = useQuery(runGradesQuery(runs[0].id));
+  const right = useQuery(runGradesQuery(runs[1].id));
+  if (left.isPending || right.isPending) {
+    return <p className="text-sm text-muted-foreground">加载中…</p>;
+  }
+  if (left.isError) return <p className="text-sm text-destructive">{left.error.message}</p>;
+  if (right.isError) return <p className="text-sm text-destructive">{right.error.message}</p>;
+  return kind === 'lfg' ? (
+    <LfgSideBySide
+      left={left.data}
+      right={right.data}
+      runs={runs}
+      variants={variants}
+      artifact={artifact}
+      onArtifact={onArtifact}
+    />
+  ) : (
+    <IcSideBySide left={left.data} right={right.data} runs={runs} variants={variants} />
+  );
+}

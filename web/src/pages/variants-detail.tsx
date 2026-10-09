@@ -1,15 +1,16 @@
-import { DiffEditor, Editor } from '@monaco-editor/react';
+import { Editor } from '@monaco-editor/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronRight, FilePlus, FileText, Hammer, Save, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
+import { SkillDiffEditor } from '@/components/skill-diff-editor';
 import { Button } from '@/components/ui/button';
+import { languageOf } from '@/lib/language';
 import { cn } from '@/lib/utils';
 import {
   buildLabel,
   buildLogQuery,
   diffQuery,
-  type FileDiff,
   fileQuery,
   filesQuery,
   request,
@@ -22,16 +23,6 @@ import {
 import { monaco } from '@/pages/variants-monaco';
 
 type Tab = 'edit' | 'diff' | 'log';
-
-function languageOf(path: string): string {
-  if (path.endsWith('.md')) return 'markdown';
-  if (path.endsWith('.sh')) return 'shell';
-  if (path.endsWith('.py')) return 'python';
-  if (path.endsWith('.ts')) return 'typescript';
-  if (path.endsWith('.json')) return 'json';
-  if (path.endsWith('.yaml') || path.endsWith('.yml')) return 'yaml';
-  return 'plaintext';
-}
 
 interface TreeNode {
   name: string;
@@ -298,42 +289,6 @@ function EditTab({ variant }: { variant: Variant }) {
 }
 
 const diffStatusLabel = { added: '新增', removed: '删除', modified: '修改' } as const;
-
-// @monaco-editor/react 卸载时先释放 model 再释放 DiffEditor，monaco 0.57 会因此报错；
-// 改为保留 model，等这次提交里的卸载全部完成、DiffEditor 已释放后再释放 model
-function SkillDiffEditor({ file }: { file: FileDiff }) {
-  const models = useRef<monaco.editor.IDiffEditorModel | null>(null);
-  useEffect(
-    () => () => {
-      const current = models.current;
-      setTimeout(() => {
-        current?.original.dispose();
-        current?.modified.dispose();
-      });
-    },
-    [],
-  );
-  return (
-    <DiffEditor
-      original={file.oldContent}
-      modified={file.newContent}
-      language={languageOf(file.path)}
-      keepCurrentOriginalModel
-      keepCurrentModifiedModel
-      onMount={(editor) => {
-        models.current = editor.getModel();
-      }}
-      options={{
-        readOnly: true,
-        renderSideBySide: true,
-        minimap: { enabled: false },
-        wordWrap: 'on',
-        fontSize: 13,
-        scrollBeyondLastLine: false,
-      }}
-    />
-  );
-}
 
 function DiffTab({ variant }: { variant: Variant }) {
   const [against, setAgainst] = useState<'base' | 'parent'>('base');

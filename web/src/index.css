@@ -1,6 +1,7 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
+@plugin '@tailwindcss/typography';
 
 @custom-variant dark (&:is(.dark *));
 
@@ -29,6 +30,21 @@
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
+  /* 数据图：variant 等类别按固定顺序取色（dataviz 参考调色板，已通过 validate_palette） */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #4a3aa7;
+  --series-8: #e34948;
+  --viz-grid: #e1e0d9;
+  --viz-axis: #c3c2b7;
+  --viz-muted: #898781;
+  --viz-surface: #fcfcfb;
+  --status-good: #006300;
+  --status-critical: #d03b3b;
 }
 
 .dark {
@@ -55,6 +71,20 @@
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
+  --viz-grid: #2c2c2a;
+  --viz-axis: #383835;
+  --viz-muted: #898781;
+  --viz-surface: #1a1a19;
+  --status-good: #0ca30c;
+  --status-critical: #d03b3b;
 }
 
 @theme inline {

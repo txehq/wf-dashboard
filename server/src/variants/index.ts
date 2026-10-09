@@ -212,6 +212,32 @@ export function createVariants({ db, dataDir, repo, ctxBin }: VariantsOptions) {
     );
   }
 
+  function diffTrees(beforeDir: string, afterDir: string): FileDiff[] {
+    const before = readTree(beforeDir);
+    const after = readTree(afterDir);
+    const paths = [...new Set([...before.keys(), ...after.keys()])].sort();
+    const files: FileDiff[] = [];
+    for (const file of paths) {
+      const oldContent = before.get(file);
+      const newContent = after.get(file);
+      if (oldContent === newContent) continue;
+      files.push({
+        path: file,
+        status:
+          oldContent === undefined ? 'added' : newContent === undefined ? 'removed' : 'modified',
+        oldContent: oldContent ?? '',
+        newContent: newContent ?? '',
+        patch: createTwoFilesPatch(
+          oldContent === undefined ? '/dev/null' : `a/${file}`,
+          newContent === undefined ? '/dev/null' : `b/${file}`,
+          oldContent ?? '',
+          newContent ?? '',
+        ),
+      });
+    }
+    return files;
+  }
+
   return {
     list(): Variant[] {
       return db.select().from(variants).orderBy(desc(variants.createdAt)).all();
@@ -369,29 +395,17 @@ export function createVariants({ db, dataDir, repo, ctxBin }: VariantsOptions) {
       } else {
         reference = layout.base(row.baseCommit);
       }
-      const before = readTree(reference);
-      const after = readTree(layout.variant(id).src);
-      const paths = [...new Set([...before.keys(), ...after.keys()])].sort();
-      const files: FileDiff[] = [];
-      for (const file of paths) {
-        const oldContent = before.get(file);
-        const newContent = after.get(file);
-        if (oldContent === newContent) continue;
-        files.push({
-          path: file,
-          status:
-            oldContent === undefined ? 'added' : newContent === undefined ? 'removed' : 'modified',
-          oldContent: oldContent ?? '',
-          newContent: newContent ?? '',
-          patch: createTwoFilesPatch(
-            oldContent === undefined ? '/dev/null' : `a/${file}`,
-            newContent === undefined ? '/dev/null' : `b/${file}`,
-            oldContent ?? '',
-            newContent ?? '',
-          ),
-        });
-      }
-      return { against: { kind: against, variantId, commit: row.baseCommit }, files };
+      return {
+        against: { kind: against, variantId, commit: row.baseCommit },
+        files: diffTrees(reference, layout.variant(id).src),
+      };
+    },
+
+    // 任意两个 variant 之间逐文件对比 skills/，from 为旧的一侧
+    diffBetween(fromId: string, toId: string): FileDiff[] {
+      get(fromId);
+      get(toId);
+      return diffTrees(layout.variant(fromId).src, layout.variant(toId).src);
     },
 
     buildLog(id: string): string {

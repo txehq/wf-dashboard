@@ -1,5 +1,5 @@
 import createError from '@fastify/error';
-import { inArray } from 'drizzle-orm';
+import { asc, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import {
   serializerCompiler,
@@ -8,11 +8,13 @@ import {
 } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
-import { tasks, variants } from '../db/schema.js';
+import { artifacts, runs, tasks, variants } from '../db/schema.js';
 import { compareRuns } from '../grading/compare.js';
-import { CompareResult } from '../grading/schema.js';
+import { CompareResult, CompareRun, RunArtifacts, SkillDiff } from '../grading/schema.js';
+import type { Variants } from '../variants/index.js';
 
 const NotFound = createError<[string, string]>('COMPARE_NOT_FOUND', '没有 %s：%s', 404);
+const NotGraded = createError<[string]>('COMPARE_RUN_NOT_GRADED', 'run %s 尚未评分', 404);
 
 // 逗号分隔的 id 列表，去重并保持顺序
 const IdList = z
@@ -26,7 +28,7 @@ const Query = z.object({
   includeIntervened: z.enum(['true', 'false']).default('false'),
 });
 
-export function compareRoutes({ db }: { db: Db }) {
+export function compareRoutes({ db, variants: variantsModule }: { db: Db; variants: Variants }) {
   return (fastify: FastifyInstance, _options: unknown, done: () => void) => {
     fastify.setValidatorCompiler(validatorCompiler);
     fastify.setSerializerCompiler(serializerCompiler);
@@ -62,6 +64,74 @@ export function compareRoutes({ db }: { db: Db }) {
           tasks: query.tasks,
           includeIntervened: query.includeIntervened === 'true',
         });
+      },
+    );
+
+    // 全部已评分的 run，页面据此决定默认选择、空状态与产物并排的候选
+    app.get('/api/compare/runs', { schema: { response: { 200: z.array(CompareRun) } } }, () =>
+      db
+        .select({
+          id: runs.id,
+          variantId: runs.variantId,
+          taskId: runs.taskId,
+          humanIntervened: runs.humanIntervened,
+          createdAt: runs.createdAt,
+        })
+        .from(runs)
+        .where(eq(runs.status, 'succeeded'))
+        .orderBy(asc(runs.createdAt), asc(runs.id))
+        .all()
+        .map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })),
+    );
+
+    // 一个已评分 run 的产物快照与 PR，供产物并排
+    app.get(
+      '/api/compare/runs/:id/artifacts',
+      { schema: { params: z.object({ id: z.string() }), response: { 200: RunArtifacts } } },
+      (request) => {
+        const { id } = request.params;
+        const run = db
+          .select({
+            id: runs.id,
+            status: runs.status,
+            prUrl: runs.prUrl,
+            githubRepo: runs.githubRepo,
+          })
+          .from(runs)
+          .where(eq(runs.id, id))
+          .get();
+        if (run === undefined) throw new NotFound('run', id);
+        if (run.status !== 'succeeded') throw new NotGraded(id);
+        return {
+          runId: run.id,
+          prUrl: run.prUrl,
+          githubRepo: run.githubRepo,
+          artifacts: db
+            .select({
+              kind: artifacts.kind,
+              location: artifacts.location,
+              snapshot: artifacts.snapshot,
+            })
+            .from(artifacts)
+            .where(eq(artifacts.runId, id))
+            .orderBy(asc(artifacts.id))
+            .all(),
+        };
+      },
+    );
+
+    // 两个 variant 之间 skills/ 的逐文件 diff
+    app.get(
+      '/api/compare/skill-diff',
+      {
+        schema: {
+          querystring: z.object({ from: z.string().min(1), to: z.string().min(1) }),
+          response: { 200: SkillDiff },
+        },
+      },
+      (request) => {
+        const { from, to } = request.query;
+        return { from, to, files: variantsModule.diffBetween(from, to) };
       },
     );
     done();
