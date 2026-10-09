@@ -165,7 +165,7 @@ export type CompareRun = z.infer<typeof CompareRun>;
 
 // 与 db/schema 的 artifactKinds 相同
 export const RunArtifact = z.object({
-  kind: z.enum(['brief', 'research', 'plan', 'tickets', 'pr', 'repo', 'ticket']),
+  kind: z.enum(['brief', 'research', 'plan', 'tickets', 'pr', 'repo', 'ticket', 'friction']),
   location: z.string(),
   snapshot: z.string().nullable(),
 });

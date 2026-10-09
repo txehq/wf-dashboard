@@ -95,6 +95,8 @@ export const RunDetail = RunSummary.extend({
     pr: z.string().nullable(),
     vault: z.string().nullable(),
   }),
+  // 被测 agent 在 txehq/txe-workflow 提的 issue 与评论（Contracts 7.10）
+  friction: z.array(z.object({ url: z.string(), title: z.string() })),
 });
 export type RunDetail = z.infer<typeof RunDetail>;
 

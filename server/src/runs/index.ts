@@ -313,6 +313,9 @@ export function createRuns(deps: RunnerDeps) {
           pr: row.prUrl,
           vault: summary.taskKind === 'lfg' && fs.existsSync(dir) ? dir : null,
         },
+        friction: artifactRows
+          .filter((a) => a.kind === 'friction')
+          .map((a) => ({ url: a.location, title: a.snapshot ?? '' })),
       };
     },
 

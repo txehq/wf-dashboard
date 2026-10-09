@@ -74,11 +74,11 @@ export function listMessages(db: Db, runId: string): MessageRow[] {
     .all();
 }
 
-// 每个 run 每种产物一行；内容与位置都没变时不改写
+// 每个 run 每种产物一行（friction 除外）；内容与位置都没变时不改写
 export function upsertArtifact(
   db: Db,
   runId: string,
-  kind: ArtifactKind,
+  kind: Exclude<ArtifactKind, 'friction'>,
   location: string,
   snapshot: string | null,
 ) {
@@ -102,5 +102,19 @@ export function upsertArtifact(
           .where(eq(artifacts.id, existing.id))
           .returning()
           .get();
+  events.publish({ type: 'run.artifact', runId, artifact: artifactView(row) });
+}
+
+// friction：每个 issue 或评论 URL 一行，snapshot 为 issue 标题
+export function upsertFriction(db: Db, runId: string, url: string, title: string) {
+  const row = db
+    .insert(artifacts)
+    .values({ runId, kind: 'friction', location: url, snapshot: title, updatedAt: new Date() })
+    .onConflictDoUpdate({
+      target: [artifacts.runId, artifacts.kind, artifacts.location],
+      set: { snapshot: title, updatedAt: new Date() },
+    })
+    .returning()
+    .get();
   events.publish({ type: 'run.artifact', runId, artifact: artifactView(row) });
 }

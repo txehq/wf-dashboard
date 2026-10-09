@@ -9,7 +9,7 @@ CREATE TABLE `artifacts` (
 	FOREIGN KEY (`run_id`) REFERENCES `runs`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `artifacts_run_kind_idx` ON `artifacts` (`run_id`,`kind`);--> statement-breakpoint
+CREATE UNIQUE INDEX `artifacts_run_kind_location_idx` ON `artifacts` (`run_id`,`kind`,`location`);--> statement-breakpoint
 CREATE TABLE `batch_tasks` (
 	`batch_id` text NOT NULL,
 	`task_id` text NOT NULL,

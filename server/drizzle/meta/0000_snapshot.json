@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "d0c63d87-1bcc-4926-a2b0-8fbacf0693a8",
+  "id": "6f607859-e030-4917-a730-e3f75c3916f6",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "artifacts": {
@@ -60,11 +60,12 @@
         }
       },
       "indexes": {
-        "artifacts_run_kind_idx": {
-          "name": "artifacts_run_kind_idx",
+        "artifacts_run_kind_location_idx": {
+          "name": "artifacts_run_kind_location_idx",
           "columns": [
             "run_id",
-            "kind"
+            "kind",
+            "location"
           ],
           "isUnique": true
         }

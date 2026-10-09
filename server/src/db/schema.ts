@@ -474,7 +474,8 @@ export const runMessages = sqliteTable(
   (t) => [uniqueIndex('run_messages_run_seq_idx').on(t.runId, t.seq)],
 );
 
-// ticket 为 ic 的 Linear 工单 identifier
+// ticket 为 ic 的 Linear 工单 identifier；friction 为被测 agent 在 txehq/txe-workflow 提的 issue 或评论，
+// 每个 run 可以有多条，其余种类每个 run 一条
 export const artifactKinds = [
   'brief',
   'research',
@@ -483,6 +484,7 @@ export const artifactKinds = [
   'pr',
   'repo',
   'ticket',
+  'friction',
 ] as const;
 export type ArtifactKind = (typeof artifactKinds)[number];
 
@@ -503,7 +505,7 @@ export const artifacts = sqliteTable(
       .notNull()
       .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
   },
-  (t) => [uniqueIndex('artifacts_run_kind_idx').on(t.runId, t.kind)],
+  (t) => [uniqueIndex('artifacts_run_kind_location_idx').on(t.runId, t.kind, t.location)],
 );
 
 // lfg：每个 rubric 产物一行（一次 judge 调用，产物不存在时没有调用）；ic：每个 run 一行测试结果与终点判定

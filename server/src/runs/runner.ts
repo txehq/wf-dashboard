@@ -18,6 +18,7 @@ import type { Task } from '../tasks/schema.js';
 import { HttpError } from '../variants/errors.js';
 import type { Variants } from '../variants/index.js';
 import { ClaudeProcess } from './claude-process.js';
+import { recordFriction } from './friction.js';
 import { IcLiveStages, LfgLiveStages, type LiveStages } from './live-stages.js';
 import { addMessage, listMessages, upsertArtifact } from './records.js';
 import type { SettingsStore } from './settings.js';
@@ -340,6 +341,7 @@ export class RunDriver {
   private async afterTurn() {
     await this.stages?.onTurnEnd();
     this.updateCost();
+    await recordFriction(this.db, this.runId, this.row().sessionId);
     if (this.task.kind === 'ic') await this.pollPr();
   }
 
@@ -626,6 +628,7 @@ export class RunDriver {
     await Promise.race([this.stages?.close(), this.failed]);
     await this.sessionWatcher?.close();
     this.sessionWatcher = null;
+    await recordFriction(this.db, this.runId, this.row().sessionId);
     if (this.task.kind === 'ic') await this.pollPr();
     this.updateCost();
   }
