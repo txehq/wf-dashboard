@@ -60,6 +60,7 @@ CREATE TABLE `requests` (
 	`seq` integer NOT NULL,
 	`agent_id` text,
 	`timestamp` integer NOT NULL,
+	`trigger_at` integer,
 	`model` text NOT NULL,
 	`thinking` text,
 	`text` text,
@@ -75,8 +76,7 @@ CREATE TABLE `requests` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `requests_session_message_idx` ON `requests` (`session_id`,`message_id`);--> statement-breakpoint
-CREATE INDEX `requests_session_seq_idx` ON `requests` (`session_id`,`seq`);--> statement-breakpoint
-CREATE INDEX `requests_session_agent_idx` ON `requests` (`session_id`,`agent_id`);--> statement-breakpoint
+CREATE INDEX `requests_session_agent_seq_idx` ON `requests` (`session_id`,`agent_id`,`seq`);--> statement-breakpoint
 CREATE TABLE `run_messages` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`run_id` text NOT NULL,
@@ -122,9 +122,13 @@ CREATE TABLE `sessions` (
 	`run_id` text,
 	`file_path` text NOT NULL,
 	`cwd` text,
-	`started_at` integer,
-	`ended_at` integer,
+	`title` text,
+	`started_at` integer NOT NULL,
+	`ended_at` integer NOT NULL,
+	`has_lfg` integer DEFAULT false NOT NULL,
+	`has_ic` integer DEFAULT false NOT NULL,
 	`parse_offset` integer DEFAULT 0 NOT NULL,
+	`parse_state` text NOT NULL,
 	`created_at` integer DEFAULT (cast(unixepoch('subsec') * 1000 as integer)) NOT NULL,
 	FOREIGN KEY (`source_id`) REFERENCES `sources`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`run_id`) REFERENCES `runs`(`id`) ON UPDATE no action ON DELETE set null
@@ -133,11 +137,12 @@ CREATE TABLE `sessions` (
 CREATE UNIQUE INDEX `sessions_file_path_unique` ON `sessions` (`file_path`);--> statement-breakpoint
 CREATE INDEX `sessions_source_idx` ON `sessions` (`source_id`);--> statement-breakpoint
 CREATE INDEX `sessions_run_idx` ON `sessions` (`run_id`);--> statement-breakpoint
-CREATE INDEX `sessions_started_at_idx` ON `sessions` (`started_at`);--> statement-breakpoint
+CREATE INDEX `sessions_started_at_idx` ON `sessions` (`started_at`,`id`);--> statement-breakpoint
 CREATE TABLE `sources` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`path` text NOT NULL,
 	`enabled` integer DEFAULT true NOT NULL,
+	`variant` text,
 	`created_at` integer DEFAULT (cast(unixepoch('subsec') * 1000 as integer)) NOT NULL
 );
 --> statement-breakpoint
@@ -181,14 +186,17 @@ CREATE TABLE `subagents` (
 	`session_id` text NOT NULL,
 	`agent_id` text NOT NULL,
 	`file_path` text NOT NULL,
-	`parent_tool_use_id` text,
-	`agent_type` text,
+	`parent_tool_use_id` text NOT NULL,
+	`agent_type` text NOT NULL,
+	`description` text,
 	`parse_offset` integer DEFAULT 0 NOT NULL,
+	`parse_state` text NOT NULL,
 	PRIMARY KEY(`session_id`, `agent_id`),
 	FOREIGN KEY (`session_id`) REFERENCES `sessions`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `subagents_file_path_unique` ON `subagents` (`file_path`);--> statement-breakpoint
+CREATE INDEX `subagents_parent_tool_use_idx` ON `subagents` (`session_id`,`parent_tool_use_id`);--> statement-breakpoint
 CREATE TABLE `tasks` (
 	`id` text PRIMARY KEY NOT NULL,
 	`kind` text NOT NULL,
@@ -210,6 +218,19 @@ CREATE TABLE `tasks` (
 );
 --> statement-breakpoint
 CREATE INDEX `tasks_kind_idx` ON `tasks` (`kind`);--> statement-breakpoint
+CREATE TABLE `user_messages` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`session_id` text NOT NULL,
+	`agent_id` text,
+	`uuid` text NOT NULL,
+	`kind` text NOT NULL,
+	`timestamp` integer NOT NULL,
+	`text` text NOT NULL,
+	FOREIGN KEY (`session_id`) REFERENCES `sessions`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `user_messages_session_uuid_idx` ON `user_messages` (`session_id`,`uuid`);--> statement-breakpoint
+CREATE INDEX `user_messages_session_agent_time_idx` ON `user_messages` (`session_id`,`agent_id`,`timestamp`);--> statement-breakpoint
 CREATE TABLE `variants` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,

@@ -68,7 +68,14 @@ function seedRun(db: Db) {
     })
     .run();
   db.insert(schema.sessions)
-    .values({ id: 'session-1', runId: 'run-1', filePath: '/projects/x/session-1.jsonl' })
+    .values({
+      id: 'session-1',
+      runId: 'run-1',
+      filePath: '/projects/x/session-1.jsonl',
+      startedAt: new Date('2026-10-09T08:00:00Z'),
+      endedAt: new Date('2026-10-09T08:00:00Z'),
+      parseState: { nextSeq: 0, lastUserAt: null, pending: {} },
+    })
     .run();
 }
 
@@ -83,7 +90,16 @@ function insertRequest(db: Db, sessionId: string, messageId: string) {
       model: 'claude-opus-5-5',
       text: '你好',
       toolCalls: [
-        { id: 'toolu_1', name: 'Read', input: { path: 'a' }, result: 'b', isError: false },
+        {
+          id: 'toolu_1',
+          name: 'Read',
+          input: { path: 'a' },
+          result: 'b',
+          resultChars: 1,
+          isError: false,
+          spillPath: null,
+          subagentId: null,
+        },
       ],
       inputTokens: 10,
       outputTokens: 20,
@@ -119,6 +135,7 @@ describe('database', () => {
       'stage_spans',
       'subagents',
       'tasks',
+      'user_messages',
       'variants',
     ]);
   });

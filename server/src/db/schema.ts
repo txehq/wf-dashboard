@@ -14,11 +14,29 @@ export const workflows = ['lfg', 'ic'] as const;
 export type Workflow = (typeof workflows)[number];
 
 export interface ToolCall {
+  // tool_use.id
   id: string;
   name: string;
   input: unknown;
-  result: unknown;
+  // 配对 tool_result 的文本，截断到 20000 字符；尚未返回时为 null
+  result: string | null;
+  // 截断前的字符数
+  resultChars: number;
   isError: boolean;
+  // 结果溢出到 <sessionId>/tool-results/ 时的文件路径
+  spillPath: string | null;
+  // Agent/Task 调用对应的子代理 agent_id
+  subagentId: string | null;
+}
+
+// 增量解析跨两次读取需要保留的状态，每个 jsonl 文件一份
+export interface ParseState {
+  // 同一 (session, agent) 内下一行 request 的 seq
+  nextSeq: number;
+  // 上一条用户消息或 tool_result 的时间，用于计算 duration
+  lastUserAt: number | null;
+  // 尚未收到结果的 tool_use.id → message.id
+  pending: Record<string, string>;
 }
 
 export interface RubricItem {
@@ -38,11 +56,13 @@ const createdAt = () =>
     .notNull()
     .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`);
 
-// 用户勾选的 ~/.claude/projects/<slug> 目录
+// 用户勾选的 ~/.claude/projects/<slug> 目录，以及各 variant 的 home/claude/projects/<slug>（总是勾选）
 export const sources = sqliteTable('sources', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   path: text('path').notNull().unique(),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  // variant 目录下的来源记录 variant id
+  variant: text('variant'),
   createdAt: createdAt(),
 });
 
@@ -191,16 +211,22 @@ export const sessions = sqliteTable(
     runId: text('run_id').references(() => runs.id, { onDelete: 'set null' }),
     filePath: text('file_path').notNull().unique(),
     cwd: text('cwd'),
-    startedAt: integer('started_at', { mode: 'timestamp_ms' }),
-    endedAt: integer('ended_at', { mode: 'timestamp_ms' }),
+    // 首条用户消息的前 80 字
+    title: text('title'),
+    startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
+    endedAt: integer('ended_at', { mode: 'timestamp_ms' }).notNull(),
+    // 粗判：出现 lfg / ic 阶段的标志（System Design 第 5 节最后一条）
+    hasLfg: integer('has_lfg', { mode: 'boolean' }).notNull().default(false),
+    hasIc: integer('has_ic', { mode: 'boolean' }).notNull().default(false),
     // 主 jsonl 已解析到的字节偏移量
     parseOffset: integer('parse_offset').notNull().default(0),
+    parseState: text('parse_state', { mode: 'json' }).$type<ParseState>().notNull(),
     createdAt: createdAt(),
   },
   (t) => [
     index('sessions_source_idx').on(t.sourceId),
     index('sessions_run_idx').on(t.runId),
-    index('sessions_started_at_idx').on(t.startedAt),
+    index('sessions_started_at_idx').on(t.startedAt, t.id),
   ],
 );
 
@@ -214,11 +240,16 @@ export const subagents = sqliteTable(
     agentId: text('agent_id').notNull(),
     filePath: text('file_path').notNull().unique(),
     // agent-<id>.meta.json 的 toolUseId，指回父 session 中的 tool 调用
-    parentToolUseId: text('parent_tool_use_id'),
-    agentType: text('agent_type'),
+    parentToolUseId: text('parent_tool_use_id').notNull(),
+    agentType: text('agent_type').notNull(),
+    description: text('description'),
     parseOffset: integer('parse_offset').notNull().default(0),
+    parseState: text('parse_state', { mode: 'json' }).$type<ParseState>().notNull(),
   },
-  (t) => [primaryKey({ columns: [t.sessionId, t.agentId] })],
+  (t) => [
+    primaryKey({ columns: [t.sessionId, t.agentId] }),
+    index('subagents_parent_tool_use_idx').on(t.sessionId, t.parentToolUseId),
+  ],
 );
 
 // 每次模型请求一行，按 message.id 去重
@@ -233,7 +264,10 @@ export const requests = sqliteTable(
     seq: integer('seq').notNull(),
     // 主 agent 为空
     agentId: text('agent_id'),
+    // 该 message 首条记录的时间
     timestamp: integer('timestamp', { mode: 'timestamp_ms' }).notNull(),
+    // 触发它的上一条用户消息或 tool_result 的时间；增量合并时用来重算 duration
+    triggerAt: integer('trigger_at', { mode: 'timestamp_ms' }),
     model: text('model').notNull(),
     thinking: text('thinking'),
     text: text('text'),
@@ -248,8 +282,29 @@ export const requests = sqliteTable(
   },
   (t) => [
     uniqueIndex('requests_session_message_idx').on(t.sessionId, t.messageId),
-    index('requests_session_seq_idx').on(t.sessionId, t.seq),
-    index('requests_session_agent_idx').on(t.sessionId, t.agentId),
+    index('requests_session_agent_seq_idx').on(t.sessionId, t.agentId, t.seq),
+  ],
+);
+
+// jsonl 中非 tool_result、非 isMeta 的 user 记录：用户消息（含模拟用户与人的回答），
+// 以及 Claude Code 自己生成的系统事件（后台任务通知、本地命令输出）
+export const userMessages = sqliteTable(
+  'user_messages',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    sessionId: text('session_id')
+      .notNull()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
+    // 主 agent 为空
+    agentId: text('agent_id'),
+    uuid: text('uuid').notNull(),
+    kind: text('kind', { enum: ['user', 'notice'] }).notNull(),
+    timestamp: integer('timestamp', { mode: 'timestamp_ms' }).notNull(),
+    text: text('text').notNull(),
+  },
+  (t) => [
+    uniqueIndex('user_messages_session_uuid_idx').on(t.sessionId, t.uuid),
+    index('user_messages_session_agent_time_idx').on(t.sessionId, t.agentId, t.timestamp),
   ],
 );
 
