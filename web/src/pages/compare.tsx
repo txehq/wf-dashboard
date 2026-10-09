@@ -276,7 +276,11 @@ function CompareBody({
       (data.includeIntervened || !r.humanIntervened),
   );
   return (
-    <div className={cn('flex flex-col gap-10', result.isPlaceholderData && 'opacity-60')}>
+    <div
+      data-testid="compare-body"
+      data-refreshing={result.isPlaceholderData}
+      className={cn('flex flex-col gap-10', result.isPlaceholderData && 'opacity-60')}
+    >
       <Section title="分数" id="compare-scores">
         <ScoreTable
           result={data}

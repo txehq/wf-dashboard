@@ -3,9 +3,12 @@ import { expect, type Locator, type Page, test } from '@playwright/test';
 // 数据由 server/scripts/seed-compare-e2e.ts 写入专用数据目录：
 // 基线与 "interview 追问边界" 两个 variant × lfg-calculator 与 ic-money-format × 每格 3 次，
 // 另有一次有人工干预的基线 lfg run，以及只试跑过一次 lfg 的第三个 variant
-// 页面截取视口（选择区与分数表）；某一节截取该节的完整内容
-const shot = (target: Page | Locator, name: string) =>
-  target.screenshot({ path: `.work/screenshots/w11-${name}.png`, animations: 'disabled' });
+// 页面截取视口（选择区与分数表）；某一节截取该节的完整内容。截图前等改选后的数据加载完
+const shot = async (target: Page | Locator, name: string) => {
+  const page = 'page' in target ? target.page() : target;
+  await expect(page.getByTestId('compare-body')).toHaveAttribute('data-refreshing', 'false');
+  await target.screenshot({ path: `.work/screenshots/w11-${name}.png`, animations: 'disabled' });
+};
 const sectionOf = (page: Page, title: string) =>
   page.locator('section', { has: page.getByRole('heading', { level: 2, name: title }) });
 

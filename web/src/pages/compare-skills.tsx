@@ -73,7 +73,9 @@ function DiffView({ from, to }: { from: string; to: string }) {
         </div>
       </div>
       <div className="min-h-0 min-w-0 flex-1" data-testid="skill-diff">
-        {file !== undefined && <SkillDiffEditor key={`${from}:${to}:${file.path}`} file={file} />}
+        {file !== undefined && (
+          <SkillDiffEditor key={`${from}:${to}:${file.path}`} file={file} collapseUnchanged />
+        )}
       </div>
     </div>
   );
