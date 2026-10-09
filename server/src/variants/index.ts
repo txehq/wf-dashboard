@@ -26,6 +26,8 @@ export interface VariantsOptions {
   // txe-workflow 仓库
   repo: string;
   ctxBin: string;
+  // gateway 认证 env 的来源，默认 config.claudeSettingsPath
+  claudeSettingsPath?: string | undefined;
 }
 
 export interface SkillFile {
@@ -98,9 +100,26 @@ function isolatedBaseEnv(): Record<string, string> {
   );
 }
 
-export function createVariants({ db, dataDir, repo, ctxBin }: VariantsOptions) {
+export function createVariants({ db, dataDir, repo, ctxBin, claudeSettingsPath }: VariantsOptions) {
   const layout = dataLayout(dataDir);
   const runtimeBuilds = new Map<string, Promise<void>>();
+
+  // 把 settings 源的 env 块合并进 variant 的 settings.json，其他字段原样保留；返回合并的键。
+  // 先写临时文件再 rename：同一 variant 的并发 run 不会读到写了一半的文件
+  function writeIsolatedSettings(
+    claudeDir: string,
+    edit: (settings: z.infer<typeof IsolatedSettings>) => void = () => undefined,
+  ): string[] {
+    const file = path.join(claudeDir, 'settings.json');
+    const settings = IsolatedSettings.parse(JSON.parse(fs.readFileSync(file, 'utf8')));
+    const sourceEnv = claudeSettingsEnv(claudeSettingsPath);
+    settings.env = { ...settings.env, ...sourceEnv };
+    edit(settings);
+    const tmp = `${file}.${randomUUID()}.tmp`;
+    fs.writeFileSync(tmp, `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600 });
+    fs.renameSync(tmp, file);
+    return Object.keys(sourceEnv);
+  }
 
   // 上次服务退出时仍在构建的 variant 不会再完成
   db.update(variants)
@@ -491,22 +510,18 @@ export function createVariants({ db, dataDir, repo, ctxBin }: VariantsOptions) {
       await sandboxed('status', dirs.wfBin, ['status']);
 
       started = performance.now();
-      // 认证与 gateway 模型别名只来自真实 settings.json 的 env 块，其他字段不复制
-      const settingsPath = path.join(dirs.claudeDir, 'settings.json');
-      const settings = IsolatedSettings.parse(JSON.parse(fs.readFileSync(settingsPath, 'utf8')));
-      const realEnv = claudeSettingsEnv();
-      settings.env = { ...settings.env, ...realEnv };
-      // cwd 在 $HOME 之下时，真实 ~/.claude/CLAUDE.md 会被当作祖先目录的文件读入
+      // 认证与 gateway 模型别名只来自 settings 源的 env 块，其他字段不复制
       const home = os.homedir();
-      settings.claudeMdExcludes = [
-        path.join(home, '.claude/CLAUDE.md'),
-        path.join(home, '.claude/rules/**'),
-      ];
-      fs.writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+      let excludes: string[] = [];
+      const merged = writeIsolatedSettings(dirs.claudeDir, (settings) => {
+        // cwd 在 $HOME 之下时，真实 ~/.claude/CLAUDE.md 会被当作祖先目录的文件读入
+        excludes = [path.join(home, '.claude/CLAUDE.md'), path.join(home, '.claude/rules/**')];
+        settings.claudeMdExcludes = excludes;
+      });
       log.note(
         'merge-settings-env',
         started,
-        `合并键 ${Object.keys(realEnv).join(', ')}；claudeMdExcludes ${settings.claudeMdExcludes.join(', ')}`,
+        `合并键 ${merged.join(', ')}；claudeMdExcludes ${excludes.join(', ')}`,
       );
 
       // wf 只从 lock 固定的 ctx 提供 wf-history，隔离目录里没有；改由 --mcp-config 直接启动真实 ctx
@@ -566,6 +581,16 @@ export function createVariants({ db, dataDir, repo, ctxBin }: VariantsOptions) {
         .where(eq(variants.id, id))
         .run();
       return get(id);
+    },
+
+    // runs 每次启动 claude 前调用：重新合并 settings 源当前的 env 块（token 与模型名会变），
+    // 只改 env，不属于 variant 的内容标识，不影响冻结与 hash
+    refreshAuthEnv(id: string): string[] {
+      const row = get(id);
+      if (row.buildStatus !== 'built') {
+        throw new HttpError(409, `variant ${row.name} 还没有构建，没有 settings.json`);
+      }
+      return writeIsolatedSettings(layout.variant(id).claudeDir);
     },
 
     runtimeEnv(id: string): RuntimeEnv {

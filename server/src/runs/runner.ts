@@ -244,6 +244,7 @@ export class RunDriver {
 
   private async start(run: RunRow, initial: string) {
     if (this.shuttingDown) throw new Error('服务关闭，运行中断');
+    this.deps.variants.refreshAuthEnv(run.variantId);
     const runtime = this.deps.variants.runtimeEnv(run.variantId);
     const env: Record<string, string> = {
       ...runtime.env,

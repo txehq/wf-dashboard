@@ -1,12 +1,11 @@
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { z } from 'zod';
+import { config } from '../config.js';
 import { costUsd, fromApiUsage, type TokenUsage } from './pricing.js';
 
-// 本机 Claude Code 经 gateway 认证，地址、凭据与模型别名都在 ~/.claude/settings.json 的 env 中
+// 本机 Claude Code 经 gateway 认证，地址、凭据与模型别名都在 settings.json 的 env 中（config.claudeSettingsPath）
 const Settings = z.object({
   env: z
     .object({
@@ -19,10 +18,10 @@ const Settings = z.object({
     .loose(),
 });
 
-export function claudeSettingsEnv(): z.infer<typeof Settings>['env'] {
-  const raw: unknown = JSON.parse(
-    fs.readFileSync(path.join(os.homedir(), '.claude/settings.json'), 'utf8'),
-  );
+export function claudeSettingsEnv(
+  file: string = config.claudeSettingsPath,
+): z.infer<typeof Settings>['env'] {
+  const raw: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
   return Settings.parse(raw).env;
 }
 
@@ -31,13 +30,31 @@ const env = claudeSettingsEnv();
 // 别名中的 [1m] 是 Claude Code 的上下文标记，Messages API 不接受
 const stripContextTag = (model: string) => model.replace(/\[[^\]]*\]$/, '');
 
-export const models = {
-  simulatedUser: stripContextTag(env.ANTHROPIC_DEFAULT_SONNET_MODEL),
-  judge: stripContextTag(env.ANTHROPIC_DEFAULT_OPUS_MODEL),
-  // 阶段判定的默认模型：WFD_STAGE_CHECK_MODEL，未设置时为 haiku 别名；Settings 中的设置值优先于它
-  stageCheck:
-    process.env.WFD_STAGE_CHECK_MODEL ?? stripContextTag(env.ANTHROPIC_DEFAULT_HAIKU_MODEL),
-} as const;
+export interface Models {
+  simulatedUser: string;
+  judge: string;
+  stageCheck: string;
+}
+
+// 默认值：模拟用户与 judge 取 settings env 中 sonnet / opus 的别名；
+// 阶段判定取环境变量 WFD_STAGE_CHECK_MODEL，未设置时取 haiku 别名。数据库中的设置优先于这些默认值
+export function defaultModels(): Models {
+  const current = claudeSettingsEnv();
+  return {
+    simulatedUser: stripContextTag(current.ANTHROPIC_DEFAULT_SONNET_MODEL),
+    judge: stripContextTag(current.ANTHROPIC_DEFAULT_OPUS_MODEL),
+    stageCheck: stripContextTag(
+      process.env.WFD_STAGE_CHECK_MODEL ?? current.ANTHROPIC_DEFAULT_HAIKU_MODEL,
+    ),
+  };
+}
+
+// 当前生效的模型；调用处在调用时读取，PUT /api/settings 经 setModels 立即改写
+export const models: Models = defaultModels();
+
+export function setModels(next: Models) {
+  Object.assign(models, next);
+}
 
 let client: Anthropic | undefined;
 

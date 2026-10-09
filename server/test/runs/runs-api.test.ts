@@ -7,14 +7,14 @@ import { buildApp } from '../../src/api/app.js';
 import { config } from '../../src/config.js';
 import { openDatabase } from '../../src/db/index.js';
 import { batches, runs, variants } from '../../src/db/schema.js';
+import { models, setModels } from '../../src/llm/client.js';
 import { newId, RUN_ID } from '../../src/runs/index.js';
-import { defaultSettings } from '../../src/runs/settings.js';
+import { createSettingsStore, defaultSettings } from '../../src/runs/settings.js';
 import { syncTasks } from '../../src/tasks/loader.js';
 
 const work = path.join(config.repoRoot, '.work', 'test-runs', randomUUID());
 fs.mkdirSync(work, { recursive: true });
 const dbFile = path.join(work, 'db.sqlite');
-const settingsPath = path.join(work, 'settings.json');
 const db = openDatabase(dbFile, config.migrationsDir);
 syncTasks(db, config.tasksDir);
 
@@ -59,7 +59,6 @@ const app = await buildApp({
   sseHeartbeatMs: config.sseHeartbeatMs,
   logger: false,
   tasksDir: config.tasksDir,
-  settingsPath,
 });
 
 beforeAll(async () => {
@@ -163,20 +162,36 @@ describe('POST /api/batches', () => {
 });
 
 describe('GET / PUT /api/settings', () => {
-  test('默认值、保存与校验', async () => {
+  test('默认值取 settings env 的模型别名；保存到数据库，模型立即生效', async () => {
+    const defaults = defaultSettings();
     const initial = await app.inject({ method: 'GET', url: '/api/settings' });
-    expect(initial.json()).toEqual(defaultSettings);
-    const next = { runConcurrency: 1, maxUserTurns: 40, defaultRepeats: 2 };
+    expect(initial.json()).toEqual(defaults);
+    expect(defaults.models.stageCheck).not.toMatch(/\[/);
+    const next = {
+      runConcurrency: 1,
+      maxUserTurns: 40,
+      defaultRepeats: 2,
+      models: { ...defaults.models, stageCheck: defaults.models.simulatedUser },
+    };
     const saved = await app.inject({ method: 'PUT', url: '/api/settings', payload: next });
     expect(saved.statusCode).toBe(200);
     expect(saved.json()).toEqual(next);
-    expect(JSON.parse(fs.readFileSync(settingsPath, 'utf8'))).toEqual(next);
+    expect(models.stageCheck).toBe(defaults.models.simulatedUser);
     expect((await app.inject({ method: 'GET', url: '/api/settings' })).json()).toEqual(next);
+    // 重新打开（服务重启）读回数据库中的设置
+    expect(createSettingsStore(db).get()).toEqual(next);
     const invalid = await app.inject({
       method: 'PUT',
       url: '/api/settings',
       payload: { ...next, runConcurrency: 0 },
     });
     expect(invalid.statusCode).toBe(400);
+    const emptyModel = await app.inject({
+      method: 'PUT',
+      url: '/api/settings',
+      payload: { ...next, models: { ...next.models, judge: ' ' } },
+    });
+    expect(emptyModel.statusCode).toBe(400);
+    setModels(defaults.models);
   });
 });

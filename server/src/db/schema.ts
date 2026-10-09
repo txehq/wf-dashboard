@@ -162,6 +162,13 @@ export const batchTasks = sqliteTable(
   ],
 );
 
+// GET / PUT /api/settings 的内容；只有 id = 1 一行，没有这一行时用默认值
+export const settings = sqliteTable('settings', {
+  id: integer('id').primaryKey(),
+  value: text('value', { mode: 'json' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+});
+
 export const runStatuses = [
   'queued',
   'preparing',

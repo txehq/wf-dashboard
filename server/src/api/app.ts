@@ -21,11 +21,9 @@ export interface AppOptions {
   sseHeartbeatMs: number;
   logger: boolean;
   tasksDir: string;
-  // 默认 data/settings.json；测试用各自的文件
-  settingsPath?: string;
 }
 
-export async function buildApp({ db, sseHeartbeatMs, logger, tasksDir, settingsPath }: AppOptions) {
+export async function buildApp({ db, sseHeartbeatMs, logger, tasksDir }: AppOptions) {
   const app = Fastify({ logger });
   await app.register(fastifySSE, { heartbeatInterval: sseHeartbeatMs });
 
@@ -59,7 +57,7 @@ export async function buildApp({ db, sseHeartbeatMs, logger, tasksDir, settingsP
   await app.register(gradeRoutes({ db }));
   await app.register(compareRoutes({ db, variants }));
 
-  const settings = createSettingsStore(settingsPath ?? config.settingsPath);
+  const settings = createSettingsStore(db);
   const runs = createRuns({
     db,
     variants,

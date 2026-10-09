@@ -24,13 +24,16 @@ export const config = {
   // wf-history MCP 直接启动真实的 ctx
   ctxBin: path.join(os.homedir(), '.local/bin/ctx'),
   migrationsDir: fileURLToPath(new URL('../drizzle', import.meta.url)),
-  // 同时进行的运行数；PUT /api/settings 修改后保存在 settingsPath
+  // 同时进行的运行数等默认设置；PUT /api/settings 修改后保存在数据库
   runConcurrency: 3,
   // 每个 variant 在每个 task 上的默认重复次数
   defaultRepeats: 3,
   // 同一 run 中模拟用户回答次数的上限
   maxUserTurns: 80,
-  settingsPath: path.join(dataDir, 'settings.json'),
+  // gateway 认证与模型别名的来源；测试用 WFD_CLAUDE_SETTINGS 指向一份测试用 settings
+  claudeSettingsPath: path.resolve(
+    process.env.WFD_CLAUDE_SETTINGS ?? path.join(os.homedir(), '.claude/settings.json'),
+  ),
   // 评估运行写入的 Obsidian vault 与其中的 product（wf obsidian 写到 <vault>/Project <product>/）
   vaultDir: path.join(os.homedir(), 'Documents/Obsidian Vault'),
   evalProduct: 'Magi Eval',

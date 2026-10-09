@@ -154,6 +154,12 @@ CREATE UNIQUE INDEX `sessions_file_path_unique` ON `sessions` (`file_path`);--> 
 CREATE INDEX `sessions_source_idx` ON `sessions` (`source_id`);--> statement-breakpoint
 CREATE INDEX `sessions_run_idx` ON `sessions` (`run_id`);--> statement-breakpoint
 CREATE INDEX `sessions_started_at_idx` ON `sessions` (`started_at`,`id`);--> statement-breakpoint
+CREATE TABLE `settings` (
+	`id` integer PRIMARY KEY NOT NULL,
+	`value` text NOT NULL,
+	`updated_at` integer NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE `sources` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`path` text NOT NULL,
