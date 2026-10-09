@@ -13,6 +13,7 @@ const dataDir = path.join(config.repoRoot, '.work', 'test-data');
 const work = path.join(config.repoRoot, '.work', 'test-auth-env', randomUUID());
 fs.mkdirSync(work, { recursive: true });
 const source = path.join(work, 'settings.json');
+const codexAuthPath = path.join(work, 'codex-auth.json');
 const dbFile = path.join(work, 'db.sqlite');
 const db = openDatabase(dbFile, config.migrationsDir);
 const variants = createVariants({
@@ -21,11 +22,13 @@ const variants = createVariants({
   repo: config.txeWorkflowRepo,
   ctxBin: config.ctxBin,
   claudeSettingsPath: source,
+  codexAuthPath,
 });
 
 function writeSource(probe: string) {
   const env = { ...claudeSettingsEnv(), WFD_AUTH_PROBE: probe };
   fs.writeFileSync(source, JSON.stringify({ env }), { mode: 0o600 });
+  fs.writeFileSync(codexAuthPath, JSON.stringify({ probe }), { mode: 0o644 });
 }
 
 const Isolated = z.looseObject({
@@ -42,7 +45,7 @@ afterAll(() => {
 });
 
 describe('refreshAuthEnv', () => {
-  test('修改源 settings 的 env 值后刷新：只改 env，冻结的 variant 也可以，hash 不变', async () => {
+  test('修改源 settings 的 env 值与 Codex 凭据后刷新：只改认证，冻结的 variant 也可以，hash 不变', async () => {
     writeSource('v1');
     const base = await variants.createBaseline({
       name: `auth-env-${randomUUID().slice(0, 8)}`,
@@ -65,6 +68,12 @@ describe('refreshAuthEnv', () => {
     expect({ ...after, env: undefined }).toEqual({ ...before, env: undefined });
     // 原子写入不留下临时文件
     expect(fs.readdirSync(path.dirname(file)).filter((f) => f.endsWith('.tmp'))).toEqual([]);
+    // Codex 凭据复制进 variant 的 CODEX_HOME，权限 600
+    const codexHome = variants.runtimeEnv(base.id).env.CODEX_HOME;
+    const copied = path.join(codexHome, 'auth.json');
+    expect(JSON.parse(fs.readFileSync(copied, 'utf8'))).toEqual({ probe: 'v2' });
+    expect(fs.statSync(copied).mode & 0o777).toBe(0o600);
+    expect(fs.readdirSync(codexHome).filter((f) => f.endsWith('.tmp'))).toEqual([]);
     const row = variants.get(base.id);
     expect(row).toMatchObject({
       status: 'frozen',

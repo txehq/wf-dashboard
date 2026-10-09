@@ -7,6 +7,7 @@ import { createTwoFilesPatch } from 'diff';
 import { desc, eq } from 'drizzle-orm';
 import { execa } from 'execa';
 import { z } from 'zod';
+import { config } from '../config.js';
 import type { Db } from '../db/index.js';
 import { variants } from '../db/schema.js';
 import { events } from '../events.js';
@@ -28,6 +29,8 @@ export interface VariantsOptions {
   ctxBin: string;
   // gateway 认证 env 的来源，默认 config.claudeSettingsPath
   claudeSettingsPath?: string | undefined;
+  // Codex 登录凭据的来源，默认 config.codexAuthPath
+  codexAuthPath?: string | undefined;
 }
 
 export interface SkillFile {
@@ -100,7 +103,14 @@ function isolatedBaseEnv(): Record<string, string> {
   );
 }
 
-export function createVariants({ db, dataDir, repo, ctxBin, claudeSettingsPath }: VariantsOptions) {
+export function createVariants({
+  db,
+  dataDir,
+  repo,
+  ctxBin,
+  claudeSettingsPath,
+  codexAuthPath = config.codexAuthPath,
+}: VariantsOptions) {
   const layout = dataLayout(dataDir);
   const runtimeBuilds = new Map<string, Promise<void>>();
 
@@ -584,13 +594,21 @@ export function createVariants({ db, dataDir, repo, ctxBin, claudeSettingsPath }
     },
 
     // runs 每次启动 claude 前调用：重新合并 settings 源当前的 env 块（token 与模型名会变），
-    // 只改 env，不属于 variant 的内容标识，不影响冻结与 hash
+    // 并把 Codex 登录凭据复制进 variant 的 CODEX_HOME（skill 中的 codex exec 用它）；
+    // 认证不属于 variant 的内容标识，不影响冻结与 hash
     refreshAuthEnv(id: string): string[] {
       const row = get(id);
       if (row.buildStatus !== 'built') {
         throw new HttpError(409, `variant ${row.name} 还没有构建，没有 settings.json`);
       }
-      return writeIsolatedSettings(layout.variant(id).claudeDir);
+      const dirs = layout.variant(id);
+      const merged = writeIsolatedSettings(dirs.claudeDir);
+      const auth = path.join(dirs.codexHome, 'auth.json');
+      const tmp = `${auth}.${randomUUID()}.tmp`;
+      fs.copyFileSync(codexAuthPath, tmp);
+      fs.chmodSync(tmp, 0o600);
+      fs.renameSync(tmp, auth);
+      return merged;
     },
 
     runtimeEnv(id: string): RuntimeEnv {

@@ -34,6 +34,10 @@ export const config = {
   claudeSettingsPath: path.resolve(
     process.env.WFD_CLAUDE_SETTINGS ?? path.join(os.homedir(), '.claude/settings.json'),
   ),
+  // skill 中的 codex exec 用的登录凭据，运行前复制进 variant 的 CODEX_HOME
+  codexAuthPath: path.resolve(
+    process.env.WFD_CODEX_AUTH ?? path.join(os.homedir(), '.codex/auth.json'),
+  ),
   // 评估运行写入的 Obsidian vault 与其中的 product（wf obsidian 写到 <vault>/Project <product>/）
   vaultDir: path.join(os.homedir(), 'Documents/Obsidian Vault'),
   evalProduct: 'Magi Eval',
