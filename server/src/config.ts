@@ -14,7 +14,8 @@ export const config = {
   // 多个 worktree 并行运行时用 WFD_PORT 错开
   port: z.coerce.number().int().min(1).max(65535).default(7317).parse(process.env.WFD_PORT),
   dataDir,
-  dbPath: path.join(dataDir, 'db.sqlite'),
+  // e2e 用 WFD_DB_PATH 指向每次重建的独立数据库
+  dbPath: process.env.WFD_DB_PATH ?? path.join(dataDir, 'db.sqlite'),
   variantsDir: path.join(dataDir, 'variants'),
   runsDir: path.join(dataDir, 'runs'),
   tasksDir: path.join(repoRoot, 'tasks'),

@@ -1,8 +1,11 @@
+import path from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
 import { compareServerPort, compareWebPort, serverPort, webPort } from './ports.js';
 
 // Compare 的 e2e 数据目录，由种子脚本清空后写入
 const compareDataDir = '.work/e2e/compare-data';
+// Sessions 的阶段判定从未判定的状态开始：服务端每次使用删除重建的数据库
+const dbDir = path.resolve(import.meta.dirname, '.work/e2e-db');
 
 // 两个开发服务器继承本进程的 WFD_PORT、WFD_WEB_PORT；
 // compare 项目另起一对服务，服务端读取种子脚本写入的专用数据目录
@@ -17,7 +20,11 @@ export default defineConfig({
     {
       name: 'chromium',
       testIgnore: 'compare.spec.ts',
-      use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${String(webPort)}` },
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: `http://127.0.0.1:${String(webPort)}`,
+        viewport: { width: 1600, height: 1000 },
+      },
     },
     {
       name: 'compare',
@@ -30,9 +37,10 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: 'pnpm --filter @wf-dashboard/server dev',
+      command: `rm -rf ${dbDir} && pnpm --filter @wf-dashboard/server dev`,
       url: `http://127.0.0.1:${String(serverPort)}/api/health`,
-      reuseExistingServer: true,
+      env: { WFD_DB_PATH: path.join(dbDir, 'db.sqlite') },
+      reuseExistingServer: false,
     },
     {
       command: 'pnpm --filter @wf-dashboard/web dev',

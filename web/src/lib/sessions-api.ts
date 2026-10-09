@@ -1,0 +1,251 @@
+import {
+  infiniteQueryOptions,
+  queryOptions,
+  useQueryClient,
+  type QueryClient,
+} from '@tanstack/react-query';
+import { useEffect } from 'react';
+
+// 与 Contracts.md 第 2、5 节的 Sessions API 对应
+
+export type Workflow = 'lfg' | 'ic';
+
+export interface Source {
+  path: string;
+  variant: string | null;
+  sessionCount: number;
+  lastModified: string | null;
+  checked: boolean;
+}
+
+export interface Tokens {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheCreation: number;
+}
+
+export interface SessionSummary {
+  id: string;
+  cwd: string | null;
+  title: string | null;
+  source: string | null;
+  startedAt: string;
+  endedAt: string;
+  requestCount: number;
+  tokens: Tokens;
+  costUsd: number;
+  workflows: Workflow[];
+  analyzed: boolean;
+  runId: string | null;
+}
+
+export interface SubagentInfo {
+  agentId: string;
+  agentType: string;
+  description: string | null;
+  parentToolUseId: string;
+  requestCount: number;
+}
+
+export interface SessionDetail extends SessionSummary {
+  subagentCount: number;
+  toolCallCount: number;
+  toolCounts: Record<string, number>;
+  subagents: SubagentInfo[];
+}
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  input: unknown;
+  result: string | null;
+  resultChars: number;
+  isError: boolean;
+  spillPath: string | null;
+  subagentId: string | null;
+}
+
+export interface RequestItem {
+  kind: 'request';
+  seq: number;
+  messageId: string;
+  agentId: string | null;
+  timestamp: string;
+  model: string;
+  thinking: string | null;
+  text: string | null;
+  toolCalls: ToolCall[];
+  tokens: Tokens;
+  costUsd: number;
+  durationMs: number | null;
+  attributionSkill: string | null;
+}
+
+export interface MessageItem {
+  kind: 'user' | 'notice';
+  text: string;
+  timestamp: string;
+}
+
+export type TimelineItem = RequestItem | MessageItem;
+
+export type StageStatus = 'done' | 'active' | 'skipped' | 'not-reached';
+
+export interface StageStats {
+  requests: number;
+  toolCalls: Record<string, number>;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  costUsd: number;
+  durationMs: number;
+  subagents: number;
+}
+
+export interface StageView {
+  stage: string;
+  status: StageStatus;
+  startSeq: number | null;
+  endSeq: number | null;
+  method: 'artifact' | 'llm';
+  evidence: unknown;
+  stats: StageStats;
+}
+
+export interface StageReport {
+  sessionId: string;
+  lfg: StageView[] | null;
+  ic: StageView[] | null;
+  checks: { count: number; inputTokens: number; outputTokens: number; costUsd: number };
+}
+
+async function readJson(response: Response, url: string): Promise<unknown> {
+  if (!response.ok) {
+    const body = (await response.json()) as { error?: string };
+    throw new Error(`${url} 返回 ${String(response.status)}${body.error ? `：${body.error}` : ''}`);
+  }
+  return response.json();
+}
+
+async function getJson(url: string): Promise<unknown> {
+  return readJson(await fetch(url), url);
+}
+
+async function sendJson(method: 'PUT' | 'POST', url: string, body?: unknown): Promise<unknown> {
+  const response = await fetch(url, {
+    method,
+    headers: body === undefined ? {} : { 'content-type': 'application/json' },
+    body: body === undefined ? null : JSON.stringify(body),
+  });
+  return readJson(response, url);
+}
+
+export const sourcesQuery = queryOptions({
+  queryKey: ['sources'],
+  queryFn: async () => (await getJson('/api/sources')) as Source[],
+});
+
+export interface ImportResult {
+  sources: Source[];
+  imported: { files: number; changedSessions: number; durationMs: number };
+}
+
+export async function putSources(paths: string[]): Promise<ImportResult> {
+  return (await sendJson('PUT', '/api/sources', { paths })) as ImportResult;
+}
+
+export interface SessionFilter {
+  q: string;
+  workflow: Workflow | null;
+}
+
+const PAGE_SIZE = 50;
+
+export function sessionsQuery(filter: SessionFilter) {
+  return infiniteQueryOptions({
+    queryKey: ['sessions', filter],
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam }) => {
+      const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
+      if (filter.q !== '') params.set('q', filter.q);
+      if (filter.workflow !== null) params.set('workflow', filter.workflow);
+      if (pageParam !== null) params.set('cursor', pageParam);
+      return (await getJson(`/api/sessions?${params.toString()}`)) as {
+        sessions: SessionSummary[];
+        nextCursor: string | null;
+      };
+    },
+    getNextPageParam: (last) => last.nextCursor,
+  });
+}
+
+export function sessionQuery(id: string) {
+  return queryOptions({
+    queryKey: ['session', id],
+    queryFn: async () => (await getJson(`/api/sessions/${id}`)) as SessionDetail,
+  });
+}
+
+// 未判定的 session 返回 404，这里表示为 null
+export function stagesQuery(id: string) {
+  return queryOptions({
+    queryKey: ['stages', id],
+    queryFn: async () => {
+      const url = `/api/sessions/${id}/stages`;
+      const response = await fetch(url);
+      if (response.status === 404) return null;
+      return (await readJson(response, url)) as StageReport;
+    },
+  });
+}
+
+export async function analyzeSession(id: string): Promise<StageReport> {
+  return (await sendJson('POST', `/api/sessions/${id}/analyze`)) as StageReport;
+}
+
+export interface RequestRange {
+  agent?: string;
+  fromSeq?: number;
+  toSeq?: number;
+}
+
+export function requestsQuery(id: string, range: RequestRange) {
+  return queryOptions({
+    queryKey: ['requests', id, range],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (range.agent !== undefined) params.set('agent', range.agent);
+      if (range.fromSeq !== undefined) params.set('fromSeq', String(range.fromSeq));
+      if (range.toSeq !== undefined) params.set('toSeq', String(range.toSeq));
+      const query = params.toString();
+      const url = `/api/sessions/${id}/requests${query === '' ? '' : `?${query}`}`;
+      return ((await getJson(url)) as { items: TimelineItem[] }).items;
+    },
+  });
+}
+
+function invalidateSession(client: QueryClient, sessionId: string) {
+  void client.invalidateQueries({ queryKey: ['sessions'] });
+  void client.invalidateQueries({ queryKey: ['session', sessionId] });
+  void client.invalidateQueries({ queryKey: ['requests', sessionId] });
+  void client.invalidateQueries({ queryKey: ['stages', sessionId] });
+}
+
+// 订阅 /api/events：session 有新请求写入或阶段变化时刷新相关查询
+export function useSessionEvents() {
+  const client = useQueryClient();
+  useEffect(() => {
+    const source = new EventSource('/api/events');
+    const onSession = (event: MessageEvent<string>) => {
+      const data = JSON.parse(event.data) as { sessionId: string };
+      invalidateSession(client, data.sessionId);
+    };
+    source.addEventListener('session.updated', onSession);
+    source.addEventListener('stage.changed', onSession);
+    return () => {
+      source.close();
+    };
+  }, [client]);
+}

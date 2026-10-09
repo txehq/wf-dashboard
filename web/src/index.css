@@ -47,6 +47,33 @@
   --status-critical: #d03b3b;
 }
 
+/* 图表与阶段状态的颜色，取自 dataviz 参考调色板（单一序列用 slot 1，状态色固定） */
+:root {
+  --viz-series-1: #2a78d6;
+  --viz-grid: #e1e0d9;
+  --viz-axis: #c3c2b7;
+  --viz-muted-ink: #898781;
+  --viz-status-good: #0ca30c;
+  --viz-status-good-text: #006300;
+}
+
+.dark {
+  --viz-series-1: #3987e5;
+  --viz-grid: #2c2c2a;
+  --viz-axis: #383835;
+  --viz-status-good-text: #0ca30c;
+}
+
+/* 分析阶段时的不确定进度条 */
+@keyframes progress {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+
 .dark {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
