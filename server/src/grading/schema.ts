@@ -148,9 +148,22 @@ export const CompareResult = z.object({
   variants: z.array(z.string()),
   tasks: z.array(z.string()),
   includeIntervened: z.boolean(),
+  includeCrossRef: z.boolean(),
   cells: z.array(CompareCell),
 });
 export type CompareResult = z.infer<typeof CompareResult>;
+
+// Contracts 7.11：run 的 requests 中指向其他评估 run 的引用（runs.cross_run_refs 的元素）
+export const CrossRunRef = z.object({
+  // 被引用的 run
+  runId: z.string(),
+  kind: z.enum(['repo', 'vault', 'ticket', 'other']),
+  // 主 session 的 seq；子代理中的调用取发起该子代理的主 session 请求
+  requestSeq: z.number(),
+  toolCallId: z.string(),
+  excerpt: z.string(),
+});
+export type CrossRunRef = z.infer<typeof CrossRunRef>;
 
 // Compare 页面可选的 run：全部已评分（succeeded）的 run
 export const CompareRun = z.object({
@@ -158,6 +171,7 @@ export const CompareRun = z.object({
   variantId: z.string(),
   taskId: z.string(),
   humanIntervened: z.boolean(),
+  crossRunRefs: z.array(CrossRunRef),
   // ISO 时间，web 用同一个 schema 解析响应
   createdAt: z.iso.datetime(),
 });

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { artifactKinds, runMessageRoles, runStatuses, workflows } from '../db/schema.js';
+import { CrossRunRef } from '../grading/schema.js';
 import { StageReport } from '../stages/report.js';
 
 // Runs API 与 run.* 事件共用的形状（Contracts 7.6）
@@ -65,6 +66,7 @@ export const RunSummary = z.object({
   // 从开始准备到结束（未结束时到现在）
   durationMs: z.number().nullable(),
   humanIntervened: z.boolean(),
+  crossRunRefs: z.array(CrossRunRef),
   error: z.string().nullable(),
   createdAt: z.number(),
   startedAt: z.number().nullable(),

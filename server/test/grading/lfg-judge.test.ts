@@ -105,12 +105,13 @@ describe('lfg rubric judge（真实 vault 文档、真实 judge 调用）', { ti
         lfg.artifacts.reduce((n, a) => n + a.costUsd, 0),
         10,
       );
+      // grading 由 SQL 对各组花费求和，与 grades.costUsd 的累加顺序不同，只比较到 10 位
       expect(runCostBreakdown(db, id)).toEqual({
         agent: 0,
         simulatedUser: 0,
         stageCheck: 0,
-        grading: grades.costUsd,
-        total: grades.costUsd,
+        grading: expect.closeTo(grades.costUsd, 10) as number,
+        total: expect.closeTo(grades.costUsd, 10) as number,
       });
     }
 

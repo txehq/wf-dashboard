@@ -42,7 +42,7 @@ export interface ParseState {
 // lfg 的 rubric 按产物分组，定义在 task schema 中
 import { type ArtifactRubric, rubricArtifacts } from '../tasks/schema.js';
 export type { ArtifactRubric, RubricItem } from '../tasks/schema.js';
-import type { IcDetail } from '../grading/schema.js';
+import type { CrossRunRef, IcDetail } from '../grading/schema.js';
 
 const createdAt = () =>
   integer('created_at', { mode: 'timestamp_ms' })
@@ -205,6 +205,10 @@ export const runs = sqliteTable(
     githubRepo: text('github_repo'),
     prUrl: text('pr_url'),
     costUsd: real('cost_usd').notNull().default(0),
+    crossRunRefs: text('cross_run_refs', { mode: 'json' })
+      .$type<CrossRunRef[]>()
+      .notNull()
+      .default(sql`'[]'`),
     error: text('error'),
     createdAt: createdAt(),
     startedAt: integer('started_at', { mode: 'timestamp_ms' }),

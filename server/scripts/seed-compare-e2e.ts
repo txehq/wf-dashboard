@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { parse } from 'yaml';
 import { z } from 'zod';
 import { config } from '../src/config.js';
@@ -27,6 +27,7 @@ import {
 import type { IcDetail } from '../src/grading/schema.js';
 import { initialParseState } from '../src/ingest/ingest.js';
 import { costUsd } from '../src/llm/pricing.js';
+import { scanCrossRunRefs } from '../src/runs/cross-run-refs.js';
 import { IC_STAGES, LFG_STAGES } from '../src/stages/workflow.js';
 import { loadIcTask, loadLfgTask, syncTasks } from '../src/tasks/loader.js';
 import type { RubricArtifact } from '../src/tasks/schema.js';
@@ -34,7 +35,8 @@ import { createVariants } from '../src/variants/index.js';
 
 // 用法：WFD_DATA_DIR=<e2e 数据目录> tsx scripts/seed-compare-e2e.ts
 // 清空该数据目录，写入 Compare 页面 e2e 用的数据：基线与一个修改过的 variant（真实导出与派生），
-// lfg-calculator 与 ic-money-format 各 3 次已评分的 run，另有一次有人工干预的基线 lfg run。
+// lfg-calculator 与 ic-money-format 各 3 次已评分的 run，另有一次有人工干预的基线 lfg run，
+// 一次参考了其他 run 仓库的 ic run。
 // run、session、请求、阶段、模拟用户消息、产物快照与评分的形状与运行模块和评分模块写入的相同。
 
 if (config.dataDir === path.join(config.repoRoot, 'data')) {
@@ -663,6 +665,8 @@ const icResults: Record<VariantKey, { passed: number; reached: boolean }[]> = {
     { passed: 17, reached: true },
     { passed: 19, reached: true },
     { passed: 18, reached: false },
+    // 参考了基线 ic run 仓库的那次 run
+    { passed: 19, reached: true },
   ],
 };
 const icProfiles: Record<VariantKey, [string, number, number][]> = {
@@ -768,6 +772,45 @@ for (let index = 0; index < 3; index++) {
 seedLfgRun('baseline', 3, 'r-20261009-balf03', true);
 // 试跑的 variant 产物与 "interview 追问边界" 相同，评分取其第 2 次 run
 seedLfgRun('modified', 1, 'r-20261009-trlf00', false, trial.id);
+
+// 修改后的 variant 第 4 次 ic run 在 implement 中读取了基线第 1 次 ic run 的仓库，引用由 runs 模块的扫描写入
+const crossRefRun = 'r-20261009-moic03';
+seedIcRun('modified', 3, crossRefRun);
+const crossRefSession = db.select().from(runs).where(eq(runs.id, crossRefRun)).get()?.sessionId;
+if (crossRefSession === undefined) throw new Error(`没有 run ${crossRefRun}`);
+const readRequest = db
+  .select()
+  .from(requests)
+  .where(eq(requests.sessionId, crossRefSession))
+  .orderBy(asc(requests.seq))
+  .all()
+  .filter((q) => q.agentId === null)[14];
+if (readRequest === undefined) throw new Error(`run ${crossRefRun} 的请求不足 15 条`);
+db.update(requests)
+  .set({
+    toolCalls: [
+      ...readRequest.toolCalls,
+      {
+        id: 'toolu_crossref0000001',
+        name: 'Bash',
+        input: {
+          command:
+            'gh api repos/txehq/wfe-r-20261009-baic00/contents/src/format.js --jq .content | base64 -d',
+        },
+        result: '（format.js 的内容）',
+        resultChars: 2400,
+        isError: false,
+        spillPath: null,
+        subagentId: null,
+      },
+    ],
+  })
+  .where(eq(requests.id, readRequest.id))
+  .run();
+db.update(runs)
+  .set({ crossRunRefs: scanCrossRunRefs(db, crossRefRun) })
+  .where(eq(runs.id, crossRefRun))
+  .run();
 
 console.log(
   JSON.stringify({

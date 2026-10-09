@@ -27,14 +27,20 @@ export const compareRunsQuery = queryOptions({
   queryFn: async () => z.array(CompareRun).parse(await getJson('/api/compare/runs')),
 });
 
-export const compareQuery = (variants: string[], tasks: string[], includeIntervened: boolean) =>
+export const compareQuery = (
+  variants: string[],
+  tasks: string[],
+  includeIntervened: boolean,
+  includeCrossRef: boolean,
+) =>
   queryOptions({
-    queryKey: ['compare', variants, tasks, includeIntervened],
+    queryKey: ['compare', variants, tasks, includeIntervened, includeCrossRef],
     queryFn: async () => {
       const params = new URLSearchParams({
         variants: variants.join(','),
         tasks: tasks.join(','),
         includeIntervened: String(includeIntervened),
+        includeCrossRef: String(includeCrossRef),
       });
       return CompareResult.parse(await getJson(`/api/compare?${params.toString()}`));
     },

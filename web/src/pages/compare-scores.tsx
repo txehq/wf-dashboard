@@ -76,12 +76,14 @@ function ScoreCell({
   base,
   variant,
   intervened,
+  crossRef,
   isBaseline,
 }: {
   cell: CompareCell;
   base: CompareCell;
   variant: SelectedVariant;
   intervened: Set<string>;
+  crossRef: Set<string>;
   isBaseline: boolean;
 }) {
   const main = mainOf(cell);
@@ -105,7 +107,11 @@ function ScoreCell({
       <span className="sr-only">{label}</span>
       {!isBaseline && <Delta base={mainOf(base)} current={main} scale={100} unit=" 个百分点" />}
       <DotStrip
-        values={main.values.map((v) => ({ ...v, intervened: intervened.has(v.runId) }))}
+        values={main.values.map((v) => ({
+          ...v,
+          intervened: intervened.has(v.runId),
+          crossRef: crossRef.has(v.runId),
+        }))}
         mean={main.mean}
         stdDev={main.stdDev}
         color={seriesColor(variant.slot)}
@@ -269,11 +275,13 @@ function TaskRow({
   result,
   variants,
   intervened,
+  crossRef,
 }: {
   task: TaskRecord;
   result: CompareResult;
   variants: SelectedVariant[];
   intervened: Set<string>;
+  crossRef: Set<string>;
 }) {
   const [open, setOpen] = useState(false);
   const cells = variants.map((v) => cellOf(result, v.id, task.task.id));
@@ -309,6 +317,7 @@ function TaskRow({
                 base={base}
                 variant={variant}
                 intervened={intervened}
+                crossRef={crossRef}
                 isBaseline={i === 0}
               />
             </td>
@@ -335,11 +344,13 @@ export function ScoreTable({
   variants,
   tasks,
   intervened,
+  crossRef,
 }: {
   result: CompareResult;
   variants: SelectedVariant[];
   tasks: TaskRecord[];
   intervened: Set<string>;
+  crossRef: Set<string>;
 }) {
   const groups = [
     { kind: 'lfg', title: '/lfg · 总得分率', records: tasks.filter((t) => t.task.kind === 'lfg') },
@@ -352,8 +363,8 @@ export function ScoreTable({
   return (
     <div className="flex flex-col gap-2">
       <p className="text-xs text-muted-foreground">
-        均值 ± 标准差。横轴 0–100%：每个点是一次
-        run（空心为有人工干预，点击打开详情），竖线为均值，横线为 ± 标准差。
+        均值 ± 标准差。横轴 0–100%：每个点是一次 run（空心为有人工干预，菱形为参考了其他
+        run，点击打开详情），竖线为均值，横线为 ± 标准差。
       </p>
       <div className="overflow-x-auto rounded-lg border">
         <table className="w-full text-sm" data-testid="score-table">
@@ -395,6 +406,7 @@ export function ScoreTable({
                     result={result}
                     variants={variants}
                     intervened={intervened}
+                    crossRef={crossRef}
                   />
                 ))}
               </Fragment>

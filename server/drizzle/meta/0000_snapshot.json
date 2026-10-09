@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6ec4c856-ee75-4e79-a0f6-46fb797d0084",
+  "id": "e30583d2-3a4e-482f-b07b-d3695a9bd258",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "artifacts": {
@@ -854,6 +854,14 @@
           "notNull": true,
           "autoincrement": false,
           "default": 0
+        },
+        "cross_run_refs": {
+          "name": "cross_run_refs",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
         },
         "error": {
           "name": "error",

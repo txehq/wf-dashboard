@@ -18,6 +18,7 @@ import type { Task } from '../tasks/schema.js';
 import { HttpError } from '../variants/errors.js';
 import type { Variants } from '../variants/index.js';
 import { ClaudeProcess } from './claude-process.js';
+import { scanCrossRunRefs } from './cross-run-refs.js';
 import { recordFriction } from './friction.js';
 import { IcLiveStages, LfgLiveStages, type LiveStages } from './live-stages.js';
 import { addMessage, listMessages, upsertArtifact } from './records.js';
@@ -343,6 +344,7 @@ export class RunDriver {
   private async afterTurn() {
     await this.stages?.onTurnEnd();
     this.updateCost();
+    this.update({ crossRunRefs: scanCrossRunRefs(this.db, this.runId) });
     await recordFriction(this.db, this.runId, this.row().sessionId);
     if (this.task.kind === 'ic') await this.pollPr();
   }
@@ -630,6 +632,7 @@ export class RunDriver {
     await Promise.race([this.stages?.close(), this.failed]);
     await this.sessionWatcher?.close();
     this.sessionWatcher = null;
+    this.update({ crossRunRefs: scanCrossRunRefs(this.db, this.runId) });
     await recordFriction(this.db, this.runId, this.row().sessionId);
     if (this.task.kind === 'ic') await this.pollPr();
     this.updateCost();

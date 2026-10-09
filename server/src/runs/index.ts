@@ -161,6 +161,7 @@ export function createRuns(deps: RunnerDeps) {
         durationMs:
           r.startedAt === null ? null : (r.endedAt?.getTime() ?? now) - r.startedAt.getTime(),
         humanIntervened: r.humanIntervened,
+        crossRunRefs: r.crossRunRefs,
         error: r.error,
         createdAt: r.createdAt.getTime(),
         startedAt: r.startedAt?.getTime() ?? null,

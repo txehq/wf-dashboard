@@ -2,7 +2,7 @@ import { expect, type Locator, type Page, test } from '@playwright/test';
 
 // 数据由 server/scripts/seed-compare-e2e.ts 写入专用数据目录：
 // 基线与 "interview 追问边界" 两个 variant × lfg-calculator 与 ic-money-format × 每格 3 次，
-// 另有一次有人工干预的基线 lfg run，以及只试跑过一次 lfg 的第三个 variant
+// 另有一次有人工干预的基线 lfg run、一次读取了基线 ic run 仓库的 ic run，以及只试跑过一次 lfg 的第三个 variant
 // 页面截取视口（选择区与分数表）；某一节截取该节的完整内容。截图前等改选后的数据加载完
 const shot = async (target: Page | Locator, name: string) => {
   const page = 'page' in target ? target.page() : target;
@@ -89,7 +89,7 @@ test('包含与排除有人工干预的 run', async ({ page }) => {
   const baseCell = lfgRow(page).getByTestId('score-cell').first();
   await expect(baseCell).toContainText('3 次 run');
   const toggle = page.getByRole('checkbox', { name: '包含有人工干预的 run' });
-  await expect(page.getByText('选中范围内有 1 次')).toBeVisible();
+  await expect(page.getByTestId('intervened-count')).toHaveText('选中范围内有 1 次');
 
   await toggle.check();
   await expect(baseCell).toContainText('4 次 run');
@@ -103,6 +103,31 @@ test('包含与排除有人工干预的 run', async ({ page }) => {
   await toggle.uncheck();
   await expect(baseCell).toContainText('3 次 run');
   await expect(baseCell.getByTestId('cell-mean')).toHaveText('54% ± 1%');
+});
+
+test('包含与排除参考了其他 run 的 run：菱形点，与人工干预的开关互不影响', async ({ page }) => {
+  const modCell = icRow(page).getByTestId('score-cell').nth(1);
+  await expect(modCell).toContainText('3 次 run');
+  const toggle = page.getByRole('checkbox', { name: '包含参考了其他 run 的 run' });
+  await expect(toggle).not.toBeChecked();
+  await expect(page.getByTestId('cross-ref-count')).toHaveText('选中范围内有 1 次');
+
+  await toggle.check();
+  await expect(modCell).toContainText('4 次 run');
+  const crossDot = modCell.getByRole('link', {
+    name: 'run r-20261009-moic03：100.0%，参考了其他 run',
+  });
+  await expect(crossDot).toHaveAttribute('data-cross-ref', 'true');
+  await expect(modCell.locator('[data-testid="run-dot"][data-cross-ref="true"]')).toHaveCount(1);
+  // 人工干预的 run 仍被排除
+  await expect(lfgRow(page).getByTestId('score-cell').first()).toContainText('3 次 run');
+  await page.getByRole('checkbox', { name: '包含有人工干预的 run' }).check();
+  await expect(lfgRow(page).getByTestId('score-cell').first()).toContainText('4 次 run');
+  await crossDot.hover();
+  await page.screenshot({ path: '.work/screenshots/w13-compare.png', animations: 'disabled' });
+
+  await toggle.uncheck();
+  await expect(modCell).toContainText('3 次 run');
 });
 
 test('只有一次 run 的差值标为不可信，没有 run 的格子，切换基线与取消 task', async ({ page }) => {

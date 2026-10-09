@@ -6,7 +6,7 @@ import { buildApp } from '../src/api/app.js';
 import { config } from '../src/config.js';
 import { openDatabase } from '../src/db/index.js';
 import { artifacts } from '../src/db/schema.js';
-import { CompareRun, RunArtifacts, SkillDiff } from '../src/grading/schema.js';
+import { CompareRun, type CrossRunRef, RunArtifacts, SkillDiff } from '../src/grading/schema.js';
 import { syncTasks } from '../src/tasks/loader.js';
 import { insertRun } from './grading/seed.js';
 
@@ -21,6 +21,13 @@ const app = await buildApp({
 });
 const marker = randomUUID().slice(0, 8);
 const createdIds: string[] = [];
+const crossRef: CrossRunRef = {
+  runId: `cmp-b-${marker}`,
+  kind: 'repo',
+  requestSeq: 3,
+  toolCallId: 'toolu_cross',
+  excerpt: `gh api repos/txehq/wfe-cmp-b-${marker}/contents/package.json`,
+};
 
 interface VariantBody {
   id: string;
@@ -78,6 +85,7 @@ beforeAll(async () => {
     taskId: 'lfg-calculator',
     variantId: base.id,
     status: 'succeeded',
+    crossRunRefs: [crossRef],
     createdAt: new Date('2026-10-09T08:00:00Z'),
   });
   insertRun(db, {
@@ -133,6 +141,7 @@ describe('compare 页面的只读接口', () => {
         variantId: base.id,
         taskId: 'lfg-calculator',
         humanIntervened: false,
+        crossRunRefs: [crossRef],
         createdAt: '2026-10-09T08:00:00.000Z',
       },
       {
@@ -140,6 +149,7 @@ describe('compare 页面的只读接口', () => {
         variantId: edited.id,
         taskId: 'ic-money-format',
         humanIntervened: true,
+        crossRunRefs: [],
         createdAt: '2026-10-09T09:00:00.000Z',
       },
     ]);

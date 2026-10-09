@@ -26,6 +26,7 @@ const Query = z.object({
   variants: IdList,
   tasks: IdList,
   includeIntervened: z.enum(['true', 'false']).default('false'),
+  includeCrossRef: z.enum(['true', 'false']).default('false'),
 });
 
 export function compareRoutes({ db, variants: variantsModule }: { db: Db; variants: Variants }) {
@@ -63,6 +64,7 @@ export function compareRoutes({ db, variants: variantsModule }: { db: Db; varian
           variants: query.variants,
           tasks: query.tasks,
           includeIntervened: query.includeIntervened === 'true',
+          includeCrossRef: query.includeCrossRef === 'true',
         });
       },
     );
@@ -75,6 +77,7 @@ export function compareRoutes({ db, variants: variantsModule }: { db: Db; varian
           variantId: runs.variantId,
           taskId: runs.taskId,
           humanIntervened: runs.humanIntervened,
+          crossRunRefs: runs.crossRunRefs,
           createdAt: runs.createdAt,
         })
         .from(runs)

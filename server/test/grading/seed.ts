@@ -1,6 +1,7 @@
 import { config } from '../../src/config.js';
 import type { Db } from '../../src/db/index.js';
 import { batches, runs, sessions, variants } from '../../src/db/schema.js';
+import type { CrossRunRef } from '../../src/grading/schema.js';
 import { initialParseState } from '../../src/ingest/ingest.js';
 
 export function insertVariant(db: Db, id: string) {
@@ -24,6 +25,7 @@ export interface RunSeed {
   variantId: string;
   status?: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
   humanIntervened?: boolean;
+  crossRunRefs?: CrossRunRef[];
   startedAt?: Date;
   githubRepo?: string | null;
   createdAt?: Date;
@@ -47,6 +49,7 @@ export function insertRun(db: Db, seed: RunSeed) {
       repeatIndex: repeat++,
       status: seed.status ?? 'running',
       humanIntervened: seed.humanIntervened ?? false,
+      crossRunRefs: seed.crossRunRefs ?? [],
       sessionId,
       workspacePath: `${config.runsDir}/${seed.id}/workspace`,
       githubRepo: seed.githubRepo ?? null,

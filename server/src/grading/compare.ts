@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import { max, mean, min, sampleStandardDeviation } from 'simple-statistics';
 import { runCostBreakdown } from '../cost.js';
 import type { Db } from '../db/index.js';
@@ -155,9 +155,11 @@ export interface CompareQuery {
   variants: string[];
   tasks: string[];
   includeIntervened: boolean;
+  includeCrossRef: boolean;
 }
 
-// 每个 variant × task 一格：只取已评分（succeeded）的 run，默认排除有人工干预的 run
+// 每个 variant × task 一格：只取已评分（succeeded）的 run；默认排除有人工干预的 run 与参考了其他 run 的 run，
+// 两个开关各自只放回一类
 export function compareRuns(db: Db, query: CompareQuery): CompareResult {
   const cells = query.variants.flatMap((variantId) =>
     query.tasks.map((taskId): CompareCell => {
@@ -171,6 +173,7 @@ export function compareRuns(db: Db, query: CompareQuery): CompareResult {
             eq(runs.taskId, taskId),
             eq(runs.status, 'succeeded'),
             query.includeIntervened ? undefined : eq(runs.humanIntervened, false),
+            query.includeCrossRef ? undefined : sql`json_array_length(${runs.crossRunRefs}) = 0`,
           ),
         )
         .orderBy(asc(runs.createdAt), asc(runs.id))

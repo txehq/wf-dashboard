@@ -119,6 +119,7 @@ CREATE TABLE `runs` (
 	`github_repo` text,
 	`pr_url` text,
 	`cost_usd` real DEFAULT 0 NOT NULL,
+	`cross_run_refs` text DEFAULT '[]' NOT NULL,
 	`error` text,
 	`created_at` integer DEFAULT (cast(unixepoch('subsec') * 1000 as integer)) NOT NULL,
 	`started_at` integer,

@@ -25,6 +25,7 @@ interface Selection {
   variants: { id: string; slot: number }[];
   tasks: string[];
   includeIntervened: boolean;
+  includeCrossRef: boolean;
 }
 
 function freeSlot(taken: { slot: number }[]): number {
@@ -45,6 +46,7 @@ function defaultSelection(variants: Variant[], tasks: TaskRecord[], runs: Compar
     variants: ordered.slice(0, MAX_VARIANTS).map((v, slot) => ({ id: v.id, slot })),
     tasks: tasks.filter((t) => runs.some((r) => r.taskId === t.task.id)).map((t) => t.task.id),
     includeIntervened: false,
+    includeCrossRef: false,
   };
 }
 
@@ -99,12 +101,10 @@ function SelectionPanel({
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const others = variants.length - graded.length;
   const gradedTasks = tasks.filter((t) => runs.some((r) => r.taskId === t.task.id));
-  const intervenedCount = runs.filter(
-    (r) =>
-      r.humanIntervened &&
-      selection.variants.some((v) => v.id === r.variantId) &&
-      selection.tasks.includes(r.taskId),
-  ).length;
+  const inScope = (r: CompareRun) =>
+    selection.variants.some((v) => v.id === r.variantId) && selection.tasks.includes(r.taskId);
+  const intervenedCount = runs.filter((r) => r.humanIntervened && inScope(r)).length;
+  const crossRefCount = runs.filter((r) => r.crossRunRefs.length > 0 && inScope(r)).length;
   const full = selection.variants.length >= MAX_VARIANTS;
 
   const toggleVariant = (id: string) => {
@@ -222,8 +222,21 @@ function SelectionPanel({
           />
           包含有人工干预的 run
         </label>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-muted-foreground" data-testid="intervened-count">
           {intervenedCount === 0 ? '选中范围内没有' : `选中范围内有 ${String(intervenedCount)} 次`}
+        </p>
+        <label className="mt-2 flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={selection.includeCrossRef}
+            onChange={(event) => {
+              onChange({ ...selection, includeCrossRef: event.target.checked });
+            }}
+          />
+          包含参考了其他 run 的 run
+        </label>
+        <p className="text-xs text-muted-foreground" data-testid="cross-ref-count">
+          {crossRefCount === 0 ? '选中范围内没有' : `选中范围内有 ${String(crossRefCount)} 次`}
         </p>
       </fieldset>
     </div>
@@ -255,6 +268,7 @@ function CompareBody({
       selectedVariants.map((v) => v.id),
       selectedTasks.map((t) => t.task.id),
       selection.includeIntervened,
+      selection.includeCrossRef,
     ),
     enabled: ready,
     placeholderData: keepPreviousData,
@@ -269,11 +283,13 @@ function CompareBody({
   const shownVariants = selectedVariants.filter((v) => data.variants.includes(v.id));
   const shownTasks = selectedTasks.filter((t) => data.tasks.includes(t.task.id));
   const intervened = new Set(runs.filter((r) => r.humanIntervened).map((r) => r.id));
+  const crossRef = new Set(runs.filter((r) => r.crossRunRefs.length > 0).map((r) => r.id));
   const visibleRuns = runs.filter(
     (r) =>
       shownVariants.some((v) => v.id === r.variantId) &&
       shownTasks.some((t) => t.task.id === r.taskId) &&
-      (data.includeIntervened || !r.humanIntervened),
+      (data.includeIntervened || !r.humanIntervened) &&
+      (data.includeCrossRef || r.crossRunRefs.length === 0),
   );
   return (
     <div
@@ -287,6 +303,7 @@ function CompareBody({
           variants={shownVariants}
           tasks={shownTasks}
           intervened={intervened}
+          crossRef={crossRef}
         />
       </Section>
       <Section title="产物并排" id="compare-artifacts">

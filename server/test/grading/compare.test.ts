@@ -20,7 +20,7 @@ import {
   type ToolCall,
 } from '../../src/db/schema.js';
 import { compareRuns } from '../../src/grading/compare.js';
-import { CompareResult } from '../../src/grading/schema.js';
+import { CompareResult, type CrossRunRef } from '../../src/grading/schema.js';
 import { IC_STAGES, LFG_STAGES } from '../../src/stages/workflow.js';
 import { loadIcTask, loadLfgTask, syncTasks } from '../../src/tasks/loader.js';
 import type { RubricArtifact } from '../../src/tasks/schema.js';
@@ -209,7 +209,7 @@ function lfgRun(
   variantId: string,
   factor: number,
   full: (a: RubricArtifact) => boolean,
-  extra: { humanIntervened?: boolean; withSubagent?: boolean } = {},
+  extra: { humanIntervened?: boolean; crossRef?: boolean; withSubagent?: boolean } = {},
 ) {
   const sessionId = insertRun(db, {
     id,
@@ -217,6 +217,7 @@ function lfgRun(
     variantId,
     status: 'succeeded',
     humanIntervened: extra.humanIntervened ?? false,
+    crossRunRefs: extra.crossRef === true ? [crossRef] : [],
     createdAt: new Date(t0 + factor),
   });
   seedSession(db, sessionId, 'lfg', factor, extra.withSubagent ?? false);
@@ -224,13 +225,24 @@ function lfgRun(
   seedLfgGrades(db, id, full);
 }
 
-// lfg：baseline 三个正常 run、一个有人工干预的 run、一个失败的 run；modified 一个 run
+const crossRef: CrossRunRef = {
+  runId: 'i1',
+  kind: 'repo',
+  requestSeq: 2,
+  toolCallId: 'toolu_cross',
+  excerpt: 'gh api repos/txehq/wfe-i1/contents/package.json',
+};
+
+// lfg：baseline 三个正常 run、一个有人工干预的 run、一个失败的 run、一个参考了其他 run 的 run、
+// 一个两者都有的 run；modified 一个 run
 lfgRun('l1', 'baseline', 1, () => true, { withSubagent: true });
 lfgRun('l2', 'baseline', 2, (a) => a === 'brief');
 lfgRun('l3', 'baseline', 3, (a) => a !== 'brief');
 lfgRun('l4', 'baseline', 4, () => false, { humanIntervened: true });
 insertRun(db, { id: 'l5', taskId: lfgTask.id, variantId: 'baseline', status: 'failed' });
 lfgRun('l6', 'modified', 1, () => true);
+lfgRun('l7', 'baseline', 7, () => true, { crossRef: true });
+lfgRun('l8', 'baseline', 8, () => true, { humanIntervened: true, crossRef: true });
 
 // ic：baseline 两个 run
 for (const [id, factor, passed, reached] of [
@@ -266,7 +278,24 @@ describe('compare', () => {
     variants: ['baseline', 'modified'],
     tasks: [lfgTask.id, icTask.id],
     includeIntervened: false,
+    includeCrossRef: false,
   };
+
+  it('两个开关各自只放回一类：includeIntervened 放回人工干预的 run，includeCrossRef 放回参考了其他 run 的 run', () => {
+    const ids = (q: Partial<typeof query>) =>
+      cell(compareRuns(db, { ...query, ...q }), 'baseline', lfgTask.id).runIds;
+    expect(ids({})).toEqual(['l1', 'l2', 'l3']);
+    expect(ids({ includeIntervened: true })).toEqual(['l1', 'l2', 'l3', 'l4']);
+    expect(ids({ includeCrossRef: true })).toEqual(['l1', 'l2', 'l3', 'l7']);
+    expect(ids({ includeIntervened: true, includeCrossRef: true })).toEqual([
+      'l1',
+      'l2',
+      'l3',
+      'l4',
+      'l7',
+      'l8',
+    ]);
+  });
 
   it('lfg：排除有人工干预与未评分的 run，得分率的均值、标准差、最小值、最大值与原始值', () => {
     const c = cell(compareRuns(db, query), 'baseline', lfgTask.id);
@@ -407,6 +436,13 @@ describe('compare', () => {
       url: `/api/compare?${qs}&includeIntervened=true`,
     });
     expect(cell(CompareResult.parse(all.json()), 'baseline', lfgTask.id).runIds).toHaveLength(4);
+    const crossRefs = await app.inject({
+      method: 'GET',
+      url: `/api/compare?${qs}&includeCrossRef=true`,
+    });
+    const crossResult = CompareResult.parse(crossRefs.json());
+    expect(crossResult.includeCrossRef).toBe(true);
+    expect(cell(crossResult, 'baseline', lfgTask.id).runIds).toEqual(['l1', 'l2', 'l3', 'l7']);
     const missing = await app.inject({
       method: 'GET',
       url: `/api/compare?variants=baseline,nope&tasks=${lfgTask.id}`,
