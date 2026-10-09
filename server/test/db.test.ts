@@ -133,6 +133,7 @@ describe('database', () => {
       'run_messages',
       'runs',
       'sessions',
+      'settings',
       'sources',
       'stage_analyses',
       'stage_checks',
