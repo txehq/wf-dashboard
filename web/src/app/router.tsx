@@ -4,6 +4,8 @@ import { ComparePage } from '@/pages/compare';
 import { RunsPage } from '@/pages/runs';
 import { SessionsPage } from '@/pages/sessions';
 import { TasksPage } from '@/pages/tasks';
+import { TaskDetailPage } from '@/pages/tasks-detail';
+import { TaskNewPage } from '@/pages/tasks-new';
 import { VariantsPage } from '@/pages/variants';
 import { VariantDetailPage } from '@/pages/variants-detail';
 
@@ -18,6 +20,8 @@ export const router = createBrowserRouter([
       { path: 'variants', element: <VariantsPage /> },
       { path: 'variants/:id', element: <VariantDetailPage /> },
       { path: 'tasks', element: <TasksPage /> },
+      { path: 'tasks/new', element: <TaskNewPage /> },
+      { path: 'tasks/:id', element: <TaskDetailPage /> },
       { path: 'compare', element: <ComparePage /> },
     ],
   },

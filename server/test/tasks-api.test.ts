@@ -9,6 +9,7 @@ import { parseTaskYaml, syncTasks, taskYamlPath } from '../src/tasks/loader.js';
 import {
   type LfgTaskDefinition,
   RubricDraft,
+  type RubricDraftRequest,
   rubricArtifacts,
   type TaskRecord,
 } from '../src/tasks/schema.js';
@@ -124,13 +125,25 @@ describe('Tasks API', () => {
     expect(list).toHaveLength(7);
   });
 
-  test('ic task 没有 rubric，起草请求返回 400', async () => {
-    expect((await call('POST', '/api/tasks/ic-wrap-cli/rubric-draft')).status).toBe(400);
+  test('起草请求的 body 必须是 lfg task 定义', async () => {
+    const { body } = await call('GET', '/api/tasks/ic-wrap-cli');
+    expect((await call('POST', '/api/tasks/rubric-draft', (body as TaskRecord).task)).status).toBe(
+      400,
+    );
   });
 
-  test('POST rubric-draft 真实调用 judge 模型，返回合法草稿且不保存', async () => {
+  test('POST rubric-draft 按表单内容（不含 rubric）真实调用 judge 模型，返回合法草稿且不保存', async () => {
     const before = readFileSync(taskYamlPath(tasksDir, 'lfg-calculator'), 'utf8');
-    const { status, body } = await call('POST', '/api/tasks/lfg-calculator/rubric-draft');
+    const task = await getLfg('lfg-calculator');
+    const form: RubricDraftRequest = {
+      id: task.id,
+      kind: task.kind,
+      title: task.title,
+      persona: task.persona,
+      hiddenRequirements: task.hiddenRequirements,
+      input: task.input,
+    };
+    const { status, body } = await call('POST', '/api/tasks/rubric-draft', form);
     expect(status).toBe(200);
     const draft = RubricDraft.parse(body);
     expect(draft.rubric.map((g) => g.artifact)).toEqual([...rubricArtifacts]);

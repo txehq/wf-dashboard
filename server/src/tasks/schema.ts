@@ -96,6 +96,10 @@ export const TaskRecord = z.object({
 });
 export type TaskRecord = z.infer<typeof TaskRecord>;
 
+// 起草 rubric 的请求：页面表单中的 lfg task 定义，rubric 可省略
+export const RubricDraftRequest = LfgTaskDefinition.extend({ rubric: Rubric.optional() });
+export type RubricDraftRequest = z.infer<typeof RubricDraftRequest>;
+
 // LLM 起草 rubric 的输出；结构化输出不支持 superRefine，四组的顺序与 id 唯一由调用方再用 Rubric 校验
 export const RubricDraftOutput = z.object({
   rubric: z.array(

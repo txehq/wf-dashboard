@@ -9,7 +9,7 @@ import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import { getTaskRecord, listTaskRecords, saveTask } from '../tasks/loader.js';
 import { draftRubric } from '../tasks/rubric-draft.js';
-import { RubricDraft, TaskDefinition, TaskRecord } from '../tasks/schema.js';
+import { RubricDraft, RubricDraftRequest, TaskDefinition, TaskRecord } from '../tasks/schema.js';
 
 const TaskNotFound = createError<[string]>('TASK_NOT_FOUND', '没有 task %s', 404);
 const TaskExists = createError<[string]>('TASK_EXISTS', 'task %s 已存在', 409);
@@ -65,13 +65,9 @@ export function taskRoutes({ db, tasksDir }: { db: Db; tasksDir: string }) {
     );
 
     app.post(
-      '/api/tasks/:id/rubric-draft',
-      { schema: { params: IdParams, response: { 200: RubricDraft } } },
-      (request) => {
-        const { task } = requireTask(request.params.id);
-        if (task.kind !== 'lfg') throw new BadTaskRequest('rubric 只用于 lfg task');
-        return draftRubric(task);
-      },
+      '/api/tasks/rubric-draft',
+      { schema: { body: RubricDraftRequest, response: { 200: RubricDraft } } },
+      (request) => draftRubric(request.body),
     );
     done();
   };

@@ -1,5 +1,5 @@
 import { models, parseStructured } from '../llm/client.js';
-import { type LfgTaskDefinition, Rubric, RubricDraftOutput, type RubricDraft } from './schema.js';
+import { Rubric, type RubricDraft, RubricDraftOutput, type RubricDraftRequest } from './schema.js';
 
 const system = `你为一个 AI 编码 workflow 的评估系统起草评分 rubric。
 
@@ -18,7 +18,7 @@ const system = `你为一个 AI 编码 workflow 的评估系统起草评分 rubr
 - 四组依次为 brief、research、plan、tickets，每组只出现一次。
 criterion 使用中文。`;
 
-function userPrompt(task: LfgTaskDefinition) {
+function userPrompt(task: RubricDraftRequest) {
   return `task：${task.title}
 
 用户交给 /lfg 的原话：
@@ -33,7 +33,7 @@ ${task.hiddenRequirements}
 请起草四组 rubric。`;
 }
 
-export async function draftRubric(task: LfgTaskDefinition): Promise<RubricDraft> {
+export async function draftRubric(task: RubricDraftRequest): Promise<RubricDraft> {
   const result = await parseStructured({
     model: models.judge,
     system,
