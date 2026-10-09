@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
+import { serverPort } from '../ports.js';
 
-const api = 'http://127.0.0.1:7317/api';
+const api = `http://127.0.0.1:${String(serverPort)}/api`;
 const marker = randomUUID().slice(0, 8);
 
 interface Variant {
@@ -60,6 +61,20 @@ test('编辑 skill、与基线对比、构建并查看日志', async ({ page, re
   await page.getByRole('combobox', { name: 'effort' }).selectOption('xhigh');
   await expect(page.getByRole('combobox', { name: 'effort' })).toHaveValue('xhigh');
 
+  // 页面经 /api/events 收到的 variant.build 事件
+  await page.evaluate(async () => {
+    const received: unknown[] = [];
+    Object.assign(globalThis, { variantBuildEvents: received });
+    const source = new EventSource('/api/events');
+    source.addEventListener('variant.build', (event) => {
+      if (!(event instanceof MessageEvent)) throw new Error('variant.build 不是 MessageEvent');
+      received.push(JSON.parse(String(event.data)));
+    });
+    await new Promise((resolve) => {
+      source.addEventListener('ready', resolve, { once: true });
+    });
+  });
+
   await page.getByRole('button', { name: '构建并安装' }).click();
   await expect(page.getByRole('tab', { name: '构建日志' })).toHaveAttribute(
     'aria-selected',
@@ -70,6 +85,21 @@ test('编辑 skill、与基线对比、构建并查看日志', async ({ page, re
   await expect(log).toContainText('=== 构建完成');
   await expect(log).toContainText('[status] exit 0');
   await page.screenshot({ path: '.work/screenshots/w6-build-log.png', animations: 'disabled' });
+  const buildEvents = await page.evaluate(
+    () => (globalThis as unknown as { variantBuildEvents: unknown[] }).variantBuildEvents,
+  );
+  expect(buildEvents).toContainEqual({
+    type: 'variant.build',
+    variantId: draft.id,
+    status: 'building',
+    step: 'install',
+  });
+  expect(buildEvents.at(-1)).toEqual({
+    type: 'variant.build',
+    variantId: draft.id,
+    status: 'built',
+    step: null,
+  });
 
   // 切回对比再离开，DiffEditor 卸载时不应报错
   await page.getByRole('tab', { name: '对比' }).click();

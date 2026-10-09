@@ -1,6 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { z } from 'zod';
 
 // src/ 与 dist/ 都位于 server/ 下，两级之上即仓库根目录
 const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
@@ -9,7 +10,8 @@ const dataDir = path.join(repoRoot, 'data');
 export const config = {
   repoRoot,
   host: '127.0.0.1',
-  port: 7317,
+  // 多个 worktree 并行运行时用 WFD_PORT 错开
+  port: z.coerce.number().int().min(1).max(65535).default(7317).parse(process.env.WFD_PORT),
   dataDir,
   dbPath: path.join(dataDir, 'db.sqlite'),
   variantsDir: path.join(dataDir, 'variants'),

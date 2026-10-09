@@ -1,9 +1,10 @@
 import { expect, test } from '@playwright/test';
+import { serverPort } from '../ports.js';
 
 const pages = ['Sessions', 'Runs', 'Variants', 'Tasks', 'Compare'];
 
 test('服务端健康检查返回 ok', async ({ request }) => {
-  const response = await request.get('http://127.0.0.1:7317/api/health');
+  const response = await request.get(`http://127.0.0.1:${String(serverPort)}/api/health`);
   expect(response.ok()).toBe(true);
   expect(await response.json()).toEqual({ status: 'ok' });
 });

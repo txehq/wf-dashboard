@@ -7,8 +7,8 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { z } from 'zod';
 import { config } from '../src/config.js';
 import { openDatabase } from '../src/db/index.js';
+import { type AppEvent, events } from '../src/events.js';
 import { createVariants, type Variant } from '../src/variants/index.js';
-import type { VariantEvent } from '../src/variants/events.js';
 import { wfSandboxProfile } from '../src/variants/sandbox.js';
 import { listSkillFiles } from '../src/variants/skills.js';
 
@@ -16,13 +16,13 @@ import { listSkillFiles } from '../src/variants/skills.js';
 const dataDir = path.join(config.repoRoot, '.work', 'test-data');
 const dbFile = path.join(config.repoRoot, '.work', 'test-db', `${randomUUID()}.sqlite`);
 const db = openDatabase(dbFile, config.migrationsDir);
-const events: VariantEvent[] = [];
+const published: AppEvent[] = [];
+const unsubscribe = events.subscribe((event) => published.push(event));
 const variants = createVariants({
   db,
   dataDir,
   repo: config.txeWorkflowRepo,
   ctxBin: config.ctxBin,
-  publish: (event) => events.push(event),
 });
 
 const marker = `W6-EVAL-${randomUUID().slice(0, 8)}`;
@@ -61,6 +61,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  unsubscribe();
   db.$client.close();
   for (const suffix of ['', '-wal', '-shm']) fs.rmSync(dbFile + suffix, { force: true });
   for (const variant of created) {
@@ -193,7 +194,23 @@ describe('variant 构建与隔离安装', { timeout: 1_800_000 }, () => {
     for (const step of ['guard-fix', 'guard', 'build-local', 'install', 'unregister-codex']) {
       expect(log).toContain(`[${step}] exit 0`);
     }
-    expect(events).toContainEqual({
+    // 事件总线上依次出现构建开始、各步骤与完成
+    const buildEvents = published.filter(
+      (event) => event.type === 'variant.build' && event.variantId === mod.id,
+    );
+    expect(buildEvents[0]).toEqual({
+      type: 'variant.build',
+      variantId: mod.id,
+      status: 'building',
+      step: null,
+    });
+    expect(buildEvents).toContainEqual({
+      type: 'variant.build',
+      variantId: mod.id,
+      status: 'building',
+      step: 'install',
+    });
+    expect(buildEvents.at(-1)).toEqual({
       type: 'variant.build',
       variantId: mod.id,
       status: 'built',

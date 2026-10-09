@@ -10,6 +10,13 @@ export type AppEvent =
       workflow: Workflow;
       stage: string;
       status: 'done' | 'active' | 'skipped' | 'not-reached';
+    }
+  // step 为正在执行的构建步骤；构建开始、完成与失败时为 null
+  | {
+      type: 'variant.build';
+      variantId: string;
+      status: 'building' | 'built' | 'failed';
+      step: string | null;
     };
 
 const emitter = new EventEmitter();

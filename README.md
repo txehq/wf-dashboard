@@ -22,6 +22,18 @@ pnpm dev
 - 页面：http://127.0.0.1:5173，开发时 `/api` 由 Vite 代理到服务端。
 - 运行时数据写在 `data/`（`db.sqlite`、`variants/`、`runs/`），服务端启动时自动执行数据库迁移。
 
+### 多个 worktree 并行运行
+
+端口默认为服务端 7317、页面 5173，由环境变量 `WFD_PORT`、`WFD_WEB_PORT` 覆盖；`pnpm dev`、`pnpm e2e` 与 Vite 的 `/api` 代理都读取这两个变量。Playwright 在端口上已有服务时直接复用它，所以同时在几个 worktree 中运行时，每个 worktree 用一组不同的端口：
+
+```sh
+export WFD_PORT=7327 WFD_WEB_PORT=5183
+pnpm dev
+pnpm e2e
+```
+
+每个 worktree 的 `data/` 是各自独立的。
+
 ## 命令
 
 | 命令             | 作用                                                                   |
@@ -54,6 +66,7 @@ wf-dashboard/
   tsconfig.base.json        # 共用的 strict 编译选项
   eslint.config.js
   playwright.config.ts
+  ports.ts                  # WFD_PORT、WFD_WEB_PORT，Playwright 与 Vite 共用
   e2e/                      # Playwright 测试
   server/
     drizzle.config.ts

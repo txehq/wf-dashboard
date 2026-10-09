@@ -37,15 +37,11 @@ export async function buildApp({ db, sseHeartbeatMs, logger }: AppOptions) {
   await app.register(sessionsRoutes, { prefix: '/api', db, dirs: defaultSourceDirs });
   registerStageRoutes(app, db);
 
-  // 事件总线合并前，variant 事件只写日志
   const variants = createVariants({
     db,
     dataDir: config.dataDir,
     repo: config.txeWorkflowRepo,
     ctxBin: config.ctxBin,
-    publish: (event) => {
-      app.log.info(event, 'variant event');
-    },
   });
   await app.register(variantRoutes, { variants });
 

@@ -9,10 +9,10 @@ import { execa } from 'execa';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import { variants } from '../db/schema.js';
+import { events } from '../events.js';
 import { claudeSettingsEnv } from '../llm/client.js';
 import { BuildLog } from './build-log.js';
 import { HttpError } from './errors.js';
-import type { PublishVariantEvent } from './events.js';
 import { dataLayout, type VariantLayout } from './layout.js';
 import type { Effort, ModelAlias } from './models.js';
 import { claudeSandboxProfile, wfSandboxProfile } from './sandbox.js';
@@ -26,7 +26,6 @@ export interface VariantsOptions {
   // txe-workflow 仓库
   repo: string;
   ctxBin: string;
-  publish: PublishVariantEvent;
 }
 
 export interface SkillFile {
@@ -99,7 +98,7 @@ function isolatedBaseEnv(): Record<string, string> {
   );
 }
 
-export function createVariants({ db, dataDir, repo, ctxBin, publish }: VariantsOptions) {
+export function createVariants({ db, dataDir, repo, ctxBin }: VariantsOptions) {
   const layout = dataLayout(dataDir);
   const runtimeBuilds = new Map<string, Promise<void>>();
 
@@ -180,21 +179,16 @@ export function createVariants({ db, dataDir, repo, ctxBin, publish }: VariantsO
     return new BuildLog(
       layout.variant(row.id).buildLog,
       (step) => {
-        publish({ type: 'variant.build', variantId: row.id, status: 'building', step });
+        events.publish({ type: 'variant.build', variantId: row.id, status: 'building', step });
       },
       (message) => {
         db.update(variants)
           .set({ buildStatus: 'failed', buildError: message })
           .where(eq(variants.id, row.id))
           .run();
-        publish({ type: 'variant.build', variantId: row.id, status: 'failed', step: null });
+        events.publish({ type: 'variant.build', variantId: row.id, status: 'failed', step: null });
       },
     );
-  }
-
-  function updated(id: string) {
-    publish({ type: 'variant.updated', variantId: id });
-    return get(id);
   }
 
   // 编辑后重新计算 hash 与版本号；内容变化后原有构建作废
@@ -206,7 +200,7 @@ export function createVariants({ db, dataDir, repo, ctxBin, publish }: VariantsO
         .where(eq(variants.id, row.id))
         .run();
     }
-    return updated(row.id);
+    return get(row.id);
   }
 
   function readTree(srcDir: string): Map<string, string> {
@@ -270,7 +264,7 @@ export function createVariants({ db, dataDir, repo, ctxBin, publish }: VariantsO
           installDir: dirs.dir,
         })
         .run();
-      return updated(id);
+      return get(id);
     },
 
     // 从任一 variant（含已冻结的）复制出新的 draft
@@ -299,7 +293,7 @@ export function createVariants({ db, dataDir, repo, ctxBin, publish }: VariantsO
           installDir: dirs.dir,
         })
         .run();
-      return updated(id);
+      return get(id);
     },
 
     setSettings(
@@ -312,7 +306,7 @@ export function createVariants({ db, dataDir, repo, ctxBin, publish }: VariantsO
         .set({ model: input.model ?? row.model, effort: input.effort ?? row.effort })
         .where(eq(variants.id, id))
         .run();
-      return updated(id);
+      return get(id);
     },
 
     listFiles(id: string): SkillFile[] {
@@ -414,7 +408,7 @@ export function createVariants({ db, dataDir, repo, ctxBin, publish }: VariantsO
         .set({ buildStatus: 'building', buildError: null })
         .where(eq(variants.id, id))
         .run();
-      publish({ type: 'variant.build', variantId: id, status: 'building', step: null });
+      events.publish({ type: 'variant.build', variantId: id, status: 'building', step: null });
 
       const dirs = layout.variant(id);
       const log = newLog(row);
@@ -542,8 +536,8 @@ export function createVariants({ db, dataDir, repo, ctxBin, publish }: VariantsO
         })
         .where(eq(variants.id, id))
         .run();
-      publish({ type: 'variant.build', variantId: id, status: 'built', step: null });
-      return updated(id);
+      events.publish({ type: 'variant.build', variantId: id, status: 'built', step: null });
+      return get(id);
     },
 
     // 供 runs 调用：首次被运行时冻结，此后 skills、模型与 effort 都不能再改，dist 也不再改写
@@ -557,7 +551,7 @@ export function createVariants({ db, dataDir, repo, ctxBin, publish }: VariantsO
         .set({ status: 'frozen', frozenAt: new Date() })
         .where(eq(variants.id, id))
         .run();
-      return updated(id);
+      return get(id);
     },
 
     runtimeEnv(id: string): RuntimeEnv {
