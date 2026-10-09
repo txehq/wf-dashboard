@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { parse, patch } from '@decimalturn/toml-patch';
 import { createTwoFilesPatch } from 'diff';
@@ -49,7 +50,8 @@ export interface VariantDiff {
 
 // runner 在 variant 中启动 claude 所需的一切；运行目录及其上级不能有 CLAUDE.md 或 .claude/
 export interface RuntimeEnv {
-  env: {
+  // 完整的子进程环境：父进程环境去掉 CLAUDE*、ANTHROPIC*、ORCA_AGENT* 后加上 variant 变量
+  env: Record<string, string> & {
     CLAUDE_CONFIG_DIR: string;
     WF_HOME: string;
     CODEX_HOME: string;
@@ -69,7 +71,10 @@ const CargoManifest = z.looseObject({
   workspace: z.looseObject({ package: z.looseObject({ version: z.string() }) }),
 });
 
-const IsolatedSettings = z.looseObject({ env: z.record(z.string(), z.unknown()).optional() });
+const IsolatedSettings = z.looseObject({
+  env: z.record(z.string(), z.unknown()).optional(),
+  claudeMdExcludes: z.array(z.string()).optional(),
+});
 
 function readWorkspaceVersion(srcDir: string): string {
   return CargoManifest.parse(parse(fs.readFileSync(path.join(srcDir, 'Cargo.toml'), 'utf8')))
@@ -80,6 +85,16 @@ function processEnv(): Record<string, string> {
   return Object.fromEntries(
     Object.entries(process.env).filter(
       (entry): entry is [string, string] => entry[1] !== undefined,
+    ),
+  );
+}
+
+// 父进程是 Claude Code 或 Orca 时，这些变量会覆盖 variant 的隔离设置
+function isolatedBaseEnv(): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(processEnv()).filter(
+      ([key]) =>
+        !key.startsWith('CLAUDE') && !key.startsWith('ANTHROPIC') && !key.startsWith('ORCA_AGENT'),
     ),
   );
 }
@@ -427,7 +442,7 @@ export function createVariants({ db, dataDir, repo, ctxBin, publish }: VariantsO
         log.run(step, 'sandbox-exec', ['-p', wfSandboxProfile(dirs.dir), wf, ...args], {
           cwd: dirs.src,
           env: {
-            ...processEnv(),
+            ...isolatedBaseEnv(),
             WF_HOME: dirs.wfHome,
             CLAUDE_CONFIG_DIR: dirs.claudeDir,
             // wf install 会把检测到的 codex 登记为由 wf 管理，配置根目录取 CODEX_HOME
@@ -473,8 +488,18 @@ export function createVariants({ db, dataDir, repo, ctxBin, publish }: VariantsO
       const settings = IsolatedSettings.parse(JSON.parse(fs.readFileSync(settingsPath, 'utf8')));
       const realEnv = claudeSettingsEnv();
       settings.env = { ...settings.env, ...realEnv };
+      // cwd 在 $HOME 之下时，真实 ~/.claude/CLAUDE.md 会被当作祖先目录的文件读入
+      const home = os.homedir();
+      settings.claudeMdExcludes = [
+        path.join(home, '.claude/CLAUDE.md'),
+        path.join(home, '.claude/rules/**'),
+      ];
       fs.writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
-      log.note('merge-settings-env', started, `合并键 ${Object.keys(realEnv).join(', ')}`);
+      log.note(
+        'merge-settings-env',
+        started,
+        `合并键 ${Object.keys(realEnv).join(', ')}；claudeMdExcludes ${settings.claudeMdExcludes.join(', ')}`,
+      );
 
       // wf 只从 lock 固定的 ctx 提供 wf-history，隔离目录里没有；改由 --mcp-config 直接启动真实 ctx
       fs.writeFileSync(
@@ -543,6 +568,7 @@ export function createVariants({ db, dataDir, repo, ctxBin, publish }: VariantsO
       const dirs = layout.variant(id);
       return {
         env: {
+          ...isolatedBaseEnv(),
           CLAUDE_CONFIG_DIR: dirs.claudeDir,
           WF_HOME: dirs.wfHome,
           CODEX_HOME: dirs.codexHome,

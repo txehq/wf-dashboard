@@ -175,11 +175,14 @@ describe('variant 构建与隔离安装', { timeout: 1_800_000 }, () => {
       ['-p', wfSandboxProfile(dirs.dir), dirs.wfBin, 'status'],
       {
         env: {
+          PATH: z.string().parse(process.env.PATH),
+          HOME: os.homedir(),
           WF_HOME: dirs.wfHome,
           CLAUDE_CONFIG_DIR: dirs.claudeDir,
           CODEX_HOME: dirs.codexHome,
           TMPDIR: dirs.tmp,
         },
+        extendEnv: false,
       },
     );
     expect(status.exitCode).toBe(0);
@@ -198,8 +201,11 @@ describe('variant 构建与隔离安装', { timeout: 1_800_000 }, () => {
     });
   });
 
-  test('用 runtimeEnv 运行 claude，加载修改过的 skill', async () => {
+  test('用 runtimeEnv 运行 claude，加载修改过的 skill，不读入真实 CLAUDE.md', async () => {
     const runtime = variants.runtimeEnv(mod.id);
+    for (const key of Object.keys(runtime.env)) {
+      expect(key).not.toMatch(/^(CLAUDE(?!_CONFIG_DIR$)|ANTHROPIC|ORCA_AGENT)/);
+    }
     const work = path.join(variants.layout(mod.id).dir, 'work', 'probe');
     fs.mkdirSync(work, { recursive: true });
     await execa('git', ['init', '-q'], { cwd: work });
@@ -217,7 +223,7 @@ describe('variant 构建与隔离安装', { timeout: 1_800_000 }, () => {
         'bypassPermissions',
         ...runtime.claudeArgs,
       ],
-      { cwd: work, env: runtime.env, stdin: 'ignore' },
+      { cwd: work, env: runtime.env, extendEnv: false, stdin: 'ignore' },
     );
     const output = z
       .looseObject({ is_error: z.boolean(), result: z.string(), session_id: z.string() })
@@ -237,6 +243,35 @@ describe('variant 构建与隔离安装', { timeout: 1_800_000 }, () => {
     const transcript = fs.readFileSync(path.join(runtime.sessionsDir, sessionFile), 'utf8');
     expect(transcript).toContain('skill_listing');
     expect(transcript).toContain(`[${marker}]`);
+
+    // 读入的 CLAUDE.md 只有隔离目录里那一份（wf 装进去的内容与真实文件相同，所以按路径判定）
+    const Instructions = z.object({
+      attachment: z.object({
+        type: z.literal('instructions'),
+        files: z.array(z.object({ path: z.string(), type: z.string() })),
+      }),
+    });
+    const loaded = transcript
+      .split('\n')
+      .filter((line) => line !== '')
+      .map((line) => Instructions.safeParse(JSON.parse(line)))
+      .flatMap((parsed) => (parsed.success ? parsed.data.attachment.files : []));
+    expect(loaded.map((f) => f.path)).toEqual([
+      path.join(variants.layout(mod.id).claudeDir, 'CLAUDE.md'),
+    ]);
+    const realClaude = path.join(os.homedir(), '.claude');
+    expect(loaded.every((f) => !f.path.startsWith(`${realClaude}/`))).toBe(true);
+    const settings = z
+      .object({ claudeMdExcludes: z.array(z.string()) })
+      .parse(
+        JSON.parse(
+          fs.readFileSync(path.join(variants.layout(mod.id).claudeDir, 'settings.json'), 'utf8'),
+        ),
+      );
+    expect(settings.claudeMdExcludes).toEqual([
+      path.join(realClaude, 'CLAUDE.md'),
+      path.join(realClaude, 'rules/**'),
+    ]);
   });
 
   test('冻结后拒绝写入', async () => {

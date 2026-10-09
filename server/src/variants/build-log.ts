@@ -29,6 +29,8 @@ export class BuildLog {
     const result = await execa(command, args, {
       cwd: options.cwd,
       env: options.env,
+      // 只用传入的环境，不并入父进程环境
+      extendEnv: false,
       stdin: 'ignore',
       all: true,
       reject: false,
