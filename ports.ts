@@ -15,3 +15,7 @@ export const webPort = portFromEnv('WFD_WEB_PORT', 5173);
 // Compare 的 e2e 使用专用数据目录，另起一对服务，端口在上面两个之上加 1000
 export const compareServerPort = serverPort + 1000;
 export const compareWebPort = webPort + 1000;
+
+// Runs 的 e2e 同样另起一对服务（专用数据目录，其中有导入的已结束 run），端口加 2000
+export const runsServerPort = serverPort + 2000;
+export const runsWebPort = webPort + 2000;

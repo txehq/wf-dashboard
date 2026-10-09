@@ -3,10 +3,8 @@ import type { RubricArtifact } from '@wf-dashboard/server/tasks/schema';
 import type { TaskRecord } from '@wf-dashboard/server/tasks/schema';
 import { ExternalLink } from 'lucide-react';
 import { useState } from 'react';
-import Markdown from 'react-markdown';
 import { Link } from 'react-router';
-import remarkFrontmatter from 'remark-frontmatter';
-import remarkGfm from 'remark-gfm';
+import { MarkdownDoc } from '@/components/markdown-doc';
 import {
   artifactLabel,
   type CompareRun,
@@ -103,12 +101,7 @@ function MarkdownPane({ runId, artifact }: { runId: string; artifact: RubricArti
       <p className="truncate font-mono text-xs text-muted-foreground" title={found.location}>
         {found.location}
       </p>
-      <article
-        data-testid="artifact-markdown"
-        className="prose prose-sm max-h-[640px] max-w-none overflow-auto rounded-lg border p-4 dark:prose-invert"
-      >
-        <Markdown remarkPlugins={[remarkFrontmatter, remarkGfm]}>{found.snapshot}</Markdown>
-      </article>
+      <MarkdownDoc content={found.snapshot} className="max-h-[640px]" />
     </div>
   );
 }

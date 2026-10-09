@@ -1,5 +1,19 @@
-import { PageShell } from '@/components/page-shell';
+import { LaunchBatch } from '@/components/runs/launch-batch';
+import { RunList } from '@/components/runs/run-list';
+import { RunSettings } from '@/components/runs/run-settings';
+import { useRunEvents } from '@/lib/runs-api';
 
 export function RunsPage() {
-  return <PageShell title="Runs" description="发起评估运行，查看实时进度与对话。" />;
+  useRunEvents();
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold">Runs</h1>
+        <p className="text-sm text-muted-foreground">发起评估运行，查看实时进度与对话。</p>
+      </div>
+      <LaunchBatch />
+      <RunSettings />
+      <RunList />
+    </div>
+  );
 }

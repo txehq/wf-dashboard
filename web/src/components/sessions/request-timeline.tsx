@@ -371,13 +371,17 @@ function VirtualRows({
   sessionId,
   nested,
   scrollHandle,
+  follow = false,
 }: {
   items: TimelineItem[];
   sessionId: string;
   nested: boolean;
   scrollHandle?: ScrollHandle | undefined;
+  // 实时运行：停在最新一条；用户向上滚动后不再自动跳转，回到底部后恢复
+  follow?: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [atBottom, setAtBottom] = useState(true);
   const virtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => scrollRef.current,
@@ -397,35 +401,63 @@ function VirtualRows({
       scrollHandle.current = null;
     };
   }, [virtualizer, scrollHandle]);
+  const following = follow && atBottom;
+  useEffect(() => {
+    if (following && items.length > 0) {
+      virtualizer.scrollToIndex(items.length - 1, { align: 'end' });
+    }
+  }, [following, items.length, virtualizer]);
   const total = virtualizer.getTotalSize();
   return (
-    <div
-      ref={scrollRef}
-      className="overflow-y-auto overscroll-contain"
-      style={nested ? { height: Math.min(total, 560) } : { height: '72vh' }}
-      data-testid={nested ? 'nested-timeline' : 'timeline'}
-    >
-      <div className="relative w-full" style={{ height: total }}>
-        {virtualizer.getVirtualItems().map((row) => {
-          const item = items[row.index];
-          if (item === undefined) return null;
-          return (
-            <div
-              key={row.key}
-              ref={virtualizer.measureElement}
-              data-index={row.index}
-              className="absolute top-0 left-0 w-full pb-2"
-              style={{ transform: `translateY(${String(row.start)}px)` }}
-            >
-              {item.kind === 'request' ? (
-                <RequestRow item={item} sessionId={sessionId} />
-              ) : (
-                <MessageRow item={item} index={row.index} />
-              )}
-            </div>
-          );
-        })}
+    <div className="relative">
+      <div
+        ref={scrollRef}
+        className="overflow-y-auto overscroll-contain"
+        style={nested ? { height: Math.min(total, 560) } : { height: '72vh' }}
+        data-testid={nested ? 'nested-timeline' : 'timeline'}
+        data-following={follow ? following : undefined}
+        onScroll={
+          follow
+            ? (event) => {
+                const el = event.currentTarget;
+                setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 48);
+              }
+            : undefined
+        }
+      >
+        <div className="relative w-full" style={{ height: total }}>
+          {virtualizer.getVirtualItems().map((row) => {
+            const item = items[row.index];
+            if (item === undefined) return null;
+            return (
+              <div
+                key={row.key}
+                ref={virtualizer.measureElement}
+                data-index={row.index}
+                className="absolute top-0 left-0 w-full pb-2"
+                style={{ transform: `translateY(${String(row.start)}px)` }}
+              >
+                {item.kind === 'request' ? (
+                  <RequestRow item={item} sessionId={sessionId} />
+                ) : (
+                  <MessageRow item={item} index={row.index} />
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
+      {follow && !atBottom && (
+        <button
+          type="button"
+          className="absolute right-4 bottom-4 rounded-full border bg-background px-3 py-1 text-xs shadow-sm hover:bg-muted"
+          onClick={() => {
+            setAtBottom(true);
+          }}
+        >
+          跳到最新
+        </button>
+      )}
     </div>
   );
 }
@@ -435,11 +467,13 @@ function Timeline({
   range,
   nested,
   scrollHandle,
+  follow = false,
 }: {
   sessionId: string;
   range: RequestRange;
   nested: boolean;
   scrollHandle?: ScrollHandle;
+  follow?: boolean;
 }) {
   const query = useQuery(requestsQuery(sessionId, range));
   if (query.isPending)
@@ -459,7 +493,13 @@ function Timeline({
   if (items.length === 0)
     return <p className="py-6 text-sm text-muted-foreground">这一段没有请求。</p>;
   return (
-    <VirtualRows items={items} sessionId={sessionId} nested={nested} scrollHandle={scrollHandle} />
+    <VirtualRows
+      items={items}
+      sessionId={sessionId}
+      nested={nested}
+      scrollHandle={scrollHandle}
+      follow={follow}
+    />
   );
 }
 
@@ -468,10 +508,12 @@ export function RequestTimeline({
   sessionId,
   range,
   subagents,
+  follow = false,
 }: {
   sessionId: string;
   range: RequestRange;
   subagents: SubagentInfo[];
+  follow?: boolean;
 }) {
   const expand = useExpandState();
   const subagentMap = useMemo(() => new Map(subagents.map((s) => [s.agentId, s])), [subagents]);
@@ -522,7 +564,13 @@ export function RequestTimeline({
               })}
             </div>
           )}
-          <Timeline sessionId={sessionId} range={range} nested={false} scrollHandle={scrollRef} />
+          <Timeline
+            sessionId={sessionId}
+            range={range}
+            nested={false}
+            scrollHandle={scrollRef}
+            follow={follow}
+          />
         </div>
       </SubagentsContext>
     </ExpandContext>

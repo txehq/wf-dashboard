@@ -32,6 +32,8 @@ const NODE_Y = 44;
 interface StageNodeData extends Record<string, unknown> {
   view: StageView;
   selected: boolean;
+  // 实时运行中：进行中的阶段带脉动标记与"当前"字样
+  live: boolean;
   onSelect: (stage: string) => void;
 }
 interface GateNodeData extends Record<string, unknown> {
@@ -99,7 +101,21 @@ function StageNodeView({ data }: NodeProps<StageNode>) {
           <span className="font-mono text-sm leading-tight font-semibold break-words text-foreground">
             {view.stage}
           </span>
-          <StatusLabel status={view.status} />
+          <span className="flex items-center gap-2">
+            <StatusLabel status={view.status} />
+            {data.live && view.status === 'active' && (
+              <span
+                className="inline-flex items-center gap-1 text-xs font-medium"
+                data-testid="stage-live"
+              >
+                <span className="relative flex size-2" aria-hidden>
+                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-[var(--viz-series-1)] opacity-75" />
+                  <span className="relative inline-flex size-2 rounded-full bg-[var(--viz-series-1)]" />
+                </span>
+                当前
+              </span>
+            )}
+          </span>
         </span>
         {empty ? (
           <span className="py-3 text-xs text-muted-foreground">
@@ -170,17 +186,19 @@ export function StageGraph({
   views,
   selected,
   onSelect,
+  live = false,
 }: {
   workflow: Workflow;
   views: StageView[];
   selected: string | null;
   onSelect: (stage: string) => void;
+  live?: boolean;
 }) {
   const nodes: (StageNode | GateNode)[] = views.map((view, i) => ({
     id: view.stage,
     type: 'stage',
     position: { x: i * (NODE_WIDTH + NODE_GAP), y: NODE_Y },
-    data: { view, selected: selected === view.stage, onSelect },
+    data: { view, selected: selected === view.stage, live, onSelect },
     draggable: false,
     selectable: false,
     // 不可选中的节点默认不接收指针事件，框内按钮需要点击

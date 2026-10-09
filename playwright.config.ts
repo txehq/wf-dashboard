@@ -1,9 +1,18 @@
 import path from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
-import { compareServerPort, compareWebPort, serverPort, webPort } from './ports.js';
+import {
+  compareServerPort,
+  compareWebPort,
+  runsServerPort,
+  runsWebPort,
+  serverPort,
+  webPort,
+} from './ports.js';
 
 // Compare 的 e2e 数据目录，由种子脚本清空后写入
 const compareDataDir = '.work/e2e/compare-data';
+// Runs 的 e2e 数据目录：保留在多次运行之间，其中有导入的 W4 端到端 run 与测试中构建的 variant
+const runsDataDir = '.work/e2e/runs-data';
 // Sessions 的阶段判定从未判定的状态开始：服务端每次使用删除重建的数据库
 const dbDir = path.resolve(import.meta.dirname, '.work/e2e-db');
 
@@ -19,7 +28,7 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      testIgnore: 'compare.spec.ts',
+      testIgnore: ['compare.spec.ts', 'runs.spec.ts'],
       use: {
         ...devices['Desktop Chrome'],
         baseURL: `http://127.0.0.1:${String(webPort)}`,
@@ -32,6 +41,15 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         baseURL: `http://127.0.0.1:${String(compareWebPort)}`,
+      },
+    },
+    {
+      name: 'runs',
+      testMatch: 'runs.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: `http://127.0.0.1:${String(runsWebPort)}`,
+        viewport: { width: 1600, height: 1000 },
       },
     },
   ],
@@ -61,6 +79,24 @@ export default defineConfig({
       url: `http://127.0.0.1:${String(compareWebPort)}`,
       reuseExistingServer: false,
       env: { WFD_PORT: String(compareServerPort), WFD_WEB_PORT: String(compareWebPort) },
+    },
+    {
+      command:
+        'pnpm --filter @wf-dashboard/server prepare:runs-e2e && pnpm --filter @wf-dashboard/server exec tsx src/main.ts',
+      url: `http://127.0.0.1:${String(runsServerPort)}/api/health`,
+      reuseExistingServer: false,
+      timeout: 600_000,
+      env: {
+        WFD_DATA_DIR: runsDataDir,
+        WFD_PORT: String(runsServerPort),
+        WFD_STAGE_CHECK_MODEL: 'claude-sonnet-5',
+      },
+    },
+    {
+      command: 'pnpm --filter @wf-dashboard/web dev',
+      url: `http://127.0.0.1:${String(runsWebPort)}`,
+      reuseExistingServer: false,
+      env: { WFD_PORT: String(runsServerPort), WFD_WEB_PORT: String(runsWebPort) },
     },
   ],
 });

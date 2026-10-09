@@ -1,0 +1,286 @@
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { ArrowLeft, Ban, ExternalLink, Hand, TriangleAlert } from 'lucide-react';
+import { useState } from 'react';
+import { Link, useParams } from 'react-router';
+import { Conversation } from '@/components/runs/conversation';
+import { RunArtifacts } from '@/components/runs/run-artifacts';
+import { RunGradesPanel } from '@/components/runs/run-grades';
+import { StageText } from '@/components/runs/run-list';
+import { RunStatusLabel } from '@/components/runs/run-status';
+import { RequestTimeline } from '@/components/sessions/request-timeline';
+import { StageGraph } from '@/components/sessions/stage-graph';
+import { Button } from '@/components/ui/button';
+import { formatDateTime, formatDuration, formatUsd } from '@/lib/format';
+import {
+  liveStatuses,
+  runAction,
+  type RunDetail,
+  runDuration,
+  runQuery,
+  useRunEvents,
+} from '@/lib/runs-api';
+import { type StageView, sessionQuery, type Workflow } from '@/lib/sessions-api';
+import { useNow } from '@/lib/use-now';
+
+const STAGES: Record<Workflow, string[]> = {
+  lfg: ['interview', 'research', 'plan', 'ticketing'],
+  ic: ['claim', 'readiness', 'implement', 'acceptance', 'open-pr', 'fix-pr', 'ready-for-review'],
+};
+
+const emptyStats = {
+  requests: 0,
+  toolCalls: {},
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheCreationTokens: 0,
+  costUsd: 0,
+  durationMs: 0,
+  subagents: 0,
+};
+
+// 还没有阶段判定结果时，按 workflow 的阶段列表显示为未到达
+function stageViews(run: RunDetail): StageView[] {
+  const cycle = run.stages?.[run.taskKind][0];
+  if (cycle !== undefined) return cycle.stages;
+  return STAGES[run.taskKind].map((stage) => ({
+    stage,
+    status: 'not-reached',
+    startSeq: null,
+    endSeq: null,
+    method: run.taskKind === 'lfg' ? 'artifact' : 'llm',
+    evidence: null,
+    stats: emptyStats,
+  }));
+}
+
+function ExternalLinks({ links }: { links: RunDetail['links'] }) {
+  const items = [
+    { label: 'Linear 工单', href: links.ticket },
+    { label: 'GitHub 仓库', href: links.repo },
+    { label: 'PR', href: links.pr },
+  ].filter((i): i is { label: string; href: string } => i.href !== null);
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm" data-testid="run-links">
+      {items.map((i) => (
+        <a
+          key={i.label}
+          href={i.href}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 underline"
+        >
+          {i.label}
+          <ExternalLink className="size-3.5" aria-hidden />
+        </a>
+      ))}
+      {links.vault !== null && (
+        <span className="inline-flex min-w-0 items-center gap-1">
+          vault 目录
+          <code className="truncate text-xs text-muted-foreground" title={links.vault}>
+            {links.vault}
+          </code>
+        </span>
+      )}
+      {items.length === 0 && links.vault === null && (
+        <span className="text-muted-foreground">外部对象在准备阶段建立后出现在这里。</span>
+      )}
+    </div>
+  );
+}
+
+const costParts = [
+  { key: 'agent', label: 'agent' },
+  { key: 'simulatedUser', label: '模拟用户' },
+  { key: 'stageCheck', label: '阶段判定' },
+  { key: 'grading', label: '评分' },
+] as const;
+
+function Costs({ costs }: { costs: RunDetail['costs'] }) {
+  return (
+    <dl className="flex flex-wrap gap-x-6 gap-y-1" data-testid="run-costs">
+      {costParts.map((p) => (
+        <div key={p.key} className="flex flex-col">
+          <dt className="text-xs text-muted-foreground">{p.label}</dt>
+          <dd className="tabular-nums">{formatUsd(costs[p.key])}</dd>
+        </div>
+      ))}
+      <div className="flex flex-col">
+        <dt className="text-xs text-muted-foreground">合计</dt>
+        <dd className="font-semibold tabular-nums">{formatUsd(costs.total)}</dd>
+      </div>
+    </dl>
+  );
+}
+
+function Header({ run }: { run: RunDetail }) {
+  const live = liveStatuses.has(run.status);
+  const now = useNow(live);
+  const duration = runDuration(run, now);
+  const cancel = useMutation({ mutationFn: () => runAction(run.id, 'cancel') });
+  const cancellable = run.status === 'queued' || run.status === 'running';
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border px-4 py-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <h1 className="text-2xl font-semibold">{run.taskTitle}</h1>
+        <RunStatusLabel status={run.status} className="text-sm" />
+        {run.status === 'running' && (
+          <span className="rounded border px-1.5 py-0.5 text-xs" data-testid="run-mode">
+            {run.mode === 'human' ? '人工回答中' : '模拟用户回答中'}
+          </span>
+        )}
+        {run.humanIntervened && (
+          <span
+            className="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs"
+            data-testid="intervened"
+          >
+            <Hand className="size-3.5" aria-hidden />
+            有人工干预
+          </span>
+        )}
+        {cancellable && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-auto"
+            disabled={cancel.isPending}
+            onClick={() => {
+              if (window.confirm('取消这个 run？取消后不评分，也不能继续。')) cancel.mutate();
+            }}
+          >
+            <Ban />
+            {cancel.isPending ? '正在取消…' : '取消运行'}
+          </Button>
+        )}
+      </div>
+      <p className="flex flex-wrap gap-x-3 text-sm text-muted-foreground">
+        <span className="font-mono">{run.id}</span>
+        <span>{run.variantName}</span>
+        <span>第 {run.repeatIndex + 1} 次</span>
+        <span>
+          <StageText stage={run.currentStage} />
+        </span>
+        <span>创建于 {formatDateTime(new Date(run.createdAt).toISOString())}</span>
+        {duration !== null && <span>耗时 {formatDuration(duration)}</span>}
+      </p>
+      {cancel.isError && <p className="text-sm text-destructive">{cancel.error.message}</p>}
+      <ExternalLinks links={run.links} />
+      <Costs costs={run.costs} />
+    </div>
+  );
+}
+
+function Failure({ run, views }: { run: RunDetail; views: StageView[] }) {
+  if (run.status !== 'failed' || run.error === null) return null;
+  const at =
+    views.find((v) => v.status === 'active') ??
+    [...views].reverse().find((v) => v.status === 'done');
+  return (
+    <div
+      role="alert"
+      className="flex flex-col gap-1 rounded-lg border-2 border-[var(--status-critical)] px-4 py-3"
+      data-testid="run-error"
+    >
+      <p className="flex items-center gap-1.5 text-sm font-medium">
+        <TriangleAlert className="size-4" aria-hidden />
+        run 失败
+        {at === undefined
+          ? '，还没有进入任何阶段'
+          : `，发生在 /${run.taskKind} · ${at.stage}${at.status === 'done' ? ' 之后' : ''}`}
+      </p>
+      <pre className="font-mono text-xs whitespace-pre-wrap">{run.error}</pre>
+    </div>
+  );
+}
+
+function Requests({ run }: { run: RunDetail }) {
+  const session = useQuery({ ...sessionQuery(run.sessionId), retry: false });
+  const live = liveStatuses.has(run.status);
+  return (
+    <section className="flex flex-col gap-2" aria-labelledby="requests-title">
+      <h2 id="requests-title" className="text-sm font-medium">
+        请求流
+      </h2>
+      {session.isPending ? (
+        <p className="text-sm text-muted-foreground">加载中…</p>
+      ) : session.isError ? (
+        <p
+          className="rounded-lg border border-dashed py-6 text-center text-sm text-muted-foreground"
+          data-testid="requests-empty"
+        >
+          {live
+            ? 'Claude Code 还没有写出 session 记录，通常在启动后几分钟内出现。'
+            : '这个 run 没有 session 记录。'}
+        </p>
+      ) : (
+        <RequestTimeline
+          sessionId={run.sessionId}
+          range={{}}
+          subagents={session.data.subagents}
+          follow={live}
+        />
+      )}
+    </section>
+  );
+}
+
+function RunView({ run }: { run: RunDetail }) {
+  const views = stageViews(run);
+  const [selected, setSelected] = useState<string | null>(null);
+  const live = liveStatuses.has(run.status);
+  return (
+    <div className="flex flex-col gap-4">
+      <Header run={run} />
+      <Failure run={run} views={views} />
+      <section
+        className="flex flex-col gap-2 rounded-lg border px-4 py-3"
+        aria-label="阶段进度"
+        data-testid="run-stages"
+      >
+        <h2 className="text-sm font-medium">/{run.taskKind} 阶段</h2>
+        <StageGraph
+          workflow={run.taskKind}
+          views={views}
+          selected={selected}
+          onSelect={(stage) => {
+            setSelected(selected === stage ? null : stage);
+          }}
+          live={live}
+        />
+      </section>
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,5fr)_minmax(0,4fr)]">
+        <Conversation run={run} />
+        <RunArtifacts run={run} />
+      </div>
+      {run.status === 'succeeded' && <RunGradesPanel runId={run.id} />}
+      <Requests run={run} />
+    </div>
+  );
+}
+
+export function RunDetailPage() {
+  useRunEvents();
+  const { id } = useParams();
+  if (id === undefined) throw new Error('路由缺少 run id');
+  const run = useQuery(runQuery(id));
+  return (
+    <div className="flex flex-col gap-4">
+      <Link
+        to="/runs"
+        className="inline-flex items-center gap-1 self-start text-sm text-muted-foreground hover:text-foreground"
+      >
+        <ArrowLeft className="size-4" />
+        全部运行
+      </Link>
+      {run.isPending ? (
+        <p className="text-sm text-muted-foreground">正在加载 run…</p>
+      ) : run.isError ? (
+        <p role="alert" className="text-sm text-destructive">
+          加载 run 失败：{run.error.message}
+        </p>
+      ) : (
+        <RunView run={run.data} />
+      )}
+    </div>
+  );
+}
