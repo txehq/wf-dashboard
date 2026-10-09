@@ -4,8 +4,12 @@ import { config } from '../config.js';
 import type { Db } from '../db/index.js';
 import { events } from '../events.js';
 import { defaultSourceDirs } from '../ingest/sources.js';
+import { createRuns } from '../runs/index.js';
+import { createSettingsStore } from '../runs/settings.js';
 import { createVariants } from '../variants/index.js';
+import { runRoutes } from './runs.js';
 import { sessionsRoutes } from './sessions.js';
+import { settingsRoutes } from './settings.js';
 import { registerStageRoutes } from './stages.js';
 import { taskRoutes } from './tasks.js';
 import { variantRoutes } from './variants.js';
@@ -17,9 +21,11 @@ export interface AppOptions {
   sseHeartbeatMs: number;
   logger: boolean;
   tasksDir: string;
+  // 默认 data/settings.json；测试用各自的文件
+  settingsPath?: string;
 }
 
-export async function buildApp({ db, sseHeartbeatMs, logger, tasksDir }: AppOptions) {
+export async function buildApp({ db, sseHeartbeatMs, logger, tasksDir, settingsPath }: AppOptions) {
   const app = Fastify({ logger });
   await app.register(fastifySSE, { heartbeatInterval: sseHeartbeatMs });
 
@@ -52,6 +58,18 @@ export async function buildApp({ db, sseHeartbeatMs, logger, tasksDir }: AppOpti
 
   await app.register(gradeRoutes({ db }));
   await app.register(compareRoutes({ db, variants }));
+
+  const settings = createSettingsStore(settingsPath ?? config.settingsPath);
+  const runs = createRuns({
+    db,
+    variants,
+    settings,
+    vaultDir: config.vaultDir,
+    product: config.evalProduct,
+    runsDir: config.runsDir,
+  });
+  await app.register(runRoutes, { runs, settings });
+  await app.register(settingsRoutes, { settings });
 
   return app;
 }

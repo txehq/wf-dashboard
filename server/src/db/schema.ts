@@ -162,6 +162,17 @@ export const batchTasks = sqliteTable(
   ],
 );
 
+export const runStatuses = [
+  'queued',
+  'preparing',
+  'running',
+  'grading',
+  'succeeded',
+  'failed',
+  'cancelled',
+] as const;
+export type RunStatus = (typeof runStatuses)[number];
+
 export const runs = sqliteTable(
   'runs',
   {
@@ -177,11 +188,7 @@ export const runs = sqliteTable(
       .references(() => variants.id, { onDelete: 'restrict' }),
     // 同一 batch 内同一 (task, variant) 的第几次重复，从 0 开始
     repeatIndex: integer('repeat_index').notNull(),
-    status: text('status', {
-      enum: ['queued', 'running', 'succeeded', 'failed', 'cancelled'],
-    })
-      .notNull()
-      .default('queued'),
+    status: text('status', { enum: runStatuses }).notNull().default('queued'),
     humanIntervened: integer('human_intervened', { mode: 'boolean' }).notNull().default(false),
     // dashboard 生成并通过 --session-id 传给 claude；sessions 行由 Ingester 稍后写入，因此这里不加外键
     sessionId: text('session_id').notNull().unique(),
@@ -416,7 +423,32 @@ export const stageChecks = sqliteTable(
   (t) => [index('stage_checks_session_idx').on(t.sessionId, t.workflow)],
 );
 
-// agent 的提问与模拟用户或人的回答
+export const runMessageRoles = ['agent', 'simulated_user', 'human', 'system'] as const;
+export type RunMessageRole = (typeof runMessageRoles)[number];
+
+// AskUserQuestion 的一个问题，与 Claude Code 的 tool input 相同
+export interface AskQuestion {
+  question: string;
+  header?: string | undefined;
+  options: { label: string; description?: string | undefined }[];
+  multiSelect?: boolean | undefined;
+}
+
+// run_messages.payload：AskUserQuestion 的问题与回答，或系统事件的结构化内容
+export type RunMessagePayload =
+  | { kind: 'question'; requestId: string; questions: AskQuestion[] }
+  | {
+      kind: 'answers';
+      requestId: string;
+      questions: AskQuestion[];
+      answers: Record<string, string>;
+    }
+  | { kind: 'reply'; done: boolean }
+  | { kind: 'initial' }
+  | { kind: 'denied'; toolName: string; input: unknown; reason: string | null }
+  | { kind: 'event'; event: string };
+
+// agent 的提问、模拟用户或人的回答，以及拒绝的 tool 请求与运行中的系统事件
 export const runMessages = sqliteTable(
   'run_messages',
   {
@@ -425,16 +457,27 @@ export const runMessages = sqliteTable(
       .notNull()
       .references(() => runs.id, { onDelete: 'cascade' }),
     seq: integer('seq').notNull(),
-    role: text('role', { enum: ['agent', 'simulated_user', 'human'] }).notNull(),
+    role: text('role', { enum: runMessageRoles }).notNull(),
     content: text('content').notNull(),
     // 模拟用户调用的花费
     costUsd: real('cost_usd').notNull().default(0),
+    payload: text('payload', { mode: 'json' }).$type<RunMessagePayload>(),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('run_messages_run_seq_idx').on(t.runId, t.seq)],
 );
 
-export const artifactKinds = ['brief', 'research', 'plan', 'tickets', 'pr', 'repo'] as const;
+// ticket 为 ic 的 Linear 工单 identifier
+export const artifactKinds = [
+  'brief',
+  'research',
+  'plan',
+  'tickets',
+  'pr',
+  'repo',
+  'ticket',
+] as const;
+export type ArtifactKind = (typeof artifactKinds)[number];
 
 export const artifacts = sqliteTable(
   'artifacts',
@@ -448,6 +491,7 @@ export const artifacts = sqliteTable(
     location: text('location').notNull(),
     snapshot: text('snapshot'),
     createdAt: createdAt(),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
   },
   (t) => [uniqueIndex('artifacts_run_kind_idx').on(t.runId, t.kind)],
 );
