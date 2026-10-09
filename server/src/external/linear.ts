@@ -276,3 +276,22 @@ export async function readTicket(identifier: string): Promise<Ticket> {
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
   };
 }
+
+const IssueContent = z.object({
+  id: z.string(),
+  title: z.string(),
+  // 显式请求的字段没有值时为 null
+  description: z.string().nullable(),
+  url: z.string(),
+  createdAt: z.string(),
+});
+export type IssueContent = z.infer<typeof IssueContent>;
+
+// 工单的标题与正文，供 tickets 产物的评分使用
+export async function readIssueContent(identifier: string): Promise<IssueContent> {
+  return callLinear(
+    'get_issue',
+    { id: identifier, fields: ['title', 'description', 'url', 'createdAt'] },
+    IssueContent,
+  );
+}

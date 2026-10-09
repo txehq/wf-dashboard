@@ -1,0 +1,68 @@
+id: optional-mcp-install
+kind: lfg
+title: 让 wf 管理的 MCP 安装成为可选项
+persona: |
+  txe-workflow 的维护者 ding113，熟悉 wf 的 Rust workspace 与 /install skill。回答直接、简短，只回答被问到的问题；不清楚的细节交给 agent 决定。
+hiddenRequirements: |
+  - wf install 写入某个 MCP 之前，判断该 agent 上是否已有同一服务的连接：wf 要写的 key 已存在，或某条连接的端点就是同一发布端点（远程 URL 直接比对，mcp-remote 一类的桥从 argv 取端点）。
+  - 候选交给发起安装的 agent，由 agent 用 AskUserQuestion 问人逐项"跳过"或"装"；wf 本身保持非交互，不读 stdin。
+  - 没有人回答时照旧安装，并在报告中警告"检测到已有同服务"。
+  - 跳过是持久记录（按 MCP × agent），写进本机状态数据库；wf sync、wf repair、wf doctor、会话启动都尊重它，不再当作缺失、不再提示。
+  - --force 不解除跳过；只有人显式执行 wf mcp unskip 才会解除。
+  - wf doctor --strict 在有跳过的机器上仍返回 ok: true；doctor 的"没有检查"一节留一行说明按用户要求跳过。
+  - 不读、不改、不上报别家连接的 env、header、token；不改三个 MCP 服务本身的定义与端点。
+input: wf install 现在会无条件把所有 MCP 装进每个 agent，和用户自己已有的 Linear 连接重复了。希望装之前先问一下，用户可以选择跳过。
+rubric:
+  - artifact: brief
+    items:
+      - id: b1
+        criterion: 产物是否写明判定"已有同一服务"的依据：同名 key 已存在，或连接端点与发布端点相同（含 mcp-remote 桥接 argv 中的端点）。
+        maxScore: 5
+      - id: b2
+        criterion: 产物是否写明提问由 agent 发起（AskUserQuestion），wf 命令本身保持非交互。
+        maxScore: 3
+      - id: b3
+        criterion: 产物是否写明跳过是持久记录，并列出 sync、repair、doctor、会话启动都要尊重它。
+        maxScore: 5
+      - id: b4
+        criterion: 产物是否写明 --force 不解除跳过、只有人显式命令才解除。
+        maxScore: 3
+      - id: b5
+        criterion: 产物是否把"不读、不改、不上报别家连接的凭据与配置"列为不做的范围或约束。
+        maxScore: 3
+  - artifact: research
+    items:
+      - id: r1
+        criterion: 产物是否以带文件路径与行号的证据说明当前跳过状态只存在于内存、下一次运行会重新当作缺失。
+        maxScore: 5
+      - id: r2
+        criterion: 产物是否列出需要改动的各个 crate 与 /install skill，并说明每处要改什么。
+        maxScore: 4
+      - id: r3
+        criterion: 产物的建议是否各自附有出处（本地代码位置或外部链接）。
+        maxScore: 3
+      - id: r4
+        criterion: 产物是否讨论端点比对前的归一化（大小写、末尾斜杠、桥接 argv）。
+        maxScore: 3
+  - artifact: plan
+    items:
+      - id: p1
+        criterion: 产物是否给出按顺序排列的实施部分，并写明每部分的依赖与验证方式。
+        maxScore: 5
+      - id: p2
+        criterion: 产物是否带锁定标记或锁定日期。
+        maxScore: 2
+  - artifact: tickets
+    items:
+      - id: t1
+        criterion: 产物是否列出与 Linear 中已有工单的对照，并说明为什么它们不是这件事。
+        maxScore: 3
+      - id: t2
+        criterion: 产物是否按依赖拆分工单，并给出依赖关系图。
+        maxScore: 4
+      - id: t3
+        criterion: 产物中的每张工单是否都有可验证的验收标准。
+        maxScore: 4
+      - id: t4
+        criterion: 产物是否给出每张工单的估算与推荐负责人，并说明依据。
+        maxScore: 3

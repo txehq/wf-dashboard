@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "faa587b3-d835-441a-8b1e-f9d39e2ef1bb",
+  "id": "0917fc9a-2312-47df-a05d-bbe7ea559357",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "artifacts": {
@@ -246,6 +246,88 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "grade_items": {
+      "name": "grade_items",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "grade_id": {
+          "name": "grade_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "item_id": {
+          "name": "item_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "criterion": {
+          "name": "criterion",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "score": {
+          "name": "score",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "max_score": {
+          "name": "max_score",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reasoning": {
+          "name": "reasoning",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "grade_items_grade_item_idx": {
+          "name": "grade_items_grade_item_idx",
+          "columns": [
+            "grade_id",
+            "item_id"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "grade_items_grade_id_grades_id_fk": {
+          "name": "grade_items_grade_id_grades_id_fk",
+          "tableFrom": "grade_items",
+          "tableTo": "grades",
+          "columnsFrom": [
+            "grade_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "grades": {
       "name": "grades",
       "columns": {
@@ -270,37 +352,16 @@
           "notNull": true,
           "autoincrement": false
         },
+        "artifact": {
+          "name": "artifact",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "artifact_id": {
           "name": "artifact_id",
           "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "rubric_item_id": {
-          "name": "rubric_item_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "score": {
-          "name": "score",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "max_score": {
-          "name": "max_score",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "reasoning": {
-          "name": "reasoning",
-          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -312,6 +373,30 @@
           "notNull": false,
           "autoincrement": false
         },
+        "input_tokens": {
+          "name": "input_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "output_tokens": {
+          "name": "output_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "cost_usd": {
+          "name": "cost_usd",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
         "tests_passed": {
           "name": "tests_passed",
           "type": "integer",
@@ -319,8 +404,8 @@
           "notNull": false,
           "autoincrement": false
         },
-        "tests_total": {
-          "name": "tests_total",
+        "tests_declared": {
+          "name": "tests_declared",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,
@@ -329,6 +414,13 @@
         "reached_end": {
           "name": "reached_end",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ic_detail": {
+          "name": "ic_detail",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -350,11 +442,11 @@
           ],
           "isUnique": false
         },
-        "grades_artifact_item_idx": {
-          "name": "grades_artifact_item_idx",
+        "grades_run_artifact_idx": {
+          "name": "grades_run_artifact_idx",
           "columns": [
-            "artifact_id",
-            "rubric_item_id"
+            "run_id",
+            "artifact"
           ],
           "isUnique": true
         }
@@ -383,7 +475,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -596,6 +688,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "cost_usd": {
+          "name": "cost_usd",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
         },
         "created_at": {
           "name": "created_at",

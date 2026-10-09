@@ -127,6 +127,7 @@ describe('database', () => {
       'batch_tasks',
       'batch_variants',
       'batches',
+      'grade_items',
       'grades',
       'requests',
       'run_messages',

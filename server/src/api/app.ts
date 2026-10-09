@@ -9,6 +9,8 @@ import { sessionsRoutes } from './sessions.js';
 import { registerStageRoutes } from './stages.js';
 import { taskRoutes } from './tasks.js';
 import { variantRoutes } from './variants.js';
+import { compareRoutes } from './compare.js';
+import { gradeRoutes } from './grades.js';
 
 export interface AppOptions {
   db: Db;
@@ -47,6 +49,9 @@ export async function buildApp({ db, sseHeartbeatMs, logger, tasksDir }: AppOpti
     ctxBin: config.ctxBin,
   });
   await app.register(variantRoutes, { variants });
+
+  await app.register(gradeRoutes({ db }));
+  await app.register(compareRoutes({ db }));
 
   return app;
 }

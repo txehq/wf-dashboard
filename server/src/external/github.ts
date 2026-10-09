@@ -314,6 +314,16 @@ export async function icEndpoint(repo: string, pr: number): Promise<IcEndpoint> 
   };
 }
 
+// PR 的 head 分支名，供 clonePrBranch 使用
+export async function prBranch(repo: string, pr: number): Promise<string> {
+  return (
+    await ghJson(
+      ['pr', 'view', String(pr), '--repo', repo, '--json', 'headRefName'],
+      z.object({ headRefName: z.string().min(1) }),
+    )
+  ).headRefName;
+}
+
 // 隐藏测试用：把 PR 分支浅克隆到 dest（data/runs/<runId>/grading/checkout）
 export async function clonePrBranch(
   repo: string,

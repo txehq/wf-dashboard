@@ -40,8 +40,9 @@ export interface ParseState {
 }
 
 // lfg 的 rubric 按产物分组，定义在 task schema 中
-import type { ArtifactRubric } from '../tasks/schema.js';
+import { type ArtifactRubric, rubricArtifacts } from '../tasks/schema.js';
 export type { ArtifactRubric, RubricItem } from '../tasks/schema.js';
+import type { IcDetail } from '../grading/schema.js';
 
 const createdAt = () =>
   integer('created_at', { mode: 'timestamp_ms' })
@@ -388,6 +389,8 @@ export const runMessages = sqliteTable(
     seq: integer('seq').notNull(),
     role: text('role', { enum: ['agent', 'simulated_user', 'human'] }).notNull(),
     content: text('content').notNull(),
+    // 模拟用户调用的花费
+    costUsd: real('cost_usd').notNull().default(0),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('run_messages_run_seq_idx').on(t.runId, t.seq)],
@@ -411,7 +414,7 @@ export const artifacts = sqliteTable(
   (t) => [uniqueIndex('artifacts_run_kind_idx').on(t.runId, t.kind)],
 );
 
-// lfg：每个产物的每个 rubric 条目一行；ic：每个 run 一行测试结果与终点判定
+// lfg：每个 rubric 产物一行（一次 judge 调用，产物不存在时没有调用）；ic：每个 run 一行测试结果与终点判定
 export const grades = sqliteTable(
   'grades',
   {
@@ -419,20 +422,40 @@ export const grades = sqliteTable(
     runId: text('run_id')
       .notNull()
       .references(() => runs.id, { onDelete: 'cascade' }),
-    kind: text('kind', { enum: ['rubric', 'ic_tests'] }).notNull(),
-    artifactId: integer('artifact_id').references(() => artifacts.id, { onDelete: 'cascade' }),
-    rubricItemId: text('rubric_item_id'),
-    score: real('score'),
-    maxScore: real('max_score'),
-    reasoning: text('reasoning'),
+    kind: text('kind', { enum: ['rubric', 'ic'] }).notNull(),
+    // rubric 的产物组；ic 为空
+    artifact: text('artifact', { enum: rubricArtifacts }),
+    // 评分时产物不存在则为空
+    artifactId: integer('artifact_id').references(() => artifacts.id, { onDelete: 'set null' }),
     judgeModel: text('judge_model'),
+    inputTokens: integer('input_tokens').notNull().default(0),
+    outputTokens: integer('output_tokens').notNull().default(0),
+    costUsd: real('cost_usd').notNull().default(0),
     testsPassed: integer('tests_passed'),
-    testsTotal: integer('tests_total'),
+    testsDeclared: integer('tests_declared'),
     reachedEnd: integer('reached_end', { mode: 'boolean' }),
+    icDetail: text('ic_detail', { mode: 'json' }).$type<IcDetail>(),
     createdAt: createdAt(),
   },
   (t) => [
     index('grades_run_idx').on(t.runId),
-    uniqueIndex('grades_artifact_item_idx').on(t.artifactId, t.rubricItemId),
+    uniqueIndex('grades_run_artifact_idx').on(t.runId, t.artifact),
   ],
+);
+
+// rubric 条目的得分；criterion 与 max_score 是评分时 rubric 的快照
+export const gradeItems = sqliteTable(
+  'grade_items',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    gradeId: integer('grade_id')
+      .notNull()
+      .references(() => grades.id, { onDelete: 'cascade' }),
+    itemId: text('item_id').notNull(),
+    criterion: text('criterion').notNull(),
+    score: integer('score').notNull(),
+    maxScore: integer('max_score').notNull(),
+    reasoning: text('reasoning').notNull(),
+  },
+  (t) => [uniqueIndex('grade_items_grade_item_idx').on(t.gradeId, t.itemId)],
 );

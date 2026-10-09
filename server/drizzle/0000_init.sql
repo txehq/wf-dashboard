@@ -33,26 +33,39 @@ CREATE TABLE `batches` (
 	`created_at` integer DEFAULT (cast(unixepoch('subsec') * 1000 as integer)) NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE `grade_items` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`grade_id` integer NOT NULL,
+	`item_id` text NOT NULL,
+	`criterion` text NOT NULL,
+	`score` integer NOT NULL,
+	`max_score` integer NOT NULL,
+	`reasoning` text NOT NULL,
+	FOREIGN KEY (`grade_id`) REFERENCES `grades`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `grade_items_grade_item_idx` ON `grade_items` (`grade_id`,`item_id`);--> statement-breakpoint
 CREATE TABLE `grades` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`run_id` text NOT NULL,
 	`kind` text NOT NULL,
+	`artifact` text,
 	`artifact_id` integer,
-	`rubric_item_id` text,
-	`score` real,
-	`max_score` real,
-	`reasoning` text,
 	`judge_model` text,
+	`input_tokens` integer DEFAULT 0 NOT NULL,
+	`output_tokens` integer DEFAULT 0 NOT NULL,
+	`cost_usd` real DEFAULT 0 NOT NULL,
 	`tests_passed` integer,
-	`tests_total` integer,
+	`tests_declared` integer,
 	`reached_end` integer,
+	`ic_detail` text,
 	`created_at` integer DEFAULT (cast(unixepoch('subsec') * 1000 as integer)) NOT NULL,
 	FOREIGN KEY (`run_id`) REFERENCES `runs`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`artifact_id`) REFERENCES `artifacts`(`id`) ON UPDATE no action ON DELETE cascade
+	FOREIGN KEY (`artifact_id`) REFERENCES `artifacts`(`id`) ON UPDATE no action ON DELETE set null
 );
 --> statement-breakpoint
 CREATE INDEX `grades_run_idx` ON `grades` (`run_id`);--> statement-breakpoint
-CREATE UNIQUE INDEX `grades_artifact_item_idx` ON `grades` (`artifact_id`,`rubric_item_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `grades_run_artifact_idx` ON `grades` (`run_id`,`artifact`);--> statement-breakpoint
 CREATE TABLE `requests` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`session_id` text NOT NULL,
@@ -83,6 +96,7 @@ CREATE TABLE `run_messages` (
 	`seq` integer NOT NULL,
 	`role` text NOT NULL,
 	`content` text NOT NULL,
+	`cost_usd` real DEFAULT 0 NOT NULL,
 	`created_at` integer DEFAULT (cast(unixepoch('subsec') * 1000 as integer)) NOT NULL,
 	FOREIGN KEY (`run_id`) REFERENCES `runs`(`id`) ON UPDATE no action ON DELETE cascade
 );
