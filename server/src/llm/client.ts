@@ -20,7 +20,9 @@ const Settings = z.object({
 });
 
 export function claudeSettingsEnv(): z.infer<typeof Settings>['env'] {
-  const raw: unknown = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude/settings.json'), 'utf8'));
+  const raw: unknown = JSON.parse(
+    fs.readFileSync(path.join(os.homedir(), '.claude/settings.json'), 'utf8'),
+  );
   return Settings.parse(raw).env;
 }
 
@@ -38,7 +40,11 @@ export const models = {
 let client: Anthropic | undefined;
 
 export function anthropic(): Anthropic {
-  client ??= new Anthropic({ baseURL: env.ANTHROPIC_BASE_URL, authToken: env.ANTHROPIC_AUTH_TOKEN, apiKey: null });
+  client ??= new Anthropic({
+    baseURL: env.ANTHROPIC_BASE_URL,
+    authToken: env.ANTHROPIC_AUTH_TOKEN,
+    apiKey: null,
+  });
   return client;
 }
 
@@ -64,8 +70,15 @@ export async function parseStructured<T>(args: {
     output_config: { format: zodOutputFormat(args.schema) },
   });
   if (response.parsed_output === null) {
-    throw new Error(`结构化输出解析失败（stop_reason=${String(response.stop_reason)}）：${JSON.stringify(response.content)}`);
+    throw new Error(
+      `结构化输出解析失败（stop_reason=${String(response.stop_reason)}）：${JSON.stringify(response.content)}`,
+    );
   }
   const usage = fromApiUsage(response.usage);
-  return { value: response.parsed_output, usage, costUsd: costUsd(usage, args.model), model: args.model };
+  return {
+    value: response.parsed_output,
+    usage,
+    costUsd: costUsd(usage, args.model),
+    model: args.model,
+  };
 }

@@ -12,7 +12,13 @@ describe('pricing', () => {
 
   it('按各类 token 计算花费', () => {
     const cost = costUsd(
-      { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 1_000_000, cacheWrite5mTokens: 0, cacheWrite1hTokens: 1_000_000 },
+      {
+        inputTokens: 1_000_000,
+        outputTokens: 1_000_000,
+        cacheReadTokens: 1_000_000,
+        cacheWrite5mTokens: 0,
+        cacheWrite1hTokens: 1_000_000,
+      },
       'claude-opus-5-5',
     );
     expect(cost).toBeCloseTo(4 + 20 + 0.2 + 8);

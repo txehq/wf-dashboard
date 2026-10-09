@@ -58,10 +58,14 @@ export function fromApiUsage(u: {
   output_tokens: number;
   cache_read_input_tokens?: number | null;
   cache_creation_input_tokens?: number | null;
-  cache_creation?: { ephemeral_5m_input_tokens?: number; ephemeral_1h_input_tokens?: number } | null;
+  cache_creation?: {
+    ephemeral_5m_input_tokens?: number;
+    ephemeral_1h_input_tokens?: number;
+  } | null;
 }): TokenUsage {
   const write1h = u.cache_creation?.ephemeral_1h_input_tokens ?? 0;
-  const write5m = u.cache_creation?.ephemeral_5m_input_tokens ?? (u.cache_creation_input_tokens ?? 0) - write1h;
+  const write5m =
+    u.cache_creation?.ephemeral_5m_input_tokens ?? (u.cache_creation_input_tokens ?? 0) - write1h;
   return {
     inputTokens: u.input_tokens,
     outputTokens: u.output_tokens,
