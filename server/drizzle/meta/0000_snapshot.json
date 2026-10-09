@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "dc4f39df-2761-4c11-83c3-49aba2189bd0",
+  "id": "3168d22f-0589-4ffb-a4d6-366e5bad967c",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "artifacts": {
@@ -436,6 +436,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "trigger_at": {
+          "name": "trigger_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "model": {
           "name": "model",
           "type": "text",
@@ -523,19 +530,12 @@
           ],
           "isUnique": true
         },
-        "requests_session_seq_idx": {
-          "name": "requests_session_seq_idx",
+        "requests_session_agent_seq_idx": {
+          "name": "requests_session_agent_seq_idx",
           "columns": [
             "session_id",
+            "agent_id",
             "seq"
-          ],
-          "isUnique": false
-        },
-        "requests_session_agent_idx": {
-          "name": "requests_session_agent_idx",
-          "columns": [
-            "session_id",
-            "agent_id"
           ],
           "isUnique": false
         }
@@ -886,19 +886,42 @@
           "notNull": false,
           "autoincrement": false
         },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "started_at": {
           "name": "started_at",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "ended_at": {
           "name": "ended_at",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
+        },
+        "has_lfg": {
+          "name": "has_lfg",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "has_ic": {
+          "name": "has_ic",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
         },
         "parse_offset": {
           "name": "parse_offset",
@@ -907,6 +930,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": 0
+        },
+        "parse_state": {
+          "name": "parse_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
@@ -942,7 +972,8 @@
         "sessions_started_at_idx": {
           "name": "sessions_started_at_idx",
           "columns": [
-            "started_at"
+            "started_at",
+            "id"
           ],
           "isUnique": false
         }
@@ -1003,6 +1034,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": true
+        },
+        "variant": {
+          "name": "variant",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
@@ -1299,11 +1337,18 @@
           "name": "parent_tool_use_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "agent_type": {
           "name": "agent_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -1316,6 +1361,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": 0
+        },
+        "parse_state": {
+          "name": "parse_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -1325,6 +1377,14 @@
             "file_path"
           ],
           "isUnique": true
+        },
+        "subagents_parent_tool_use_idx": {
+          "name": "subagents_parent_tool_use_idx",
+          "columns": [
+            "session_id",
+            "parent_tool_use_id"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -1489,6 +1549,97 @@
         }
       },
       "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "user_messages": {
+      "name": "user_messages",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "uuid": {
+          "name": "uuid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "timestamp": {
+          "name": "timestamp",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "text": {
+          "name": "text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "user_messages_session_uuid_idx": {
+          "name": "user_messages_session_uuid_idx",
+          "columns": [
+            "session_id",
+            "uuid"
+          ],
+          "isUnique": true
+        },
+        "user_messages_session_agent_time_idx": {
+          "name": "user_messages_session_agent_time_idx",
+          "columns": [
+            "session_id",
+            "agent_id",
+            "timestamp"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "user_messages_session_id_sessions_id_fk": {
+          "name": "user_messages_session_id_sessions_id_fk",
+          "tableFrom": "user_messages",
+          "tableTo": "sessions",
+          "columnsFrom": [
+            "session_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}

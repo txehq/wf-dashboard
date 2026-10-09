@@ -1,6 +1,9 @@
 import { fastifySSE } from '@fastify/sse';
 import Fastify from 'fastify';
 import type { Db } from '../db/index.js';
+import { events } from '../events.js';
+import { defaultSourceDirs } from '../ingest/sources.js';
+import { sessionsRoutes } from './sessions.js';
 
 export interface AppOptions {
   db: Db;
@@ -17,11 +20,17 @@ export async function buildApp({ db, sseHeartbeatMs, logger }: AppOptions) {
     return { status: 'ok' };
   });
 
-  // 实时事件推送；具体事件由后续模块发布
+  // 实时事件推送：连接时先发 ready，之后转发事件总线上的全部事件
   app.get('/api/events', { sse: 'only' }, async (_request, reply) => {
     reply.sse.keepAlive();
+    const unsubscribe = events.subscribe((event) => {
+      void reply.sse.send({ event: event.type, data: event });
+    });
+    reply.sse.onClose(unsubscribe);
     await reply.sse.send({ event: 'ready', data: {} });
   });
+
+  await app.register(sessionsRoutes, { prefix: '/api', db, dirs: defaultSourceDirs });
 
   return app;
 }

@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { buildApp } from '../src/api/app.js';
 import { config } from '../src/config.js';
 import { openDatabase } from '../src/db/index.js';
+import { events } from '../src/events.js';
 
 const dbFile = path.join(config.repoRoot, '.work', 'test-db', `${randomUUID()}.sqlite`);
 const db = openDatabase(dbFile, config.migrationsDir);
@@ -47,6 +48,24 @@ describe('api', () => {
     const reader = body.pipeThrough(new TextDecoderStream()).getReader();
     const { value } = await reader.read();
     expect(value).toContain('event: ready');
+    controller.abort();
+  });
+
+  test('GET /api/events 转发事件总线上的 session.updated', async () => {
+    const controller = new AbortController();
+    const response = await fetch(`${baseUrl()}/api/events`, {
+      headers: { accept: 'text/event-stream' },
+      signal: controller.signal,
+    });
+    const body = response.body;
+    if (body === null) throw new Error('SSE 响应没有 body');
+    const reader = body.pipeThrough(new TextDecoderStream()).getReader();
+    let received = '';
+    while (!received.includes('event: ready')) received += (await reader.read()).value ?? '';
+    events.publish({ type: 'session.updated', sessionId: 'session-1' });
+    while (!received.includes('event: session.updated'))
+      received += (await reader.read()).value ?? '';
+    expect(received).toContain('data: {"type":"session.updated","sessionId":"session-1"}');
     controller.abort();
   });
 });
