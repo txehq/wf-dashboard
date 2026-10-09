@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Hand } from 'lucide-react';
+import { Hand, Link2 } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { RunStatusLabel } from '@/components/runs/run-status';
@@ -89,12 +89,24 @@ function RunRow({ run, now }: { run: RunSummary; now: number }) {
         {duration === null ? '—' : formatDuration(duration)}
       </td>
       <td className="py-2 pl-3">
-        {run.humanIntervened && (
-          <span className="inline-flex items-center gap-1 text-xs" data-testid="intervened">
-            <Hand className="size-3.5" aria-hidden />
-            有人工干预
-          </span>
-        )}
+        <span className="flex flex-col gap-0.5">
+          {run.humanIntervened && (
+            <span className="inline-flex items-center gap-1 text-xs" data-testid="intervened">
+              <Hand className="size-3.5" aria-hidden />
+              有人工干预
+            </span>
+          )}
+          {run.crossRunRefs.length > 0 && (
+            <span
+              className="inline-flex items-center gap-1 text-xs"
+              data-testid="cross-ref"
+              title={[...new Set(run.crossRunRefs.map((r) => r.runId))].join('、')}
+            >
+              <Link2 className="size-3.5" aria-hidden />
+              参考了其他 run
+            </span>
+          )}
+        </span>
       </td>
     </tr>
   );
@@ -196,7 +208,7 @@ export function RunList() {
                 <col className="w-[16%]" />
                 <col className="w-24" />
                 <col className="w-32" />
-                <col className="w-28" />
+                <col className="w-32" />
               </colgroup>
               <thead>
                 <tr className="border-b text-left text-xs text-muted-foreground">

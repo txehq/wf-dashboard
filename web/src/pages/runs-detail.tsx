@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Ban, ExternalLink, Hand, TriangleAlert } from 'lucide-react';
+import { ArrowLeft, Ban, ExternalLink, Hand, Link2, TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { Conversation } from '@/components/runs/conversation';
@@ -7,11 +7,12 @@ import { RunArtifacts } from '@/components/runs/run-artifacts';
 import { RunGradesPanel } from '@/components/runs/run-grades';
 import { StageText } from '@/components/runs/run-list';
 import { RunStatusLabel } from '@/components/runs/run-status';
-import { RequestTimeline } from '@/components/sessions/request-timeline';
+import { RequestTimeline, type TimelineFocus } from '@/components/sessions/request-timeline';
 import { StageGraph } from '@/components/sessions/stage-graph';
 import { Button } from '@/components/ui/button';
 import { formatDateTime, formatDuration, formatUsd } from '@/lib/format';
 import {
+  type CrossRunRef,
   liveStatuses,
   runAction,
   type RunDetail,
@@ -193,11 +194,74 @@ function Failure({ run, views }: { run: RunDetail; views: StageView[] }) {
   );
 }
 
-function Requests({ run }: { run: RunDetail }) {
+const refKindLabel: Record<CrossRunRef['kind'], string> = {
+  repo: '仓库',
+  vault: 'vault 目录',
+  ticket: 'Linear 工单',
+  other: 'run id',
+};
+
+// Contracts 7.11：这个 run 的请求中指向其他评估 run 的引用，点击定位到请求流中的那条请求
+function CrossRefs({
+  refs,
+  onFocus,
+}: {
+  refs: CrossRunRef[];
+  onFocus: (ref: CrossRunRef) => void;
+}) {
+  if (refs.length === 0) return null;
+  return (
+    <section
+      className="flex flex-col gap-2 rounded-lg border-2 border-dashed px-4 py-3"
+      aria-labelledby="cross-refs-title"
+      data-testid="cross-refs"
+    >
+      <h2 id="cross-refs-title" className="flex items-center gap-1.5 text-sm font-medium">
+        <Link2 className="size-4" aria-hidden />
+        参考了其他 run
+        <span className="font-normal text-muted-foreground">
+          对比时默认排除；共 {refs.length} 处
+        </span>
+      </h2>
+      <ul className="flex flex-col gap-1">
+        {refs.map((ref) => (
+          <li
+            key={`${ref.toolCallId}:${ref.runId}:${ref.kind}`}
+            className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm"
+          >
+            <Link to={`/runs/${ref.runId}`} className="font-mono text-xs underline">
+              {ref.runId}
+            </Link>
+            <span className="text-xs text-muted-foreground">{refKindLabel[ref.kind]}</span>
+            <button
+              type="button"
+              data-testid="cross-ref-jump"
+              className="rounded border px-1.5 py-0.5 text-xs hover:bg-muted"
+              onClick={() => {
+                onFocus(ref);
+              }}
+            >
+              请求 #{ref.requestSeq}
+            </button>
+            <code className="min-w-0 flex-1 truncate text-xs" title={ref.excerpt}>
+              {ref.excerpt}
+            </code>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function Requests({ run, focus }: { run: RunDetail; focus: TimelineFocus | null }) {
   const session = useQuery({ ...sessionQuery(run.sessionId), retry: false });
   const live = liveStatuses.has(run.status);
   return (
-    <section className="flex flex-col gap-2" aria-labelledby="requests-title">
+    <section
+      className="flex scroll-mt-4 flex-col gap-2"
+      aria-labelledby="requests-title"
+      id="run-requests"
+    >
       <h2 id="requests-title" className="text-sm font-medium">
         请求流
       </h2>
@@ -218,6 +282,7 @@ function Requests({ run }: { run: RunDetail }) {
           range={{}}
           subagents={session.data.subagents}
           follow={live}
+          focus={focus}
         />
       )}
     </section>
@@ -227,11 +292,19 @@ function Requests({ run }: { run: RunDetail }) {
 function RunView({ run }: { run: RunDetail }) {
   const views = stageViews(run);
   const [selected, setSelected] = useState<string | null>(null);
+  const [focus, setFocus] = useState<TimelineFocus | null>(null);
   const live = liveStatuses.has(run.status);
   return (
     <div className="flex flex-col gap-4">
       <Header run={run} />
       <Failure run={run} views={views} />
+      <CrossRefs
+        refs={run.crossRunRefs}
+        onFocus={(ref) => {
+          setFocus({ seq: ref.requestSeq, toolCallId: ref.toolCallId, nonce: Date.now() });
+          document.getElementById('run-requests')?.scrollIntoView({ behavior: 'smooth' });
+        }}
+      />
       <section
         className="flex flex-col gap-2 rounded-lg border px-4 py-3"
         aria-label="阶段进度"
@@ -253,7 +326,7 @@ function RunView({ run }: { run: RunDetail }) {
         <RunArtifacts run={run} />
       </div>
       {run.status === 'succeeded' && <RunGradesPanel runId={run.id} />}
-      <Requests run={run} />
+      <Requests run={run} focus={focus} />
     </div>
   );
 }

@@ -84,7 +84,12 @@ export function LaunchBatch() {
                       {v.model} · {v.effort}
                     </span>
                   </label>
-                  {!built && (
+                  {!built && v.installDir === null && (
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      导入的历史记录，不能运行
+                    </span>
+                  )}
+                  {!built && v.installDir !== null && (
                     <span className="shrink-0 text-xs text-muted-foreground">
                       {buildLabel(v)} ·{' '}
                       <Link to={`/variants/${v.id}`} className="underline">

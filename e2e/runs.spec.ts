@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { expect, type Locator, type Page, test } from '@playwright/test';
 import { runsServerPort } from '../ports.js';
 
-// 数据目录由 server/scripts/prepare-runs-e2e.ts 准备：导入 W4 端到端的三个已结束 run。
+// 数据目录由 server/scripts/prepare-runs-e2e.ts 准备：导入 W4 端到端的四个已结束 run。
 // 实时一项是真实运行：构建基线 variant，发起 lfg-calculator 的 1 个 run（在 txehq 建仓库、写 vault），
 // 在 interview 阶段接管并回答一次，交还模拟用户，再取消
 const api = `http://127.0.0.1:${String(runsServerPort)}/api`;
@@ -51,6 +51,31 @@ test('已评分的 lfg run：阶段、对话、产物与 rubric 得分', async (
   await expect(grades.getByTestId('grade-tickets')).toContainText('15 / 18');
   await expect(page.getByTestId('timeline')).toBeVisible();
   await shot(page, 'graded');
+});
+
+// 这个 lfg run 在 ticketing 中给工单找负责人时引用了 ic run r-20261009-27yz3d 的工单 TXE-3767
+test('参考了其他 run：证据与跳到对应请求', async ({ page }) => {
+  await page.goto('/runs');
+  await expect(
+    page.locator('[data-run="r-20261009-dqva52"]').getByTestId('cross-ref'),
+  ).toBeVisible();
+  await expect(page.locator('[data-run="r-20261009-a26chw"]').getByTestId('cross-ref')).toHaveCount(
+    0,
+  );
+
+  await page.goto('/runs/r-20261009-dqva52');
+  const refs = page.getByTestId('cross-refs');
+  await expect(refs).toContainText('共 2 处');
+  await expect(refs.getByRole('link', { name: 'r-20261009-27yz3d' })).toHaveCount(2);
+  await expect(refs).toContainText('removeRelatedTo[1]: TXE-3767');
+  await expect(page.getByTestId('timeline')).toBeVisible();
+  await refs.getByRole('button', { name: '请求 #163' }).click();
+  const focused = page.locator('[data-testid="request-row"][data-focused="true"]');
+  await expect(focused).toContainText('#163');
+  await expect(focused.getByTestId('tool-call-detail')).toContainText('TXE-3767');
+  await expect(focused).toBeInViewport();
+  await shot(page.getByTestId('cross-refs'), 'cross-refs');
+  await shot(focused, 'cross-ref-request');
 });
 
 test('已评分的 ic run 与失败的 run', async ({ page }) => {
@@ -103,12 +128,25 @@ test.describe('真实运行', () => {
     const variant = (await created.json()) as { id: string };
     const built = await request.post(`${api}/variants/${variant.id}/build`, { timeout: 900_000 });
     expect(((await built.json()) as { buildStatus: string }).buildStatus).toBe('built');
+    // 派生出的 variant 还没有构建，不能选
+    const draftName = `W10 e2e 未构建 ${marker}`;
+    const draft = (await (
+      await request.post(`${api}/variants/${variant.id}/derive`, { data: { name: draftName } })
+    ).json()) as { id: string };
 
     // 发起
     await page.goto('/runs');
     const launch = page.getByTestId('launch-batch');
     await expect(launch.getByRole('checkbox', { name: /导入/ }).first()).toBeDisabled();
-    await expect(launch.getByRole('link', { name: '去构建' }).first()).toBeVisible();
+    await expect(launch.getByText('导入的历史记录，不能运行').first()).toBeVisible();
+    const draftRow = launch
+      .locator('div', { has: page.getByText(draftName, { exact: true }) })
+      .last();
+    await expect(draftRow.getByRole('checkbox')).toBeDisabled();
+    await expect(draftRow.getByRole('link', { name: '去构建' })).toHaveAttribute(
+      'href',
+      `/variants/${draft.id}`,
+    );
     await launch.getByRole('checkbox', { name: variantName }).check();
     await launch.getByRole('checkbox', { name: '课堂用的网页计算器' }).check();
     await launch.getByRole('spinbutton').fill('1');

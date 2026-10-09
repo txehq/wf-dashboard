@@ -70,6 +70,16 @@ export interface Artifact {
   updatedAt: number;
 }
 
+// Contracts 7.11：这个 run 的请求中指向其他评估 run 的引用
+export interface CrossRunRef {
+  runId: string;
+  kind: 'repo' | 'vault' | 'ticket' | 'other';
+  // 主 session 的 seq；子代理中的调用取发起该子代理的主 session 请求
+  requestSeq: number;
+  toolCallId: string;
+  excerpt: string;
+}
+
 export interface RunSummary {
   id: string;
   batchId: string;
@@ -84,6 +94,7 @@ export interface RunSummary {
   costUsd: number;
   durationMs: number | null;
   humanIntervened: boolean;
+  crossRunRefs: CrossRunRef[];
   error: string | null;
   createdAt: number;
   startedAt: number | null;

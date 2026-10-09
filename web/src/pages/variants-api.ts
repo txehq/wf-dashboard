@@ -10,6 +10,8 @@ export interface Variant {
   model: string;
   effort: string;
   status: 'draft' | 'frozen';
+  // 从其他数据目录导入的 variant 没有安装目录
+  installDir: string | null;
   buildStatus: 'none' | 'building' | 'built' | 'failed';
   builtHash: string | null;
   buildError: string | null;

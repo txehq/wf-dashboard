@@ -59,6 +59,16 @@ function useExpandState(): ExpandState {
 
 const SubagentsContext = createContext<ReadonlyMap<string, SubagentInfo>>(new Map());
 
+// 被外部定位到的请求（message id），该行加框标出
+const FocusContext = createContext<string | null>(null);
+
+// 外部要求定位的主 session 请求；nonce 让同一条请求可以被再次定位
+export interface TimelineFocus {
+  seq: number;
+  toolCallId: string;
+  nonce: number;
+}
+
 function str(input: unknown, key: string): string | null {
   if (typeof input !== 'object' || input === null) return null;
   const value = (input as Record<string, unknown>)[key];
@@ -262,12 +272,14 @@ function ToolCallView({ call, sessionId }: { call: ToolCall; sessionId: string }
 
 function RequestRow({ item, sessionId }: { item: RequestItem; sessionId: string }) {
   const expand = useExpand();
+  const focused = use(FocusContext) === item.messageId;
   const thinkingKey = `thinking:${item.messageId}`;
   const t = item.tokens;
   return (
     <article
-      className="flex flex-col gap-1.5 rounded-lg border bg-card px-3 py-2"
+      className={`flex flex-col gap-1.5 rounded-lg border bg-card px-3 py-2 ${focused ? 'ring-2 ring-foreground' : ''}`}
       data-testid="request-row"
+      data-focused={focused}
     >
       <header className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground tabular-nums">
         <span className="inline-flex items-center gap-1 font-medium text-foreground">
@@ -509,16 +521,43 @@ export function RequestTimeline({
   range,
   subagents,
   follow = false,
+  focus = null,
 }: {
   sessionId: string;
   range: RequestRange;
   subagents: SubagentInfo[];
   follow?: boolean;
+  focus?: TimelineFocus | null;
 }) {
   const expand = useExpandState();
   const subagentMap = useMemo(() => new Map(subagents.map((s) => [s.agentId, s])), [subagents]);
   const query = useQuery(requestsQuery(sessionId, range));
   const scrollRef = useRef<((index: number) => void) | null>(null);
+
+  // 定位：滚动到该请求并展开对应的 tool 调用；调用在子代理中时展开该请求发起的子代理。
+  // open 的引用随展开状态变化，放在 ref 中，定位只随 focus 与数据变化执行
+  const openRef = useRef(expand.open);
+  useEffect(() => {
+    openRef.current = expand.open;
+  });
+  useEffect(() => {
+    if (focus === null || query.data === undefined) return;
+    const index = query.data.findIndex((i) => i.kind === 'request' && i.seq === focus.seq);
+    const item = query.data[index];
+    if (item?.kind !== 'request') return;
+    const call = item.toolCalls.find((c) => c.id === focus.toolCallId);
+    if (call === undefined) {
+      for (const c of item.toolCalls) if (c.subagentId !== null) openRef.current(`agent:${c.id}`);
+    } else {
+      openRef.current(`tool:${call.id}`);
+    }
+    scrollRef.current?.(index);
+  }, [focus, query.data]);
+  const focusedId = useMemo(() => {
+    if (focus === null) return null;
+    const item = query.data?.find((i) => i.kind === 'request' && i.seq === focus.seq);
+    return item?.kind === 'request' ? item.messageId : null;
+  }, [focus, query.data]);
 
   const counts = useMemo(() => {
     const items = query.data ?? [];
@@ -564,13 +603,15 @@ export function RequestTimeline({
               })}
             </div>
           )}
-          <Timeline
-            sessionId={sessionId}
-            range={range}
-            nested={false}
-            scrollHandle={scrollRef}
-            follow={follow}
-          />
+          <FocusContext value={focusedId}>
+            <Timeline
+              sessionId={sessionId}
+              range={range}
+              nested={false}
+              scrollHandle={scrollRef}
+              follow={follow}
+            />
+          </FocusContext>
         </div>
       </SubagentsContext>
     </ExpandContext>
