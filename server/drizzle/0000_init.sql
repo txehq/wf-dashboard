@@ -251,6 +251,10 @@ CREATE TABLE `variants` (
 	`effort` text NOT NULL,
 	`status` text DEFAULT 'draft' NOT NULL,
 	`install_dir` text,
+	`build_status` text DEFAULT 'none' NOT NULL,
+	`built_hash` text,
+	`build_error` text,
+	`built_at` integer,
 	`created_at` integer DEFAULT (cast(unixepoch('subsec') * 1000 as integer)) NOT NULL,
 	`frozen_at` integer,
 	FOREIGN KEY (`parent_id`) REFERENCES `variants`(`id`) ON UPDATE no action ON DELETE set null

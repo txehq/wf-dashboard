@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "b0256d41-ec83-40cf-91e7-342d283db22b",
+  "id": "e05b6450-2922-48b6-951f-d2a360f17a89",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "artifacts": {
@@ -1774,6 +1774,35 @@
         "install_dir": {
           "name": "install_dir",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "build_status": {
+          "name": "build_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'none'"
+        },
+        "built_hash": {
+          "name": "built_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "build_error": {
+          "name": "build_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "built_at": {
+          "name": "built_at",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

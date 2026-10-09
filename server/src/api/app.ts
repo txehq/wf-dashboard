@@ -1,10 +1,13 @@
 import { fastifySSE } from '@fastify/sse';
 import Fastify from 'fastify';
+import { config } from '../config.js';
 import type { Db } from '../db/index.js';
 import { events } from '../events.js';
 import { defaultSourceDirs } from '../ingest/sources.js';
+import { createVariants } from '../variants/index.js';
 import { sessionsRoutes } from './sessions.js';
 import { registerStageRoutes } from './stages.js';
+import { variantRoutes } from './variants.js';
 
 export interface AppOptions {
   db: Db;
@@ -33,6 +36,18 @@ export async function buildApp({ db, sseHeartbeatMs, logger }: AppOptions) {
 
   await app.register(sessionsRoutes, { prefix: '/api', db, dirs: defaultSourceDirs });
   registerStageRoutes(app, db);
+
+  // 事件总线合并前，variant 事件只写日志
+  const variants = createVariants({
+    db,
+    dataDir: config.dataDir,
+    repo: config.txeWorkflowRepo,
+    ctxBin: config.ctxBin,
+    publish: (event) => {
+      app.log.info(event, 'variant event');
+    },
+  });
+  await app.register(variantRoutes, { variants });
 
   return app;
 }

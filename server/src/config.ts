@@ -1,3 +1,4 @@
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -14,6 +15,10 @@ export const config = {
   variantsDir: path.join(dataDir, 'variants'),
   runsDir: path.join(dataDir, 'runs'),
   tasksDir: path.join(repoRoot, 'tasks'),
+  // 被评估的 workflow 仓库，基线 variant 从它的 commit 导出
+  txeWorkflowRepo: '/Users/linhaoz/Project/txe/txe-workflow',
+  // wf-history MCP 直接启动真实的 ctx
+  ctxBin: path.join(os.homedir(), '.local/bin/ctx'),
   migrationsDir: fileURLToPath(new URL('../drizzle', import.meta.url)),
   // 同时进行的运行数
   runConcurrency: 3,

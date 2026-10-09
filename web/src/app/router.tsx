@@ -5,6 +5,7 @@ import { RunsPage } from '@/pages/runs';
 import { SessionsPage } from '@/pages/sessions';
 import { TasksPage } from '@/pages/tasks';
 import { VariantsPage } from '@/pages/variants';
+import { VariantDetailPage } from '@/pages/variants-detail';
 
 export const router = createBrowserRouter([
   {
@@ -15,6 +16,7 @@ export const router = createBrowserRouter([
       { path: 'sessions', element: <SessionsPage /> },
       { path: 'runs', element: <RunsPage /> },
       { path: 'variants', element: <VariantsPage /> },
+      { path: 'variants/:id', element: <VariantDetailPage /> },
       { path: 'tasks', element: <TasksPage /> },
       { path: 'compare', element: <ComparePage /> },
     ],

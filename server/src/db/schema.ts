@@ -111,6 +111,13 @@ export const variants = sqliteTable(
       .notNull()
       .default('draft'),
     installDir: text('install_dir'),
+    buildStatus: text('build_status', { enum: ['none', 'building', 'built', 'failed'] })
+      .notNull()
+      .default('none'),
+    // 最近一次成功构建时的 skills hash；与 skills_hash 不同说明构建已过期
+    builtHash: text('built_hash'),
+    buildError: text('build_error'),
+    builtAt: integer('built_at', { mode: 'timestamp_ms' }),
     createdAt: createdAt(),
     frozenAt: integer('frozen_at', { mode: 'timestamp_ms' }),
   },
