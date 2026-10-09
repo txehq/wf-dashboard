@@ -10,6 +10,7 @@
     "dev": "concurrently --kill-others --names server,web --prefix-colors blue,magenta \"pnpm --filter @wf-dashboard/server dev\" \"pnpm --filter @wf-dashboard/web dev\"",
     "build": "pnpm --recursive build",
     "test": "pnpm --recursive test",
+    "test:external": "pnpm --filter @wf-dashboard/server test:external",
     "e2e": "playwright test",
     "typecheck": "tsc --project tsconfig.json && pnpm --recursive typecheck",
     "lint": "eslint . && prettier --check .",
