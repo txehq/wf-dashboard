@@ -6,3 +6,4 @@ data/
 .interview/
 pnpm-lock.yaml
 server/drizzle/
+tasks/

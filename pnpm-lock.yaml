@@ -211,9 +211,15 @@ importers:
       '@decimalturn/toml-patch':
         specifier: 3.3.0
         version: 3.3.0
+      '@fastify/error':
+        specifier: 4.2.0
+        version: 4.2.0
       '@fastify/sse':
         specifier: 0.6.1
         version: 0.6.1(fastify@5.12.5)
+      '@fastify/swagger':
+        specifier: 9.9.1
+        version: 9.9.1(supports-color@10.2.2)
       '@modelcontextprotocol/sdk':
         specifier: 1.32.1
         version: 1.32.1(supports-color@10.2.2)(zod@4.6.5)
@@ -250,6 +256,15 @@ importers:
       mdast-util-to-string:
         specifier: 4.0.0
         version: 4.0.0
+      openapi-types:
+        specifier: 12.1.3
+        version: 12.1.3
+      shell-quote:
+        specifier: 1.12.0
+        version: 1.12.0
+      yaml:
+        specifier: 2.9.1
+        version: 2.9.1
       zod:
         specifier: 4.6.5
         version: 4.6.5
@@ -263,6 +278,9 @@ importers:
       '@types/node':
         specifier: 26.6.4
         version: 26.6.4
+      '@types/shell-quote':
+        specifier: 1.7.5
+        version: 1.7.5
       drizzle-kit:
         specifier: 0.31.11
         version: 0.31.11
@@ -284,6 +302,9 @@ importers:
       '@tanstack/react-query':
         specifier: 5.104.1
         version: 5.104.1(react@19.3.0)
+      '@wf-dashboard/server':
+        specifier: workspace:*
+        version: link:../server
       class-variance-authority:
         specifier: 0.7.1
         version: 0.7.1
@@ -308,6 +329,9 @@ importers:
       react-router:
         specifier: 8.4.0
         version: 8.4.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      zod:
+        specifier: 4.6.5
+        version: 4.6.5
     devDependencies:
       '@tailwindcss/vite':
         specifier: 4.3.3
@@ -2079,6 +2103,9 @@ packages:
 
   '@types/react@19.3.0':
     resolution: {integrity: sha512-N0rFCuH9YoxG9/m61l9MfpJKfmLOVU0em7ipIz6TRgSSkvReLB9vL85GB+yr8Bs5leqpvg96JSwF4ZS1s4viQg==}
+
+  '@types/shell-quote@1.7.5':
+    resolution: {integrity: sha512-+UE8GAGRPbJVQDdxi16dgadcBfQ+KG2vgZhV1+3A1XmHbmwcdwhCUwIdy+d3pAGrbvgRoVSjeI9vOWyq376Yzw==}
 
   '@types/trusted-types@2.0.7':
     resolution: {integrity: sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw==}
@@ -5995,6 +6022,8 @@ snapshots:
   '@types/react@19.3.0':
     dependencies:
       csstype: 3.2.3
+
+  '@types/shell-quote@1.7.5': {}
 
   '@types/trusted-types@2.0.7':
     optional: true

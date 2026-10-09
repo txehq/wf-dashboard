@@ -1,0 +1,56 @@
+id: ic-money-format
+kind: ic
+title: 金额格式化：按币种小数位、负数与大金额
+persona: |-
+  何静，@acme/money 这个内部库的维护者，后端工程师，同时负责公司结算服务。
+  关心：日元、韩元和科威特第纳尔的账单在客户邮件里显示错了，财务已经投诉；修复不能改动美元、欧元等现有输出。
+  说话方式：简短直接，用中文，习惯给出具体的输入和期望输出；不确定的事会说"按工单来"。
+hiddenRequirements: |-
+  - 小数位一律取 src/currencies.js 中该币种的 decimals：JPY、KRW 不显示小数点；KWD 显示三位小数；表中以后新增的币种也按它自己的 decimals 显示，不能写死币种名单。
+  - 负数：负号放在货币符号之前，例如 -1999 USD 显示为 -$19.99；-0 按 0 显示，不带负号。
+  - 金额在 Number.MAX_SAFE_INTEGER 以内必须精确，不能经过浮点除法（900719925474099 USD 必须显示为 $9,007,199,254,740.99）。
+  - 不支持的币种（包括 toString 这类对象继承来的键）抛出 RangeError，消息中包含币种代码。
+  - amountMinor 不是安全整数（小数、字符串、NaN、超过 MAX_SAFE_INTEGER）时抛出 TypeError。
+  - 千分位一律用逗号、小数点一律用点，不做本地化；货币符号与数字之间没有空格；保持函数签名 formatMoney(amountMinor, currency) 不变。
+  - 不新增依赖，不改 package.json 的版本号；为修复补充单元测试。
+ticket:
+  title: formatMoney 对零位与三位小数币种显示错误，负数格式不对
+  body: |-
+    `formatMoney` 把所有币种都按两位小数处理：`formatMoney(1234, 'JPY')` 显示为 `¥12.34`，实际应为 `¥1,234`；`formatMoney(1234567, 'KWD')` 显示为 `KD12,345.67`，应为 `KD1,234.567`。客户邮件中的日元、韩元与科威特第纳尔金额都是错的。
+
+    另外负数显示为 `$-19.99`，财务要求 `-$19.99`；不支持的币种会抛出 `Cannot destructure property 'symbol'`，看不出是哪个币种。
+
+    请修复 `src/format.js`，币种的小数位以 `src/currencies.js` 为准。
+  acceptanceCriteria:
+    - 小数位取 `src/currencies.js` 中该币种的 `decimals`：`formatMoney(1234, 'JPY')` 为 `¥1,234`，`formatMoney(1234567, 'KWD')` 为 `KD1,234.567`，`formatMoney(5, 'KWD')` 为 `KD0.005`；两位小数币种的现有输出不变。
+    - 负数的负号在货币符号之前：`formatMoney(-1999, 'USD')` 为 `-$19.99`。
+    - 金额在 `Number.MAX_SAFE_INTEGER` 以内精确显示：`formatMoney(900719925474099, 'USD')` 为 `$9,007,199,254,740.99`。
+    - 不支持的币种抛出 `RangeError`，消息包含币种代码；`amountMinor` 不是安全整数时抛出 `TypeError`。
+    - 新增的单元测试覆盖以上行为，`npm test` 通过。
+repo:
+  path: repo.bundle
+  commit: cad4548c12c622f8f01e5761b74f013adab71ab3
+hiddenTests:
+  dir: hidden-tests
+  command: npx vitest run test/hidden --reporter=junit --outputFile.junit={junitPath}
+  manifest:
+    test/hidden/format.hidden.test.js:
+      - minor-unit digits come from the currency table > JPY has no fraction
+      - minor-unit digits come from the currency table > KRW has no fraction and still groups thousands
+      - minor-unit digits come from the currency table > KWD has three fraction digits
+      - minor-unit digits come from the currency table > KWD pads small amounts to three digits
+      - minor-unit digits come from the currency table > two-digit currencies are unchanged
+      - minor-unit digits come from the currency table > zero in a zero-decimal currency
+      - minor-unit digits come from the currency table > a currency added to the table is formatted with its own digits
+      - negative amounts > minus sign goes before the symbol
+      - negative amounts > negative amount below one major unit
+      - negative amounts > negative zero-decimal amount with grouping
+      - negative amounts > negative zero is formatted as zero
+      - large amounts are exact > largest safe integer in a two-digit currency
+      - large amounts are exact > amount that floating-point division rounds wrongly
+      - large amounts are exact > largest safe integer in a three-digit currency
+      - invalid input > unknown currency throws RangeError naming the code
+      - invalid input > inherited object keys are not currencies
+      - invalid input > fractional minor units throw TypeError
+      - invalid input > non-numbers throw TypeError
+      - invalid input > unsafe integers throw TypeError

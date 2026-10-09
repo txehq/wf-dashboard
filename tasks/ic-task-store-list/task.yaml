@@ -1,0 +1,63 @@
+id: ic-task-store-list
+kind: ic
+title: TaskStore 增加带筛选、排序与分页的 list
+persona: |-
+  周航，Acme 规划服务的技术负责人，TypeScript 写了很多年，@acme/task-store 是他团队的库。
+  关心：前端的任务列表页要上线，需要一个稳定可分页的查询接口；翻页时同一条任务不能出现在两页上，也不能漏掉。
+  说话方式：中文，条理清楚，会先说结论再给理由；对类型定义很在意，喜欢把默认值和上限说成具体数字。
+hiddenRequirements: |-
+  - 新增 TaskStore.list(options?)，返回 { items, total, page, pageSize, totalPages }；items 是完整的 Task 对象副本，修改它们不影响 store。
+  - 筛选：status（open 或 done）；search 为标题的子串匹配，不区分大小写，先去掉首尾空白，空白的 search 等于不筛选；两者同时给出时取交集。
+  - 排序：sort 为 createdAt、priority、title 之一，默认 createdAt；order 为 asc 或 desc，默认 asc；title 排序不区分大小写（localeCompare，en，sensitivity base）。
+  - 排序值相同的任务一律按 id 升序排列，desc 时也一样，保证翻页稳定。
+  - 分页：page 从 1 开始，默认 1；pageSize 默认 20，上限 100；total 是筛选后的总数；totalPages = ceil(total / pageSize)，没有结果时为 0；page 超过最后一页时 items 为空，其余字段照常返回。
+  - page 或 pageSize 不是整数、小于 1、pageSize 大于 100 时抛出 RangeError。
+  - 先筛选、再排序、最后分页；list 不改变 store 的内部顺序。
+  - 导出 ListOptions、ListResult 类型以及 DEFAULT_PAGE_SIZE、MAX_PAGE_SIZE 常量；不新增运行时依赖；npm run typecheck 与 npm test 都要通过，补充单元测试。
+ticket:
+  title: TaskStore 支持按状态、关键字筛选，排序与分页的 list 查询
+  body: |-
+    任务列表页需要从 `TaskStore` 分页读取任务。目前只有按 id 的 `get`，前端只能自己遍历。
+
+    请在 `src/store.ts` 中新增 `list(options?)`，支持按状态与标题关键字筛选、按创建时间 / 优先级 / 标题排序、分页，并返回总数与总页数。同一个查询翻页时，任务的顺序必须稳定。
+  acceptanceCriteria:
+    - "`store.list()` 不传参数时返回全部任务，按 `createdAt` 升序，`page` 为 1，`pageSize` 为 20，并返回 `total` 与 `totalPages`。"
+    - "`status` 按状态筛选；`search` 按标题做不区分大小写的子串匹配；两者可以同时使用。"
+    - "`sort` 支持 `createdAt`、`priority`、`title`，`order` 支持 `asc` 与 `desc`；排序值相同时按 `id` 升序，翻页结果稳定。"
+    - "`page` 从 1 开始；超出最后一页时 `items` 为空；`pageSize` 上限为 100；非法的 `page` 或 `pageSize` 抛出 `RangeError`。"
+    - 返回的任务是副本，修改它们不影响 store；`npm run typecheck` 与 `npm test` 通过，新增的单元测试覆盖以上行为。
+repo:
+  path: repo.bundle
+  commit: af8d995554edc1ff7a4c23dbf1cc9037aef0ea58
+hiddenTests:
+  dir: hidden-tests
+  command: npx vitest run test/hidden --reporter=junit --outputFile.junit={junitPath}
+  manifest:
+    test/hidden/list.hidden.test.ts:
+      - defaults > no options lists everything by creation time, ascending
+      - defaults > empty store
+      - defaults > items are full task objects
+      - filtering > by status
+      - filtering > search is a case-insensitive substring match
+      - filtering > search ignores surrounding whitespace; blank search matches all
+      - filtering > status and search combine
+      - filtering > total counts all matches, not just the page
+      - sorting > priority ascending breaks ties by id
+      - sorting > priority descending still breaks ties by ascending id
+      - sorting > title sorting ignores case
+      - sorting > createdAt descending
+      - sorting > equal createdAt falls back to id
+      - pagination > pages are 1-based slices
+      - pagination > a page past the end is empty but keeps the totals
+      - pagination > pageSize up to 100 is accepted
+      - pagination > pagination applies after filtering and sorting
+      - validation > page 0 is rejected
+      - validation > page -1 is rejected
+      - validation > page 1.5 is rejected
+      - validation > page NaN is rejected
+      - validation > pageSize 0 is rejected
+      - validation > pageSize 101 is rejected
+      - validation > pageSize 2.5 is rejected
+      - validation > pageSize Infinity is rejected
+      - isolation > mutating returned items does not change the store
+      - isolation > listing does not change insertion order for later calls

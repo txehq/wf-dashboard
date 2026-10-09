@@ -39,7 +39,9 @@ function seedRun(db: Db) {
           items: [{ id: 'scope', criterion: '写明范围', maxScore: 5 }],
         },
       ],
-      builtin: true,
+      dir: '/tasks/calculator',
+      contentHash: 'b'.repeat(64),
+      updatedAt: new Date('2026-10-09T08:00:00Z'),
     })
     .run();
   db.insert(schema.variants)

@@ -9,7 +9,12 @@ import { events } from '../src/events.js';
 
 const dbFile = path.join(config.repoRoot, '.work', 'test-db', `${randomUUID()}.sqlite`);
 const db = openDatabase(dbFile, config.migrationsDir);
-const app = await buildApp({ db, sseHeartbeatMs: config.sseHeartbeatMs, logger: false });
+const app = await buildApp({
+  db,
+  sseHeartbeatMs: config.sseHeartbeatMs,
+  logger: false,
+  tasksDir: config.tasksDir,
+});
 
 beforeAll(async () => {
   await app.listen({ host: '127.0.0.1', port: 0 });

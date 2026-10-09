@@ -39,17 +39,9 @@ export interface ParseState {
   pending: Record<string, string>;
 }
 
-export interface RubricItem {
-  id: string;
-  criterion: string;
-  maxScore: number;
-}
-
-// lfg 的 rubric 按产物分组
-export interface ArtifactRubric {
-  artifact: 'brief' | 'research' | 'plan' | 'tickets';
-  items: RubricItem[];
-}
+// lfg 的 rubric 按产物分组，定义在 task schema 中
+import type { ArtifactRubric } from '../tasks/schema.js';
+export type { ArtifactRubric, RubricItem } from '../tasks/schema.js';
 
 const createdAt = () =>
   integer('created_at', { mode: 'timestamp_ms' })
@@ -66,27 +58,34 @@ export const sources = sqliteTable('sources', {
   createdAt: createdAt(),
 });
 
+// tasks/<id>/task.yaml 的镜像，启动时由 tasks/loader.ts 同步；lfg 与 ic 各自的字段在另一种 kind 下为空
 export const tasks = sqliteTable(
   'tasks',
   {
     id: text('id').primaryKey(),
     kind: text('kind', { enum: workflows }).notNull(),
     title: text('title').notNull(),
-    // lfg 的想法；ic 为空
-    input: text('input'),
     persona: text('persona').notNull(),
     hiddenRequirements: text('hidden_requirements').notNull(),
+    input: text('input'),
     rubric: text('rubric', { mode: 'json' }).$type<ArtifactRubric[]>(),
     ticketTitle: text('ticket_title'),
     ticketBody: text('ticket_body'),
-    acceptanceCriteria: text('acceptance_criteria'),
+    acceptanceCriteria: text('acceptance_criteria', { mode: 'json' }).$type<string[]>(),
+    // 相对 task 目录
     repoPath: text('repo_path'),
     repoCommit: text('repo_commit'),
-    hiddenTestsPath: text('hidden_tests_path'),
+    hiddenTestsDir: text('hidden_tests_dir'),
     testCommand: text('test_command'),
-    builtin: integer('builtin', { mode: 'boolean' }).notNull().default(false),
+    hiddenTestsManifest: text('hidden_tests_manifest', { mode: 'json' }).$type<
+      Record<string, string[]>
+    >(),
+    // task 目录的绝对路径
+    dir: text('dir').notNull(),
+    // task.yaml 内容的 sha256，内容不变时同步不改写行
+    contentHash: text('content_hash').notNull(),
     createdAt: createdAt(),
-    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
   },
   (t) => [index('tasks_kind_idx').on(t.kind)],
 );

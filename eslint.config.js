@@ -7,7 +7,16 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['**/node_modules/', '**/dist/', 'data/', '.work/', '.spikes/', '.interview/'],
+    // tasks/ 中是被评估项目的起始代码、参考实现与隐藏测试，遵循各自项目的约定
+    ignores: [
+      '**/node_modules/',
+      '**/dist/',
+      'data/',
+      '.work/',
+      '.spikes/',
+      '.interview/',
+      'tasks/',
+    ],
   },
   js.configs.recommended,
   {

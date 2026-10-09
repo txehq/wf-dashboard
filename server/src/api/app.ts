@@ -7,15 +7,17 @@ import { defaultSourceDirs } from '../ingest/sources.js';
 import { createVariants } from '../variants/index.js';
 import { sessionsRoutes } from './sessions.js';
 import { registerStageRoutes } from './stages.js';
+import { taskRoutes } from './tasks.js';
 import { variantRoutes } from './variants.js';
 
 export interface AppOptions {
   db: Db;
   sseHeartbeatMs: number;
   logger: boolean;
+  tasksDir: string;
 }
 
-export async function buildApp({ db, sseHeartbeatMs, logger }: AppOptions) {
+export async function buildApp({ db, sseHeartbeatMs, logger, tasksDir }: AppOptions) {
   const app = Fastify({ logger });
   await app.register(fastifySSE, { heartbeatInterval: sseHeartbeatMs });
 
@@ -36,6 +38,7 @@ export async function buildApp({ db, sseHeartbeatMs, logger }: AppOptions) {
 
   await app.register(sessionsRoutes, { prefix: '/api', db, dirs: defaultSourceDirs });
   registerStageRoutes(app, db);
+  await app.register(taskRoutes({ db, tasksDir }));
 
   const variants = createVariants({
     db,

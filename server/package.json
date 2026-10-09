@@ -2,6 +2,9 @@
   "name": "@wf-dashboard/server",
   "private": true,
   "type": "module",
+  "exports": {
+    "./tasks/schema": "./src/tasks/schema.ts"
+  },
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "start": "node dist/main.js",
@@ -14,7 +17,9 @@
   "dependencies": {
     "@anthropic-ai/sdk": "0.132.1",
     "@decimalturn/toml-patch": "3.3.0",
+    "@fastify/error": "4.2.0",
     "@fastify/sse": "0.6.1",
+    "@fastify/swagger": "9.9.1",
     "@modelcontextprotocol/sdk": "1.32.1",
     "better-sqlite3": "13.0.3",
     "chokidar": "5.0.0",
@@ -27,12 +32,16 @@
     "junit2json": "4.0.0",
     "mdast-util-from-markdown": "2.1.0",
     "mdast-util-to-string": "4.0.0",
+    "openapi-types": "12.1.3",
+    "shell-quote": "1.12.0",
+    "yaml": "2.9.1",
     "zod": "4.6.5"
   },
   "devDependencies": {
     "@types/better-sqlite3": "9.6.0",
     "@types/mdast": "4.0.4",
     "@types/node": "26.6.4",
+    "@types/shell-quote": "1.7.5",
     "drizzle-kit": "0.31.11",
     "tsx": "4.23.15",
     "typescript": "6.0.3",

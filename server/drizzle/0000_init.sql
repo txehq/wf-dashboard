@@ -210,20 +210,22 @@ CREATE TABLE `tasks` (
 	`id` text PRIMARY KEY NOT NULL,
 	`kind` text NOT NULL,
 	`title` text NOT NULL,
-	`input` text,
 	`persona` text NOT NULL,
 	`hidden_requirements` text NOT NULL,
+	`input` text,
 	`rubric` text,
 	`ticket_title` text,
 	`ticket_body` text,
 	`acceptance_criteria` text,
 	`repo_path` text,
 	`repo_commit` text,
-	`hidden_tests_path` text,
+	`hidden_tests_dir` text,
 	`test_command` text,
-	`builtin` integer DEFAULT false NOT NULL,
+	`hidden_tests_manifest` text,
+	`dir` text NOT NULL,
+	`content_hash` text NOT NULL,
 	`created_at` integer DEFAULT (cast(unixepoch('subsec') * 1000 as integer)) NOT NULL,
-	`updated_at` integer
+	`updated_at` integer NOT NULL
 );
 --> statement-breakpoint
 CREATE INDEX `tasks_kind_idx` ON `tasks` (`kind`);--> statement-breakpoint
