@@ -1,4 +1,11 @@
-import { CheckCircle2, Circle, CircleDot, SkipForward, type LucideIcon } from 'lucide-react';
+import {
+  CheckCircle2,
+  Circle,
+  CircleDot,
+  CircleSlash,
+  SkipForward,
+  type LucideIcon,
+} from 'lucide-react';
 import type { StageStatus, WorkflowCycle } from '@/lib/sessions-api';
 
 // 轮次名称：标签取不到工单或 PR 编号时本身就是"第 N 轮"
@@ -16,4 +23,5 @@ export const statusMeta: Record<
   active: { label: '进行中', icon: CircleDot, iconClass: 'text-[var(--viz-series-1)]' },
   skipped: { label: '跳过', icon: SkipForward, iconClass: 'text-muted-foreground' },
   'not-reached': { label: '未到达', icon: Circle, iconClass: 'text-muted-foreground' },
+  interrupted: { label: '中断', icon: CircleSlash, iconClass: 'text-[var(--viz-status-serious)]' },
 };

@@ -174,7 +174,7 @@ CREATE TABLE `stage_checks` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`session_id` text NOT NULL,
 	`workflow` text NOT NULL,
-	`version` integer DEFAULT 2 NOT NULL,
+	`version` integer DEFAULT 3 NOT NULL,
 	`current_stage` text NOT NULL,
 	`next_stage` text NOT NULL,
 	`from_seq` integer NOT NULL,

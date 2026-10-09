@@ -32,7 +32,10 @@ function Evidence({ workflow, view }: { workflow: Workflow; view: StageView }) {
     if (path === null)
       return (
         <p className="text-sm text-muted-foreground">
-          {note ?? (view.status === 'active' ? '还没有写出这个阶段的产物。' : '没有判定证据。')}
+          {note ??
+            (view.status === 'active' || view.status === 'interrupted'
+              ? '还没有写出这个阶段的产物。'
+              : '没有判定证据。')}
         </p>
       );
     const lock = field(e, 'planLockLine');
@@ -104,6 +107,11 @@ export function StageDetail({
           /{workflow} · {view.stage}
         </h2>
         <StatusLabel status={view.status} />
+        {view.status === 'interrupted' && cycle?.endSeq !== null && cycle !== undefined && (
+          <span className="text-xs" data-testid="stage-interrupted">
+            后来开始了另一轮流程，这一轮在请求 #{cycle.endSeq} 结束
+          </span>
+        )}
         {cycle !== undefined && (
           <span className="rounded border px-1.5 py-0.5 text-xs" data-testid="stage-cycle">
             {cycleName(cycle)}
@@ -156,7 +164,9 @@ export function StageDetail({
             ? '这个阶段被跳过，没有请求。'
             : view.status === 'active'
               ? '已进入这个阶段，但之后还没有请求。'
-              : '没有进入这个阶段。'}
+              : view.status === 'interrupted'
+                ? '这一轮在进入这个阶段时被中断：后来开始了另一轮流程。'
+                : '没有进入这个阶段。'}
         </p>
       )}
     </section>

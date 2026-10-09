@@ -49,6 +49,35 @@ function withSubagents(s: Sample, main: Sample['main']) {
   return [...main, ...s.subagent.filter((r) => ids.has(r.agentId))];
 }
 
+// 不变量：每个主 session 请求最多属于一轮；各轮请求数 + 流程外 = 主 agent 请求总数（统计含子代理时同样成立）
+function expectExclusive(s: Sample, report: StageReport) {
+  const lastSeq = s.main[s.main.length - 1]?.seq ?? -1;
+  const cycles = [...report.lfg, ...report.ic];
+  const inCycles = s.main.filter((r) =>
+    cycles.some((c) => r.seq >= c.startSeq && r.seq <= (c.endSeq ?? lastSeq)),
+  );
+  for (const r of s.main) {
+    const owners = cycles.filter((c) => r.seq >= c.startSeq && r.seq <= (c.endSeq ?? lastSeq));
+    expect(owners.length).toBeLessThanOrEqual(1);
+  }
+  const outsideMain = s.main.length - inCycles.length;
+  const outsideAll = report.outside.requests;
+  expect(inCycles.length + outsideMain).toBe(s.main.length);
+  // 阶段统计与流程外统计合起来恰好覆盖全部请求
+  const stageRequests = cycles.reduce(
+    (n, c) => n + c.stages.reduce((m, v) => m + v.stats.requests, 0),
+    0,
+  );
+  expect(stageRequests + outsideAll).toBe(withSubagents(s, s.main).length);
+  // 流程外的主 session 请求数与区间计算一致
+  expect(
+    withSubagents(
+      s,
+      s.main.filter((r) => !inCycles.includes(r)),
+    ).length,
+  ).toBe(outsideAll);
+}
+
 // 端到端：ingest 导入真实样本 → POST analyze → GET stages
 describe('端到端：导入真实样本后判定', () => {
   test('未知 session 的 analyze 与未判定 session 的 stages 返回 404', async () => {
@@ -143,18 +172,18 @@ describe('端到端：导入真实样本后判定', () => {
     // open-pr 阶段含 /review-pr 的 Skill 调用
     expect(report.ic[0]?.stages[4]?.stats.toolCalls.Skill).toBeGreaterThanOrEqual(1);
 
-    // /interview 以 <command-name> 启动（第 1390 行），session 中没有 wf obsidian 写入：一轮 lfg 停在 interview
+    // /interview 以 <command-name> 启动（第 1390 行），session 中没有 wf obsidian 写入：一轮 lfg 停在 interview，
+    // ic 第 1 轮开始时这一轮在它之前结束，interview 为 interrupted
     expect(report.lfg).toHaveLength(1);
-    expect(report.lfg[0]?.stages.map((v) => v.status)).toEqual([
-      'active',
-      'not-reached',
-      'not-reached',
-      'not-reached',
+    const icFirst = report.ic[0]?.startSeq ?? -1;
+    expect(report.lfg[0]?.endSeq).toBe(icFirst - 1);
+    expect(report.lfg[0]?.stages.map((v) => [v.stage, v.status, v.endSeq])).toEqual([
+      ['interview', 'interrupted', icFirst - 1],
+      ['research', 'not-reached', null],
+      ['plan', 'not-reached', null],
+      ['ticketing', 'not-reached', null],
     ]);
-    expect(report.lfg[0]?.endSeq).toBeNull();
-    // 流程外：/interview 之前的请求
-    const lfgStart = report.lfg[0]?.startSeq ?? 0;
-    expect(report.outside.requests).toBeGreaterThanOrEqual(lfgStart);
+    expectExclusive(s, report);
 
     expect(report.checks.count).toBe(checkCount(s.sessionId));
     expect(report.checks.costUsd).toBeGreaterThan(0);
@@ -169,6 +198,7 @@ describe('端到端：导入真实样本后判定', () => {
     const report = await analyze(s.sessionId);
     expect(report.lfg).toEqual([]);
     expect(report.ic).toEqual([]);
+    expectExclusive(s, report);
     expect(report.checks).toEqual({ count: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 });
     const all = withSubagents(s, s.main);
     expect(report.outside.requests).toBe(all.length);
@@ -226,5 +256,7 @@ describe('端到端：导入真实样本后判定', () => {
         s.main.filter((r) => r.seq < skillSeq),
       ).length,
     );
+    // 没有其他轮次打断，session 结束时仍在进行的这一轮保持 active
+    expectExclusive(s, report);
   });
 });

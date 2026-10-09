@@ -7,6 +7,7 @@ import {
   stageChecks,
   stageCycles,
   stageSpans,
+  stageStatuses,
   type StageStatus,
 } from '../db/schema.js';
 import { detectFromToolCall, detectFromUserText, type WorkflowFlags } from '../ingest/workflows.js';
@@ -30,7 +31,7 @@ export type StageStats = z.infer<typeof StageStats>;
 
 export const StageView = z.object({
   stage: z.string(),
-  status: z.enum(['done', 'active', 'skipped', 'not-reached']),
+  status: z.enum(stageStatuses),
   startSeq: z.number().nullable(),
   endSeq: z.number().nullable(),
   method: z.enum(['artifact', 'llm']),
@@ -397,17 +398,68 @@ export function readReport(db: Db, sessionId: string): StageReport | null {
   });
 }
 
+// 在 cut 处结束一轮：cut 之后才开始的阶段为 not-reached；
+// cut 的下一条请求所在的阶段（被打断时正在进行的阶段）为 interrupted，区间截到 cut
+function interruptCycle(c: Cycle, cut: number, lastSeq: number): Cycle {
+  const contains = (s: Span, seq: number) =>
+    s.startSeq !== null && s.startSeq <= seq && seq <= (s.endSeq ?? lastSeq);
+  const spans = c.spans.map((s): Span => {
+    if (s.status === 'not-reached') return s;
+    if (contains(s, cut + 1)) {
+      return s.startSeq !== null && s.startSeq <= cut
+        ? { ...s, status: 'interrupted', endSeq: cut }
+        : { ...s, status: 'interrupted', startSeq: null, endSeq: null };
+    }
+    if (s.status === 'active' && s.startSeq === null) {
+      return { ...s, status: 'interrupted' };
+    }
+    if (s.startSeq !== null && s.startSeq > cut) {
+      return {
+        stage: s.stage,
+        status: 'not-reached',
+        startSeq: null,
+        endSeq: null,
+        evidence: null,
+      };
+    }
+    return s;
+  });
+  return { ...c, endSeq: cut, spans };
+}
+
+// 各轮次互斥：任一 workflow 的新一轮开始时，另一 workflow 正在进行的那一轮在新一轮开始之前结束
+function exclusive(lfg: Cycle[], ic: Cycle[], lastSeq: number): { lfg: Cycle[]; ic: Cycle[] } {
+  const all = [
+    ...lfg.map((c, i) => ({ workflow: 'lfg' as const, i, c })),
+    ...ic.map((c, i) => ({ workflow: 'ic' as const, i, c })),
+  ].sort((a, b) => a.c.startSeq - b.c.startSeq);
+  const out = { lfg: [...lfg], ic: [...ic] };
+  // 按开始顺序处理；同一条请求上同时开始时排序在前的那一轮被结束
+  for (const [j, next] of all.entries()) {
+    for (const prev of all.slice(0, j)) {
+      if (prev.workflow === next.workflow) continue;
+      const p = out[prev.workflow][prev.i];
+      if (p === undefined) throw new Error('轮次下标越界');
+      if ((p.endSeq ?? lastSeq) >= next.c.startSeq) {
+        out[prev.workflow][prev.i] = interruptCycle(p, next.c.startSeq - 1, lastSeq);
+      }
+    }
+  }
+  return out;
+}
+
 async function analyze(db: Db, sessionId: string, model: string): Promise<StageReport> {
   const rows = loadSessionRows(db, sessionId);
   const lastSeq = rows.main[rows.main.length - 1]?.seq ?? -1;
   const marks = workflowMarks(rows);
-  const lfg = lfgCycles(rows, marks.lfg, lfgOfflineBoundaries(rows.main, rows.cwd));
-  let ic: Cycle[] = [];
+  const lfgJudged = lfgCycles(rows, marks.lfg, lfgOfflineBoundaries(rows.main, rows.cwd));
+  let icJudged: Cycle[] = [];
   const icStart = marks.ic[0];
   if (icStart !== undefined) {
     const judged = await judgeIcSession(db, sessionId, rows.main, icStart, model);
-    ic = icCycles(judged.boundaries, lastSeq);
+    icJudged = icCycles(judged.boundaries, lastSeq);
   }
+  const { lfg, ic } = exclusive(lfgJudged, icJudged, lastSeq);
   db.transaction((tx) => {
     // 旧版本的判定结果整体替换
     tx.delete(stageSpans).where(eq(stageSpans.sessionId, sessionId)).run();

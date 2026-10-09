@@ -315,11 +315,12 @@ export const userMessages = sqliteTable(
   ],
 );
 
-export const stageStatuses = ['done', 'active', 'skipped', 'not-reached'] as const;
+// interrupted：另一轮流程开始时，被结束的那一轮中正在进行的阶段
+export const stageStatuses = ['done', 'active', 'skipped', 'not-reached', 'interrupted'] as const;
 export type StageStatus = (typeof stageStatuses)[number];
 
 // 判定模型的版本；stage_analyses.version 与它不同的结果视为未分析
-export const STAGE_ANALYSIS_VERSION = 2;
+export const STAGE_ANALYSIS_VERSION = 3;
 
 // 一个 session 完成离线阶段判定的记录；不含 lfg 与 ic 的 session 也有一行
 export const stageAnalyses = sqliteTable('stage_analyses', {

@@ -14,13 +14,14 @@ import { StatusLabel } from '@/components/sessions/status-label';
 import { formatCount, formatDuration, formatInteger, formatUsd } from '@/lib/format';
 import type { StageStatus, StageView, Workflow } from '@/lib/sessions-api';
 
-// 跳过：虚线边框加斜纹；未到达：点线边框、淡色文字
+// 跳过：虚线边框加斜纹；未到达：点线边框、淡色文字；中断：橙色粗虚线边框（与进行中的蓝色实线区分）
 const statusBox: Record<StageStatus, string> = {
   done: 'border-foreground/25 bg-card border-l-4 border-l-[var(--viz-status-good)]',
   active: 'border-2 border-[var(--viz-series-1)] bg-card',
   skipped:
     'border-dashed border-foreground/40 bg-[repeating-linear-gradient(135deg,transparent_0_6px,var(--muted)_6px_12px)]',
   'not-reached': 'border-dotted border-foreground/25 bg-muted/30 text-muted-foreground',
+  interrupted: 'border-2 border-dashed border-[var(--viz-status-serious)] bg-card',
 };
 
 const NODE_WIDTH = 158;
@@ -121,6 +122,9 @@ function StageNodeView({ data }: NodeProps<StageNode>) {
             <Stat label="花费" value={formatUsd(s.costUsd)} />
             <Stat label="耗时" value={formatDuration(s.durationMs)} />
           </dl>
+        )}
+        {view.status === 'interrupted' && (
+          <span className="text-xs text-muted-foreground">后来开始了另一轮流程</span>
         )}
       </button>
     </div>
@@ -237,7 +241,8 @@ export function StageGraph({
       role="group"
       aria-label={`/${workflow} 阶段图`}
     >
-      <div style={{ width, height: NODE_Y + 172 }}>
+      {/* 阶段框最高时（中断说明加子代理行）约 190px */}
+      <div style={{ width, height: NODE_Y + 200 }}>
         <ReactFlow
           nodes={nodes}
           edges={edges}

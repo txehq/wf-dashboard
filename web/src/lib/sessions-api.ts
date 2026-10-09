@@ -90,7 +90,8 @@ export interface MessageItem {
 
 export type TimelineItem = RequestItem | MessageItem;
 
-export type StageStatus = 'done' | 'active' | 'skipped' | 'not-reached';
+// interrupted：后来开始了另一轮流程，这一轮在那之前结束时正在进行的阶段
+export type StageStatus = 'done' | 'active' | 'skipped' | 'not-reached' | 'interrupted';
 
 export interface StageStats {
   requests: number;

@@ -84,7 +84,10 @@ test('Sessions：来源勾选、列表、详情、阶段判定、阶段请求、
   // 两张阶段图：lfg 一轮停在 interview；ic 的前三轮是 PR #72、#77、#78（session 之后的使用可能带来更多轮）
   const lfg = page.getByTestId('workflow-lfg');
   const ic = page.getByTestId('workflow-ic');
-  await expect(lfg.getByTestId('stage-interview')).toHaveAttribute('data-status', 'active');
+  // lfg 一轮在 ic 第 1 轮开始前结束：interview 为中断，并说明后来开始了另一轮流程
+  await expect(lfg.getByTestId('stage-interview')).toHaveAttribute('data-status', 'interrupted');
+  await expect(lfg.getByTestId('stage-interview')).toContainText('中断');
+  await expect(lfg.getByTestId('stage-interview')).toContainText('后来开始了另一轮流程');
   await expect(lfg.getByTestId('stage-research')).toHaveAttribute('data-status', 'not-reached');
   await expect(lfg.getByTestId('stage-dispatch-gate')).toContainText('未到达');
   const tabs = ic.getByTestId('cycles-ic').getByRole('tab');
@@ -143,6 +146,7 @@ test('Sessions：来源勾选、列表、详情、阶段判定、阶段请求、
   // 子代理：lfg interview 阶段中的 Agent 调用，展开后嵌套显示子代理的请求行
   await lfg.getByTestId('stage-interview').click();
   await expect(detail.getByRole('heading', { level: 2 })).toHaveText('/lfg · interview');
+  await expect(detail.getByTestId('stage-interrupted')).toContainText('后来开始了另一轮流程');
   await detail.getByTestId('subagent-jump').click();
   const nested = detail.getByTestId('subagent-rows');
   await expect(nested).toBeVisible();
