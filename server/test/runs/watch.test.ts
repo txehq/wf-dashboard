@@ -34,7 +34,8 @@ describe('watchSession 用于实时运行', () => {
     fs.mkdirSync(dir, { recursive: true });
     const watcher = await watchSession(db, path.join(dir, `${sessionId}.jsonl`));
     fs.copyFileSync(fixture, path.join(dir, `${sessionId}.jsonl`));
-    expect(await waitSession(sessionId, 10_000)).toBe(true);
+    // 并行跑全部测试时文件事件与导入都会变慢，10 秒曾经不够
+    expect(await waitSession(sessionId, 30_000)).toBe(true);
     await watcher.close();
-  }, 20_000);
+  }, 40_000);
 });
