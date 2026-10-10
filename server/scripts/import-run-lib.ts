@@ -1,12 +1,15 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import type { Db } from '../src/db/index.js';
 import { ingestFile } from '../src/ingest/ingest.js';
 import { analyzeSession } from '../src/stages/report.js';
+import { dataLayout } from '../src/variants/layout.js';
 
 // 把另一个数据目录（例如 W4 worktree 的 data/）中一个已结束的 run 导入 db：
 // variant、batch、run、对话、产物与评分按行复制；session 从来源 variant 的 jsonl 重新导入，阶段离线重新判定。
-// 导入的 variant 没有安装目录，记为未构建，不能用来发起新的 batch。
+// 导入的 variant 没有安装目录，记为未构建，不能用来发起新的 batch；
+// 它的 skills 与基线导出复制到目标数据目录，Variants 页面的文件列表与 diff 读取它们。
 
 type Row = Record<string, unknown>;
 
@@ -15,6 +18,58 @@ export interface ImportSource {
   dataDir: string;
   // 来源数据库，默认为数据目录下的 db.sqlite
   dbPath?: string;
+}
+
+// 复制 variant 的 src/skills/ 与 variant.json，以及基线 commit 的导出（目标中没有时）；
+// 不复制 home/、dist/ 与二进制。目标中已有的部分保持不变；返回复制了的路径
+export function copyVariantContent(
+  sourceDataDir: string,
+  targetDataDir: string,
+  variantId: string,
+  baseCommit: string,
+): string[] {
+  const from = dataLayout(path.resolve(sourceDataDir));
+  const to = dataLayout(path.resolve(targetDataDir));
+  const pairs = [
+    [from.variant(variantId).skills, to.variant(variantId).skills],
+    [from.variant(variantId).manifest, to.variant(variantId).manifest],
+    [from.base(baseCommit), to.base(baseCommit)],
+  ] as const;
+  const copied: string[] = [];
+  for (const [source, target] of pairs) {
+    if (fs.existsSync(target)) continue;
+    if (!fs.existsSync(source)) throw new Error(`来源中没有 ${source}`);
+    fs.cpSync(source, target, { recursive: true, errorOnExist: true, force: false });
+    copied.push(target);
+  }
+  return copied;
+}
+
+// 补齐目标数据库中全部导入的 variant（没有安装目录的行）的内容：从第一个含有该 variant skills 的来源数据目录复制。
+// 只读打开数据库，可以在服务运行中执行
+export function repairImportedVariants(
+  targetDbPath: string,
+  targetDataDir: string,
+  sourceDataDirs: string[],
+): { variantId: string; from: string; copied: string[] }[] {
+  const target = new Database(path.resolve(targetDbPath), { readonly: true, fileMustExist: true });
+  const rows = target
+    .prepare('select id, base_commit from variants where install_dir is null')
+    .all() as { id: string; base_commit: string }[];
+  target.close();
+  return rows.map(({ id, base_commit }) => {
+    const from = sourceDataDirs.find((dir) =>
+      fs.existsSync(dataLayout(path.resolve(dir)).variant(id).skills),
+    );
+    if (from === undefined) {
+      throw new Error(`来源数据目录中都没有 variant ${id}：${sourceDataDirs.join('、')}`);
+    }
+    return {
+      variantId: id,
+      from,
+      copied: copyVariantContent(from, targetDataDir, id, base_commit),
+    };
+  });
 }
 
 export function isImported(db: Db, runId: string): boolean {
@@ -26,6 +81,8 @@ export async function importRun(
   from: ImportSource,
   runId: string,
   stageCheckModel: string,
+  // 目标数据目录（当前的 config.dataDir）
+  targetDataDir: string,
 ) {
   const sourceDir = path.resolve(from.dataDir);
   const source = new Database(path.resolve(from.dbPath ?? path.join(sourceDir, 'db.sqlite')), {
@@ -62,6 +119,10 @@ export async function importRun(
   }
   const variantId = String(run.variant_id);
   const batchId = String(run.batch_id);
+  const baseCommit = String(
+    one('select base_commit from variants where id = ?', variantId).base_commit,
+  );
+  copyVariantContent(sourceDir, targetDataDir, variantId, baseCommit);
 
   target.transaction(() => {
     if (!exists('variants', 'id', variantId)) {

@@ -31,7 +31,13 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      testIgnore: ['compare.spec.ts', 'runs.spec.ts', 'environment.spec.ts', 'guide/**'],
+      testIgnore: [
+        'compare.spec.ts',
+        'runs.spec.ts',
+        'variants-imported.spec.ts',
+        'environment.spec.ts',
+        'guide/**',
+      ],
       use: {
         ...devices['Desktop Chrome'],
         baseURL: `http://127.0.0.1:${String(webPort)}`,
@@ -48,7 +54,7 @@ export default defineConfig({
     },
     {
       name: 'runs',
-      testMatch: 'runs.spec.ts',
+      testMatch: ['runs.spec.ts', 'variants-imported.spec.ts'],
       use: {
         ...devices['Desktop Chrome'],
         baseURL: `http://127.0.0.1:${String(runsWebPort)}`,

@@ -18,6 +18,7 @@ const result = await importRun(
   { dataDir, ...(dbPath === undefined ? {} : { dbPath }) },
   runId,
   createSettingsStore(db).get().models.stageCheck,
+  config.dataDir,
 );
 console.log(JSON.stringify(result));
 db.$client.close();

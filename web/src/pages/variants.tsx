@@ -5,11 +5,14 @@ import { PageShell } from '@/components/page-shell';
 import { Button } from '@/components/ui/button';
 import {
   buildLabel,
+  importedLabel,
+  isImported,
   request,
   statusLabel,
   type Variant,
   variantsQuery,
 } from '@/pages/variants-api';
+import { QueryError } from '@/pages/variants-error';
 
 function CreateBaseline() {
   const queryClient = useQueryClient();
@@ -73,7 +76,13 @@ export function VariantsPage() {
       <PageShell title="Variants" description="编辑 skill 内容，设置模型与 effort。" />
       <CreateBaseline />
       {list.isPending && <p className="text-sm text-muted-foreground">加载中…</p>}
-      {list.isError && <p className="text-sm text-destructive">{list.error.message}</p>}
+      {list.isError && (
+        <QueryError
+          error={list.error}
+          retrying={list.isFetching}
+          onRetry={() => void list.refetch()}
+        />
+      )}
       {list.data?.length === 0 && (
         <p className="text-sm text-muted-foreground">
           还没有 variant。先从 txe-workflow 导入一个基线。
@@ -109,7 +118,7 @@ export function VariantsPage() {
                 <td>{variant.model}</td>
                 <td>{variant.effort}</td>
                 <td>{statusLabel[variant.status]}</td>
-                <td>{buildLabel(variant)}</td>
+                <td>{isImported(variant) ? importedLabel : buildLabel(variant)}</td>
               </tr>
             ))}
           </tbody>

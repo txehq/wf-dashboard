@@ -7,7 +7,7 @@ import { runs } from '../src/db/schema.js';
 import { scanCrossRunRefs } from '../src/runs/cross-run-refs.js';
 import { createSettingsStore } from '../src/runs/settings.js';
 import { syncTasks } from '../src/tasks/loader.js';
-import { importRun, isImported } from './import-run-lib.js';
+import { importRun, isImported, repairImportedVariants } from './import-run-lib.js';
 
 // 用法：WFD_DATA_DIR=.work/e2e/runs-data tsx scripts/prepare-runs-e2e.ts
 // Runs 页面 e2e 的数据目录：导入 W4 端到端留下的四个已结束的 run（已评分的 lfg 与 ic、因 GitHub EOF 失败的 ic、
@@ -46,7 +46,7 @@ syncTasks(db, config.tasksDir);
 const stageCheck = createSettingsStore(db).get().models.stageCheck;
 for (const { runId, ...from } of sources) {
   if (isImported(db, runId)) continue;
-  console.log(JSON.stringify(await importRun(db, from, runId, stageCheck)));
+  console.log(JSON.stringify(await importRun(db, from, runId, stageCheck, config.dataDir)));
 }
 // 全部导入后按 runs 模块在 run 结束时的做法重新扫描运行之间的参考（Contracts 7.11）
 for (const { runId } of sources) {
@@ -55,3 +55,8 @@ for (const { runId } of sources) {
   console.log(JSON.stringify({ runId, crossRunRefs: refs.length }));
 }
 db.$client.close();
+// 早先导入时没有复制 variant 的内容：补齐 skills 与基线导出
+const repaired = repairImportedVariants(config.dbPath, config.dataDir, [
+  ...new Set(sources.map((s) => s.dataDir)),
+]);
+console.log(JSON.stringify(repaired.filter((r) => r.copied.length > 0)));

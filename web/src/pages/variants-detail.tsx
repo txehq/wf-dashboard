@@ -13,6 +13,8 @@ import {
   diffQuery,
   fileQuery,
   filesQuery,
+  importedLabel,
+  isImported,
   request,
   type SkillFile,
   statusLabel,
@@ -20,6 +22,7 @@ import {
   variantOptionsQuery,
   variantQuery,
 } from '@/pages/variants-api';
+import { QueryError } from '@/pages/variants-error';
 import { monaco } from '@/pages/variants-monaco';
 
 type Tab = 'edit' | 'diff' | 'log';
@@ -120,7 +123,7 @@ function FileEditor({
   const queryClient = useQueryClient();
   const file = useQuery(fileQuery(variant.id, path));
   const [draft, setDraft] = useState<string | null>(null);
-  const frozen = variant.status === 'frozen';
+  const readOnly = variant.status === 'frozen' || isImported(variant);
   const dirty = draft !== null && draft !== file.data?.content;
   const saveRef = useRef<() => void>(() => undefined);
 
@@ -151,12 +154,21 @@ function FileEditor({
 
   useEffect(() => {
     saveRef.current = () => {
-      if (dirty && !frozen) save.mutate(draft);
+      if (dirty && !readOnly) save.mutate(draft);
     };
   });
 
   if (file.isPending) return <p className="p-4 text-sm text-muted-foreground">加载中…</p>;
-  if (file.isError) return <p className="p-4 text-sm text-destructive">{file.error.message}</p>;
+  if (file.isError) {
+    return (
+      <QueryError
+        className="p-4"
+        error={file.error}
+        retrying={file.isFetching}
+        onRetry={() => void file.refetch()}
+      />
+    );
+  }
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b px-3 py-2 text-sm">
@@ -164,7 +176,7 @@ function FileEditor({
         {dirty && <span className="text-xs text-muted-foreground">未保存</span>}
         {save.isError && <span className="text-xs text-destructive">{save.error.message}</span>}
         {remove.isError && <span className="text-xs text-destructive">{remove.error.message}</span>}
-        {!frozen && (
+        {!readOnly && (
           <div className="ml-auto flex gap-2">
             <Button
               size="sm"
@@ -196,7 +208,7 @@ function FileEditor({
           defaultValue={file.data.content}
           language={languageOf(path)}
           options={{
-            readOnly: frozen,
+            readOnly,
             minimap: { enabled: false },
             wordWrap: 'on',
             fontSize: 13,
@@ -236,7 +248,7 @@ function EditTab({ variant }: { variant: Variant }) {
       <div className="flex w-64 shrink-0 flex-col border-r">
         <div className="flex items-center justify-between border-b px-3 py-2 text-sm font-medium">
           skills
-          {variant.status === 'draft' && (
+          {variant.status === 'draft' && !isImported(variant) && (
             <Button
               size="icon-xs"
               variant="ghost"
@@ -259,7 +271,14 @@ function EditTab({ variant }: { variant: Variant }) {
         )}
         <nav aria-label="skills 文件" className="min-h-0 flex-1 overflow-auto py-1 text-sm">
           {files.isPending && <p className="px-3 text-muted-foreground">加载中…</p>}
-          {files.isError && <p className="px-3 text-destructive">{files.error.message}</p>}
+          {files.isError && (
+            <QueryError
+              className="px-3"
+              error={files.error}
+              retrying={files.isFetching}
+              onRetry={() => void files.refetch()}
+            />
+          )}
           {files.data !== undefined &&
             buildTree(files.data).map((node) => (
               <TreeItem
@@ -323,7 +342,14 @@ function DiffTab({ variant }: { variant: Variant }) {
         </div>
         <div className="min-h-0 flex-1 overflow-auto py-1">
           {diff.isPending && <p className="px-3 text-muted-foreground">加载中…</p>}
-          {diff.isError && <p className="px-3 text-destructive">{diff.error.message}</p>}
+          {diff.isError && (
+            <QueryError
+              className="px-3"
+              error={diff.error}
+              retrying={diff.isFetching}
+              onRetry={() => void diff.refetch()}
+            />
+          )}
           {diff.data?.files.length === 0 && (
             <p className="px-3 text-muted-foreground">skills 内容相同，没有差异。</p>
           )}
@@ -353,13 +379,24 @@ function DiffTab({ variant }: { variant: Variant }) {
 }
 
 function LogTab({ variant, building }: { variant: Variant; building: boolean }) {
+  if (isImported(variant)) {
+    return <p className="text-sm text-muted-foreground">{importedLabel}，没有构建日志。</p>;
+  }
+  return <BuildLog variant={variant} building={building} />;
+}
+
+function BuildLog({ variant, building }: { variant: Variant; building: boolean }) {
   const log = useQuery(buildLogQuery(variant.id, building));
   const ref = useRef<HTMLPreElement>(null);
   useEffect(() => {
     ref.current?.scrollTo({ top: ref.current.scrollHeight });
   }, [log.data]);
   if (log.isPending) return <p className="text-sm text-muted-foreground">加载中…</p>;
-  if (log.isError) return <p className="text-sm text-destructive">{log.error.message}</p>;
+  if (log.isError) {
+    return (
+      <QueryError error={log.error} retrying={log.isFetching} onRetry={() => void log.refetch()} />
+    );
+  }
   return (
     <pre
       ref={ref}
@@ -381,7 +418,7 @@ function Settings({ variant }: { variant: Variant }) {
       await queryClient.invalidateQueries({ queryKey: ['variants'] });
     },
   });
-  const frozen = variant.status === 'frozen';
+  const frozen = variant.status === 'frozen' || isImported(variant);
   return (
     <div className="flex items-center gap-3 text-sm">
       <label className="flex items-center gap-2">
@@ -443,19 +480,20 @@ function Header({
     },
   });
   const frozen = variant.status === 'frozen';
+  const imported = isImported(variant);
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-semibold">{variant.name}</h1>
         <span className="rounded-md border px-2 py-0.5 text-xs">{statusLabel[variant.status]}</span>
         <span className="rounded-md border px-2 py-0.5 text-xs" data-testid="build-status">
-          {buildLabel(variant)}
+          {imported ? importedLabel : buildLabel(variant)}
         </span>
         <span className="font-mono text-xs text-muted-foreground">
           {variant.version} · 基线 {variant.baseCommit.slice(0, 7)}
         </span>
       </div>
-      {frozen && (
+      {frozen && !imported && (
         <p className="text-sm text-muted-foreground">
           已被运行使用，内容只读。修改请另存为新 variant。
         </p>
@@ -465,24 +503,26 @@ function Header({
       )}
       <div className="flex flex-wrap items-center gap-3">
         <Settings variant={variant} />
-        <div className="ml-auto flex gap-2">
-          <Button
-            variant={frozen ? 'default' : 'outline'}
-            disabled={derive.isPending}
-            onClick={() => {
-              const name = window.prompt('新 variant 名称', `${variant.name} 副本`);
-              if (name !== null && name.trim() !== '') derive.mutate(name.trim());
-            }}
-          >
-            另存为新 variant
-          </Button>
-          {!frozen && (
-            <Button disabled={building} onClick={onBuild}>
-              <Hammer />
-              {building ? '构建中…' : '构建并安装'}
+        {!imported && (
+          <div className="ml-auto flex gap-2">
+            <Button
+              variant={frozen ? 'default' : 'outline'}
+              disabled={derive.isPending}
+              onClick={() => {
+                const name = window.prompt('新 variant 名称', `${variant.name} 副本`);
+                if (name !== null && name.trim() !== '') derive.mutate(name.trim());
+              }}
+            >
+              另存为新 variant
             </Button>
-          )}
-        </div>
+            {!frozen && (
+              <Button disabled={building} onClick={onBuild}>
+                <Hammer />
+                {building ? '构建中…' : '构建并安装'}
+              </Button>
+            )}
+          </div>
+        )}
       </div>
       {derive.isError && <p className="text-sm text-destructive">{derive.error.message}</p>}
     </div>
@@ -509,7 +549,15 @@ export function VariantDetailPage() {
   });
 
   if (variant.isPending) return <p className="text-sm text-muted-foreground">加载中…</p>;
-  if (variant.isError) return <p className="text-sm text-destructive">{variant.error.message}</p>;
+  if (variant.isError) {
+    return (
+      <QueryError
+        error={variant.error}
+        retrying={variant.isFetching}
+        onRetry={() => void variant.refetch()}
+      />
+    );
+  }
   const building = build.isPending || variant.data.buildStatus === 'building';
 
   return (

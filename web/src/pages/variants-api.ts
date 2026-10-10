@@ -70,27 +70,47 @@ export async function request<T>(method: string, url: string, body?: unknown): P
   return (json ? await response.json() : await response.text()) as T;
 }
 
+// 失败后不自动重复请求（重试、窗口聚焦、网络恢复、重新挂载都不触发），由页面上的「重试」重新请求
+const notFailed = (query: { state: { status: string } }) => query.state.status !== 'error';
+const manualRetry = {
+  retry: false,
+  retryOnMount: false,
+  refetchOnWindowFocus: notFailed,
+  refetchOnReconnect: notFailed,
+} as const;
+
+// 从其他数据目录导入的 variant：只有 skills 内容，不能编辑、构建与运行
+export function isImported(variant: Variant): boolean {
+  return variant.installDir === null;
+}
+
+export const importedLabel = '导入的 variant（只读，不可构建与运行）';
+
 export const variantsQuery = queryOptions({
   queryKey: ['variants'],
   queryFn: () => request<Variant[]>('GET', '/api/variants'),
+  ...manualRetry,
 });
 
 export const variantOptionsQuery = queryOptions({
   queryKey: ['variants', 'options'],
   queryFn: () => request<VariantOptions>('GET', '/api/variants/options'),
   staleTime: Infinity,
+  ...manualRetry,
 });
 
 export const variantQuery = (id: string) =>
   queryOptions({
     queryKey: ['variants', id],
     queryFn: () => request<Variant>('GET', `/api/variants/${id}`),
+    ...manualRetry,
   });
 
 export const filesQuery = (id: string) =>
   queryOptions({
     queryKey: ['variants', id, 'files'],
     queryFn: () => request<SkillFile[]>('GET', `/api/variants/${id}/files`),
+    ...manualRetry,
   });
 
 export const fileQuery = (id: string, path: string) =>
@@ -102,17 +122,20 @@ export const fileQuery = (id: string, path: string) =>
         `/api/variants/${id}/file?path=${encodeURIComponent(path)}`,
       ),
     staleTime: Infinity,
+    ...manualRetry,
   });
 
 export const diffQuery = (id: string, against: 'base' | 'parent') =>
   queryOptions({
     queryKey: ['variants', id, 'diff', against],
     queryFn: () => request<VariantDiff>('GET', `/api/variants/${id}/diff?against=${against}`),
+    ...manualRetry,
   });
 
 export const buildLogQuery = (id: string, building: boolean) =>
   queryOptions({
     queryKey: ['variants', id, 'build-log'],
     queryFn: () => request<string>('GET', `/api/variants/${id}/build-log`),
-    refetchInterval: building ? 1000 : false,
+    ...manualRetry,
+    refetchInterval: (query) => (building && notFailed(query) ? 1000 : false),
   });
