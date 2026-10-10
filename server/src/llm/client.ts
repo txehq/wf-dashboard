@@ -65,6 +65,8 @@ export function gatewayClient(baseURL: string, authToken: string): Anthropic {
     apiKey: null,
     // 不自动重试：gateway 的 429 / 5xx / 连接错误直接交给调用方
     maxRetries: 0,
+    // 挂起的请求在 120 秒后以超时错误失败（Contracts 4），不等 SDK 默认的 10 分钟
+    timeout: 120_000,
   });
 }
 

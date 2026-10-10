@@ -73,6 +73,8 @@ describe('gateway 结构化输出', () => {
     const url = await server.listen({ port: 0, host: '127.0.0.1' });
     const client = gatewayClient(url, 'test-token');
     expect(anthropic().maxRetries).toBe(0);
+    // 挂起的请求 120 秒后失败（Contracts 4）
+    expect(anthropic().timeout).toBe(120_000);
     await expect(
       client.messages.create({
         model: models.stageCheck,
@@ -93,5 +95,5 @@ describe('gateway 结构化输出', () => {
     });
     expect(result.value.answer).toBe(5);
     expect(result.costUsd).toBeGreaterThan(0);
-  }, 60_000);
+  }, 150_000);
 });

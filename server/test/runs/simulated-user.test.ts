@@ -32,8 +32,10 @@ const initial: TranscriptEntry = {
 };
 
 const GO = /\bgo\b/i;
+// 每条测试一次模型调用：比 SDK 的请求超时（120 秒）长，gateway 挂起时报告的是 SDK 的超时错误
+const TIMEOUT = 150_000;
 
-describe('模拟用户（真实 gateway）', () => {
+describe('模拟用户（真实 gateway）', { timeout: TIMEOUT }, () => {
   test('interview 的提问：按 persona 回答被问到的部分，不倾倒全部需求', async () => {
     const r = await simulateUser(ctx, [initial], {
       kind: 'text',
@@ -49,7 +51,7 @@ describe('模拟用户（真实 gateway）', () => {
     // 没被问到的验收题与"不做"清单不应整段出现
     expect(r.reply).not.toContain('(1+2)*(3+4)/7');
     expect(r.reply).not.toContain('localStorage');
-  }, 120_000);
+  });
 
   test('文字里列出 A/B 选项的提问：在 reply 中作答，没有 answers', async () => {
     const r = await simulateUser(ctx, [initial], {
@@ -60,7 +62,7 @@ describe('模拟用户（真实 gateway）', () => {
     expect(r.answers).toBeUndefined();
     expect(r.done).toBe(false);
     expect(r.reply).toMatch(/A/);
-  }, 120_000);
+  });
 
   const gateHistory: TranscriptEntry[] = [
     initial,
@@ -89,7 +91,7 @@ describe('模拟用户（真实 gateway）', () => {
     expect(r.done).toBe(false);
     expect(r.reply).toContain('不派发');
     expect(r.reply).not.toMatch(GO);
-  }, 120_000);
+  });
 
   test('dispatch gate 的 AskUserQuestion：选择不派发的选项', async () => {
     const question = 'Dispatch the implementation lanes now?';
@@ -111,7 +113,7 @@ describe('模拟用户（真实 gateway）', () => {
     console.log('[gate ask]', r.answers, r.reply);
     expect(r.answers).toEqual({ [question]: 'Designer-only' });
     expect(r.done).toBe(false);
-  }, 120_000);
+  });
 
   test('回答 gate 之后 agent 报告结束状态：done 为 true', async () => {
     const r = await simulateUser(
@@ -128,7 +130,7 @@ describe('模拟用户（真实 gateway）', () => {
     );
     console.log('[after gate]', r.reply);
     expect(r.done).toBe(true);
-  }, 120_000);
+  });
 
   // r-20261009-i6vxt1（W12）：research 等 Codex 额度时，模拟用户与 agent 来回「好的 / 好」直到回答次数上限
   test('agent 在等外部条件而不是提问：done 为 true', async () => {
@@ -150,7 +152,7 @@ describe('模拟用户（真实 gateway）', () => {
     );
     console.log('[waiting]', r.reply);
     expect(r.done).toBe(true);
-  }, 120_000);
+  });
 
   test('agent 还在正常提问：done 为 false', async () => {
     const r = await simulateUser(ctx, [initial], {
@@ -158,11 +160,11 @@ describe('模拟用户（真实 gateway）', () => {
       text: '在开始之前想先确认一下：这个计算器主要是谁在用？在什么场合用？',
     });
     expect(r.done).toBe(false);
-  }, 120_000);
+  });
 });
 
 // r-20261009-jzo9c4（W12）中 /ic 的 Goal 确认：问题长达数百字，模型逐字抄写问题时留空，run 因此失败
-describe('模拟用户回答 /ic 的长问题（真实 gateway）', () => {
+describe('模拟用户回答 /ic 的长问题（真实 gateway）', { timeout: TIMEOUT }, () => {
   const icFile = path.join(config.tasksDir, 'ic-money-format', 'task.yaml');
   const icDefinition = parseTaskYaml(fs.readFileSync(icFile, 'utf8'), icFile);
   if (icDefinition.kind !== 'ic') throw new Error('ic-money-format 应为 ic task');
@@ -201,7 +203,7 @@ describe('模拟用户回答 /ic 的长问题（真实 gateway）', () => {
     console.log('[ic goal]', r.answers, r.reply);
     expect(r.answers).toEqual({ [goal]: 'Yes, run it' });
     expect(r.done).toBe(false);
-  }, 120_000);
+  });
 
   test('两个问题：按编号对应到各自的问题原文', async () => {
     const q1 = 'Which Node version should /readiness require for this repository?';
@@ -234,7 +236,7 @@ describe('模拟用户回答 /ic 的长问题（真实 gateway）', () => {
     expect(Object.keys(r.answers ?? {}).sort()).toEqual([q1, q2].sort());
     // 没有合适的选项时 prompt 允许写自己的简短回答，这里只要求每个问题都有回答
     for (const q of [q1, q2]) expect(r.answers?.[q]).toMatch(/\S/);
-  }, 120_000);
+  });
 });
 
 // r-20261010-1iqzja（W19）：模拟用户对 /ic Confirm goal 的回答是 placeholder，agent 因此停下来追问
