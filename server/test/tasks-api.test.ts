@@ -57,13 +57,14 @@ async function getLfg(id: string): Promise<LfgTaskDefinition> {
 }
 
 describe('Tasks API', () => {
-  test('GET /api/tasks 列出 6 个自带 task', async () => {
+  test('GET /api/tasks 列出 7 个自带 task', async () => {
     const { status, body } = await call('GET', '/api/tasks');
     expect(status).toBe(200);
     const records = body as TaskRecord[];
     expect(records.map((r) => `${r.task.kind}:${r.task.id}`)).toEqual([
       'ic:ic-money-format',
       'ic:ic-task-store-list',
+      'ic:ic-unit-converter',
       'ic:ic-wrap-cli',
       'lfg:lfg-calculator',
       'lfg:lfg-photo-sorter',
@@ -122,7 +123,7 @@ describe('Tasks API', () => {
 
     expect((await call('POST', '/api/tasks', created)).status).toBe(409);
     const list = (await call('GET', '/api/tasks')).body as TaskRecord[];
-    expect(list).toHaveLength(7);
+    expect(list).toHaveLength(8);
   });
 
   test('起草请求的 body 必须是 lfg task 定义', async () => {

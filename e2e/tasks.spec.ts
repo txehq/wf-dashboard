@@ -15,7 +15,7 @@ test.afterAll(() => {
   rmSync(path.join('tasks', editId), { recursive: true, force: true });
 });
 
-test('Tasks 列表按 lfg 与 ic 分组显示 6 个自带 task', async ({ page }) => {
+test('Tasks 列表按 lfg 与 ic 分组显示 7 个自带 task', async ({ page }) => {
   await page.goto('/tasks');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Tasks');
   const lfg = page.locator('[data-slot=card]', { hasText: '/lfg' });
@@ -28,6 +28,7 @@ test('Tasks 列表按 lfg 与 ic 分组显示 6 个自带 task', async ({ page }
   await expect(ic.getByRole('link')).toHaveText([
     '金额格式化：按币种小数位、负数与大金额',
     'TaskStore 增加带筛选、排序与分页的 list',
+    '单位换算页面：温度、结果精度、输入提示与交换单位',
     'wrap 命令行工具：段落、长单词与参数校验',
   ]);
   await expect(lfg).toContainText('做一个计算器');
