@@ -12,7 +12,7 @@ import { COST_REFRESH_MS, watchRunCost } from '../../src/runs/cost-refresh.js';
 import { syncTasks } from '../../src/tasks/loader.js';
 import { openTestDb } from '../stages/db.js';
 
-// 真实 session 分两次导入：第一次立即刷新成本缓存，30 秒内的第二次��迟到满 30 秒再刷新
+// 真实 session 分两次导入：第一次立即刷新成本缓存，30 秒内的第二次等满 30 秒再刷新
 const sessionId = '40f6915a-cd31-4312-866c-dcb377515c42';
 const fixture = path.join(import.meta.dirname, '../fixtures/runs', `${sessionId}.jsonl`);
 const work = path.join(config.repoRoot, '.work', 'test-cost-refresh', randomUUID());
