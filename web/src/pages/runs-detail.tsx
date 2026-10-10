@@ -158,7 +158,8 @@ function Header({ run }: { run: RunDetail }) {
             className="ml-auto"
             disabled={cancel.isPending}
             onClick={() => {
-              if (window.confirm('取消这个 run？取消后不评分，也不能继续。')) cancel.mutate();
+              if (window.confirm('取消这个 run？取消后按已写出的产物评分，不能继续。'))
+                cancel.mutate();
             }}
           >
             <Ban />
