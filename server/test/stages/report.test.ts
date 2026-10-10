@@ -4,6 +4,7 @@ import { buildApp } from '../../src/api/app.js';
 import { config } from '../../src/config.js';
 import { stageAnalyses, stageChecks } from '../../src/db/schema.js';
 import { analyzeSession, StageReport } from '../../src/stages/report.js';
+import { watchAnalysis } from './analysis-events.js';
 import { openTestDb } from './db.js';
 import { ingestSample, SAMPLES, type Sample, seqOfToolLine, TEST_STAGE_MODEL } from './samples.js';
 
@@ -23,10 +24,18 @@ afterAll(async () => {
   close();
 });
 
+// POST analyze：已判定过直接返回结果；否则后台判定，等 stage.analyzed 后读 stages
 async function analyze(id: string) {
+  const watch = watchAnalysis(id);
   const res = await app.inject({ method: 'POST', url: `/api/sessions/${id}/analyze` });
   expect(res.statusCode).toBe(200);
-  return StageReport.parse(res.json());
+  const body = res.json<{ status?: string }>();
+  if (body.status !== 'running') {
+    watch.stop();
+    return StageReport.parse(body);
+  }
+  await watch.done;
+  return stages(id);
 }
 
 async function stages(id: string) {

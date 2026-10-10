@@ -68,11 +68,40 @@ test('Sessions：来源勾选、列表、详情、阶段判定、阶段请求、
   await expect(page.getByRole('button', { name: '分析阶段' })).toBeVisible();
   await expect(page.getByTestId('outside-stats')).toHaveCount(0);
 
-  // 分析：等待期间显示进度，完成后显示判定花费
+  // 分析：后台逐批判定，页面显示已判定批数与已花费；离开页面再回来时显示当前进度；完成后自动显示结果
   await page.getByRole('button', { name: '分析阶段' }).click();
-  await expect(page.getByTestId('analyze-progress')).toBeVisible();
+  const progress = page.getByTestId('analyze-progress');
+  await expect(progress).toBeVisible();
   await page.screenshot({ path: `${shots}/w8-analyzing.png`, animations: 'disabled' });
-  await expect(page.getByTestId('checks-cost')).toContainText('次模型调用', { timeout: 600_000 });
+  const seen = new Set<string>();
+  const batchesDone = async () => {
+    // 不等待元素：判定完成后进度框消失
+    const values = await progress.evaluateAll((els) =>
+      els.map((el) => el.getAttribute('data-batches-done') ?? ''),
+    );
+    const value = values[0] ?? '';
+    if (value !== '') seen.add(value);
+    return Number(value === '' ? '-1' : value);
+  };
+  await expect.poll(batchesDone, { timeout: 120_000, intervals: [200] }).toBeGreaterThanOrEqual(2);
+  await expect(page.getByTestId('analyze-batches')).toContainText('批 · 已花费 $');
+  await progress.screenshot({ path: `${shots}/w16-progress.png`, animations: 'disabled' });
+
+  await page.getByRole('link', { name: '全部 session' }).click();
+  await expect(row).toBeVisible();
+  const left = Math.max(...[...seen].map(Number));
+  await row.getByRole('link').click();
+  await expect(progress).toBeVisible();
+  await expect.poll(batchesDone, { timeout: 120_000, intervals: [200] }).toBeGreaterThan(left);
+
+  // 判定中每 200ms 记录一次已判定批数，直到结果自动出现
+  const checksCost = page.getByTestId('checks-cost');
+  while (!(await checksCost.isVisible())) {
+    await batchesDone();
+    await page.waitForTimeout(200);
+  }
+  expect(seen.size).toBeGreaterThanOrEqual(2);
+  await expect(checksCost).toContainText('次模型调用');
 
   // 汇总区的流程外统计
   const outside = page.getByTestId('outside-stats');
@@ -154,6 +183,47 @@ test('Sessions：来源勾选、列表、详情、阶段判定、阶段请求、
   await expect(detail.getByTestId('subagent-toggle')).toContainText('56 次请求');
   await nested.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `${shots}/w8-subagent.png`, animations: 'disabled' });
+
+  // 1280px 宽：lfg 与 ic 的阶段框全部显示，页面与阶段图都没有横向滚动；ic 换成两行
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await page.getByRole('button', { name: '查看全部请求' }).click();
+  const noHorizontalScroll = async (selector: string) =>
+    page.locator(selector).evaluate((el) => el.scrollWidth <= el.clientWidth);
+  await expect.poll(() => noHorizontalScroll('html')).toBe(true);
+  for (const workflow of ['lfg', 'ic'] as const) {
+    const graph = page.getByTestId(`stage-graph-${workflow}`);
+    await expect.poll(() => graph.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    const box = await graph.boundingBox();
+    if (box === null) throw new Error(`${workflow} 阶段图不可见`);
+    const stages = graph.locator('[data-testid^="stage-"]');
+    for (const stage of await stages.all()) {
+      await expect(stage).toBeVisible();
+      const b = await stage.boundingBox();
+      if (b === null) throw new Error('阶段框不可见');
+      expect(b.x).toBeGreaterThanOrEqual(box.x);
+      expect(b.x + b.width).toBeLessThanOrEqual(box.x + box.width);
+    }
+  }
+  await expect(page.getByTestId('stage-graph-lfg')).toHaveAttribute('data-rows', '1');
+  await expect(page.getByTestId('stage-graph-ic')).toHaveAttribute('data-rows', '2');
+  await expect(ic.getByTestId('stage-ready-for-review')).toContainText('请求');
+  await lfg.scrollIntoViewIfNeeded();
+  const lfgBox = await lfg.boundingBox();
+  const icBox = await ic.boundingBox();
+  if (lfgBox === null || icBox === null) throw new Error('阶段图区域不可见');
+  // boundingBox 相对视口，fullPage 截图的 clip 相对页面
+  const scrollY = await page.locator('html').evaluate((el) => el.scrollTop);
+  await page.screenshot({
+    path: `${shots}/w16-graph-1280.png`,
+    fullPage: true,
+    animations: 'disabled',
+    clip: {
+      x: Math.min(lfgBox.x, icBox.x),
+      y: lfgBox.y + scrollY,
+      width: Math.max(lfgBox.width, icBox.width),
+      height: icBox.y + icBox.height - lfgBox.y,
+    },
+  });
 
   // 已分析的状态回到列表
   await page.getByRole('link', { name: '全部 session' }).click();

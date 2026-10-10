@@ -10,6 +10,7 @@ import {
   type NodeProps,
 } from '@xyflow/react';
 import '@xyflow/react/dist/base.css';
+import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { StatusLabel } from '@/components/sessions/status-label';
 import { formatCount, formatDuration, formatInteger, formatUsd } from '@/lib/format';
 import type { StageStatus, StageView, Workflow } from '@/lib/sessions-api';
@@ -27,6 +28,38 @@ const statusBox: Record<StageStatus, string> = {
 const NODE_WIDTH = 158;
 const NODE_GAP = 26;
 const NODE_Y = 44;
+// 阶段框最高时（中断说明加子代理行）约 190px
+const NODE_HEIGHT = 200;
+// 一行的高度：上方留出 fix-pr 自环的位置
+const ROW_HEIGHT = NODE_Y + NODE_HEIGHT;
+const VIEWPORT_X = 4;
+
+// 容器宽度放不下一行时换成多行，各行的列数尽量相等；节点大小不变
+function gridOf(columns: number, width: number): { perRow: number; rows: number } {
+  const fit = Math.max(
+    1,
+    Math.floor((width - VIEWPORT_X * 2 + NODE_GAP) / (NODE_WIDTH + NODE_GAP)),
+  );
+  const rows = Math.ceil(columns / fit);
+  return { perRow: Math.ceil(columns / rows), rows };
+}
+
+function useWidth(ref: RefObject<HTMLDivElement | null>): number | null {
+  const [width, setWidth] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el === null) throw new Error('阶段图容器尚未挂载');
+    setWidth(el.clientWidth);
+    const observer = new ResizeObserver(() => {
+      setWidth(el.clientWidth);
+    });
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+    };
+  }, [ref]);
+  return width;
+}
 
 // @xyflow/react 要求节点数据可索引
 interface StageNodeData extends Record<string, unknown> {
@@ -49,6 +82,9 @@ function StageHandles({ loop }: { loop: boolean }) {
     <>
       <Handle type="target" position={Position.Left} id="in" className={hiddenHandle} />
       <Handle type="source" position={Position.Right} id="out" className={hiddenHandle} />
+      {/* 换行时：行末的框从底部指向下一行行首的框顶部 */}
+      <Handle type="target" position={Position.Top} id="up" className={hiddenHandle} />
+      <Handle type="source" position={Position.Bottom} id="down" className={hiddenHandle} />
       {loop && (
         <>
           <Handle
@@ -155,6 +191,7 @@ function GateNodeView({ data }: NodeProps<GateNode>) {
       className={`flex flex-col items-center gap-1 rounded-md border-2 border-double px-3 py-3 text-center ${data.reached ? 'border-foreground/50 bg-card' : 'border-foreground/25 text-muted-foreground'}`}
     >
       <Handle type="target" position={Position.Left} id="in" className={hiddenHandle} />
+      <Handle type="target" position={Position.Top} id="up" className={hiddenHandle} />
       <span className="font-mono text-sm font-semibold">dispatch gate</span>
       <span className="text-xs">{data.reached ? '已停在这里' : '未到达'}</span>
     </div>
@@ -194,10 +231,26 @@ export function StageGraph({
   onSelect: (stage: string) => void;
   live?: boolean;
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const containerWidth = useWidth(containerRef);
+  const last = views[views.length - 1];
+  const withGate = workflow === 'lfg' && last !== undefined;
+  const columns = views.length + (withGate ? 1 : 0);
+  const { perRow, rows } = gridOf(columns, containerWidth ?? 0);
+  const position = (i: number, dy = 0) => ({
+    x: (i % perRow) * (NODE_WIDTH + NODE_GAP),
+    y: Math.floor(i / perRow) * ROW_HEIGHT + NODE_Y + dy,
+  });
+  // 同一行内从右侧指向下一个框的左侧；换行处从行末框的底部指向下一行行首框的顶部
+  const link = (i: number) =>
+    i % perRow === 0
+      ? { type: 'smoothstep', sourceHandle: 'down', targetHandle: 'up' }
+      : { sourceHandle: 'out', targetHandle: 'in' };
+
   const nodes: (StageNode | GateNode)[] = views.map((view, i) => ({
     id: view.stage,
     type: 'stage',
-    position: { x: i * (NODE_WIDTH + NODE_GAP), y: NODE_Y },
+    position: position(i),
     data: { view, selected: selected === view.stage, live, onSelect },
     draggable: false,
     selectable: false,
@@ -212,9 +265,8 @@ export function StageGraph({
     edges.push({
       id: `${from.stage}->${to.stage}`,
       source: from.stage,
-      sourceHandle: 'out',
       target: to.stage,
-      targetHandle: 'in',
+      ...link(i),
       ...edgeStyle(to.status !== 'not-reached'),
     });
   }
@@ -230,13 +282,12 @@ export function StageGraph({
       ...edgeStyle(fixPr.status !== 'not-reached'),
     });
   }
-  const last = views[views.length - 1];
-  if (workflow === 'lfg' && last !== undefined) {
+  if (withGate) {
     const reached = last.status === 'done';
     nodes.push({
       id: 'dispatch-gate',
       type: 'gate',
-      position: { x: views.length * (NODE_WIDTH + NODE_GAP), y: NODE_Y + 36 },
+      position: position(views.length, 36),
       data: { reached },
       draggable: false,
       selectable: false,
@@ -244,41 +295,43 @@ export function StageGraph({
     edges.push({
       id: `${last.stage}->dispatch-gate`,
       source: last.stage,
-      sourceHandle: 'out',
       target: 'dispatch-gate',
-      targetHandle: 'in',
+      ...link(views.length),
       ...edgeStyle(reached),
     });
   }
-  const columns = views.length + (workflow === 'lfg' ? 1 : 0);
-  const width = columns * (NODE_WIDTH + NODE_GAP);
+  const width = perRow * (NODE_WIDTH + NODE_GAP) - NODE_GAP + VIEWPORT_X * 2;
   return (
+    // contain: inline-size 让容器宽度只取决于页面，不被图的宽度撑开，窗口变窄时才能重新换行
     <div
-      className="overflow-x-auto"
+      ref={containerRef}
+      className="overflow-x-auto [contain:inline-size]"
       data-testid={`stage-graph-${workflow}`}
+      data-rows={rows}
       role="group"
       aria-label={`/${workflow} 阶段图`}
     >
-      {/* 阶段框最高时（中断说明加子代理行）约 190px */}
-      <div style={{ width, height: NODE_Y + 200 }}>
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
-          defaultViewport={{ x: 4, y: 0, zoom: 1 }}
-          nodesDraggable={false}
-          nodesConnectable={false}
-          nodesFocusable={false}
-          edgesFocusable={false}
-          elementsSelectable={false}
-          panOnDrag={false}
-          zoomOnScroll={false}
-          zoomOnPinch={false}
-          zoomOnDoubleClick={false}
-          preventScrolling={false}
-        />
-      </div>
+      {containerWidth !== null && (
+        <div style={{ width, height: rows * ROW_HEIGHT }}>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            defaultViewport={{ x: VIEWPORT_X, y: 0, zoom: 1 }}
+            nodesDraggable={false}
+            nodesConnectable={false}
+            nodesFocusable={false}
+            edgesFocusable={false}
+            elementsSelectable={false}
+            panOnDrag={false}
+            zoomOnScroll={false}
+            zoomOnPinch={false}
+            zoomOnDoubleClick={false}
+            preventScrolling={false}
+          />
+        </div>
+      )}
     </div>
   );
 }

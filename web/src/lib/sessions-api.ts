@@ -213,8 +213,33 @@ export function stagesQuery(id: string) {
   });
 }
 
-export async function analyzeSession(id: string): Promise<StageReport> {
-  return (await sendJson('POST', `/api/sessions/${id}/analyze`)) as StageReport;
+export interface AnalysisProgress {
+  workflow: Workflow;
+  batchesDone: number;
+  batchesTotal: number;
+  costUsd: number;
+}
+
+// 离线判定的状态（Contracts 第 9 节）；failed 保留最近一次失败的原文
+export interface AnalysisState {
+  status: 'idle' | 'running' | 'failed' | 'done';
+  progress: AnalysisProgress | null;
+  error: string | null;
+}
+
+export function analysisQuery(id: string) {
+  return queryOptions({
+    queryKey: ['analysis', id],
+    queryFn: async () => (await getJson(`/api/sessions/${id}/analysis`)) as AnalysisState,
+  });
+}
+
+// 已判定过返回 StageReport；否则后台开始判定，返回当前进度
+export async function analyzeSession(
+  id: string,
+): Promise<StageReport | { status: 'running'; progress: AnalysisProgress | null }> {
+  return (await sendJson('POST', `/api/sessions/${id}/analyze`)) as
+    StageReport | { status: 'running'; progress: AnalysisProgress | null };
 }
 
 export interface RequestRange {
@@ -245,7 +270,8 @@ function invalidateSession(client: QueryClient, sessionId: string) {
   void client.invalidateQueries({ queryKey: ['stages', sessionId] });
 }
 
-// 订阅 /api/events：session 有新请求写入或阶段变化时刷新相关查询
+// 订阅 /api/events：session 有新请求写入或阶段变化时刷新相关查询；
+// 判定进度直接写入 analysis 查询，判定完成后刷新阶段结果
 export function useSessionEvents() {
   const client = useQueryClient();
   useEffect(() => {
@@ -254,8 +280,34 @@ export function useSessionEvents() {
       const data = JSON.parse(event.data) as { sessionId: string };
       invalidateSession(client, data.sessionId);
     };
+    const onProgress = (event: MessageEvent<string>) => {
+      const { sessionId, workflow, batchesDone, batchesTotal, costUsd } = JSON.parse(
+        event.data,
+      ) as AnalysisProgress & { sessionId: string };
+      client.setQueryData<AnalysisState>(analysisQuery(sessionId).queryKey, {
+        status: 'running',
+        progress: { workflow, batchesDone, batchesTotal, costUsd },
+        error: null,
+      });
+    };
+    const onFailed = (event: MessageEvent<string>) => {
+      const data = JSON.parse(event.data) as { sessionId: string; error: string };
+      client.setQueryData<AnalysisState>(analysisQuery(data.sessionId).queryKey, (prev) => ({
+        status: 'failed',
+        progress: prev?.progress ?? null,
+        error: data.error,
+      }));
+    };
+    const onAnalyzed = (event: MessageEvent<string>) => {
+      const data = JSON.parse(event.data) as { sessionId: string };
+      void client.invalidateQueries({ queryKey: ['analysis', data.sessionId] });
+      invalidateSession(client, data.sessionId);
+    };
     source.addEventListener('session.updated', onSession);
     source.addEventListener('stage.changed', onSession);
+    source.addEventListener('stage.progress', onProgress);
+    source.addEventListener('stage.failed', onFailed);
+    source.addEventListener('stage.analyzed', onAnalyzed);
     return () => {
       source.close();
     };

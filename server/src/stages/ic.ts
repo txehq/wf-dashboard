@@ -301,13 +301,20 @@ function questionFor(state: IcState, batch: Behaviour[]): Question<unknown> {
   return q as Question<unknown>;
 }
 
+// 判定进度：已判完的批数 / 总批数，以及本次判定已花费的金额
+export interface IcProgress {
+  batchesDone: number;
+  batchesTotal: number;
+  costUsd: number;
+}
+
 async function judgeBatch<T>(
   db: Db,
   args: { sessionId: string; model: string },
   state: IcState,
   batch: Behaviour[],
   q: Question<T>,
-): Promise<T> {
+): Promise<{ verdict: T; costUsd: number }> {
   const first = batch[0];
   const last = batch[batch.length - 1];
   if (first === undefined || last === undefined) throw new Error('空批次不能判定');
@@ -340,20 +347,33 @@ async function judgeBatch<T>(
       costUsd: result.costUsd,
     })
     .run();
-  return verdict;
+  return { verdict, costUsd: result.costUsd };
 }
 
 // 实时与离线共用：从 current 起判定新增行为，按 20 条一批。
 // 每次状态变化后，从变化的那一条起对新状态立即再判，直到回答"否"。
 // 流程外问是否进入、进入哪个阶段；阶段中问是否进入下一阶段或其后阶段；ready-for-review 问是否已离开。
-// model 由调用方传入当前设置的阶段判定模型
+// model 由调用方传入当前设置的阶段判定模型；onProgress 在开始、每次模型调用与每批判完后调用
 export async function advanceIc(
   db: Db,
-  args: { sessionId: string; current: IcState; behaviours: Behaviour[]; model: string },
+  args: {
+    sessionId: string;
+    current: IcState;
+    behaviours: Behaviour[];
+    model: string;
+    onProgress?: (progress: IcProgress) => void;
+  },
 ): Promise<{ stage: IcState; boundaries: IcBoundary[] }> {
   let state = args.current;
   let cycle = 0;
   const boundaries: IcBoundary[] = [];
+  const progress: IcProgress = {
+    batchesDone: 0,
+    batchesTotal: Math.ceil(args.behaviours.length / BATCH_SIZE),
+    costUsd: 0,
+  };
+  const report = () => args.onProgress?.({ ...progress });
+  report();
   for (let start = 0; start < args.behaviours.length; start += BATCH_SIZE) {
     let batch = args.behaviours.slice(start, start + BATCH_SIZE);
     // 批首是否为刚进入 ready-for-review 的那一条
@@ -363,7 +383,9 @@ export async function advanceIc(
     // 只剩回复文字的批次不可能有状态变化，不调用模型
     while (batch.some((b) => b.kind === 'tool')) {
       const q = questionFor(state, batch);
-      const verdict = await judgeBatch(db, args, state, batch, q);
+      const { verdict, costUsd } = await judgeBatch(db, args, state, batch, q);
+      progress.costUsd += costUsd;
+      report();
       const index = q.index(verdict);
       if (index === null) break;
       const target = batch[index];
@@ -403,6 +425,8 @@ export async function advanceIc(
       rfrAtHead = state === 'ready-for-review';
       batch = batch.slice(leavesOnEntry ? 1 : index);
     }
+    progress.batchesDone += 1;
+    report();
   }
   return { stage: state, boundaries };
 }
@@ -414,11 +438,13 @@ export function judgeIcSession(
   main: RequestRow[],
   startSeq: number,
   model: string,
+  onProgress: (progress: IcProgress) => void,
 ): Promise<{ stage: IcState; boundaries: IcBoundary[] }> {
   return advanceIc(db, {
     sessionId,
     current: 'outside',
     behaviours: behavioursOf(main.filter((r) => r.seq >= startSeq)),
     model,
+    onProgress,
   });
 }

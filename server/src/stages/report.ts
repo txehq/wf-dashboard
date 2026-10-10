@@ -8,10 +8,12 @@ import {
   stageCycles,
   stageSpans,
   stageStatuses,
+  workflows,
   type StageStatus,
 } from '../db/schema.js';
+import { events } from '../events.js';
 import { detectFromToolCall, detectFromUserText, type WorkflowFlags } from '../ingest/workflows.js';
-import { judgeIcSession, type IcBoundary } from './ic.js';
+import { judgeIcSession, type IcBoundary, type IcProgress } from './ic.js';
 import { lfgOfflineBoundaries, type LfgBoundary } from './lfg.js';
 import { loadSessionRows, type RequestRow, type SessionRows } from './rows.js';
 import { IC_STAGES, LFG_STAGES, type LfgStage } from './workflow.js';
@@ -458,7 +460,12 @@ function exclusive(lfg: Cycle[], ic: Cycle[], lastSeq: number): { lfg: Cycle[]; 
   return out;
 }
 
-async function analyze(db: Db, sessionId: string, model: string): Promise<StageReport> {
+async function analyze(
+  db: Db,
+  sessionId: string,
+  model: string,
+  onProgress: (progress: IcProgress) => void,
+): Promise<StageReport> {
   const rows = loadSessionRows(db, sessionId);
   const lastSeq = rows.main[rows.main.length - 1]?.seq ?? -1;
   const marks = workflowMarks(rows);
@@ -466,7 +473,7 @@ async function analyze(db: Db, sessionId: string, model: string): Promise<StageR
   let icJudged: Cycle[] = [];
   const icStart = marks.ic[0];
   if (icStart !== undefined) {
-    const judged = await judgeIcSession(db, sessionId, rows.main, icStart, model);
+    const judged = await judgeIcSession(db, sessionId, rows.main, icStart, model, onProgress);
     icJudged = icCycles(judged.boundaries, lastSeq);
   }
   const { lfg, ic } = exclusive(lfgJudged, icJudged, lastSeq);
@@ -511,17 +518,91 @@ async function analyze(db: Db, sessionId: string, model: string): Promise<StageR
   return report;
 }
 
-const inFlight = new Map<string, Promise<StageReport>>();
+export const AnalysisProgress = z.object({
+  workflow: z.enum(workflows),
+  batchesDone: z.number(),
+  batchesTotal: z.number(),
+  costUsd: z.number(),
+});
+export type AnalysisProgress = z.infer<typeof AnalysisProgress>;
 
-// 离线判定入口：已按当前版本判定过的 session 直接返回已有结果；同一 session 的并发请求共用一次判定。
+export const AnalysisState = z.object({
+  status: z.enum(['idle', 'running', 'failed', 'done']),
+  progress: AnalysisProgress.nullable(),
+  error: z.string().nullable(),
+});
+export type AnalysisState = z.infer<typeof AnalysisState>;
+
+interface Job {
+  promise: Promise<StageReport>;
+  state: { progress: AnalysisProgress | null };
+}
+
+// 进行中的判定；同一 session 同时只有一个
+const jobs = new Map<string, Job>();
+// 最近一次失败的原文与失败时的进度，下一次判定开始时清除
+const failures = new Map<string, { error: string; progress: AnalysisProgress | null }>();
+
+function startJob(db: Db, sessionId: string, model: string): Job {
+  const running = jobs.get(sessionId);
+  if (running) return running;
+  failures.delete(sessionId);
+  const state: Job['state'] = { progress: null };
+  // 只有 /ic 逐批调用模型；lfg 按产物判定，没有批次
+  const promise = analyze(db, sessionId, model, (p) => {
+    const progress: AnalysisProgress = { workflow: 'ic', ...p };
+    state.progress = progress;
+    events.publish({ type: 'stage.progress', sessionId, ...progress });
+  });
+  const job = { promise, state };
+  jobs.set(sessionId, job);
+  promise.then(
+    () => {
+      jobs.delete(sessionId);
+      events.publish({ type: 'stage.analyzed', sessionId });
+    },
+    (err: unknown) => {
+      jobs.delete(sessionId);
+      const error = err instanceof Error ? err.message : String(err);
+      failures.set(sessionId, { error, progress: state.progress });
+      console.error(`session ${sessionId} 阶段判定失败`, err);
+      events.publish({ type: 'stage.failed', sessionId, error });
+    },
+  );
+  return job;
+}
+
+function isAnalyzed(db: Db, sessionId: string): boolean {
+  return (
+    current(db.select().from(stageAnalyses).where(eq(stageAnalyses.sessionId, sessionId)).get()) !==
+    undefined
+  );
+}
+
+// 等待判定完成：已按当前版本判定过的 session 直接返回已有结果；进行中的判定共用。
 // model 为 ic 判定所用的模型，由调用方传入当前设置值
 export function analyzeSession(db: Db, sessionId: string, model: string): Promise<StageReport> {
   const existing = readReport(db, sessionId);
   if (existing) return Promise.resolve(existing);
-  let pending = inFlight.get(sessionId);
-  if (!pending) {
-    pending = analyze(db, sessionId, model).finally(() => inFlight.delete(sessionId));
-    inFlight.set(sessionId, pending);
-  }
-  return pending;
+  return startJob(db, sessionId, model).promise;
+}
+
+// POST /analyze：已判定过返回结果；否则在后台开始（或沿用进行中的）判定，返回当前进度
+export function startAnalysis(
+  db: Db,
+  sessionId: string,
+  model: string,
+): StageReport | { status: 'running'; progress: AnalysisProgress | null } {
+  const existing = readReport(db, sessionId);
+  if (existing) return existing;
+  return { status: 'running', progress: startJob(db, sessionId, model).state.progress };
+}
+
+export function analysisState(db: Db, sessionId: string): AnalysisState {
+  const job = jobs.get(sessionId);
+  if (job) return { status: 'running', progress: job.state.progress, error: null };
+  if (isAnalyzed(db, sessionId)) return { status: 'done', progress: null, error: null };
+  const failure = failures.get(sessionId);
+  if (failure !== undefined) return { status: 'failed', ...failure };
+  return { status: 'idle', progress: null, error: null };
 }

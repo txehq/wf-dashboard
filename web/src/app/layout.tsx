@@ -48,7 +48,8 @@ export function Layout() {
           <ServerStatus />
         </div>
       </aside>
-      <main className="flex-1 p-8">
+      {/* min-w-0：页面宽度不被内容中不换行的长文本撑开 */}
+      <main className="min-w-0 flex-1 p-8">
         <Outlet />
       </main>
     </div>
