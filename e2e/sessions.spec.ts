@@ -20,8 +20,16 @@ test('Sessions：来源勾选、列表、详情、阶段判定、阶段请求、
   await page.goto('/sessions');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sessions');
 
-  // 来源勾选：新数据库没有勾选任何目录，列表为空状态，来源列表默认展开
-  await expect(page.getByText('在上方勾选来源目录后，这里会列出其中的 session。')).toBeVisible();
+  // 来源勾选：新数据库没有勾选任何 ~/.claude/projects 目录，列表为空状态，来源列表默认展开。
+  // 数据目录中有 variant 时，它们的 session 目录总是勾选（Contracts 5），空状态换成另一句
+  await expect(
+    page
+      .getByText('在上方勾选来源目录后，这里会列出其中的 session。')
+      .or(page.getByText('勾选的目录中还没有 session。')),
+  ).toBeVisible();
+  // 已有勾选的目录时来源列表默认折叠
+  const sourcesToggle = page.getByRole('region', { name: '来源目录' }).getByRole('button').first();
+  if ((await sourcesToggle.getAttribute('aria-expanded')) === 'false') await sourcesToggle.click();
   const checkbox = page.getByRole('checkbox', { name: sourcePath, exact: true });
   await expect(checkbox).not.toBeChecked();
   await checkbox.check();
