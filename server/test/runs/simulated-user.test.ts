@@ -13,7 +13,7 @@ import {
 import { parseTaskYaml } from '../../src/tasks/loader.js';
 import type { LfgTask } from '../../src/tasks/schema.js';
 
-// 真实调用 gateway；模拟用户用 opus（W12：gateway 上 sonnet 的结构化回答经常为空或是占位词）
+// 真实调用 gateway；模拟用户用 opus：sonnet 对 done 的判断不可靠（在 dispatch gate 与 A/B 提问处提前结束），见 Reports/W21
 setModels({ ...models, simulatedUser: models.judge });
 const file = path.join(config.tasksDir, 'lfg-calculator', 'task.yaml');
 const definition = parseTaskYaml(fs.readFileSync(file, 'utf8'), file);
@@ -250,7 +250,17 @@ describe('占位内容的回答', () => {
         [confirmGoal]: 'placeholder',
       });
     }).toThrow(/占位内容："placeholder"/);
-    for (const filler of ['placeholder', ' Placeholder。', '', '  ', ': ', '.', 'x', 'N/A', 'TODO']) {
+    for (const filler of [
+      'placeholder',
+      ' Placeholder。',
+      '',
+      '  ',
+      ': ',
+      '.',
+      'x',
+      'N/A',
+      'TODO',
+    ]) {
       expect(() => {
         rejectFiller('好的', { q: filler });
       }).toThrow(/占位内容/);
@@ -288,7 +298,7 @@ describe('r-20261010-1iqzja 的 Confirm goal（真实 gateway）', () => {
     product: 'Magi Eval',
   };
 
-  // 原场景用的是默认的模拟用户模型（sonnet）；本文件其余测试用 opus
+  // 原场景用的是默认的模拟用户模型（sonnet）
   const fileModels = { ...models };
   beforeAll(() => {
     setModels({ ...fileModels, simulatedUser: defaultModels().simulatedUser });

@@ -38,24 +38,28 @@ export interface SimulatedReply {
 }
 
 // 文字提问的回答没有 answers 字段；AskUserQuestion 的回答必须给出 answers。
-// 结构化输出不支持任意键的对象，answers 以数组输出后再转成 Record；
-// 问题用编号指代（/ic 的 Goal 确认问题长达数百字，模型逐字抄写会抄错或留空）。
+// 结构化输出不支持任意键的对象：answers 按提问生成固定的键 question_1、question_2…，再转成以问题原文为键的 Record
+// （/ic 的 Goal 确认问题长达数百字，模型逐字抄写会抄错或留空）。
 // 选项也用编号：gateway 上 strict tool 的自由文本字段会被填成 placeholder、空串或乱码（opus 与 sonnet 都会），
-// 要抄写 label 的 answer 字段最常出错；改成编号后两个模型都没有再出现，见 Reports/W21
+// 要抄写 label 的字段最常出错，见 Reports/W21
 const TextOutput = z.object({ reply: z.string().min(1), done: z.boolean() });
-const QuestionOutput = z.object({
-  reply: z.string().min(1),
-  answers: z
-    .array(
-      z.object({
-        questionNumber: z.number().int(),
-        optionNumbers: z.array(z.number().int()),
-        otherAnswer: z.string(),
-      }),
-    )
-    .min(1),
-  done: z.boolean(),
+const QuestionAnswer = z.object({
+  optionNumbers: z.array(z.number().int()),
+  otherAnswer: z.string(),
 });
+type QuestionAnswer = z.infer<typeof QuestionAnswer>;
+
+const questionKey = (index: number) => `question_${String(index + 1)}`;
+
+function questionOutput(questions: AskQuestion[]) {
+  return z.object({
+    reply: z.string().min(1),
+    answers: z.object(
+      Object.fromEntries(questions.map((_, i) => [questionKey(i), QuestionAnswer])),
+    ),
+    done: z.boolean(),
+  });
+}
 
 // 模型偶尔仍会把整个字段填成占位内容（r-20261010-1iqzja 的 Confirm goal 回答为 placeholder；
 // 复现中还有空白、": "、"x"）。只判定整个字段：task 的需求里可能正常出现 placeholder、todo 这些词
@@ -143,7 +147,12 @@ export function systemPrompt(ctx: SimulatedUserContext): string {
     '## 输出',
     '- 文字中需要引号时一律用中文引号「」，不要用英文双引号。',
     '- agent 用文字提问或汇报时（即使文字里列出了 A/B 之类的选项）：reply 是你要发给 agent 的话，在 reply 里写出你的选择。',
-    '- agent 用 AskUserQuestion 的选项提问时：answers 为每个问题各给一项，questionNumber 是问题的编号（「问题 1」即 1），optionNumbers 是所选选项的编号（「选项 1」即 1），只能选一项的问题给一个编号，可多选的问题给出所选的全部编号；没有合适的选项时 optionNumbers 为空数组，并在 otherAnswer 写你自己的简短回答；选了选项时 otherAnswer 为空字符串。reply 用一句话说明你的选择。',
+    '',
+    '## AskUserQuestion 的回答格式',
+    'agent 用选项提问时，answers 中每个问题对应一个键：「问题 1」是 question_1，「问题 2」是 question_2，依此类推。',
+    '- optionNumbers 是所选选项的编号（「选项 1」即 1）。只能选一项的问题给一个编号；可多选的问题给出所选的全部编号。选了选项时 otherAnswer 为空字符串。',
+    '- 没有合适的选项时 optionNumbers 为空数组，并在 otherAnswer 写你自己的简短回答。',
+    '- reply 用一句话说明你的选择。',
   );
   return lines.join('\n');
 }
@@ -162,15 +171,14 @@ function formatQuestions(questions: AskQuestion[]): string {
     .join('\n');
 }
 
-type QuestionAnswer = z.infer<typeof QuestionOutput>['answers'][number];
-
 // 编号换回 AskUserQuestion 的回答：所选选项的 label（多选用 ", " 连接），或自己的回答
-function answerText(question: AskQuestion, answer: QuestionAnswer): string {
+function answerText(where: string, question: AskQuestion, answer: QuestionAnswer): string {
   const { optionNumbers, otherAnswer } = answer;
-  const where = `问题 ${String(answer.questionNumber)}`;
   if (optionNumbers.length === 0) return otherAnswer;
   if (otherAnswer !== '') {
-    throw new Error(`${where} 既选了选项 ${JSON.stringify(optionNumbers)} 又写了回答 ${JSON.stringify(otherAnswer)}`);
+    throw new Error(
+      `${where} 既选了选项 ${JSON.stringify(optionNumbers)} 又写了回答 ${JSON.stringify(otherAnswer)}`,
+    );
   }
   if (!question.multiSelect && optionNumbers.length > 1) {
     throw new Error(`${where} 只能选一项，模拟用户选了 ${JSON.stringify(optionNumbers)}`);
@@ -222,21 +230,15 @@ export async function simulateUser(
   let answers: Record<string, string> | undefined;
   let cost: { costUsd: number; model: string };
   if (prompt.kind === 'questions') {
-    const result = await parseStructured({ ...call, schema: QuestionOutput });
+    const result = await parseStructured({ ...call, schema: questionOutput(prompt.questions) });
     ({ reply, done } = result.value);
     cost = result;
-    const numbers = result.value.answers.map((a) => a.questionNumber).sort((a, b) => a - b);
-    const expected = prompt.questions.map((_, i) => i + 1);
-    if (JSON.stringify(numbers) !== JSON.stringify(expected)) {
-      throw new Error(
-        `模拟用户回答的问题编号 ${JSON.stringify(numbers)} 与提问的编号 ${JSON.stringify(expected)} 不一致`,
-      );
-    }
+    const given = result.value.answers;
     answers = Object.fromEntries(
-      result.value.answers.map((a): [string, string] => {
-        const question = prompt.questions[a.questionNumber - 1];
-        if (question === undefined) throw new Error(`问题编号 ${String(a.questionNumber)} 不存在`);
-        return [question.question, answerText(question, a)];
+      prompt.questions.map((question, i): [string, string] => {
+        const answer = given[questionKey(i)];
+        if (answer === undefined) throw new Error(`模拟用户没有回答问题 ${String(i + 1)}`);
+        return [question.question, answerText(`问题 ${String(i + 1)}`, question, answer)];
       }),
     );
   } else {
