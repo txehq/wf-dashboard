@@ -498,7 +498,7 @@ export const runMessages = sqliteTable(
 );
 
 // ticket 为 ic 的 Linear 工单 identifier；friction 为被测 agent 在 txehq/txe-workflow 提的 issue 或评论，
-// 每个 run 可以有多条，其余种类每个 run 一条
+// 每个 run 可以有多条，其余种类每个 run 一条；acceptance 为 ic 发布到 engapp.dev 的验收报告
 export const artifactKinds = [
   'brief',
   'research',
@@ -508,6 +508,7 @@ export const artifactKinds = [
   'repo',
   'ticket',
   'friction',
+  'acceptance',
 ] as const;
 export type ArtifactKind = (typeof artifactKinds)[number];
 

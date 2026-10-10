@@ -16,6 +16,7 @@ import { loadTask } from '../tasks/loader.js';
 import type { Task } from '../tasks/schema.js';
 import { HttpError } from '../variants/errors.js';
 import type { Variants } from '../variants/index.js';
+import { recordAcceptanceReport } from './acceptance-report.js';
 import { ClaudeProcess } from './claude-process.js';
 import { refreshRunCost, watchRunCost } from './cost-refresh.js';
 import { scanCrossRunRefs } from './cross-run-refs.js';
@@ -381,7 +382,10 @@ export class RunDriver {
     this.updateCost();
     this.update({ crossRunRefs: scanCrossRunRefs(this.db, this.runId) });
     await recordFriction(this.db, this.runId, this.row().sessionId);
-    if (this.task.kind === 'ic') await this.pollPr();
+    if (this.task.kind === 'ic') {
+      await recordAcceptanceReport(this.db, this.runId, this.row().sessionId);
+      await this.pollPr();
+    }
   }
 
   private onControlRequest(event: ControlRequestEvent) {
@@ -666,7 +670,10 @@ export class RunDriver {
     this.sessionWatcher = null;
     this.update({ crossRunRefs: scanCrossRunRefs(this.db, this.runId) });
     await recordFriction(this.db, this.runId, this.row().sessionId);
-    if (this.task.kind === 'ic') await this.pollPr();
+    if (this.task.kind === 'ic') {
+      await recordAcceptanceReport(this.db, this.runId, this.row().sessionId);
+      await this.pollPr();
+    }
     this.updateCost();
   }
 

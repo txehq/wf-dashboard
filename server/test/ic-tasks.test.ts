@@ -30,10 +30,12 @@ const icIds = readdirSync(config.tasksDir).filter((id) => id.startsWith('ic-'));
 const expectedStartPassed: Record<string, number> = {
   'ic-money-format': 4,
   'ic-task-store-list': 0,
+  'ic-unit-converter': 9,
   'ic-wrap-cli': 4,
 };
 
-// 每个 ic task：从 bundle clone 起始仓库，真实运行隐藏测试（npm ci + vitest）
+// 每个 ic task：从 bundle clone 起始仓库，真实运行隐藏测试（npm ci + vitest；ic-unit-converter 为 Playwright，
+// 在构建出的页面上运行）
 describe.concurrent.each(icIds)('%s', (id) => {
   test('起始仓库停在固定 commit，隐藏测试有失败；应用参考实现后按清单全部通过', async () => {
     const task = loadIcTask(db, id);

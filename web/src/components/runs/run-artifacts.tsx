@@ -1,4 +1,10 @@
-import { ExternalLink, FileText, GitPullRequest, MessageSquareWarning } from 'lucide-react';
+import {
+  ClipboardCheck,
+  ExternalLink,
+  FileText,
+  GitPullRequest,
+  MessageSquareWarning,
+} from 'lucide-react';
 import { useState } from 'react';
 import { MarkdownDoc } from '@/components/markdown-doc';
 import { formatTime } from '@/lib/format';
@@ -29,6 +35,12 @@ function prText(a: Artifact): string {
   const parts = [s.number === undefined ? null : `#${String(s.number)}`, s.state ?? null];
   if (s.isDraft === true) parts.push('草稿');
   return parts.filter((p) => p !== null).join(' · ');
+}
+
+// 验收报告的快照为 { title, toolCallId }
+function acceptanceText(a: Artifact): string {
+  if (a.snapshot === null) return a.location;
+  return (JSON.parse(a.snapshot) as { title: string }).title;
 }
 
 function LinkRow({
@@ -65,7 +77,9 @@ export function RunArtifacts({ run }: { run: RunDetail }) {
   const [open, setOpen] = useState<DocKind | null>(null);
   const shown = docs.find((d) => d.kind === open) ?? null;
   const pr = run.artifacts.find((a) => a.kind === 'pr');
-  const empty = docs.length === 0 && pr === undefined && run.friction.length === 0;
+  const acceptance = run.artifacts.find((a) => a.kind === 'acceptance');
+  const links = pr !== undefined || acceptance !== undefined || run.friction.length > 0;
+  const empty = docs.length === 0 && !links;
   return (
     <section
       className="flex flex-col gap-3 rounded-lg border px-4 py-3"
@@ -79,7 +93,7 @@ export function RunArtifacts({ run }: { run: RunDetail }) {
         <p className="text-sm text-muted-foreground">
           {run.taskKind === 'lfg'
             ? 'Brief、Research、Tickets 写出后出现在这里。'
-            : 'PR 打开后出现在这里。'}
+            : 'PR 与验收报告出现后列在这里。'}
         </p>
       )}
       {docs.length > 0 && (
@@ -105,10 +119,18 @@ export function RunArtifacts({ run }: { run: RunDetail }) {
           ))}
         </div>
       )}
-      {(pr !== undefined || run.friction.length > 0) && (
+      {links && (
         <ul className="flex flex-col">
           {pr !== undefined && (
             <LinkRow href={pr.location} icon={GitPullRequest} title="PR" detail={prText(pr)} />
+          )}
+          {acceptance !== undefined && (
+            <LinkRow
+              href={acceptance.location}
+              icon={ClipboardCheck}
+              title="验收报告"
+              detail={acceptanceText(acceptance)}
+            />
           )}
           {run.friction.map((f) => (
             <LinkRow

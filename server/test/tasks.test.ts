@@ -47,10 +47,11 @@ function copyTasksDir() {
 const builtinIds = readdirSync(config.tasksDir).sort();
 
 describe('自带 task', () => {
-  test('一共 6 个：lfg 与 ic 各 3 个', () => {
+  test('一共 7 个：lfg 3 个，ic 4 个', () => {
     expect(builtinIds).toEqual([
       'ic-money-format',
       'ic-task-store-list',
+      'ic-unit-converter',
       'ic-wrap-cli',
       'lfg-calculator',
       'lfg-photo-sorter',
@@ -125,7 +126,7 @@ describe('loader', () => {
     const result = syncTasks(db, dir);
     expect(result.deleted).toEqual(['lfg-photo-sorter']);
     expect(result.updated).toEqual([]);
-    expect(result.unchanged).toHaveLength(5);
+    expect(result.unchanged).toHaveLength(builtinIds.length - 1);
   });
 
   test('不符合 schema 的 task.yaml 让同步失败并指出文件', () => {
