@@ -58,7 +58,7 @@ export async function judgeArtifact(
 ): Promise<JudgeResult> {
   const ids = group.items.map((i) => i.id);
   const schema = z.object({
-    items: z.array(z.object({ itemId: z.enum(ids), reasoning: z.string(), score: z.int() })),
+    items: z.array(z.object({ itemId: z.enum(ids), reasoning: z.string().min(1), score: z.int() })),
   });
   const result = await parseStructured({
     model: models.judge,

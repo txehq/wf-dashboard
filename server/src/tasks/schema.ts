@@ -114,8 +114,8 @@ export const RubricDraftOutput = z.object({
       artifact: z.enum(rubricArtifacts),
       items: z.array(
         z.object({
-          id: z.string(),
-          criterion: z.string(),
+          id: z.string().min(1),
+          criterion: z.string().min(1),
           maxScore: z.int(),
         }),
       ),

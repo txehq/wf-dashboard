@@ -74,6 +74,11 @@ export interface StructuredResult<T> {
   model: string;
 }
 
+// 结构化输出（Contracts 4）：一个 strict tool respond，tool_choice 为 auto，system prompt 末尾要求必须调用它；
+// 从 tool_use.input 读出结构。gateway 上 output_config 的约束解码经常返回空字符串或占位词
+const OUTPUT_TOOL = 'respond';
+const OUTPUT_RULE = `\n\n## 提交结果\n最终结果必须通过调用 ${OUTPUT_TOOL} tool 提交，结果的全部内容都写在它的参数里；不要只用文字回答。`;
+
 export async function parseStructured<T>(args: {
   model: string;
   system: string;
@@ -81,23 +86,36 @@ export async function parseStructured<T>(args: {
   schema: z.ZodType<T>;
   maxTokens: number;
 }): Promise<StructuredResult<T>> {
-  const response = await anthropic().messages.parse({
+  const response = await anthropic().messages.create({
     model: args.model,
     max_tokens: args.maxTokens,
-    system: args.system,
+    system: `${args.system}${OUTPUT_RULE}`,
     messages: [{ role: 'user', content: args.user }],
-    output_config: { format: zodOutputFormat(args.schema) },
+    tools: [
+      {
+        name: OUTPUT_TOOL,
+        description: '提交最终结果。',
+        // zodOutputFormat 由 z.toJSONSchema 生成并转成 strict 支持的子集（整数范围、字符串长度等移入 description），
+        // 这些约束由下面的 schema.parse 校验
+        input_schema: ToolInputSchema.parse(zodOutputFormat(args.schema).schema),
+        strict: true,
+      },
+    ],
+    tool_choice: { type: 'auto' },
   });
-  if (response.parsed_output === null) {
+  const call = response.content.find((block) => block.type === 'tool_use');
+  if (call?.type !== 'tool_use') {
     throw new Error(
-      `结构化输出解析失败（stop_reason=${String(response.stop_reason)}）：${JSON.stringify(response.content)}`,
+      `结构化输出没有调用 ${OUTPUT_TOOL}（stop_reason=${String(response.stop_reason)}）：${JSON.stringify(response.content)}`,
     );
   }
   const usage = fromApiUsage(response.usage);
   return {
-    value: response.parsed_output,
+    value: args.schema.parse(call.input),
     usage,
     costUsd: costUsd(usage, args.model),
     model: args.model,
   };
 }
+
+const ToolInputSchema = z.looseObject({ type: z.literal('object') });
