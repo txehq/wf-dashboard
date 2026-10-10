@@ -1,7 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { models, parseStructured } from '../src/llm/client.js';
+import {
+  claudeSettingsEnv,
+  defaultModels,
+  models,
+  parseStructured,
+  stripContextTag,
+} from '../src/llm/client.js';
 import { costUsd, priceOf } from '../src/llm/pricing.js';
+
+describe('默认模型', () => {
+  it('模拟用户与 judge 默认取 settings env 中 opus 的别名（Contracts 4）', () => {
+    const opus = stripContextTag(claudeSettingsEnv().ANTHROPIC_DEFAULT_OPUS_MODEL);
+    expect(opus).not.toMatch(/\[/);
+    expect(defaultModels().simulatedUser).toBe(opus);
+    expect(defaultModels().judge).toBe(opus);
+  });
+});
 
 describe('pricing', () => {
   it('按前缀识别 gateway 模型名', () => {

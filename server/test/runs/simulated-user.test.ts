@@ -1,8 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import { describe, expect, test } from 'vitest';
 import { config } from '../../src/config.js';
-import { defaultModels, models, setModels } from '../../src/llm/client.js';
 import {
   DISPATCH_GATE_REPLY,
   rejectFiller,
@@ -13,8 +12,7 @@ import {
 import { parseTaskYaml } from '../../src/tasks/loader.js';
 import type { LfgTask } from '../../src/tasks/schema.js';
 
-// 真实调用 gateway；模拟用户用 opus：sonnet 对 done 的判断不可靠（在 dispatch gate 与 A/B 提问处提前结束），见 Reports/W21
-setModels({ ...models, simulatedUser: models.judge });
+// 真实调用 gateway，用默认的模拟用户模型（opus）
 const file = path.join(config.tasksDir, 'lfg-calculator', 'task.yaml');
 const definition = parseTaskYaml(fs.readFileSync(file, 'utf8'), file);
 if (definition.kind !== 'lfg') throw new Error('lfg-calculator 应为 lfg task');
@@ -297,15 +295,6 @@ describe('r-20261010-1iqzja 的 Confirm goal（真实 gateway）', () => {
     ticket: 'TXE-3893',
     product: 'Magi Eval',
   };
-
-  // 原场景用的是默认的模拟用户模型（sonnet）
-  const fileModels = { ...models };
-  beforeAll(() => {
-    setModels({ ...fileModels, simulatedUser: defaultModels().simulatedUser });
-  });
-  afterAll(() => {
-    setModels(fileModels);
-  });
 
   // simulateUser 遇到占位内容会抛错；prompt 允许没有合适选项时写自己的回答（例如要求先看清单）
   test('连续 10 次：每次都有回答，没有占位内容', async () => {
