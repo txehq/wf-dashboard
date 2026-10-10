@@ -89,7 +89,8 @@ describe('ic 评分（真实 GitHub 仓库，只读取）', { timeout: 10 * 60_0
   });
 
   it('隐藏测试超时：写入 0 / 8 与超时错误，gradeRun 抛出同样的错误', async () => {
-    const timeoutSeconds = 30;
+    // 每次评分的 npm 缓存都是空的，并行跑全部测试时 npm ci 需要几十秒
+    const timeoutSeconds = 90;
     const task = await fixtureTask(timeoutSeconds);
     fs.writeFileSync(
       path.join(task.dir, task.hiddenTests.dir, 'divide.hidden.test.js'),

@@ -128,7 +128,8 @@ describe('评分 sandbox', { timeout: 5 * 60_000 }, () => {
 
   it('模块顶层 while (true) {} 在时限内被强制结束，记为评分错误，进程树不残留', async () => {
     const runId = testRunId('w18a-timeout');
-    const timeoutSeconds = 30;
+    // 每次评分的 npm 缓存都是空的，并行跑全部测试时 npm ci 需要几十秒
+    const timeoutSeconds = 90;
     const task = await buildFixtureTask(runId, timeoutSeconds);
     const checkout = await startCheckout(task, runId);
     fs.writeFileSync(
