@@ -89,7 +89,7 @@ CREATE TABLE `requests` (
 	FOREIGN KEY (`session_id`) REFERENCES `sessions`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `requests_session_message_idx` ON `requests` (`session_id`,`message_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `requests_session_agent_message_idx` ON `requests` (`session_id`,(case when "agent_id" is null then '' else "agent_id" end),`message_id`);--> statement-breakpoint
 CREATE INDEX `requests_session_agent_seq_idx` ON `requests` (`session_id`,`agent_id`,`seq`);--> statement-breakpoint
 CREATE TABLE `run_messages` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -259,7 +259,9 @@ CREATE TABLE `tasks` (
 	`repo_path` text,
 	`repo_commit` text,
 	`hidden_tests_dir` text,
+	`hidden_tests_config` text,
 	`test_command` text,
+	`hidden_tests_timeout_seconds` integer,
 	`hidden_tests_manifest` text,
 	`dir` text NOT NULL,
 	`content_hash` text NOT NULL,

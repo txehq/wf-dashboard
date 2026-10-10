@@ -91,4 +91,5 @@ export const SubagentMeta = z.object({
   agentType: z.string(),
   description: z.string().optional(),
   toolUseId: z.string(),
+  isFork: z.boolean().optional(),
 });

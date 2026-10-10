@@ -71,7 +71,14 @@ export const IcTaskDefinition = z.strictObject({
   hiddenTests: z.strictObject({
     // 相对 task 目录，运行时复制到 checkout 的 test/hidden/
     dir: z.string().min(1),
-    command: z.string().includes('{junitPath}', { message: 'command 必须包含 {junitPath} 占位符' }),
+    // 相对 task 目录的测试配置文件；评分时放在 checkout 之外，经 {configPath} 传给命令
+    config: z.string().min(1),
+    command: z
+      .string()
+      .includes('{junitPath}', { message: 'command 必须包含 {junitPath} 占位符' })
+      .includes('{configPath}', { message: 'command 必须包含 {configPath} 占位符' }),
+    // npm ci 与测试命令各自的时限，超时强制结束并记为评分错误
+    timeoutSeconds: z.int().positive().default(600),
     // 键为相对 checkout 根目录的路径（即 JUnit classname），值为测试名；评分的分母
     manifest: z
       .record(z.string().min(1), z.array(z.string().min(1)).min(1))

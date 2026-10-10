@@ -334,3 +334,117 @@ describe.each(samples)('ingest $id', (sample) => {
     expect(snapshot(incremental, sample.id)).toEqual(snap);
   });
 });
+
+// fork 子代理（meta isFork）的 jsonl 以父代理对话的副本开头，直到派生它的 Agent 调用的 tool_result
+const forkSample = {
+  slug: '-Users-linhaoz-Project-txe-txe-workflow',
+  id: 'd70a6a0e-ddef-4989-8f2a-f2a5adea7abd',
+};
+
+interface ForkMeta {
+  isFork?: boolean;
+  toolUseId: string;
+  parentAgentId?: string;
+}
+
+// fork 自己的部分：派生调用的 tool_result 之后的 message.id 与 tool_use.id
+function forkOwn(file: string, meta: ForkMeta) {
+  const records = readFileSync(file, 'utf8')
+    .split('\n')
+    .filter((l) => l.length > 0)
+    .map(
+      (l) =>
+        JSON.parse(l) as {
+          type: string;
+          message?: { id?: string; model?: string; content?: unknown };
+        },
+    );
+  const start = records.findIndex(
+    (r) =>
+      r.type === 'user' &&
+      Array.isArray(r.message?.content) &&
+      (r.message.content as { type: string; tool_use_id?: string }[]).some(
+        (b) => b.type === 'tool_result' && b.tool_use_id === meta.toolUseId,
+      ),
+  );
+  expect(start).toBeGreaterThan(0);
+  const own = new Set<string>();
+  for (const r of records.slice(start + 1))
+    if (r.type === 'assistant' && r.message?.model !== '<synthetic>' && r.message?.id)
+      own.add(r.message.id);
+  return { messages: own, inherited: start };
+}
+
+describe('ingest fork 子代理', () => {
+  const db = openTestDb();
+  const main = copySample(forkSample);
+  ingestFile(db, main);
+  const snap = snapshot(db, forkSample.id);
+  const forks = snap.subagents
+    .map((s) => ({
+      sub: s,
+      meta: JSON.parse(
+        readFileSync(s.filePath.replace(/\.jsonl$/, '.meta.json'), 'utf8'),
+      ) as ForkMeta,
+    }))
+    .filter((f) => f.meta.isFork === true);
+
+  test('同一行内没有重复的 tool 调用，每个 message.id 只属于一个 agent', () => {
+    expect(forks).toHaveLength(3);
+    for (const r of snap.requests) {
+      const ids = r.toolCalls.map((c) => c.id);
+      expect(new Set(ids).size).toBe(ids.length);
+    }
+    const ids = snap.requests.map((r) => r.messageId);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  test('fork 的请求作为它自己的行存在，seq 从 0 开始，继承的父代理记录不导入', () => {
+    for (const { sub, meta } of forks) {
+      const rows = snap.requests.filter((r) => r.agentId === sub.agentId);
+      const own = forkOwn(sub.filePath, meta);
+      expect(rows.map((r) => r.messageId).sort()).toEqual([...own.messages].sort());
+      expect(rows.map((r) => r.seq)).toEqual(rows.map((_, i) => i));
+      expect(rows.flatMap((r) => r.toolCalls).filter((c) => c.result === null)).toEqual([]);
+      expect(sub.parseState.pending).toEqual({});
+      expect(sub.parseState.forkToolUseId).toBeUndefined();
+      // fork 的用户消息只有派生时的 fork 指令
+      const messages = snap.userMessages.filter((m) => m.agentId === sub.agentId);
+      expect(messages).toHaveLength(1);
+      expect(messages[0]?.text.startsWith('<fork-boilerplate>')).toBe(true);
+    }
+  });
+
+  test('父代理的行与它的 jsonl 一致，派生 fork 的 Agent 调用指向 fork', () => {
+    const parentId = forks[0]?.meta.parentAgentId;
+    const parent = snap.subagents.find((s) => s.agentId === parentId);
+    if (parent === undefined) throw new Error(`没有父代理 ${String(parentId)}`);
+    const expected = expectedOf([parent.filePath]);
+    const rows = snap.requests.filter((r) => r.agentId === parent.agentId);
+    expect(rows).toHaveLength(expected.messages);
+    expect(new Set(rows.flatMap((r) => r.toolCalls.map((c) => c.id)))).toEqual(expected.toolUseIds);
+    const calls = rows.flatMap((r) => r.toolCalls);
+    for (const { sub, meta } of forks)
+      expect(calls.find((c) => c.id === meta.toolUseId)?.subagentId).toBe(sub.agentId);
+  });
+
+  test('fork 文件在继承部分中间切开、分两次增量导入，与一次导入完全相同', () => {
+    const incremental = openTestDb();
+    const contents = forks.map(({ sub }) => readFileSync(sub.filePath, 'utf8'));
+    const cuts = forks.map(({ sub, meta }) =>
+      Math.floor(forkOwn(sub.filePath, meta).inherited / 2),
+    );
+    forks.forEach(({ sub }, i) => {
+      writePrefix(sub.filePath, (contents[i] ?? '').split('\n'), cuts[i] ?? 0);
+    });
+    ingestFile(incremental, main);
+    const partial = snapshot(incremental, forkSample.id);
+    for (const { sub } of forks)
+      expect(partial.requests.filter((r) => r.agentId === sub.agentId)).toEqual([]);
+    forks.forEach(({ sub }, i) => {
+      writeFileSync(sub.filePath, contents[i] ?? '');
+    });
+    expect(ingestFile(incremental, main).changed).toBe(true);
+    expect(snapshot(incremental, forkSample.id)).toEqual(snap);
+  });
+});

@@ -199,7 +199,7 @@ function seedIcGrades(db: Db, runId: string, passed: number, reachedEnd: boolean
       testsPassed: passed,
       testsDeclared: 8,
       reachedEnd,
-      icDetail: { pr: null, outcomes: [], fileErrors: [], endpoint: null },
+      icDetail: { pr: null, outcomes: [], fileErrors: [], endpoint: null, error: null },
     })
     .run();
 }

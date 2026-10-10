@@ -37,6 +37,9 @@ export interface ParseState {
   lastUserAt: number | null;
   // 尚未收到结果的 tool_use.id → message.id
   pending: Record<string, string>;
+  // fork 子代理：jsonl 以父代理对话的副本开头，直到派生它的 Agent 调用（父代理的 tool_use.id）的 tool_result
+  // 为止都属于父代理，解析时跳过；读到该 tool_result 后删除
+  forkToolUseId?: string;
 }
 
 // lfg 的 rubric 按产物分组，定义在 task schema 中
@@ -77,7 +80,9 @@ export const tasks = sqliteTable(
     repoPath: text('repo_path'),
     repoCommit: text('repo_commit'),
     hiddenTestsDir: text('hidden_tests_dir'),
+    hiddenTestsConfig: text('hidden_tests_config'),
     testCommand: text('test_command'),
+    hiddenTestsTimeoutSeconds: integer('hidden_tests_timeout_seconds'),
     hiddenTestsManifest: text('hidden_tests_manifest', { mode: 'json' }).$type<
       Record<string, string[]>
     >(),
@@ -306,7 +311,13 @@ export const requests = sqliteTable(
     attributionSkill: text('attribution_skill'),
   },
   (t) => [
-    uniqueIndex('requests_session_message_idx').on(t.sessionId, t.messageId),
+    // fork 子代理的 jsonl 以父代理对话的副本开头，同一 message.id 可能出现在不同 agent 中；主 agent 的 agent_id 为空，
+    // 唯一约束按空字符串比较
+    uniqueIndex('requests_session_agent_message_idx').on(
+      t.sessionId,
+      sql`(case when ${t.agentId} is null then '' else ${t.agentId} end)`,
+      t.messageId,
+    ),
     index('requests_session_agent_seq_idx').on(t.sessionId, t.agentId, t.seq),
   ],
 );

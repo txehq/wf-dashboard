@@ -8,7 +8,7 @@ import {
   readSync,
 } from 'node:fs';
 import path from 'node:path';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
 import {
   type ParseState,
@@ -94,8 +94,26 @@ function loadRequest(ctx: ParseContext, messageId: string): RequestRow | undefin
   return ctx.db
     .select()
     .from(requests)
-    .where(and(eq(requests.sessionId, ctx.sessionId), eq(requests.messageId, messageId)))
+    .where(
+      and(
+        eq(requests.sessionId, ctx.sessionId),
+        ctx.agentId === null ? isNull(requests.agentId) : eq(requests.agentId, ctx.agentId),
+        eq(requests.messageId, messageId),
+      ),
+    )
     .get();
+}
+
+// fork 子代理继承的父代理对话：派生它的 Agent 调用的 tool_result 之前的记录都跳过
+function inheritedFromParent(state: ParseState, raw: unknown, type: string): boolean {
+  const spawn = state.forkToolUseId;
+  if (spawn === undefined) return false;
+  if (type !== 'user') return true;
+  const { content } = UserRecord.parse(raw).message;
+  return (
+    typeof content === 'string' ||
+    !content.some((b) => b.type === 'tool_result' && b.tool_use_id === spawn)
+  );
 }
 
 // Claude Code 自己生成的 user 记录：后台任务通知、本地命令输出（Contracts 第 2 节）
@@ -122,6 +140,7 @@ function parseLines(ctx: ParseContext, lines: string[]): ParseOutput {
   for (const line of lines) {
     const raw: unknown = JSON.parse(line);
     const any = AnyRecord.parse(raw);
+    if (inheritedFromParent(state, raw, any.type)) continue;
     if (any.timestamp !== undefined) {
       const at = Date.parse(any.timestamp);
       out.firstAt ??= at;
@@ -200,7 +219,9 @@ function parseLines(ctx: ParseContext, lines: string[]): ParseOutput {
         for (const block of content) {
           if (block.type === 'text') texts.push(block.text);
           if (block.type === 'tool_result') {
-            attachResult(ctx, block, touch);
+            // 派生 fork 的 Agent 调用属于父代理，它的结果之后才是 fork 自己的对话
+            if (block.tool_use_id === state.forkToolUseId) delete state.forkToolUseId;
+            else attachResult(ctx, block, touch);
             state.lastUserAt = at;
           }
         }
@@ -360,7 +381,10 @@ function registerSubagents(db: Db, sessionId: string, dir: string): boolean {
         parentToolUseId: meta.toolUseId,
         agentType: meta.agentType,
         description: meta.description ?? null,
-        parseState: initialParseState(),
+        parseState:
+          meta.isFork === true
+            ? { ...initialParseState(), forkToolUseId: meta.toolUseId }
+            : initialParseState(),
       })
       .run();
     linkSubagent(db, sessionId, meta.toolUseId, agentId);

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "e30583d2-3a4e-482f-b07b-d3695a9bd258",
+  "id": "3c7a2928-49e6-4496-be2a-4fe6cfe6a982",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "artifacts": {
@@ -623,10 +623,11 @@
         }
       },
       "indexes": {
-        "requests_session_message_idx": {
-          "name": "requests_session_message_idx",
+        "requests_session_agent_message_idx": {
+          "name": "requests_session_agent_message_idx",
           "columns": [
             "session_id",
+            "(case when \"agent_id\" is null then '' else \"agent_id\" end)",
             "message_id"
           ],
           "isUnique": true
@@ -1837,9 +1838,23 @@
           "notNull": false,
           "autoincrement": false
         },
+        "hidden_tests_config": {
+          "name": "hidden_tests_config",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "test_command": {
           "name": "test_command",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "hidden_tests_timeout_seconds": {
+          "name": "hidden_tests_timeout_seconds",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -2149,6 +2164,14 @@
     "columns": {}
   },
   "internal": {
-    "indexes": {}
+    "indexes": {
+      "requests_session_agent_message_idx": {
+        "columns": {
+          "(case when \"agent_id\" is null then '' else \"agent_id\" end)": {
+            "isExpression": true
+          }
+        }
+      }
+    }
   }
 }

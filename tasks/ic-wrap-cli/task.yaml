@@ -44,7 +44,9 @@ repo:
   commit: e54d68d23fa64b1c1664f6f05cf59a809640a293
 hiddenTests:
   dir: hidden-tests
-  command: npx vitest run test/hidden --reporter=junit --outputFile.junit={junitPath}
+  config: vitest.hidden.config.mjs
+  command: npx vitest run test/hidden --config {configPath} --reporter=junit --outputFile.junit={junitPath}
+  timeoutSeconds: 600
   manifest:
     test/hidden/cli.hidden.test.js:
       - input and output > reads stdin and ends the output with one newline

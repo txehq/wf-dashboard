@@ -109,6 +109,8 @@ async function gradeIcRun(db: Db, run: Run, task: IcTask) {
       icDetail: result.detail,
     })
     .run();
+  // 评分错误写入 grades 之后让 run 失败，失败原因与 grades 中的 error 相同
+  if (result.detail.error !== null) throw new Error(result.detail.error);
 }
 
 // runs 模块在进入 grading 时调用；全部评分完成后一次写入，任何一步失败都不留下部分结果

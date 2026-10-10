@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import path from 'node:path';
 import { parse as parseJUnit, type TestCase, type TestSuite, type TestSuites } from 'junit2json';
 import { quote } from 'shell-quote';
@@ -40,6 +40,17 @@ export function placeHiddenTests(task: IcTask, checkout: string) {
   cpSync(path.join(task.dir, task.hiddenTests.dir), target, { recursive: true });
 }
 
+// 测试配置由 task 提供，放在 checkout 之外的 configDir；同目录的 node_modules 指向 checkout 的依赖，
+// 配置中的 import（例如 @playwright/test）从 checkout 安装的包解析。返回配置文件的路径
+export function placeHiddenConfig(task: IcTask, checkout: string, configDir: string): string {
+  if (existsSync(configDir)) throw new Error(`隐藏测试配置目录已存在：${configDir}`);
+  mkdirSync(configDir, { recursive: true });
+  const configPath = path.join(configDir, path.basename(task.hiddenTests.config));
+  cpSync(path.join(task.dir, task.hiddenTests.config), configPath);
+  symlinkSync(path.join(checkout, 'node_modules'), path.join(configDir, 'node_modules'));
+  return configPath;
+}
+
 // 参考实现以文件形式存放在 tasks/<id>/reference/，目录结构与仓库一致，覆盖到 checkout 上
 export function applyReference(task: IcTask, checkout: string) {
   cpSync(path.join(task.dir, 'reference'), checkout, { recursive: true });
@@ -75,15 +86,20 @@ function outcomeOf(c: TestCase): { outcome: CaseOutcome; message: string | null 
   return { outcome: 'passed', message: null };
 }
 
-// 运行 task 的测试命令（vitest 有失败测试时退出码为 1，属于正常结果），解析 JUnit XML
+// 运行 task 的测试命令（vitest 有失败测试时退出码为 1，属于正常结果），解析 JUnit XML；
+// JUnit 与测试配置写在 outDir 下
 export async function runHiddenTestCases(
   task: IcTask,
   checkout: string,
-  junitPath: string,
+  outDir: string,
 ): Promise<HiddenRun> {
-  rmSync(junitPath, { force: true });
-  mkdirSync(path.dirname(junitPath), { recursive: true });
-  const command = task.hiddenTests.command.replaceAll('{junitPath}', quote([junitPath]));
+  rmSync(outDir, { recursive: true, force: true });
+  mkdirSync(outDir, { recursive: true });
+  const junitPath = path.join(outDir, 'junit.xml');
+  const configPath = placeHiddenConfig(task, checkout, path.join(outDir, 'hidden-config'));
+  const command = task.hiddenTests.command
+    .replaceAll('{junitPath}', quote([junitPath]))
+    .replaceAll('{configPath}', quote([configPath]));
   const proc = spawnSync(command, { cwd: checkout, shell: true, encoding: 'utf8' });
   if (proc.error) throw proc.error;
   if (proc.status !== 0 && proc.status !== 1) {

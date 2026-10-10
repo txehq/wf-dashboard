@@ -98,7 +98,7 @@ describe('GitHub /ic 运行仓库', { timeout: 15 * 60_000 }, () => {
     const { head } = await clonePrBranch(repo, branch, checkout);
     expect(head).toBe(prHead);
     const result = await runHiddenTests(checkout, task);
-    console.log(`JUnit ${result.junitPath}`);
+    console.log(`JUnit ${String(result.junitPath)}`);
     expect(result.junitPath).toBe(path.join(config.runsDir, runId, 'grading/junit.xml'));
     expect(result.head).toBe(prHead);
     expect(result.declared).toBe(8);

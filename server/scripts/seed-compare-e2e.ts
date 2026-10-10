@@ -749,6 +749,7 @@ function seedIcRun(variant: VariantKey, index: number, id: string) {
     endpoint: result.reached
       ? { reached: true, ciGreen: true, isDraft: false, head, missingRequired: [] }
       : { reached: false, ciGreen: false, isDraft: true, head, missingRequired: ['test'] },
+    error: null,
   };
   db.insert(grades)
     .values({

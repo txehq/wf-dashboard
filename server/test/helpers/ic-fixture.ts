@@ -28,7 +28,7 @@ export const git = (cwd: string, args: string[]) =>
   });
 
 // 按 Contracts 第 6 节的形状在 .work/ 下建一个 task 目录：起始仓库由真实 git 命令提交并打成 bundle
-export async function buildFixtureTask(runId: string): Promise<IcTask> {
+export async function buildFixtureTask(runId: string, timeoutSeconds = 600): Promise<IcTask> {
   const root = path.join(config.repoRoot, '.work/test-tasks', runId);
   const source = path.join(root, 'source');
   const taskDir = path.join(root, 'task');
@@ -42,6 +42,10 @@ export async function buildFixtureTask(runId: string): Promise<IcTask> {
   fs.cpSync(path.join(fixtureDir, 'hidden-tests'), path.join(taskDir, 'hidden-tests'), {
     recursive: true,
   });
+  fs.cpSync(
+    path.join(fixtureDir, 'vitest.hidden.config.mjs'),
+    path.join(taskDir, 'vitest.hidden.config.mjs'),
+  );
   return {
     id: 'w7-fixture',
     kind: 'ic',
@@ -60,7 +64,10 @@ export async function buildFixtureTask(runId: string): Promise<IcTask> {
     repo: { path: 'repo.bundle', commit },
     hiddenTests: {
       dir: 'hidden-tests',
-      command: 'npx vitest run test/hidden --reporter=junit --outputFile.junit={junitPath}',
+      config: 'vitest.hidden.config.mjs',
+      command:
+        'npx vitest run test/hidden --config {configPath} --reporter=junit --outputFile.junit={junitPath}',
+      timeoutSeconds,
       manifest: hiddenManifest,
     },
   };

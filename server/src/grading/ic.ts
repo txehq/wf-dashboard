@@ -15,7 +15,8 @@ export interface IcGrade {
 export const gradingCheckout = (runId: string) =>
   path.join(config.runsDir, runId, 'grading/checkout');
 
-// 仓库中最新的 PR：隐藏测试跑在 PR 分支的 head 上，终点判定读同一个 head；没有 PR 时测试记 0 / 声明数
+// 仓库中最新的 PR：隐藏测试跑在 PR 分支的 head 上，终点判定读同一个 head；没有 PR 时测试记 0 / 声明数；
+// 隐藏测试的评分错误（例如超时）记在 detail.error，测试记 0 / 声明数
 export async function gradeIc(task: IcTask, runId: string, repo: string): Promise<IcGrade> {
   const pr = await readPr(repo);
   if (pr === null) {
@@ -26,7 +27,7 @@ export async function gradeIc(task: IcTask, runId: string, repo: string): Promis
       testsPassed: 0,
       testsDeclared: outcomes.length,
       reachedEnd: false,
-      detail: { pr: null, outcomes, fileErrors: [], endpoint: null },
+      detail: { pr: null, outcomes, fileErrors: [], endpoint: null, error: null },
     };
   }
   const branch = await prBranch(repo, pr.number);
@@ -48,6 +49,7 @@ export async function gradeIc(task: IcTask, runId: string, repo: string): Promis
       outcomes: tests.outcomes,
       fileErrors: tests.fileErrors,
       endpoint,
+      error: tests.error,
     },
   };
 }

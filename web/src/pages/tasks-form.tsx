@@ -444,6 +444,30 @@ function IcFields({ form, onChange }: { form: IcForm; onChange: (form: IcForm) =
               onChange({ ...form, hiddenTests: { ...form.hiddenTests, command } });
             }}
           />
+          <TextField
+            label="测试配置"
+            value={form.hiddenTests.config}
+            onChange={(config) => {
+              onChange({ ...form, hiddenTests: { ...form.hiddenTests, config } });
+            }}
+          />
+          <Field label="每一步的时限（秒）">
+            {(id) => (
+              <Input
+                id={id}
+                type="number"
+                min={1}
+                step={1}
+                value={form.hiddenTests.timeoutSeconds}
+                onChange={(e) => {
+                  onChange({
+                    ...form,
+                    hiddenTests: { ...form.hiddenTests, timeoutSeconds: e.target.valueAsNumber },
+                  });
+                }}
+              />
+            )}
+          </Field>
           <div className="col-span-2">
             <TextField
               label="测试清单（YAML）"

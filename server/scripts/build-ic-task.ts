@@ -87,7 +87,7 @@ placeHiddenTests(task, referenceCheckout);
 const referenceRun = await runHiddenTestCases(
   task,
   referenceCheckout,
-  path.join(buildDir, 'junit', 'reference.xml'),
+  path.join(buildDir, 'hidden', 'reference'),
 );
 const manifest = manifestFromRun(referenceRun);
 const updated = {
@@ -107,7 +107,7 @@ placeHiddenTests(task, startCheckout);
 const startRun = await runHiddenTestCases(
   task,
   startCheckout,
-  path.join(buildDir, 'junit', 'start.xml'),
+  path.join(buildDir, 'hidden', 'start'),
 );
 const startScore = scoreAgainstManifest(startRun, manifest);
 if (startScore.passed === startScore.declared) {

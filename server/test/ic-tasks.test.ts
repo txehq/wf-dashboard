@@ -43,7 +43,7 @@ describe.concurrent.each(icIds)('%s', (id) => {
     expect(checkoutStartRepo(task, start)).toBe(task.repo.commit);
     installDependencies(start);
     placeHiddenTests(task, start);
-    const startRun = await runHiddenTestCases(task, start, path.join(workDir, id, 'start.xml'));
+    const startRun = await runHiddenTestCases(task, start, path.join(workDir, id, 'start-hidden'));
     const startScore = scoreAgainstManifest(startRun, task.hiddenTests.manifest);
     expect(startRun.exitCode).toBe(1);
     expect(startScore.declared).toBe(declared);
@@ -57,7 +57,7 @@ describe.concurrent.each(icIds)('%s', (id) => {
     const referenceRun = await runHiddenTestCases(
       task,
       reference,
-      path.join(workDir, id, 'reference.xml'),
+      path.join(workDir, id, 'reference-hidden'),
     );
     const referenceScore = scoreAgainstManifest(referenceRun, task.hiddenTests.manifest);
     expect(referenceRun.exitCode).toBe(0);

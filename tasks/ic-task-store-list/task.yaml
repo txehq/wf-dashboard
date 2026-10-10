@@ -31,7 +31,9 @@ repo:
   commit: af8d995554edc1ff7a4c23dbf1cc9037aef0ea58
 hiddenTests:
   dir: hidden-tests
-  command: npx vitest run test/hidden --reporter=junit --outputFile.junit={junitPath}
+  config: vitest.hidden.config.mjs
+  command: npx vitest run test/hidden --config {configPath} --reporter=junit --outputFile.junit={junitPath}
+  timeoutSeconds: 600
   manifest:
     test/hidden/list.hidden.test.ts:
       - defaults > no options lists everything by creation time, ascending

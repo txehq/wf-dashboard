@@ -19,7 +19,10 @@ function blankForm(kind: 'lfg' | 'ic'): TaskForm {
     repo: { path: 'repo.bundle', commit: '' },
     hiddenTests: {
       dir: 'hidden-tests',
-      command: 'npx vitest run test/hidden --reporter=junit --outputFile.junit={junitPath}',
+      config: 'vitest.hidden.config.mjs',
+      command:
+        'npx vitest run test/hidden --config {configPath} --reporter=junit --outputFile.junit={junitPath}',
+      timeoutSeconds: 600,
       manifestYaml: '',
     },
   };

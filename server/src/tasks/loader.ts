@@ -62,7 +62,9 @@ function toRow(definition: TaskDefinition, dir: string, contentHash: string, upd
       repoPath: null,
       repoCommit: null,
       hiddenTestsDir: null,
+      hiddenTestsConfig: null,
       testCommand: null,
+      hiddenTestsTimeoutSeconds: null,
       hiddenTestsManifest: null,
     };
   }
@@ -76,7 +78,9 @@ function toRow(definition: TaskDefinition, dir: string, contentHash: string, upd
     repoPath: definition.repo.path,
     repoCommit: definition.repo.commit,
     hiddenTestsDir: definition.hiddenTests.dir,
+    hiddenTestsConfig: definition.hiddenTests.config,
     testCommand: definition.hiddenTests.command,
+    hiddenTestsTimeoutSeconds: definition.hiddenTests.timeoutSeconds,
     hiddenTestsManifest: definition.hiddenTests.manifest,
   };
 }
@@ -102,7 +106,9 @@ function definitionFromRow(row: TaskRow): TaskDefinition {
     repo: { path: row.repoPath, commit: row.repoCommit },
     hiddenTests: {
       dir: row.hiddenTestsDir,
+      config: row.hiddenTestsConfig,
       command: row.testCommand,
+      timeoutSeconds: row.hiddenTestsTimeoutSeconds,
       manifest: row.hiddenTestsManifest,
     },
   });

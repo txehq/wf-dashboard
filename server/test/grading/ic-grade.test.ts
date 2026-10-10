@@ -19,9 +19,9 @@ const { db, close } = openTestDb();
 insertVariant(db, 'baseline');
 
 // W7 fixture 的 IcTask 写成 tasks/<id>/task.yaml 并同步进 tasks 表
-async function fixtureTask(): Promise<IcTask> {
+async function fixtureTask(timeoutSeconds = 600): Promise<IcTask> {
   const id = testRunId('w9-ic-task');
-  const { dir, ...definition } = await buildFixtureTask(id);
+  const { dir, ...definition } = await buildFixtureTask(id, timeoutSeconds);
   const tasksDir = path.join(config.repoRoot, '.work/test-tasks', id, 'tasks');
   fs.cpSync(dir, path.join(tasksDir, definition.id), { recursive: true });
   const record = saveTask(db, tasksDir, definition);
@@ -86,6 +86,24 @@ describe('ic 评分（真实 GitHub 仓库，只读取）', { timeout: 10 * 60_0
     expect(ic?.detail.endpoint).toBeNull();
     expect(ic?.detail.outcomes.every((o) => o.outcome === 'not-run')).toBe(true);
     expect(fs.existsSync(path.join(config.runsDir, runId, 'grading'))).toBe(false);
+  });
+
+  it('隐藏测试超时：写入 0 / 8 与超时错误，gradeRun 抛出同样的错误', async () => {
+    const timeoutSeconds = 30;
+    const task = await fixtureTask(timeoutSeconds);
+    fs.writeFileSync(
+      path.join(task.dir, task.hiddenTests.dir, 'divide.hidden.test.js'),
+      'while (true) {}\n',
+    );
+    const runId = testRunId('w18a-ic-timeout');
+    insertRun(db, { id: runId, taskId: task.id, variantId: 'baseline', githubRepo: REPO_WITH_PR });
+    const message = `隐藏测试命令 超过 ${String(timeoutSeconds)} 秒没有结束，已强制结束`;
+    await expect(gradeRun(db, runId)).rejects.toThrow(message);
+    const ic = readRunGrades(db, runId)?.ic;
+    expect(ic).toMatchObject({ testsPassed: 0, testsDeclared: 8, reachedEnd: true });
+    expect(ic?.detail.error).toBe(message);
+    expect(ic?.detail.pr?.head).toBe(PR_HEAD);
+    expect(ic?.detail.outcomes.every((o) => o.outcome === 'not-run')).toBe(true);
   });
 
   it('没有 GitHub 仓库的 run 评分抛错，不写 grades', async () => {
