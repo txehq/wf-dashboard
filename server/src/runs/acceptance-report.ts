@@ -4,6 +4,7 @@ import type { Db } from '../db/index.js';
 import { requests } from '../db/schema.js';
 import { inputString, type RequestRow } from '../stages/rows.js';
 import { commandsOf } from '../stages/shell.js';
+import { onSessionUpdates } from './cost-refresh.js';
 import { upsertArtifact } from './records.js';
 
 // Contracts 7.2：被测 agent 的 /acceptance 用 `wf publish-artifact` 发布到 engapp.dev 的验收报告
@@ -74,4 +75,15 @@ export async function recordAcceptanceReport(
     last.url,
     JSON.stringify({ title: last.title, toolCallId: last.toolCallId }),
   );
+}
+
+// /ic 整个是一轮：除每轮结束与 run 结束外，session 有新请求写入时也扫描（与成本刷新同样节流），
+// 验收报告发布后一分钟内出现在运行详情。返回停止函数
+export function watchAcceptanceReport(
+  db: Db,
+  runId: string,
+  sessionId: string,
+  onError: (error: Error) => void,
+): () => void {
+  return onSessionUpdates(sessionId, () => recordAcceptanceReport(db, runId, sessionId), onError);
 }

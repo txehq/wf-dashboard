@@ -39,15 +39,47 @@ export interface SimulatedReply {
 
 // 文字提问的回答没有 answers 字段；AskUserQuestion 的回答必须给出 answers。
 // 结构化输出不支持任意键的对象，answers 以数组输出后再转成 Record；
-// 问题用编号指代（/ic 的 Goal 确认问题长达数百字，模型逐字抄写会抄错或留空）
+// 问题用编号指代（/ic 的 Goal 确认问题长达数百字，模型逐字抄写会抄错或留空）。
+// 选项也用编号：gateway 上 strict tool 的自由文本字段会被填成 placeholder、空串或乱码（opus 与 sonnet 都会），
+// 要抄写 label 的 answer 字段最常出错；改成编号后两个模型都没有再出现，见 Reports/W21
 const TextOutput = z.object({ reply: z.string().min(1), done: z.boolean() });
 const QuestionOutput = z.object({
   reply: z.string().min(1),
   answers: z
-    .array(z.object({ questionNumber: z.number().int(), answer: z.string().min(1) }))
+    .array(
+      z.object({
+        questionNumber: z.number().int(),
+        optionNumbers: z.array(z.number().int()),
+        otherAnswer: z.string(),
+      }),
+    )
     .min(1),
   done: z.boolean(),
 });
+
+// 模型偶尔仍会把整个字段填成占位内容（r-20261010-1iqzja 的 Confirm goal 回答为 placeholder；
+// 复现中还有空白、": "、"x"）。只判定整个字段：task 的需求里可能正常出现 placeholder、todo 这些词
+const FILLER = /^(placeholder|lorem ipsum|todo|tbd|n\/?a|none|null|undefined|x+)$/i;
+// 不含任何字母、数字或汉字（空白、纯标点）
+const NO_CONTENT = /^[^\p{L}\p{N}]*$/u;
+
+function isFiller(text: string): boolean {
+  const words = text.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+  return NO_CONTENT.test(text) || FILLER.test(words);
+}
+
+// reply 或任一回答是占位内容时抛错，run 因此失败
+export function rejectFiller(reply: string, answers: Record<string, string> = {}) {
+  const fields: [string, string][] = [
+    ['reply', reply],
+    ...Object.entries(answers).map(([q, a]): [string, string] => [`对「${q}」的回答`, a]),
+  ];
+  for (const [field, text] of fields) {
+    if (isFiller(text)) {
+      throw new Error(`模拟用户的 ${field} 是占位内容：${JSON.stringify(text)}`);
+    }
+  }
+}
 
 function facts(ctx: SimulatedUserContext): string[] {
   const common = [
@@ -111,7 +143,7 @@ export function systemPrompt(ctx: SimulatedUserContext): string {
     '## 输出',
     '- 文字中需要引号时一律用中文引号「」，不要用英文双引号。',
     '- agent 用文字提问或汇报时（即使文字里列出了 A/B 之类的选项）：reply 是你要发给 agent 的话，在 reply 里写出你的选择。',
-    '- agent 用 AskUserQuestion 的选项提问时：answers 为每个问题各给一项，questionNumber 是问题的编号（「问题 1」即 1），answer 是所选选项的 label 原文（只写 label，不带说明）；多选时用 ", " 连接多个 label；没有合适的选项时可以写你自己的简短回答。reply 用一句话说明你的选择。',
+    '- agent 用 AskUserQuestion 的选项提问时：answers 为每个问题各给一项，questionNumber 是问题的编号（「问题 1」即 1），optionNumbers 是所选选项的编号（「选项 1」即 1），只能选一项的问题给一个编号，可多选的问题给出所选的全部编号；没有合适的选项时 optionNumbers 为空数组，并在 otherAnswer 写你自己的简短回答；选了选项时 otherAnswer 为空字符串。reply 用一句话说明你的选择。',
   );
   return lines.join('\n');
 }
@@ -122,11 +154,37 @@ function formatQuestions(questions: AskQuestion[]): string {
       [
         `问题 ${String(i + 1)}${q.header ? `（${q.header}）` : ''}：${q.question}${q.multiSelect ? '（可多选）' : ''}`,
         ...q.options.map(
-          (o) => `  - label：${o.label}${o.description ? `（说明：${o.description}）` : ''}`,
+          (o, j) =>
+            `  - 选项 ${String(j + 1)}：${o.label}${o.description ? `（说明：${o.description}）` : ''}`,
         ),
       ].join('\n'),
     )
     .join('\n');
+}
+
+type QuestionAnswer = z.infer<typeof QuestionOutput>['answers'][number];
+
+// 编号换回 AskUserQuestion 的回答：所选选项的 label（多选用 ", " 连接），或自己的回答
+function answerText(question: AskQuestion, answer: QuestionAnswer): string {
+  const { optionNumbers, otherAnswer } = answer;
+  const where = `问题 ${String(answer.questionNumber)}`;
+  if (optionNumbers.length === 0) return otherAnswer;
+  if (otherAnswer !== '') {
+    throw new Error(`${where} 既选了选项 ${JSON.stringify(optionNumbers)} 又写了回答 ${JSON.stringify(otherAnswer)}`);
+  }
+  if (!question.multiSelect && optionNumbers.length > 1) {
+    throw new Error(`${where} 只能选一项，模拟用户选了 ${JSON.stringify(optionNumbers)}`);
+  }
+  if (new Set(optionNumbers).size !== optionNumbers.length) {
+    throw new Error(`${where} 的选项编号重复：${JSON.stringify(optionNumbers)}`);
+  }
+  return optionNumbers
+    .map((n) => {
+      const option = question.options[n - 1];
+      if (option === undefined) throw new Error(`${where} 没有选项 ${String(n)}`);
+      return option.label;
+    })
+    .join(', ');
 }
 
 export function userPrompt(transcript: TranscriptEntry[], prompt: AgentPrompt): string {
@@ -178,7 +236,7 @@ export async function simulateUser(
       result.value.answers.map((a): [string, string] => {
         const question = prompt.questions[a.questionNumber - 1];
         if (question === undefined) throw new Error(`问题编号 ${String(a.questionNumber)} 不存在`);
-        return [question.question, a.answer];
+        return [question.question, answerText(question, a)];
       }),
     );
   } else {
@@ -186,6 +244,7 @@ export async function simulateUser(
     ({ reply, done } = result.value);
     cost = result;
   }
+  rejectFiller(reply, answers);
   if (ctx.task.kind === 'lfg') {
     const said = [reply, ...Object.values(answers ?? {})];
     if (said.some((s) => GO.test(s))) {

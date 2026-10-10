@@ -16,7 +16,7 @@ import { loadTask } from '../tasks/loader.js';
 import type { Task } from '../tasks/schema.js';
 import { HttpError } from '../variants/errors.js';
 import type { Variants } from '../variants/index.js';
-import { recordAcceptanceReport } from './acceptance-report.js';
+import { recordAcceptanceReport, watchAcceptanceReport } from './acceptance-report.js';
 import { ClaudeProcess } from './claude-process.js';
 import { refreshRunCost, watchRunCost } from './cost-refresh.js';
 import { scanCrossRunRefs } from './cross-run-refs.js';
@@ -323,9 +323,14 @@ export class RunDriver {
       }
     });
     const stopCost = watchRunCost(this.db, this.runId, run.sessionId, this.fail);
+    const stopAcceptance =
+      this.task.kind === 'ic'
+        ? watchAcceptanceReport(this.db, this.runId, run.sessionId, this.fail)
+        : () => undefined;
     this.unsubscribe = () => {
       stopSession();
       stopCost();
+      stopAcceptance();
     };
 
     this.proc = new ClaudeProcess({

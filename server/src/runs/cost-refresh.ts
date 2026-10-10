@@ -17,13 +17,28 @@ export function refreshRunCost(db: Db, runId: string) {
   events.publish({ type: 'run.cost', runId, costUsd: total });
 }
 
-// 一轮可以持续一两个小时：该 run 的 session 有新请求写入时也刷新成本缓存。
-// 距上次刷新不足 COST_REFRESH_MS 时推迟到满 COST_REFRESH_MS 再刷新一次，最后一批写入不会漏掉。
-// 刷新出错交给 onError（runner 让 run 失败）。返回停止函数
+// 一轮可以持续一两个小时：该 run 的 session 有新请求写入时也刷新成本缓存
 export function watchRunCost(
   db: Db,
   runId: string,
   sessionId: string,
+  onError: (error: Error) => void,
+): () => void {
+  return onSessionUpdates(
+    sessionId,
+    () => {
+      refreshRunCost(db, runId);
+    },
+    onError,
+  );
+}
+
+// session 收到 session.updated 时调用 work，最多每 COST_REFRESH_MS 一次。
+// 距上次调用不足 COST_REFRESH_MS 时推迟到满 COST_REFRESH_MS 再调用一次，最后一批写入不会漏掉。
+// work 出错交给 onError（runner 让 run 失败）。返回停止函数
+export function onSessionUpdates(
+  sessionId: string,
+  work: () => void | Promise<void>,
   onError: (error: Error) => void,
 ): () => void {
   let last = 0;
@@ -32,9 +47,7 @@ export function watchRunCost(
     timer = undefined;
     last = Date.now();
     Promise.resolve()
-      .then(() => {
-        refreshRunCost(db, runId);
-      })
+      .then(work)
       .catch((error: unknown) => {
         onError(error instanceof Error ? error : new Error(String(error)));
       });

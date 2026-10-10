@@ -1,10 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { describe, expect, test } from 'vitest';
+import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { config } from '../../src/config.js';
-import { models, setModels } from '../../src/llm/client.js';
+import { defaultModels, models, setModels } from '../../src/llm/client.js';
 import {
   DISPATCH_GATE_REPLY,
+  rejectFiller,
   simulateUser,
   type SimulatedUserContext,
   type TranscriptEntry,
@@ -236,4 +237,94 @@ describe('模拟用户回答 /ic 的长问题（真实 gateway）', () => {
     // 没有合适的选项时 prompt 允许写自己的简短回答，这里只要求每个问题都有回答
     for (const q of [q1, q2]) expect(r.answers?.[q]).toMatch(/\S/);
   }, 120_000);
+});
+
+// r-20261010-1iqzja（W19）：模拟用户对 /ic Confirm goal 的回答是 placeholder，agent 因此停下来追问
+const confirmGoal =
+  'Is this the work for TXE-3893? Once you agree, the run goes on to /readiness, /implement, /acceptance, /open-pr, /fix-pr and /ready-for-review without asking again.';
+
+describe('占位内容的回答', () => {
+  test('W19 记录的回答与复现中出现的占位内容一律抛错', () => {
+    expect(() => {
+      rejectFiller('Is this the work for TXE-3893? … → placeholder', {
+        [confirmGoal]: 'placeholder',
+      });
+    }).toThrow(/占位内容："placeholder"/);
+    for (const filler of ['placeholder', ' Placeholder。', '', '  ', ': ', '.', 'x', 'N/A', 'TODO']) {
+      expect(() => {
+        rejectFiller('好的', { q: filler });
+      }).toThrow(/占位内容/);
+      expect(() => {
+        rejectFiller(filler);
+      }).toThrow(/占位内容/);
+    }
+  });
+
+  test('正常回答不受影响：单字、选项 label、正文中出现 placeholder 一词', () => {
+    for (const reply of [
+      '好',
+      'Yes, run it',
+      'go，按工单来就行',
+      '输入框里的 placeholder 写「请输入数值」就行。',
+      '做一个 todo 列表的接口。',
+    ]) {
+      expect(() => {
+        rejectFiller(reply, { q: reply });
+      }).not.toThrow();
+    }
+  });
+});
+
+describe('r-20261010-1iqzja 的 Confirm goal（真实 gateway）', () => {
+  const unitFile = path.join(config.tasksDir, 'ic-unit-converter', 'task.yaml');
+  const unitDefinition = parseTaskYaml(fs.readFileSync(unitFile, 'utf8'), unitFile);
+  if (unitDefinition.kind !== 'ic') throw new Error('ic-unit-converter 应为 ic task');
+  const unitRunId = 'r-20261010-1iqzja';
+  const unitCtx: SimulatedUserContext = {
+    task: { ...unitDefinition, dir: path.dirname(unitFile) },
+    runId: unitRunId,
+    repo: `txehq/wfe-${unitRunId}`,
+    ticket: 'TXE-3893',
+    product: 'Magi Eval',
+  };
+
+  // 原场景用的是默认的模拟用户模型（sonnet）；本文件其余测试用 opus
+  const fileModels = { ...models };
+  beforeAll(() => {
+    setModels({ ...fileModels, simulatedUser: defaultModels().simulatedUser });
+  });
+  afterAll(() => {
+    setModels(fileModels);
+  });
+
+  // simulateUser 遇到占位内容会抛错；prompt 允许没有合适选项时写自己的回答（例如要求先看清单）
+  test('连续 10 次：每次都有回答，没有占位内容', async () => {
+    for (let i = 0; i < 10; i++) {
+      const r = await simulateUser(unitCtx, [{ speaker: 'user', content: '/ic TXE-3893' }], {
+        kind: 'questions',
+        questions: [
+          {
+            question: confirmGoal,
+            header: 'Confirm goal',
+            multiSelect: false,
+            options: [
+              {
+                label: 'Yes, run it',
+                description: 'Start the run with the 12-line checklist as posted.',
+              },
+              {
+                label: 'Correct the checklist',
+                description:
+                  'Tell me what to change; I fold it into the checklist and show it to you again.',
+              },
+            ],
+          },
+        ],
+      });
+      console.log(`[confirm goal ${String(i + 1)}]`, r.model, r.answers, r.reply);
+      expect(r.answers?.[confirmGoal]).toMatch(/\p{L}/u);
+      expect(r.answers?.[confirmGoal]).not.toMatch(/placeholder/i);
+      expect(r.done).toBe(false);
+    }
+  }, 900_000);
 });
