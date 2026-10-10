@@ -13,6 +13,7 @@ import { variants } from '../db/schema.js';
 import { events } from '../events.js';
 import { claudeSettingsEnv } from '../llm/client.js';
 import { BuildLog } from './build-log.js';
+import { writeCodexHome } from './codex-home.js';
 import { HttpError } from './errors.js';
 import { dataLayout, type VariantLayout } from './layout.js';
 import type { Effort, ModelAlias } from './models.js';
@@ -31,6 +32,8 @@ export interface VariantsOptions {
   claudeSettingsPath?: string | undefined;
   // Codex 登录凭据的来源，默认 config.codexAuthPath
   codexAuthPath?: string | undefined;
+  // Codex 模型配置的来源，默认 config.codexConfigPath
+  codexConfigPath?: string | undefined;
 }
 
 export interface SkillFile {
@@ -110,6 +113,7 @@ export function createVariants({
   ctxBin,
   claudeSettingsPath,
   codexAuthPath = config.codexAuthPath,
+  codexConfigPath = config.codexConfigPath,
 }: VariantsOptions) {
   const layout = dataLayout(dataDir);
   const runtimeBuilds = new Map<string, Promise<void>>();
@@ -594,7 +598,7 @@ export function createVariants({
     },
 
     // runs 每次启动 claude 前调用：重新合并 settings 源当前的 env 块（token 与模型名会变），
-    // 并把 Codex 登录凭据复制进 variant 的 CODEX_HOME（skill 中的 codex exec 用它）；
+    // 并把 Codex 登录凭据与模型配置写进 variant 的 CODEX_HOME（skill 中的 codex exec 用它）；
     // 认证不属于 variant 的内容标识，不影响冻结与 hash
     refreshAuthEnv(id: string): string[] {
       const row = get(id);
@@ -603,11 +607,7 @@ export function createVariants({
       }
       const dirs = layout.variant(id);
       const merged = writeIsolatedSettings(dirs.claudeDir);
-      const auth = path.join(dirs.codexHome, 'auth.json');
-      const tmp = `${auth}.${randomUUID()}.tmp`;
-      fs.copyFileSync(codexAuthPath, tmp);
-      fs.chmodSync(tmp, 0o600);
-      fs.renameSync(tmp, auth);
+      writeCodexHome(dirs.codexHome, { authPath: codexAuthPath, configPath: codexConfigPath });
       return merged;
     },
 
