@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { artifactKinds, runMessageRoles, runStatuses, workflows } from '../db/schema.js';
+import {
+  artifactKinds,
+  gradingStatuses,
+  runMessageRoles,
+  runStatuses,
+  workflows,
+} from '../db/schema.js';
 import { CrossRunRef } from '../grading/schema.js';
 import { StageReport } from '../stages/report.js';
 
@@ -68,6 +74,7 @@ export const RunSummary = z.object({
   humanIntervened: z.boolean(),
   crossRunRefs: z.array(CrossRunRef),
   invalidReason: z.string().nullable(),
+  grading: z.object({ status: z.enum(gradingStatuses), error: z.string().nullable() }),
   error: z.string().nullable(),
   createdAt: z.number(),
   startedAt: z.number().nullable(),

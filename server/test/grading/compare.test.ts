@@ -248,6 +248,10 @@ lfgRun('l8', 'baseline', 8, () => true, { humanIntervened: true, crossRef: true 
 // 标为无效的 run（Contracts 7.12）：有评分结果、status 不变，任何开关下都不参与对比
 lfgRun('l9', 'baseline', 9, () => true);
 db.update(runs).set({ invalidReason: '评估环境出错' }).where(eq(runs.id, 'l9')).run();
+// 被取消的 run（Contracts 7.5）：l10 取消后评分了已写出的产物；l11 在排队中被取消，没有评分
+lfgRun('l10', 'baseline', 10, (a) => a === 'brief');
+db.update(runs).set({ status: 'cancelled' }).where(eq(runs.id, 'l10')).run();
+insertRun(db, { id: 'l11', taskId: lfgTask.id, variantId: 'baseline', status: 'cancelled' });
 
 // ic：baseline 两个 run
 for (const [id, factor, passed, reached] of [
@@ -284,7 +288,18 @@ describe('compare', () => {
     tasks: [lfgTask.id, icTask.id],
     includeIntervened: false,
     includeCrossRef: false,
+    includeCancelled: false,
   };
+
+  it('includeCancelled 放回取消后评分过的 run；排队中被取消、没有评分的 run 不放回', () => {
+    const ids = (q: Partial<typeof query>) =>
+      cell(compareRuns(db, { ...query, ...q }), 'baseline', lfgTask.id).runIds;
+    expect(ids({})).not.toContain('l10');
+    expect(ids({ includeCancelled: true })).toEqual(['l1', 'l2', 'l3', 'l10']);
+    const result = compareRuns(db, { ...query, includeCancelled: true });
+    expect(result.includeCancelled).toBe(true);
+    expect(cell(result, 'baseline', lfgTask.id).runIds).not.toContain('l11');
+  });
 
   it('两个开关各自只放回一类：includeIntervened 放回人工干预的 run，includeCrossRef 放回参考了其他 run 的 run', () => {
     const ids = (q: Partial<typeof query>) =>

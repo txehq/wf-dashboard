@@ -130,6 +130,32 @@ test('包含与排除参考了其他 run 的 run：菱形点，与人工干预�
   await expect(modCell).toContainText('3 次 run');
 });
 
+test('包含与排除被取消的 run：三角形点，产物并排可以选它', async ({ page }) => {
+  const baseCell = lfgRow(page).getByTestId('score-cell').first();
+  await expect(baseCell).toContainText('3 次 run');
+  const toggle = page.getByRole('checkbox', { name: '包含被取消的 run' });
+  await expect(toggle).not.toBeChecked();
+  await expect(page.getByTestId('cancelled-count')).toContainText('选中范围内有 1 次');
+  const section = sectionOf(page, '产物并排');
+  await expect(section.getByLabel('左').locator('option[value="r-20261009-balf04"]')).toHaveCount(
+    0,
+  );
+
+  await toggle.check();
+  await expect(baseCell).toContainText('4 次 run');
+  const dot = baseCell.locator('[data-testid="run-dot"][data-cancelled="true"]');
+  await expect(dot).toHaveCount(1);
+  await expect(dot).toHaveAttribute('aria-label', /r-20261009-balf04.*被取消，按已写出的产物评分/);
+  await expect(dot.locator('polygon')).toHaveCount(1);
+  await section.getByLabel('左').selectOption('r-20261009-balf04');
+  await expect(section.getByTestId('rubric-side-by-side')).toBeVisible();
+  await dot.hover();
+  await shot(page, 'cancelled');
+
+  await toggle.uncheck();
+  await expect(baseCell).toContainText('3 次 run');
+});
+
 test('只有一次 run 的差值标为不可信，没有 run 的格子，切换基线与取消 task', async ({ page }) => {
   const trialCell = lfgRow(page).getByTestId('score-cell').nth(2);
   await expect(trialCell).toContainText('1 次 run');

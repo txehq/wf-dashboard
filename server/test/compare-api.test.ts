@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { buildApp } from '../src/api/app.js';
 import { config } from '../src/config.js';
 import { openDatabase } from '../src/db/index.js';
-import { artifacts } from '../src/db/schema.js';
+import { artifacts, grades } from '../src/db/schema.js';
 import { CompareRun, type CrossRunRef, RunArtifacts, SkillDiff } from '../src/grading/schema.js';
 import { syncTasks } from '../src/tasks/loader.js';
 import { insertRun } from './grading/seed.js';
@@ -103,6 +103,23 @@ beforeAll(async () => {
     variantId: base.id,
     status: 'running',
   });
+  // 取消后评分过的 run 列出并标为 cancelled；排队中被取消、没有评分的 run 不列出
+  insertRun(db, {
+    id: `cmp-d-${marker}`,
+    taskId: 'lfg-calculator',
+    variantId: base.id,
+    status: 'cancelled',
+    createdAt: new Date('2026-10-09T10:00:00Z'),
+  });
+  db.insert(grades)
+    .values({ runId: `cmp-d-${marker}`, kind: 'rubric', artifact: 'brief' })
+    .run();
+  insertRun(db, {
+    id: `cmp-e-${marker}`,
+    taskId: 'lfg-calculator',
+    variantId: base.id,
+    status: 'cancelled',
+  });
   db.insert(artifacts)
     .values([
       {
@@ -131,7 +148,7 @@ afterAll(async () => {
 });
 
 describe('compare 页面的只读接口', () => {
-  test('GET /api/compare/runs 只列出已评分（succeeded）的 run，按创建时间排序', async () => {
+  test('GET /api/compare/runs 列出已评分与取消后评分过的 run，按创建时间排序', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/compare/runs' });
     expect(response.statusCode).toBe(200);
     const runs = CompareRun.array().parse(response.json());
@@ -140,6 +157,7 @@ describe('compare 页面的只读接口', () => {
         id: `cmp-a-${marker}`,
         variantId: base.id,
         taskId: 'lfg-calculator',
+        cancelled: false,
         humanIntervened: false,
         crossRunRefs: [crossRef],
         createdAt: '2026-10-09T08:00:00.000Z',
@@ -148,11 +166,31 @@ describe('compare 页面的只读接口', () => {
         id: `cmp-b-${marker}`,
         variantId: edited.id,
         taskId: 'ic-money-format',
+        cancelled: false,
         humanIntervened: true,
         crossRunRefs: [],
         createdAt: '2026-10-09T09:00:00.000Z',
       },
+      {
+        id: `cmp-d-${marker}`,
+        variantId: base.id,
+        taskId: 'lfg-calculator',
+        cancelled: true,
+        humanIntervened: false,
+        crossRunRefs: [],
+        createdAt: '2026-10-09T10:00:00.000Z',
+      },
     ]);
+    const cancelled = await app.inject({
+      method: 'GET',
+      url: `/api/compare/runs/cmp-d-${marker}/artifacts`,
+    });
+    expect(cancelled.statusCode).toBe(200);
+    const ungraded = await app.inject({
+      method: 'GET',
+      url: `/api/compare/runs/cmp-e-${marker}/artifacts`,
+    });
+    expect(ungraded.statusCode).toBe(404);
   });
 
   test('GET /api/compare/runs/:id/artifacts 返回产物快照与仓库；未评分与不存在的 run 为 404', async () => {

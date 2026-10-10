@@ -185,6 +185,10 @@ export const runStatuses = [
 ] as const;
 export type RunStatus = (typeof runStatuses)[number];
 
+// 评分流程的状态（Contracts 7.6）：none 不会评分，running 正在评分，done 已评分，failed 评分出错
+export const gradingStatuses = ['none', 'running', 'done', 'failed'] as const;
+export type GradingStatus = (typeof gradingStatuses)[number];
+
 export const runs = sqliteTable(
   'runs',
   {
@@ -216,6 +220,8 @@ export const runs = sqliteTable(
       .default(sql`'[]'`),
     // 评估环境本身出错、不能代表 variant 的 run 由用户标为无效（Contracts 7.12）；compare 总是排除
     invalidReason: text('invalid_reason'),
+    gradingStatus: text('grading_status', { enum: gradingStatuses }).notNull().default('none'),
+    gradingError: text('grading_error'),
     error: text('error'),
     createdAt: createdAt(),
     startedAt: integer('started_at', { mode: 'timestamp_ms' }),

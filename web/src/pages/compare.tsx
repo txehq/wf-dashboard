@@ -26,6 +26,7 @@ interface Selection {
   tasks: string[];
   includeIntervened: boolean;
   includeCrossRef: boolean;
+  includeCancelled: boolean;
 }
 
 function freeSlot(taken: { slot: number }[]): number {
@@ -47,6 +48,7 @@ function defaultSelection(variants: Variant[], tasks: TaskRecord[], runs: Compar
     tasks: tasks.filter((t) => runs.some((r) => r.taskId === t.task.id)).map((t) => t.task.id),
     includeIntervened: false,
     includeCrossRef: false,
+    includeCancelled: false,
   };
 }
 
@@ -105,6 +107,7 @@ function SelectionPanel({
     selection.variants.some((v) => v.id === r.variantId) && selection.tasks.includes(r.taskId);
   const intervenedCount = runs.filter((r) => r.humanIntervened && inScope(r)).length;
   const crossRefCount = runs.filter((r) => r.crossRunRefs.length > 0 && inScope(r)).length;
+  const cancelledCount = runs.filter((r) => r.cancelled && inScope(r)).length;
   const full = selection.variants.length >= MAX_VARIANTS;
 
   const toggleVariant = (id: string) => {
@@ -238,6 +241,21 @@ function SelectionPanel({
         <p className="text-xs text-muted-foreground" data-testid="cross-ref-count">
           {crossRefCount === 0 ? '选中范围内没有' : `选中范围内有 ${String(crossRefCount)} 次`}
         </p>
+        <label className="mt-2 flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={selection.includeCancelled}
+            onChange={(event) => {
+              onChange({ ...selection, includeCancelled: event.target.checked });
+            }}
+          />
+          包含被取消的 run
+        </label>
+        <p className="text-xs text-muted-foreground" data-testid="cancelled-count">
+          {cancelledCount === 0
+            ? '选中范围内没有'
+            : `选中范围内有 ${String(cancelledCount)} 次，按取消时已写出的产物评分`}
+        </p>
       </fieldset>
     </div>
   );
@@ -269,6 +287,7 @@ function CompareBody({
       selectedTasks.map((t) => t.task.id),
       selection.includeIntervened,
       selection.includeCrossRef,
+      selection.includeCancelled,
     ),
     enabled: ready,
     placeholderData: keepPreviousData,
@@ -284,12 +303,14 @@ function CompareBody({
   const shownTasks = selectedTasks.filter((t) => data.tasks.includes(t.task.id));
   const intervened = new Set(runs.filter((r) => r.humanIntervened).map((r) => r.id));
   const crossRef = new Set(runs.filter((r) => r.crossRunRefs.length > 0).map((r) => r.id));
+  const cancelled = new Set(runs.filter((r) => r.cancelled).map((r) => r.id));
   const visibleRuns = runs.filter(
     (r) =>
       shownVariants.some((v) => v.id === r.variantId) &&
       shownTasks.some((t) => t.task.id === r.taskId) &&
       (data.includeIntervened || !r.humanIntervened) &&
-      (data.includeCrossRef || r.crossRunRefs.length === 0),
+      (data.includeCrossRef || r.crossRunRefs.length === 0) &&
+      (data.includeCancelled || !r.cancelled),
   );
   return (
     <div
@@ -304,6 +325,7 @@ function CompareBody({
           tasks={shownTasks}
           intervened={intervened}
           crossRef={crossRef}
+          cancelled={cancelled}
         />
       </Section>
       <Section title="产物并排" id="compare-artifacts">

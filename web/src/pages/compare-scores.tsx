@@ -77,6 +77,7 @@ function ScoreCell({
   variant,
   intervened,
   crossRef,
+  cancelled,
   isBaseline,
 }: {
   cell: CompareCell;
@@ -84,6 +85,7 @@ function ScoreCell({
   variant: SelectedVariant;
   intervened: Set<string>;
   crossRef: Set<string>;
+  cancelled: Set<string>;
   isBaseline: boolean;
 }) {
   const main = mainOf(cell);
@@ -111,6 +113,7 @@ function ScoreCell({
           ...v,
           intervened: intervened.has(v.runId),
           crossRef: crossRef.has(v.runId),
+          cancelled: cancelled.has(v.runId),
         }))}
         mean={main.mean}
         stdDev={main.stdDev}
@@ -276,12 +279,14 @@ function TaskRow({
   variants,
   intervened,
   crossRef,
+  cancelled,
 }: {
   task: TaskRecord;
   result: CompareResult;
   variants: SelectedVariant[];
   intervened: Set<string>;
   crossRef: Set<string>;
+  cancelled: Set<string>;
 }) {
   const [open, setOpen] = useState(false);
   const cells = variants.map((v) => cellOf(result, v.id, task.task.id));
@@ -318,6 +323,7 @@ function TaskRow({
                 variant={variant}
                 intervened={intervened}
                 crossRef={crossRef}
+                cancelled={cancelled}
                 isBaseline={i === 0}
               />
             </td>
@@ -345,12 +351,14 @@ export function ScoreTable({
   tasks,
   intervened,
   crossRef,
+  cancelled,
 }: {
   result: CompareResult;
   variants: SelectedVariant[];
   tasks: TaskRecord[];
   intervened: Set<string>;
   crossRef: Set<string>;
+  cancelled: Set<string>;
 }) {
   const groups = [
     { kind: 'lfg', title: '/lfg · 总得分率', records: tasks.filter((t) => t.task.kind === 'lfg') },
@@ -364,7 +372,7 @@ export function ScoreTable({
     <div className="flex flex-col gap-2">
       <p className="text-xs text-muted-foreground">
         均值 ± 标准差。横轴 0–100%：每个点是一次 run（空心为有人工干预，菱形为参考了其他
-        run，点击打开详情），竖线为均值，横线为 ± 标准差。
+        run，三角形为被取消的 run，点击打开详情），竖线为均值，横线为 ± 标准差。
       </p>
       <div className="overflow-x-auto rounded-lg border">
         <table className="w-full text-sm" data-testid="score-table">
@@ -407,6 +415,7 @@ export function ScoreTable({
                     variants={variants}
                     intervened={intervened}
                     crossRef={crossRef}
+                    cancelled={cancelled}
                   />
                 ))}
               </Fragment>

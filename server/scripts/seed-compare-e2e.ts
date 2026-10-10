@@ -771,6 +771,10 @@ for (let index = 0; index < 3; index++) {
   }
 }
 seedLfgRun('baseline', 3, 'r-20261009-balf03', true);
+// 基线第 5 次 lfg run 被用户取消，按已写出的产物评分（Contracts 7.5），默认不参与对比
+const cancelledRun = 'r-20261009-balf04';
+seedLfgRun('baseline', 4, cancelledRun, false);
+db.update(runs).set({ status: 'cancelled' }).where(eq(runs.id, cancelledRun)).run();
 // 试跑的 variant 产物与 "interview 追问边界" 相同，评分取其第 2 次 run
 seedLfgRun('modified', 1, 'r-20261009-trlf00', false, trial.id);
 

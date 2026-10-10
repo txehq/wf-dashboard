@@ -4,7 +4,7 @@ import type { FSWatcher } from 'chokidar';
 import { eq } from 'drizzle-orm';
 import { execa } from 'execa';
 import type { Db } from '../db/index.js';
-import { type AskQuestion, type RunStatus, runs } from '../db/schema.js';
+import { type AskQuestion, type GradingStatus, type RunStatus, runs } from '../db/schema.js';
 import { events } from '../events.js';
 import { createEmptyRunRepo, createRunRepo, readPr } from '../external/github.js';
 import { createRunTicket } from '../external/linear.js';
@@ -185,6 +185,13 @@ export class RunDriver {
     await this.teardown();
     if (this.ending === 'cancel') {
       this.setStatus('cancelled', { endedAt: new Date() });
+      // 取消的 run 照常评分已写出的产物，status 保持 cancelled（Contracts 7.5）；
+      // 评分出错时 grading 记为 failed 与原文，status 仍是 cancelled
+      await this.grade().then(
+        () => undefined,
+        () => undefined,
+      );
+      this.updateCost();
       return;
     }
     if (this.ending !== 'finish') {
@@ -193,9 +200,28 @@ export class RunDriver {
       );
     }
     this.setStatus('grading');
-    await Promise.race([gradeRun(this.db, this.runId), this.failed]);
+    await this.grade();
     this.updateCost();
     this.setStatus('succeeded', { endedAt: new Date() });
+  }
+
+  // Contracts 7.6
+  private async grade() {
+    this.setGrading('running', null);
+    await Promise.race([gradeRun(this.db, this.runId), this.failed]).then(
+      () => {
+        this.setGrading('done', null);
+      },
+      (error: unknown) => {
+        this.setGrading('failed', error instanceof Error ? error.message : String(error));
+        throw error;
+      },
+    );
+  }
+
+  private setGrading(status: GradingStatus, error: string | null) {
+    this.update({ gradingStatus: status, gradingError: error });
+    events.publish({ type: 'run.status', runId: this.runId, status: this.row().status });
   }
 
   // Contracts 7.2：外部对象、workspace 与 vault；返回初始消息

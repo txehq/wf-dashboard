@@ -151,6 +151,7 @@ export const CompareResult = z.object({
   tasks: z.array(z.string()),
   includeIntervened: z.boolean(),
   includeCrossRef: z.boolean(),
+  includeCancelled: z.boolean(),
   cells: z.array(CompareCell),
 });
 export type CompareResult = z.infer<typeof CompareResult>;
@@ -167,11 +168,13 @@ export const CrossRunRef = z.object({
 });
 export type CrossRunRef = z.infer<typeof CrossRunRef>;
 
-// Compare 页面可选的 run：全部已评分（succeeded）的 run
+// Compare 页面可选的 run：已评分（succeeded）与取消后评分过的 run，未标为无效
 export const CompareRun = z.object({
   id: z.string(),
   variantId: z.string(),
   taskId: z.string(),
+  // 被取消的 run 默认不参与对比，页面上用单独的点形状标出
+  cancelled: z.boolean(),
   humanIntervened: z.boolean(),
   crossRunRefs: z.array(CrossRunRef),
   // ISO 时间，web 用同一个 schema 解析响应

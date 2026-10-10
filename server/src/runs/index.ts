@@ -57,6 +57,11 @@ export function createRuns(deps: RunnerDeps) {
     .set({ status: 'failed', error: '服务重启中断', endedAt: new Date() })
     .where(inArray(runs.status, ['preparing', 'running', 'grading']))
     .run();
+  // 取消后正在评分的 run 状态保持 cancelled，评分记为中断
+  db.update(runs)
+    .set({ gradingStatus: 'failed', gradingError: '服务重启中断' })
+    .where(eq(runs.gradingStatus, 'running'))
+    .run();
 
   function pump() {
     const limit = settings.get().runConcurrency;
@@ -165,6 +170,7 @@ export function createRuns(deps: RunnerDeps) {
         humanIntervened: r.humanIntervened,
         crossRunRefs: r.crossRunRefs,
         invalidReason: r.invalidReason,
+        grading: { status: r.gradingStatus, error: r.gradingError },
         error: r.error,
         createdAt: r.createdAt.getTime(),
         startedAt: r.startedAt?.getTime() ?? null,

@@ -1,5 +1,5 @@
 import createError from '@fastify/error';
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import {
   serializerCompiler,
@@ -9,7 +9,7 @@ import {
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import { artifacts, runs, tasks, variants } from '../db/schema.js';
-import { compareRuns } from '../grading/compare.js';
+import { comparableRun, compareRuns } from '../grading/compare.js';
 import { CompareResult, CompareRun, RunArtifacts, SkillDiff } from '../grading/schema.js';
 import type { Variants } from '../variants/index.js';
 
@@ -27,6 +27,7 @@ const Query = z.object({
   tasks: IdList,
   includeIntervened: z.enum(['true', 'false']).default('false'),
   includeCrossRef: z.enum(['true', 'false']).default('false'),
+  includeCancelled: z.enum(['true', 'false']).default('false'),
 });
 
 export function compareRoutes({ db, variants: variantsModule }: { db: Db; variants: Variants }) {
@@ -65,26 +66,32 @@ export function compareRoutes({ db, variants: variantsModule }: { db: Db; varian
           tasks: query.tasks,
           includeIntervened: query.includeIntervened === 'true',
           includeCrossRef: query.includeCrossRef === 'true',
+          includeCancelled: query.includeCancelled === 'true',
         });
       },
     );
 
-    // 全部已评分且未标为无效的 run，页面据此决定默认选择、空状态与产物并排的候选
+    // 可对比的全部 run（含取消后评分过的），页面据此决定默认选择、空状态与产物并排的候选
     app.get('/api/compare/runs', { schema: { response: { 200: z.array(CompareRun) } } }, () =>
       db
         .select({
           id: runs.id,
           variantId: runs.variantId,
           taskId: runs.taskId,
+          status: runs.status,
           humanIntervened: runs.humanIntervened,
           crossRunRefs: runs.crossRunRefs,
           createdAt: runs.createdAt,
         })
         .from(runs)
-        .where(and(eq(runs.status, 'succeeded'), isNull(runs.invalidReason)))
+        .where(comparableRun(true))
         .orderBy(asc(runs.createdAt), asc(runs.id))
         .all()
-        .map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })),
+        .map(({ status, ...r }) => ({
+          ...r,
+          cancelled: status === 'cancelled',
+          createdAt: r.createdAt.toISOString(),
+        })),
     );
 
     // 一个已评分 run 的产物快照与 PR，供产物并排
@@ -104,7 +111,12 @@ export function compareRoutes({ db, variants: variantsModule }: { db: Db; varian
           .where(eq(runs.id, id))
           .get();
         if (run === undefined) throw new NotFound('run', id);
-        if (run.status !== 'succeeded') throw new NotGraded(id);
+        const comparable = db
+          .select({ id: runs.id })
+          .from(runs)
+          .where(and(eq(runs.id, id), comparableRun(true)))
+          .get();
+        if (comparable === undefined) throw new NotGraded(id);
         return {
           runId: run.id,
           prUrl: run.prUrl,

@@ -97,6 +97,8 @@ export interface RunSummary {
   crossRunRefs: CrossRunRef[];
   // 标为无效的原因；compare 总是排除这类 run
   invalidReason: string | null;
+  // Contracts 7.6：none 不会评分，running 正在评分，done 已评分，failed 评分出错
+  grading: { status: 'none' | 'running' | 'done' | 'failed'; error: string | null };
   error: string | null;
   createdAt: number;
   startedAt: number | null;

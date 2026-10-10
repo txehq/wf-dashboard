@@ -240,6 +240,32 @@ function Validity({ run }: { run: RunDetail }) {
   );
 }
 
+// Contracts 7.6：评分状态。取消的 run 也按已写出的产物评分
+function Grading({ run }: { run: RunDetail }) {
+  const { status, error } = run.grading;
+  if (status === 'done') return <RunGradesPanel runId={run.id} />;
+  if (status === 'running') {
+    return (
+      <p className="rounded-lg border px-4 py-3 text-sm" data-testid="grading-running">
+        {run.status === 'cancelled' ? '正在按取消时已写出的产物评分…' : '正在评分…'}
+      </p>
+    );
+  }
+  if (status === 'failed') {
+    return (
+      <div
+        role="alert"
+        className="flex flex-col gap-1 rounded-lg border px-4 py-3"
+        data-testid="grading-failed"
+      >
+        <p className="text-sm font-medium">评分出错</p>
+        <pre className="font-mono text-xs whitespace-pre-wrap">{error}</pre>
+      </div>
+    );
+  }
+  return null;
+}
+
 function Failure({ run, views }: { run: RunDetail; views: StageView[] }) {
   if (run.status !== 'failed' || run.error === null) return null;
   const at =
@@ -394,7 +420,7 @@ function RunView({ run }: { run: RunDetail }) {
         <Conversation run={run} />
         <RunArtifacts run={run} />
       </div>
-      {run.status === 'succeeded' && <RunGradesPanel runId={run.id} />}
+      <Grading run={run} />
       <Requests run={run} focus={focus} />
     </div>
   );

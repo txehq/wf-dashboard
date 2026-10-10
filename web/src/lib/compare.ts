@@ -32,15 +32,17 @@ export const compareQuery = (
   tasks: string[],
   includeIntervened: boolean,
   includeCrossRef: boolean,
+  includeCancelled: boolean,
 ) =>
   queryOptions({
-    queryKey: ['compare', variants, tasks, includeIntervened, includeCrossRef],
+    queryKey: ['compare', variants, tasks, includeIntervened, includeCrossRef, includeCancelled],
     queryFn: async () => {
       const params = new URLSearchParams({
         variants: variants.join(','),
         tasks: tasks.join(','),
         includeIntervened: String(includeIntervened),
         includeCrossRef: String(includeCrossRef),
+        includeCancelled: String(includeCancelled),
       });
       return CompareResult.parse(await getJson(`/api/compare?${params.toString()}`));
     },

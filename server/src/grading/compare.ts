@@ -1,8 +1,8 @@
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, or, sql } from 'drizzle-orm';
 import { max, mean, min, sampleStandardDeviation } from 'simple-statistics';
 import { runCostBreakdown } from '../cost.js';
 import type { Db } from '../db/index.js';
-import { runs } from '../db/schema.js';
+import { grades, runs } from '../db/schema.js';
 import { readReport } from '../stages/report.js';
 import { IC_STAGES, LFG_STAGES } from '../stages/workflow.js';
 import { loadTask } from '../tasks/loader.js';
@@ -156,10 +156,22 @@ export interface CompareQuery {
   tasks: string[];
   includeIntervened: boolean;
   includeCrossRef: boolean;
+  includeCancelled: boolean;
 }
 
-// 每个 variant × task 一格：只取已评分（succeeded）且未标为无效的 run；默认排除有人工干预的 run 与参考了其他 run 的 run，
-// 两个开关各自只放回一类
+// 可对比的 run：已评分（succeeded）、或被取消后评分了已写出产物的 run（Contracts 7.5），且未标为无效（7.12）。
+// 只在排队中被取消的 run 没有评分，不参与
+export function comparableRun(includeCancelled: boolean) {
+  const graded = sql`exists (select 1 from ${grades} where ${grades.runId} = ${runs.id})`;
+  return and(
+    isNull(runs.invalidReason),
+    includeCancelled
+      ? or(eq(runs.status, 'succeeded'), and(eq(runs.status, 'cancelled'), graded))
+      : eq(runs.status, 'succeeded'),
+  );
+}
+
+// 每个 variant × task 一格；默认排除有人工干预、参考了其他 run 与被取消的 run，三个开关各自只放回一类
 export function compareRuns(db: Db, query: CompareQuery): CompareResult {
   const cells = query.variants.flatMap((variantId) =>
     query.tasks.map((taskId): CompareCell => {
@@ -171,9 +183,7 @@ export function compareRuns(db: Db, query: CompareQuery): CompareResult {
           and(
             eq(runs.variantId, variantId),
             eq(runs.taskId, taskId),
-            eq(runs.status, 'succeeded'),
-            // 标为无效的 run 总是排除（Contracts 7.12）
-            isNull(runs.invalidReason),
+            comparableRun(query.includeCancelled),
             query.includeIntervened ? undefined : eq(runs.humanIntervened, false),
             query.includeCrossRef ? undefined : sql`json_array_length(${runs.crossRunRefs}) = 0`,
           ),
@@ -182,7 +192,7 @@ export function compareRuns(db: Db, query: CompareQuery): CompareResult {
         .all();
       const graded = rows.map((run): GradedRun => {
         const g = readRunGrades(db, run.id);
-        if (g === null) throw new Error(`run ${run.id} 状态为 succeeded 但没有评分`);
+        if (g === null) throw new Error(`run ${run.id} 状态为 ${run.status} 但没有评分`);
         return { run, grades: g };
       });
       return {

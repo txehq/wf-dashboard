@@ -162,6 +162,10 @@ export async function importRun(
         insert('grade_items', { ...withoutId(item), grade_id: gradeId });
       }
     }
+    // 来源数据库早于 Contracts 7.6 的评分状态时，有评分的 run 记为 done
+    if (all('select id from grades where run_id = ?', runId).length > 0) {
+      target.prepare(`update runs set grading_status = 'done' where id = ?`).run(runId);
+    }
   })();
   source.close();
 

@@ -54,6 +54,21 @@ for (const [i, [status, id]] of Object.entries(before).entries()) {
     })
     .run();
 }
+// 取消后正在评分时服务重启的 run：status 保持 cancelled，评分记为中断（Contracts 7.6）
+const cancelledGrading = 'r-20261010-cgrad1';
+db.insert(runs)
+  .values({
+    id: cancelledGrading,
+    batchId: 'b-20261009-before',
+    taskId: 'lfg-calculator',
+    variantId,
+    repeatIndex: 8,
+    status: 'cancelled',
+    gradingStatus: 'running',
+    sessionId: randomUUID(),
+    workspacePath: path.join(work, cancelledGrading),
+  })
+  .run();
 
 const app = await buildApp({
   db,
@@ -90,6 +105,11 @@ describe('服务重启时的状态修正', () => {
       expect(byId.get(id)).toMatchObject({ status: 'failed', error: '服务重启中断' });
     }
     expect(byId.get(before.succeeded)).toMatchObject({ status: 'succeeded', error: null });
+    expect(byId.get(cancelledGrading)).toMatchObject({
+      status: 'cancelled',
+      grading: { status: 'failed', error: '服务重启中断' },
+    });
+    expect(byId.get(before.succeeded)).toMatchObject({ grading: { status: 'none', error: null } });
   });
 
   test('run 详情：没有 session 时 stages 为 null，成本四项为 0', async () => {

@@ -296,5 +296,12 @@ test.describe('真实运行', () => {
     await expect(page.getByTestId('message-system').last()).toContainText('页面取消了运行');
     await expect(page.getByTestId('takeover-closed')).toBeVisible();
     await expect(page.getByRole('button', { name: '取消运行' })).toHaveCount(0);
+    // 取消后照常评分已写出的产物（Contracts 7.5）：在 interview 中取消，四个产物都不存在，每组记 0 分
+    const grades = page.getByTestId('run-grades');
+    await expect(grades).toContainText('合计 0 / 84', { timeout: 120_000 });
+    await expect(page.getByTestId('run-status').first()).toHaveAttribute(
+      'data-status',
+      'cancelled',
+    );
   });
 });
