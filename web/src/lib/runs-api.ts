@@ -1,7 +1,12 @@
 import { queryOptions, useQueryClient } from '@tanstack/react-query';
 import { requestJson } from '@/lib/http';
 import { invalidateThrottled, type LiveEventType, useLiveEvent } from '@/lib/live-events';
-import type { StageReport, StageStatus, Workflow } from '@/lib/sessions-api';
+import {
+  refreshRequestsThrottled,
+  type StageReport,
+  type StageStatus,
+  type Workflow,
+} from '@/lib/sessions-api';
 
 // 与 Contracts.md 第 7 节的 Runs API 对应（server/src/runs/views.ts）
 
@@ -256,7 +261,7 @@ export function useRunEvents() {
       invalidateThrottled(client, ['runs', runId, 'grades'], 300);
     } else if (type === 'session.updated' || type === 'stage.changed') {
       const { sessionId } = data as { sessionId: string };
-      invalidateThrottled(client, ['requests', sessionId], 1_000);
+      refreshRequestsThrottled(client, sessionId);
       invalidateThrottled(client, ['session', sessionId], 1_000);
     }
   });

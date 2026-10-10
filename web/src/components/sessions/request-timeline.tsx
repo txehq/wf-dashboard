@@ -415,12 +415,13 @@ function VirtualRows({
     };
   }, [virtualizer, scrollHandle]);
   const following = follow && atBottom;
+  const total = virtualizer.getTotalSize();
+  // 跟随最新：条数增加，或最后一条请求追加了内容（高度变化）时都滚到底部
   useEffect(() => {
     if (following && items.length > 0) {
       virtualizer.scrollToIndex(items.length - 1, { align: 'end' });
     }
-  }, [following, items.length, virtualizer]);
-  const total = virtualizer.getTotalSize();
+  }, [following, items.length, total, virtualizer]);
   return (
     <div className="relative">
       <div
@@ -429,6 +430,7 @@ function VirtualRows({
         style={nested ? { height: Math.min(total, 560) } : { height: '72vh' }}
         data-testid={nested ? 'nested-timeline' : 'timeline'}
         data-following={follow ? following : undefined}
+        data-count={items.length}
         onScroll={
           follow
             ? (event) => {

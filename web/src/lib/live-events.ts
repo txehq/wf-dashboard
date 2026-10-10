@@ -107,16 +107,23 @@ export function useLiveEvent(handler: Handler) {
 // 同一个查询键在 ms 内只刷新一次（窗口结束时刷新，取到窗口内最后的变化）：
 // 长时间运行中 session.updated 每秒数次，一个 batch 创建时 run.status 一次几十条
 const pending = new Map<string, ReturnType<typeof setTimeout>>();
-export function invalidateThrottled(client: QueryClient, queryKey: QueryKey, ms: number) {
-  const key = JSON.stringify(queryKey);
+
+// 同一个 key 在 ms 内只执行一次 work（窗口结束时执行）
+export function throttled(key: string, ms: number, work: () => void) {
   if (pending.has(key)) return;
   pending.set(
     key,
     setTimeout(() => {
       pending.delete(key);
-      void client.invalidateQueries({ queryKey });
+      work();
     }, ms),
   );
+}
+
+export function invalidateThrottled(client: QueryClient, queryKey: QueryKey, ms: number) {
+  throttled(JSON.stringify(queryKey), ms, () => {
+    void client.invalidateQueries({ queryKey });
+  });
 }
 
 // 布局挂载：建立连接；variant.build 刷新 variant 的列表与该 variant 的详情和构建日志（离开 Variants 页面再回来时

@@ -259,6 +259,11 @@ test.describe('真实运行', () => {
     const timeline = page.getByTestId('timeline');
     await expect(timeline).toBeVisible({ timeout: 900_000 });
     await expect(timeline).toHaveAttribute('data-following', 'true');
+    // W18c（Medium 25）：之后的刷新只拉取最后一条请求起的行（fromSeq），不再整份重拉
+    const requestUrls: string[] = [];
+    page.on('request', (r) => {
+      if (/\/api\/sessions\/[^/]+\/requests/.test(r.url())) requestUrls.push(r.url());
+    });
     // e2e 的 tsconfig 没有 DOM 类型，滚动容器按需要的字段描述
     interface Scroller {
       scrollHeight: number;
@@ -283,6 +288,32 @@ test.describe('真实运行', () => {
     await expect(page.getByRole('button', { name: '跳到最新' })).toBeVisible();
     await page.getByRole('button', { name: '跳到最新' }).click();
     await expect(timeline).toHaveAttribute('data-following', 'true');
+    console.log(`请求明细的刷新请求 ${String(requestUrls.length)} 次`, requestUrls.slice(-3));
+    expect(requestUrls.length).toBeGreaterThan(0);
+    expect(requestUrls.filter((u) => !u.includes('fromSeq='))).toEqual([]);
+    // 增量拼接的结果与整份拉取的条数一致
+    const sessionId = (
+      (await (await request.get(`${api}/runs/${runId}`)).json()) as { sessionId: string }
+    ).sessionId;
+    await expect
+      .poll(
+        async () => {
+          const full = (await (
+            await request.get(`${api}/sessions/${sessionId}/requests`)
+          ).json()) as { items: unknown[] };
+          return (await timeline.getAttribute('data-count')) === String(full.items.length);
+        },
+        { timeout: 30_000 },
+      )
+      .toBe(true);
+    // W15 Low 21：对话区跟随最新一条消息（内容超出高度时停在底部）
+    const conversation = page.getByTestId('conversation');
+    const gap = await conversation.evaluate((el: Scroller) => ({
+      overflow: el.scrollHeight - el.clientHeight,
+      fromBottom: el.scrollHeight - el.scrollTop - el.clientHeight,
+    }));
+    console.log('对话区', JSON.stringify(gap));
+    expect(gap.fromBottom).toBeLessThan(48);
     // 运行中的详情：模拟用户模式，阶段、对话、请求流都在更新
     await shot(page, 'running');
 

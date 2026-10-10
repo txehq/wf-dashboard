@@ -8,6 +8,7 @@ import { MarkdownDoc } from '@/components/markdown-doc';
 import {
   artifactLabel,
   type CompareRun,
+  outcomeRows,
   type RunGrades,
   runArtifactsQuery,
   runGradesQuery,
@@ -280,6 +281,7 @@ function IcSideBySide({
 }) {
   const leftOutcomes = left.ic?.detail.outcomes ?? [];
   const rightOutcomes = right.ic?.detail.outcomes ?? [];
+  const rows = outcomeRows(leftOutcomes, rightOutcomes);
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-4">
@@ -295,19 +297,15 @@ function IcSideBySide({
           </tr>
         </thead>
         <tbody>
-          {leftOutcomes.map((o) => {
-            const other = rightOutcomes.find((x) => x.file === o.file && x.name === o.name);
-            const differs = other?.outcome !== o.outcome;
+          {rows.map(({ key, name, file, left: mine, right: other }) => {
+            const differs = other?.outcome !== mine?.outcome;
             return (
-              <tr
-                key={`${o.file}\0${o.name}`}
-                className={cn('border-b last:border-0', differs && 'bg-muted/50')}
-              >
+              <tr key={key} className={cn('border-b last:border-0', differs && 'bg-muted/50')}>
                 <td className="py-1 pr-3">
-                  {o.name}
-                  <span className="ml-2 font-mono text-xs text-muted-foreground">{o.file}</span>
+                  {name}
+                  <span className="ml-2 font-mono text-xs text-muted-foreground">{file}</span>
                 </td>
-                {[o, other].map((x, i) => (
+                {[mine, other].map((x, i) => (
                   <td
                     key={i}
                     className={cn(

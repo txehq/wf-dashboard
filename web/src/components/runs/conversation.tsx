@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bot, Hand, Info, type LucideIcon, ShieldAlert, User, UserRound } from 'lucide-react';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { MarkdownDoc } from '@/components/markdown-doc';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -462,18 +462,29 @@ function Takeover({ run }: { run: RunDetail }) {
   );
 }
 
-// 对话区块的外框：Runs 详情与 Sessions 详情共用
+// 对话区块的外框：Runs 详情与 Sessions 详情共用。follow 时新消息出现自动滚到底部；
+// 用户向上滚动后不再跟随，滚回底部后恢复
 function ConversationPanel({
   empty,
   footer,
   description,
+  follow = null,
   children,
 }: {
   empty: boolean;
   footer?: ReactNode;
   description?: ReactNode;
+  // 跟随时传入消息条数，条数增加时滚到底部
+  follow?: number | null;
   children: ReactNode;
 }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const atBottom = useRef(true);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (follow === null || el === null || !atBottom.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [follow]);
   return (
     <section
       className="flex min-w-0 flex-col gap-3 rounded-lg border"
@@ -489,8 +500,13 @@ function ConversationPanel({
         )}
       </h2>
       <div
+        ref={scrollRef}
         className="flex max-h-[640px] min-w-0 flex-col gap-3 overflow-y-auto px-4 pb-3"
         data-testid="conversation"
+        onScroll={(event) => {
+          const el = event.currentTarget;
+          atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+        }}
       >
         {empty && <p className="py-6 text-center text-sm text-muted-foreground">还没有消息。</p>}
         {children}
@@ -506,7 +522,11 @@ export function Conversation({ run }: { run: RunDetail }) {
     run.messages.flatMap((m) => (m.payload?.kind === 'answers' ? [m.payload.requestId] : [])),
   );
   return (
-    <ConversationPanel empty={run.messages.length === 0} footer={<Takeover run={run} />}>
+    <ConversationPanel
+      empty={run.messages.length === 0}
+      footer={<Takeover run={run} />}
+      follow={run.messages.length}
+    >
       {run.messages.map((m) => (
         <MessageBubble
           key={m.id}

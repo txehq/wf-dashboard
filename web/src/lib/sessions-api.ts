@@ -5,7 +5,7 @@ import {
   type QueryClient,
 } from '@tanstack/react-query';
 import { readBody, requestJson } from '@/lib/http';
-import { invalidateThrottled, useLiveEvent } from '@/lib/live-events';
+import { invalidateThrottled, throttled, useLiveEvent } from '@/lib/live-events';
 
 // 与 Contracts.md 第 2、5 节的 Sessions API 对应
 
@@ -235,19 +235,62 @@ export interface RequestRange {
   toSeq?: number;
 }
 
+async function fetchRequests(id: string, range: RequestRange): Promise<TimelineItem[]> {
+  const params = new URLSearchParams();
+  if (range.agent !== undefined) params.set('agent', range.agent);
+  if (range.fromSeq !== undefined) params.set('fromSeq', String(range.fromSeq));
+  if (range.toSeq !== undefined) params.set('toSeq', String(range.toSeq));
+  const query = params.toString();
+  const url = `/api/sessions/${id}/requests${query === '' ? '' : `?${query}`}`;
+  return ((await getJson(url)) as { items: TimelineItem[] }).items;
+}
+
 export function requestsQuery(id: string, range: RequestRange) {
   return queryOptions({
     queryKey: ['requests', id, range],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (range.agent !== undefined) params.set('agent', range.agent);
-      if (range.fromSeq !== undefined) params.set('fromSeq', String(range.fromSeq));
-      if (range.toSeq !== undefined) params.set('toSeq', String(range.toSeq));
-      const query = params.toString();
-      const url = `/api/sessions/${id}/requests${query === '' ? '' : `?${query}`}`;
-      return ((await getJson(url)) as { items: TimelineItem[] }).items;
-    },
+    queryFn: () => fetchRequests(id, range),
   });
+}
+
+// session 有新请求写入时刷新请求明细（Medium 25）：完整的明细只拉取最后一条请求起的行——最后一条在一轮结束前
+// 还会追加内容，连同它之后的用户消息一起替换——接在已有的列表后面，长 session 不再整份重拉；
+// 带区间的明细（阶段筛选）与还没有请求的明细整段重新拉取
+export async function refreshRequests(client: QueryClient, sessionId: string) {
+  for (const query of client.getQueryCache().findAll({ queryKey: ['requests', sessionId] })) {
+    const range = query.queryKey[2] as RequestRange;
+    const items = query.state.data as TimelineItem[] | undefined;
+    const last = items?.findLast((i) => i.kind === 'request');
+    if (range.fromSeq !== undefined || range.toSeq !== undefined || last === undefined) {
+      void client.invalidateQueries({ queryKey: query.queryKey, exact: true });
+      continue;
+    }
+    const fresh = await fetchRequests(sessionId, { ...range, fromSeq: last.seq });
+    // 服务端返回 #(last-1) 之后的用户消息与 #last 起的请求：保留到 #(last-1) 为止
+    const current = client.getQueryData<TimelineItem[]>(query.queryKey);
+    if (current === undefined)
+      throw new Error(`请求明细 ${JSON.stringify(query.queryKey)} 已被移除`);
+    const previous = current.findIndex((i) => i.kind === 'request' && i.seq === last.seq - 1);
+    if (last.seq > 0 && previous === -1) {
+      throw new Error(`请求明细中没有请求 #${String(last.seq - 1)}`);
+    }
+    const kept = last.seq === 0 ? [] : current.slice(0, previous + 1);
+    client.setQueryData<TimelineItem[]>(query.queryKey, [...kept, ...fresh]);
+  }
+}
+
+// 同一 session 每秒最多刷新一次请求明细
+export function refreshRequestsThrottled(client: QueryClient, sessionId: string) {
+  throttled(`requests:${sessionId}`, 1_000, () => {
+    void refreshRequests(client, sessionId);
+  });
+}
+
+// 同一查询在窗口内只刷新一次：长时间运行的 session 每秒数次 session.updated
+function invalidateSession(client: QueryClient, sessionId: string) {
+  invalidateThrottled(client, ['sessions'], 1_000);
+  invalidateThrottled(client, ['session', sessionId], 1_000);
+  refreshRequestsThrottled(client, sessionId);
+  invalidateThrottled(client, ['stages', sessionId], 1_000);
 }
 
 // Contracts 第 11 节：session 主 agent 的对话；seq 指向请求明细中的那一行
@@ -277,14 +320,6 @@ export function conversationQuery(id: string) {
     queryFn: async () =>
       ((await getJson(`/api/sessions/${id}/conversation`)) as { items: ConversationItem[] }).items,
   });
-}
-
-// 同一查询在窗口内只刷新一次：长时间运行的 session 每秒数次 session.updated，每次的请求明细可达数 MB
-function invalidateSession(client: QueryClient, sessionId: string) {
-  invalidateThrottled(client, ['sessions'], 1_000);
-  invalidateThrottled(client, ['session', sessionId], 1_000);
-  invalidateThrottled(client, ['requests', sessionId], 1_000);
-  invalidateThrottled(client, ['stages', sessionId], 1_000);
 }
 
 // session 有新请求写入或阶段变化时刷新相关查询；判定进度直接写入 analysis 查询，判定完成后刷新阶段结果

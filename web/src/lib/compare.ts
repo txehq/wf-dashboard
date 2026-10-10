@@ -71,6 +71,33 @@ export type {
 // 同时对比的 variant 数上限：类别色只有 8 个
 export const MAX_VARIANTS = 8;
 
+type Outcome = NonNullable<RunGrades['ic']>['detail']['outcomes'][number];
+
+export interface OutcomeRow {
+  key: string;
+  file: string;
+  name: string;
+  left: Outcome | undefined;
+  right: Outcome | undefined;
+}
+
+// ic 并排的测试行：两个 run 的测试并集，左边的清单在前，只在右边出现的测试接在后面
+// （task 的清单改过时两次 run 的测试可能不同）
+export function outcomeRows(left: Outcome[], right: Outcome[]): OutcomeRow[] {
+  const keyOf = (o: Outcome) => `${o.file}\0${o.name}`;
+  const rows = new Map<string, OutcomeRow>();
+  for (const o of left) {
+    rows.set(keyOf(o), { key: keyOf(o), file: o.file, name: o.name, left: o, right: undefined });
+  }
+  for (const o of right) {
+    const row = rows.get(keyOf(o));
+    if (row === undefined) {
+      rows.set(keyOf(o), { key: keyOf(o), file: o.file, name: o.name, left: undefined, right: o });
+    } else row.right = o;
+  }
+  return [...rows.values()];
+}
+
 // 得分率等 0 到 1 的比例显示为百分数
 export function percent(x: number, digits = 0): string {
   return `${(x * 100).toFixed(digits)}%`;
