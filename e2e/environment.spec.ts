@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { expect, type Page, test } from '@playwright/test';
 
 // 服务端由 pnpm start 的方式启动（构建后一个端口提供页面与 API），阶段判定模型是 gateway 上没有渠道的
@@ -7,6 +10,14 @@ test.describe.configure({ mode: 'serial' });
 test.setTimeout(600_000);
 
 const pages = ['Sessions', 'Runs', 'Variants', 'Tasks', 'Compare'];
+
+// 修复时换上的阶段判定模型：服务端默认值所取的 haiku 别名（~/.claude/settings.json 的 env）
+const settingsEnv = (
+  JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude/settings.json'), 'utf8')) as {
+    env: { ANTHROPIC_DEFAULT_HAIKU_MODEL: string };
+  }
+).env;
+const STAGE_MODEL = settingsEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL.replace(/\[[^\]]*\]$/, '');
 
 const shot = (page: Page, name: string) =>
   page.screenshot({ path: `.work/screenshots/w14-${name}.png`, animations: 'disabled' });
@@ -46,7 +57,7 @@ test('导航底部的环境状态与检查清单：展开与修复方法', async
   await expect(stage.getByRole('button')).toHaveAttribute('aria-expanded', 'true');
   await expect(stage).toContainText('claude-haiku-4-5-20251001-cc');
   await expect(stage.getByTestId('env-detail')).toContainText('No available channel');
-  await expect(stage.getByTestId('env-fix')).toContainText('WFD_STAGE_CHECK_MODEL=claude-sonnet-5');
+  await expect(stage.getByTestId('env-fix')).toContainText('为「阶段判定」换一个模型');
   await shot(page, 'checklist');
 
   // 通过的项默认收起，点开看到检查到的版本，不显示修复方法
@@ -93,9 +104,9 @@ test('发起 batch 处列出未通过的项，改好设置后提示消失', asyn
   ).toBeVisible();
   await dialog.getByRole('button', { name: '关闭' }).click();
 
-  // 按 fix 的做法在设置中把阶段判定改为 claude-sonnet-5：角色模型变了，服务端重新检查
+  // 按 fix 的做法在设置中为阶段判定换一个模型（默认的 haiku 别名）：角色模型变了，服务端重新检查
   await page.getByTestId('run-settings').locator('summary').click();
-  await page.getByLabel('阶段判定的模型').fill('claude-sonnet-5');
+  await page.getByLabel('阶段判定的模型').fill(STAGE_MODEL);
   await page.getByRole('button', { name: '保存设置' }).click();
   const status = page.getByTestId('environment-status');
   await expect(status).toHaveText('环境检查中…');
@@ -107,5 +118,5 @@ test('发起 batch 处列出未通过的项，改好设置后提示消失', asyn
   await expect(
     page.getByTestId('env-check-model-stage-check').locator('[aria-label="通过"]'),
   ).toBeVisible();
-  await expect(page.getByTestId('env-check-model-stage-check')).toContainText('claude-sonnet-5');
+  await expect(page.getByTestId('env-check-model-stage-check')).toContainText(STAGE_MODEL);
 });

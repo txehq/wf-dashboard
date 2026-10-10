@@ -66,6 +66,11 @@ describe('runEnvironmentChecks', () => {
         expect(check.detail).not.toBe('');
         expect(check.fix).not.toBe('');
       }
+      // 角色模型的检查发的是与 parseStructured 相同的 strict tool 请求，通过时 detail 为 respond 的内容
+      for (const id of ['model-simulated-user', 'model-judge', 'model-stage-check']) {
+        const check = byId.get(id);
+        expect(check?.detail, id).toMatch(check?.ok === true ? /respond：\S/ : /\S/);
+      }
       // Codex 检查只写自己的 CODEX_HOME
       expect(fs.readdirSync(path.join(machine.workDir, 'codex-home'))).toContain('config.toml');
     },
@@ -90,7 +95,8 @@ describe('runEnvironmentChecks', () => {
     expect(stage?.ok).toBe(false);
     expect(stage?.label).toContain('claude-haiku-4-5-20251001-cc');
     expect(stage?.detail).toMatch(/No available channel/);
-    expect(stage?.fix).toContain('WFD_STAGE_CHECK_MODEL=claude-sonnet-5');
+    expect(stage?.fix).toContain('为「阶段判定」换一个模型');
+    expect(stage?.fix).toContain('WFD_STAGE_CHECK_MODEL');
 
     const vault = byId.get('vault');
     expect(vault?.ok).toBe(false);
@@ -155,10 +161,12 @@ describe('GET /api/environment', () => {
     const settings = (await app.inject({ method: 'GET', url: '/api/settings' })).json<{
       models: Record<string, string>;
     }>();
+    // 换成 judge 的模型（与默认的阶段判定模型不同）
+    const next = settings.models.judge;
     const saved = await app.inject({
       method: 'PUT',
       url: '/api/settings',
-      payload: { ...settings, models: { ...settings.models, stageCheck: 'claude-sonnet-5' } },
+      payload: { ...settings, models: { ...settings.models, stageCheck: next } },
     });
     expect(saved.statusCode).toBe(200);
     const after = (await app.inject({ method: 'GET', url: '/api/environment' })).json<{
@@ -167,7 +175,7 @@ describe('GET /api/environment', () => {
     }>();
     expect(after.checkedAt).toBeGreaterThan(before.checkedAt);
     expect(after.checks.find((c) => c.id === 'model-stage-check')?.label).toBe(
-      'gateway：阶段判定模型 claude-sonnet-5',
+      `gateway：阶段判定模型 ${String(next)}`,
     );
   });
 });

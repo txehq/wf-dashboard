@@ -1,6 +1,10 @@
 import fs from 'node:fs';
 import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
+import type {
+  Message,
+  MessageCreateParamsNonStreaming,
+} from '@anthropic-ai/sdk/resources/messages';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { costUsd, fromApiUsage, type TokenUsage } from './pricing.js';
@@ -86,36 +90,44 @@ export interface StructuredResult<T> {
 // 从 tool_use.input 读出结构。gateway 上 output_config 的约束解码经常返回空字符串或占位词
 const OUTPUT_TOOL = 'respond';
 const OUTPUT_RULE = `\n\n## 提交结果\n最终结果必须通过调用 ${OUTPUT_TOOL} tool 提交，结果的全部内容都写在它的参数里；不要只用文字回答。`;
+const ToolInputSchema = z.looseObject({ type: z.literal('object') });
 
-export async function parseStructured<T>(args: {
+export interface StructuredRequest<T> {
   model: string;
   system: string;
   user: string;
   schema: z.ZodType<T>;
   maxTokens: number;
-  // 取消评分时中止进行中的请求
-  signal?: AbortSignal;
-}): Promise<StructuredResult<T>> {
-  const response = await anthropic().messages.create(
-    {
-      model: args.model,
-      max_tokens: args.maxTokens,
-      system: `${args.system}${OUTPUT_RULE}`,
-      messages: [{ role: 'user', content: args.user }],
-      tools: [
-        {
-          name: OUTPUT_TOOL,
-          description: '提交最终结果。',
-          // zodOutputFormat 由 z.toJSONSchema 生成并转成 strict 支持的子集（整数范围、字符串长度等移入 description），
-          // 这些约束由下面的 schema.parse 校验
-          input_schema: ToolInputSchema.parse(zodOutputFormat(args.schema).schema),
-          strict: true,
-        },
-      ],
-      tool_choice: { type: 'auto' },
-    },
-    args.signal === undefined ? {} : { signal: args.signal },
-  );
+}
+
+// 结构化输出的请求：parseStructured 与环境检查共用，环境检查发的就是真实判定、评分与模拟用户的同一种请求
+// （gateway 把模型路由到不接受 strict tool 的渠道时，环境检查同样失败）
+export function structuredRequest<T>(args: StructuredRequest<T>): MessageCreateParamsNonStreaming {
+  return {
+    model: args.model,
+    max_tokens: args.maxTokens,
+    system: `${args.system}${OUTPUT_RULE}`,
+    messages: [{ role: 'user', content: args.user }],
+    tools: [
+      {
+        name: OUTPUT_TOOL,
+        description: '提交最终结果。',
+        // zodOutputFormat 由 z.toJSONSchema 生成并转成 strict 支持的子集（整数范围、字符串长度等移入 description），
+        // 这些约束由 parseStructuredResponse 中的 schema.parse 校验
+        input_schema: ToolInputSchema.parse(zodOutputFormat(args.schema).schema),
+        strict: true,
+      },
+    ],
+    tool_choice: { type: 'auto' },
+  };
+}
+
+// 从响应的 respond 调用读出结构；没有调用或不符合 schema 时抛错
+export function parseStructuredResponse<T>(
+  response: Message,
+  schema: z.ZodType<T>,
+  model: string,
+): StructuredResult<T> {
   const call = response.content.find((block) => block.type === 'tool_use');
   if (call?.type !== 'tool_use') {
     throw new Error(
@@ -123,12 +135,18 @@ export async function parseStructured<T>(args: {
     );
   }
   const usage = fromApiUsage(response.usage);
-  return {
-    value: args.schema.parse(call.input),
-    usage,
-    costUsd: costUsd(usage, args.model),
-    model: args.model,
-  };
+  return { value: schema.parse(call.input), usage, costUsd: costUsd(usage, model), model };
 }
 
-const ToolInputSchema = z.looseObject({ type: z.literal('object') });
+export async function parseStructured<T>(
+  args: StructuredRequest<T> & {
+    // 取消评分时中止进行中的请求
+    signal?: AbortSignal;
+  },
+): Promise<StructuredResult<T>> {
+  const response = await anthropic().messages.create(
+    structuredRequest(args),
+    args.signal === undefined ? {} : { signal: args.signal },
+  );
+  return parseStructuredResponse(response, args.schema, args.model);
+}

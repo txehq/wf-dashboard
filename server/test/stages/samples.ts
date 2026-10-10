@@ -4,11 +4,11 @@ import path from 'node:path';
 import { z } from 'zod';
 import type { Db } from '../../src/db/index.js';
 import { ingestFile } from '../../src/ingest/ingest.js';
-import { claudeSettingsEnv, stripContextTag } from '../../src/llm/client.js';
+import { models } from '../../src/llm/client.js';
 import { loadSessionRows, type RequestRow, type SessionRows } from '../../src/stages/rows.js';
 
-// 真实判定测试使用的模型：Sonnet（与 Stage Markers 2.6 的 Haiku 结果对照）
-export const TEST_STAGE_MODEL = stripContextTag(claudeSettingsEnv().ANTHROPIC_DEFAULT_SONNET_MODEL);
+// 真实判定测试使用的模型：阶段判定的当前默认值（haiku 别名，可用 WFD_STAGE_CHECK_MODEL 覆盖），与产品中一致
+export const TEST_STAGE_MODEL = models.stageCheck;
 
 // 真实样本在主仓库的 .spikes/stage-markers/samples/（Stage Markers 第 4 节），worktree 经 git common dir 找到主仓库
 const mainRepo = path.dirname(

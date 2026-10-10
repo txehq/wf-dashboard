@@ -78,8 +78,8 @@ export default defineConfig({
     {
       command: `rm -rf ${dbDir} && pnpm --filter @wf-dashboard/server dev`,
       url: `http://127.0.0.1:${String(serverPort)}/api/health`,
-      // Sessions 的判定在 e2e 中使用 Sonnet
-      env: { WFD_DB_PATH: path.join(dbDir, 'db.sqlite'), WFD_STAGE_CHECK_MODEL: 'claude-sonnet-5' },
+      // 阶段判定使用默认的模型（models.stageCheck，haiku 别名；需要时用 WFD_STAGE_CHECK_MODEL 覆盖）
+      env: { WFD_DB_PATH: path.join(dbDir, 'db.sqlite') },
       reuseExistingServer: false,
     },
     {
@@ -111,7 +111,6 @@ export default defineConfig({
       env: {
         WFD_DATA_DIR: runsDataDir,
         WFD_PORT: String(runsServerPort),
-        WFD_STAGE_CHECK_MODEL: 'claude-sonnet-5',
       },
     },
     {

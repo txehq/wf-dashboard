@@ -4,7 +4,12 @@ import { execa } from 'execa';
 import { z } from 'zod';
 import { callLinear, LINEAR_MCP_URL, EVAL_TEAM, linearLoggedIn } from './external/linear.js';
 import { ORG } from './external/github.js';
-import { anthropic, type Models } from './llm/client.js';
+import {
+  anthropic,
+  type Models,
+  parseStructuredResponse,
+  structuredRequest,
+} from './llm/client.js';
 import { writeCodexHome } from './variants/codex-home.js';
 
 // Contracts 第 8 节：逐项检查本机运行评估所需的条件，每项实际执行一次
@@ -110,31 +115,36 @@ const roleIds: Record<keyof Models, string> = {
   stageCheck: 'model-stage-check',
 };
 
+// 与模拟用户、judge、阶段判定完全相同形状的请求（strict tool respond，Contracts 4）：
+// gateway 把模型路由到不接受 strict tool 的渠道（例如 Bedrock 的 tools.0.custom.strict）时这一项同样失败
+const PingResult = z.object({ reply: z.string().min(1) });
+
 async function modelCheck(role: keyof Models, model: string): Promise<EnvironmentCheck> {
   const started = performance.now();
-  const result = await attempt(() =>
-    anthropic().messages.create({
+  const result = await attempt(async () =>
+    parseStructuredResponse(
+      await anthropic().messages.create(
+        structuredRequest({
+          model,
+          system: '你在接受连通性检查。',
+          user: '在 reply 中填写 pong。',
+          schema: PingResult,
+          maxTokens: 2000,
+        }),
+      ),
+      PingResult,
       model,
-      max_tokens: 64,
-      messages: [{ role: 'user', content: 'Reply with exactly: pong' }],
-    }),
+    ),
   );
   const ms = Math.round(performance.now() - started);
-  const fix =
-    role === 'stageCheck'
-      ? '在 Runs 页面的「设置」里把「阶段判定」改为 gateway 上可用的模型（例如 claude-sonnet-5）并保存；或启动服务前设置 WFD_STAGE_CHECK_MODEL=claude-sonnet-5'
-      : `在 Runs 页面的「设置」里把「${roleLabels[role]}」改为 gateway 上可用的模型并保存；401 时检查 ~/.claude/settings.json 中 env 的 ANTHROPIC_AUTH_TOKEN 与 ANTHROPIC_BASE_URL`;
+  const env =
+    role === 'stageCheck' ? '；或启动服务前用 WFD_STAGE_CHECK_MODEL 指定阶段判定的模型' : '';
+  const fix = `在 Runs 页面的「设置」里为「${roleLabels[role]}」换一个模型并保存${env}；401 时检查 ~/.claude/settings.json 中 env 的 ANTHROPIC_AUTH_TOKEN 与 ANTHROPIC_BASE_URL`;
   return {
     id: roleIds[role],
     label: `gateway：${roleLabels[role]}模型 ${model}`,
     ok: result.ok,
-    detail: result.ok
-      ? `${String(ms)} ms，回复：${result.value.content
-          .filter((block) => block.type === 'text')
-          .map((block) => block.text)
-          .join('')
-          .trim()}`
-      : result.error,
+    detail: result.ok ? `${String(ms)} ms，respond：${result.value.value.reply}` : result.error,
     fix,
   };
 }
