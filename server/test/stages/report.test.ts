@@ -72,6 +72,13 @@ function expectExclusive(s: Sample, report: StageReport) {
   const outsideMain = s.main.length - inCycles.length;
   const outsideAll = report.outside.requests;
   expect(inCycles.length + outsideMain).toBe(s.main.length);
+  // 主 session 请求数守恒：各阶段与流程外的 mainRequests 之和等于主 agent 请求总数
+  const stageMain = cycles.reduce(
+    (n, c) => n + c.stages.reduce((m, v) => m + v.stats.mainRequests, 0),
+    0,
+  );
+  expect(stageMain + report.outside.mainRequests).toBe(s.main.length);
+  expect(report.outside.mainRequests).toBe(outsideMain);
   // 阶段统计与流程外统计合起来恰好覆盖全部请求
   const stageRequests = cycles.reduce(
     (n, c) => n + c.stages.reduce((m, v) => m + v.stats.requests, 0),

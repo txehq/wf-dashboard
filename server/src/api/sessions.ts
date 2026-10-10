@@ -23,6 +23,7 @@ import {
   setCheckedSources,
   type SourceDirs,
 } from '../ingest/sources.js';
+import { displayUserText, sessionTitle } from './user-text.js';
 
 const ErrorBody = z.object({ error: z.string() });
 
@@ -163,6 +164,26 @@ function summaries(db: Db, rows: SummaryRow[]): SessionSummary[] {
       .map((t) => [t.sessionId, t]),
   );
   // 判定完成时 stages 模块写 stage_analyses，不含 lfg 与 ic 的 session 也有一行
+  // 标题取主 session 的首条用户消息（SQLite 中与 min() 同行的裸列取自最小值所在的行）
+  const titles = new Map(
+    db
+      .select({
+        sessionId: userMessages.sessionId,
+        text: userMessages.text,
+        first: sql<number>`min(${userMessages.timestamp})`,
+      })
+      .from(userMessages)
+      .where(
+        and(
+          inArray(userMessages.sessionId, ids),
+          isNull(userMessages.agentId),
+          eq(userMessages.kind, 'user'),
+        ),
+      )
+      .groupBy(userMessages.sessionId)
+      .all()
+      .map((m) => [m.sessionId, sessionTitle(m.text)]),
+  );
   const analyzed = new Set(
     db
       .select({ id: stageAnalyses.sessionId })
@@ -181,7 +202,7 @@ function summaries(db: Db, rows: SummaryRow[]): SessionSummary[] {
     return {
       id: r.id,
       cwd: r.cwd,
-      title: r.title,
+      title: titles.get(r.id) ?? null,
       source: r.source,
       startedAt: r.startedAt.toISOString(),
       endedAt: r.endedAt.toISOString(),
@@ -446,7 +467,7 @@ export const sessionsRoutes: FastifyPluginCallbackZod<SessionsRoutesOptions> = (
           order: 0,
           item: {
             kind: message.kind,
-            text: message.text,
+            text: message.kind === 'user' ? displayUserText(message.text) : message.text,
             timestamp: message.timestamp.toISOString(),
           },
         })),

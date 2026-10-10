@@ -3,6 +3,8 @@ packages:
   - web
 allowBuilds:
   esbuild: true
+  # 只用包内的 tree-sitter-bash.wasm（web-tree-sitter 加载），不编译 node 原生绑定
+  tree-sitter-bash: false
 minimumReleaseAgeExclude:
   - '@fastify/sse@0.6.1'
   - concurrently@10.0.6

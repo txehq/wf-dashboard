@@ -94,7 +94,10 @@ export type TimelineItem = RequestItem | MessageItem;
 export type StageStatus = 'done' | 'active' | 'skipped' | 'not-reached' | 'interrupted';
 
 export interface StageStats {
+  // 含子代理的请求
   requests: number;
+  // 只计主 session 的请求：各轮与流程外的 mainRequests 之和等于主 agent 请求总数
+  mainRequests: number;
   toolCalls: Record<string, number>;
   inputTokens: number;
   outputTokens: number;
@@ -133,10 +136,12 @@ export interface StageReport {
   checks: { count: number; inputTokens: number; outputTokens: number; costUsd: number };
 }
 
-async function readJson(response: Response, url: string): Promise<unknown> {
+// 错误响应：路由自己返回 { error }；路由中抛出的错误由 Fastify 返回 { statusCode, error, message }，原文在 message
+export async function readJson(response: Response, url: string): Promise<unknown> {
   if (!response.ok) {
-    const body = (await response.json()) as { error?: string };
-    throw new Error(`${url} 返回 ${String(response.status)}${body.error ? `：${body.error}` : ''}`);
+    const body = (await response.json()) as { error?: string; message?: string };
+    const reason = body.message ?? body.error;
+    throw new Error(`${url} 返回 ${String(response.status)}${reason ? `：${reason}` : ''}`);
   }
   return response.json();
 }

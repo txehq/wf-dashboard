@@ -30,6 +30,7 @@ const STAGES: Record<Workflow, string[]> = {
 
 const emptyStats = {
   requests: 0,
+  mainRequests: 0,
   toolCalls: {},
   inputTokens: 0,
   outputTokens: 0,

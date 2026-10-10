@@ -4,7 +4,9 @@ import path from 'node:path';
 import matter from 'gray-matter';
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { toString } from 'mdast-util-to-string';
+import { z } from 'zod';
 import { inputString, type RequestRow } from './rows.js';
+import { commandsOf } from './shell.js';
 import type { LfgStage } from './workflow.js';
 
 // feature 目录中的固定文件名与 wf obsidian 写入的 frontmatter kind
@@ -132,61 +134,118 @@ export interface LfgBoundary {
   planLockLine: string | null;
 }
 
-const WF_OBSIDIAN = /(?:^|[\n;&|(])\s*wf\s+obsidian\s/;
-const NOT_A_WRITE = /--dry-run\b|--help\b|\s-h\b/;
+// wf obsidian 写出的文件：<vault>/Project <P>/Features/<slug>/<固定文件名>
 const WRITTEN_PATH =
-  /^.*Project [^/\n]+\/Features\/[^/\n]+\/(?:Brief|Research|System Design|Tickets)\.md$/m;
+  /^.*Project [^/\n]+\/Features\/[^/\n]+\/(?:Brief|Research|System Design|Tickets)\.md$/;
 
-function flag(command: string, name: string): string | null {
-  const m = new RegExp(`--${name}[\\s=]+("[^"]*"|'[^']*'|\\S+)`).exec(command);
-  if (!m?.[1]) return null;
-  const v = m[1];
-  return /^["']/.test(v) ? v.slice(1, -1) : v;
+// --kind → 写出的固定文件名
+const LFG_FILE_OF_KIND: Record<string, string> = Object.fromEntries(
+  Object.values(LFG_DOCS).map((d) => [d.kind, d.file]),
+);
+
+// 一次 wf obsidian 调用的参数（clap 的 --name value 与 --name=value 两种写法）
+interface ObsidianArgs {
+  kind: string | null;
+  file: string | null;
+  replace: boolean;
+  dryRun: boolean;
+  help: boolean;
+  json: boolean;
 }
 
-function boundaryStage(command: string): LfgStage | 'plan-candidate' | null {
-  const kind = flag(command, 'kind');
-  const file = flag(command, 'file') ?? '';
-  const inPlanDir = /(?:^|\/)\.plan\//.test(file);
-  if (kind === 'brief') return 'interview';
-  if (kind === 'tickets') return 'ticketing';
-  if (kind === 'research' || kind === 'design') {
+function obsidianArgs(argv: string[]): ObsidianArgs | null {
+  if (argv[0] !== 'wf') return null;
+  // --json 是全局参数，可以写在子命令之前
+  const sub = argv.findIndex((w, i) => i > 0 && !w.startsWith('-'));
+  if (sub === -1 || argv[sub] !== 'obsidian') return null;
+  const value = (name: string): string | null => {
+    for (const [i, w] of argv.entries()) {
+      if (w === `--${name}`) return argv[i + 1] ?? null;
+      if (w.startsWith(`--${name}=`)) return w.slice(name.length + 3);
+    }
+    return null;
+  };
+  const has = (...names: string[]) => argv.some((w) => names.includes(w));
+  return {
+    kind: value('kind'),
+    file: value('file'),
+    replace: has('--replace'),
+    dryRun: has('--dry-run'),
+    help: has('--help', '-h'),
+    json: has('--json'),
+  };
+}
+
+function boundaryStage(args: ObsidianArgs): LfgStage | 'plan-candidate' | null {
+  const inPlanDir = /(?:^|\/)\.plan\//.test(args.file ?? '');
+  if (args.kind === 'brief') return 'interview';
+  if (args.kind === 'tickets') return 'ticketing';
+  if (args.kind === 'research' || args.kind === 'design') {
     if (!inPlanDir) return 'research';
-    if (/--replace\b/.test(command)) return 'plan-candidate';
+    if (args.replace) return 'plan-candidate';
   }
   return null;
 }
 
-export function lfgOfflineBoundaries(main: RequestRow[], cwd: string | null): LfgBoundary[] {
+// wf --json 的输出信封（txe-workflow crates/wf-core/src/envelope.rs）
+const ObsidianEnvelope = z.object({
+  ok: z.boolean(),
+  command: z.literal('obsidian'),
+  result: z.object({ path: z.string().min(1), dry_run: z.boolean() }),
+});
+
+// 这次调用写出的文件路径：--json 时读信封的 result.path，否则为输出中打印的那一行
+function writtenPath(args: ObsidianArgs, result: string): string | null {
+  if (args.json) {
+    const envelope = ObsidianEnvelope.parse(JSON.parse(result));
+    return envelope.ok && !envelope.result.dry_run ? envelope.result.path : null;
+  }
+  const file = LFG_FILE_OF_KIND[args.kind ?? ''];
+  return (
+    result
+      .split('\n')
+      .map((l) => l.trim())
+      .find((l) => WRITTEN_PATH.test(l) && (file === undefined || l.endsWith(`/${file}`))) ?? null
+  );
+}
+
+export async function lfgOfflineBoundaries(
+  main: RequestRow[],
+  cwd: string | null,
+): Promise<LfgBoundary[]> {
   const out: LfgBoundary[] = [];
   for (const row of main) {
     for (const call of row.toolCalls) {
-      if (call.name !== 'Bash') continue;
+      if (call.name !== 'Bash' || call.isError || call.result === null) continue;
       const command = inputString(call.input, 'command');
-      if (command === null || !WF_OBSIDIAN.test(command) || NOT_A_WRITE.test(command)) continue;
-      const stage = boundaryStage(command);
-      if (stage === null || call.isError || call.result === null) continue;
-      const printed = WRITTEN_PATH.exec(call.result)?.[0].trim();
-      if (printed === undefined) continue;
-      // 打印的路径相对于 agent 传入的 vault，相对路径按 session 的 cwd 解析
-      if (!path.isAbsolute(printed) && cwd === null) {
-        throw new Error(`wf obsidian 打印了相对路径 ${printed}，而 session 没有 cwd`);
+      if (!command?.includes('obsidian')) continue;
+      for (const argv of await commandsOf(command)) {
+        const args = obsidianArgs(argv);
+        if (args === null || args.dryRun || args.help) continue;
+        const stage = boundaryStage(args);
+        if (stage === null) continue;
+        const printed = writtenPath(args, call.result);
+        if (printed === null) continue;
+        // 打印的路径相对于 agent 传入的 vault，相对路径按 session 的 cwd 解析
+        if (!path.isAbsolute(printed) && cwd === null) {
+          throw new Error(`wf obsidian 打印了相对路径 ${printed}，而 session 没有 cwd`);
+        }
+        const file = cwd === null ? printed : path.resolve(cwd, printed);
+        if (!fs.existsSync(file)) continue;
+        let planLockLine: string | null = null;
+        if (stage === 'plan-candidate') {
+          planLockLine = planLockedLine(matter(fs.readFileSync(file, 'utf8')).content);
+          if (planLockLine === null) continue;
+        }
+        out.push({
+          stage: stage === 'plan-candidate' ? 'plan' : stage,
+          seq: row.seq,
+          toolCallId: call.id,
+          command,
+          path: file,
+          planLockLine,
+        });
       }
-      const file = cwd === null ? printed : path.resolve(cwd, printed);
-      if (!fs.existsSync(file)) continue;
-      let planLockLine: string | null = null;
-      if (stage === 'plan-candidate') {
-        planLockLine = planLockedLine(matter(fs.readFileSync(file, 'utf8')).content);
-        if (planLockLine === null) continue;
-      }
-      out.push({
-        stage: stage === 'plan-candidate' ? 'plan' : stage,
-        seq: row.seq,
-        toolCallId: call.id,
-        command,
-        path: file,
-        planLockLine,
-      });
     }
   }
   return out;

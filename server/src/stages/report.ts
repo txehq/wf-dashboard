@@ -19,7 +19,10 @@ import { loadSessionRows, type RequestRow, type SessionRows } from './rows.js';
 import { IC_STAGES, LFG_STAGES, type LfgStage } from './workflow.js';
 
 export const StageStats = z.object({
+  // 含子代理的请求
   requests: z.number(),
+  // 只计主 session 的请求：各轮与 outside 的 mainRequests 之和等于主 agent 的请求总数
+  mainRequests: z.number(),
   toolCalls: z.record(z.string(), z.number()),
   inputTokens: z.number(),
   outputTokens: z.number(),
@@ -293,6 +296,7 @@ function icCycles(boundaries: IcBoundary[], lastSeq: number): Cycle[] {
 function emptyStats(): StageStats {
   return {
     requests: 0,
+    mainRequests: 0,
     toolCalls: {},
     inputTokens: 0,
     outputTokens: 0,
@@ -331,6 +335,7 @@ function statsOf(rows: SessionRows, main: RequestRow[]): StageStats {
     }
   }
   stats.subagents = agentIds.size;
+  stats.mainRequests = main.length;
   return stats;
 }
 
@@ -340,6 +345,25 @@ function inRange(seq: number, startSeq: number | null, endSeq: number | null): b
 
 function current<T extends { version: number }>(row: T | undefined): T | undefined {
   return row?.version === STAGE_ANALYSIS_VERSION ? row : undefined;
+}
+
+// session 在判定之后继续增长时，未结束的轮次中最后一个进行中的阶段延伸到当前最后一条请求：
+// 进行中（active）的阶段，或 ticketing 完成后仍停在 dispatch gate 的 ticketing。
+// 判定时还没有请求的进行中阶段从上一阶段结束之后开始
+function extendOpen<T extends Pick<Span, 'status' | 'startSeq' | 'endSeq'>>(
+  spans: T[],
+  cycleEnd: number | null,
+  lastSeq: number,
+): T[] {
+  if (cycleEnd !== null) return spans;
+  const open = spans.findLastIndex(
+    (s) => s.status === 'active' || (s.status === 'done' && s.startSeq !== null),
+  );
+  return spans.map((s, i) => {
+    if (i !== open) return s;
+    const start = s.startSeq ?? (spans[i - 1]?.endSeq ?? -1) + 1;
+    return start <= lastSeq ? { ...s, startSeq: start, endSeq: lastSeq } : s;
+  });
 }
 
 export function readReport(db: Db, sessionId: string): StageReport | null {
@@ -366,21 +390,24 @@ export function readReport(db: Db, sessionId: string): StageReport | null {
         label: c.label,
         startSeq: c.startSeq,
         endSeq: c.endSeq,
-        stages: spans
-          .filter((s) => s.cycle === c.cycle)
-          .sort((a, b) => stages.indexOf(a.stage) - stages.indexOf(b.stage))
-          .map((s) => ({
-            stage: s.stage,
-            status: s.status,
-            startSeq: s.startSeq,
-            endSeq: s.endSeq,
-            method: s.method,
-            evidence: s.evidence,
-            stats: statsOf(
-              rows,
-              rows.main.filter((r) => inRange(r.seq, s.startSeq, s.endSeq)),
-            ),
-          })),
+        stages: extendOpen(
+          spans
+            .filter((s) => s.cycle === c.cycle)
+            .sort((a, b) => stages.indexOf(a.stage) - stages.indexOf(b.stage)),
+          c.endSeq,
+          lastSeq,
+        ).map((s) => ({
+          stage: s.stage,
+          status: s.status,
+          startSeq: s.startSeq,
+          endSeq: s.endSeq,
+          method: s.method,
+          evidence: s.evidence,
+          stats: statsOf(
+            rows,
+            rows.main.filter((r) => inRange(r.seq, s.startSeq, s.endSeq)),
+          ),
+        })),
       }));
   };
   const lfg = cyclesOf('lfg', LFG_STAGES);
@@ -469,14 +496,22 @@ async function analyze(
   const rows = loadSessionRows(db, sessionId);
   const lastSeq = rows.main[rows.main.length - 1]?.seq ?? -1;
   const marks = workflowMarks(rows);
-  const lfgJudged = lfgCycles(rows, marks.lfg, lfgOfflineBoundaries(rows.main, rows.cwd));
-  let icJudged: Cycle[] = [];
+  // ic 判定先开始：它在第一次模型调用之前同步报告总批数，POST analyze 的响应带上这份进度
   const icStart = marks.ic[0];
-  if (icStart !== undefined) {
-    const judged = await judgeIcSession(db, sessionId, rows.main, icStart, model, onProgress);
-    icJudged = icCycles(judged.boundaries, lastSeq);
-  }
-  const { lfg, ic } = exclusive(lfgJudged, icJudged, lastSeq);
+  const icJudging =
+    icStart === undefined
+      ? null
+      : judgeIcSession(db, sessionId, rows.main, icStart, model, onProgress);
+  const [lfgBoundaries, icJudged] = await Promise.all([
+    lfgOfflineBoundaries(rows.main, rows.cwd),
+    icJudging,
+  ]);
+  const lfgJudged = lfgCycles(rows, marks.lfg, lfgBoundaries);
+  const { lfg, ic } = exclusive(
+    lfgJudged,
+    icJudged === null ? [] : icCycles(icJudged.boundaries, lastSeq),
+    lastSeq,
+  );
   db.transaction((tx) => {
     // 旧版本的判定结果整体替换
     tx.delete(stageSpans).where(eq(stageSpans.sessionId, sessionId)).run();

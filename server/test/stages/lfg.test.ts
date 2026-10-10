@@ -150,9 +150,9 @@ describe('lfg 离线规则：wf obsidian 边界调用', () => {
   const locked = path.join(featureDir(VAULT, 'Tokun', 'model-pool'), 'Research.md');
   const unlocked = path.join(featureDir(VAULT, 'Magi', 'optional-mcp-install'), 'Research.md');
 
-  test('四个边界依次识别，dry-run 被排除', () => {
+  test('四个边界依次识别，dry-run 被排除', async () => {
     const rows = session('run-offline-a', locked);
-    const boundaries = lfgOfflineBoundaries(rows, ws);
+    const boundaries = await lfgOfflineBoundaries(rows, ws);
     expect(boundaries.map((b) => [b.stage, b.seq])).toEqual([
       ['interview', 3],
       ['research', 4],
@@ -167,7 +167,7 @@ describe('lfg 离线规则：wf obsidian 边界调用', () => {
 
   test('--replace 写入的文件没有锁定标记时 plan 不算完成，报告标出未检测到锁定标记', async () => {
     const rows = session('run-offline-b', unlocked);
-    expect(lfgOfflineBoundaries(rows, ws).map((b) => b.stage)).toEqual([
+    expect((await lfgOfflineBoundaries(rows, ws)).map((b) => b.stage)).toEqual([
       'interview',
       'research',
       'ticketing',
@@ -253,13 +253,45 @@ describe('lfg 离线规则：wf obsidian 边界调用', () => {
     expect(report.outside.requests).toBe(0);
   });
 
-  test('写出的文件被删除后不算边界', () => {
+  test('写出的文件被删除后不算边界', async () => {
     const rows = session('run-offline-c', locked);
     fs.rmSync(path.join(vault, 'Project Magi Eval/Features/run-offline-c/Tickets.md'));
-    expect(lfgOfflineBoundaries(rows, ws).map((b) => b.stage)).toEqual([
+    expect((await lfgOfflineBoundaries(rows, ws)).map((b) => b.stage)).toEqual([
       'interview',
       'research',
       'plan',
     ]);
+  });
+
+  // W15 H10：命令按 bash 语法解析，heredoc 正文与其他命令的参数不参与，--json 的输出按信封读取
+  test('heredoc 正文中的 -h、前一条命令的 --kind、--json 输出、--help 与命令行中只是提到 wf obsidian', async () => {
+    const feature = 'run-offline-h10';
+    const wf = (args: string) =>
+      `wf obsidian ${args} --product "Magi Eval" --feature "${feature}" --vault "${vault}"`;
+    const rows = [
+      // 与 W15 复现相同：Brief 正文中有 " -h"，正文由 heredoc 写入
+      bash(
+        `cat > .interview/brief.md <<'EOF'\n# Brief\n命令行支持 -h 显示帮助，--help 同样可以\nEOF\n${wf('--kind brief --file .interview/brief.md --title "Brief"')}`,
+      ),
+      // 前一条命令的参数里有 --kind tickets
+      bash(
+        `echo --kind tickets; ${wf('--kind research --file .research/research.md --title "R — research"')}`,
+      ),
+      // 全局 --json 写在子命令之前：输出是 JSON 信封
+      bash(`wf --json ${wf('--kind tickets --file .ticketing/tickets.md --title "T"').slice(3)}`),
+      bash('wf obsidian --help'),
+      bash(`grep -c "wf obsidian --kind brief" .interview/brief.md || true`),
+    ].map((r, seq) => ({ ...r, seq, agentId: null }));
+    const jsonOut = rows[2]?.toolCalls[0]?.result ?? '';
+    expect(JSON.parse(jsonOut)).toMatchObject({ ok: true, command: 'obsidian' });
+    const boundaries = await lfgOfflineBoundaries(rows, ws);
+    expect(boundaries.map((b) => [b.stage, b.seq])).toEqual([
+      ['interview', 0],
+      ['research', 1],
+      ['ticketing', 2],
+    ]);
+    expect(boundaries[2]?.path).toBe(
+      path.join(vault, `Project Magi Eval/Features/${feature}/Tickets.md`),
+    );
   });
 });
