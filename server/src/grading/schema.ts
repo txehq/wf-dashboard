@@ -109,6 +109,13 @@ export const StageCost = z.object({
 });
 export type StageCost = z.infer<typeof StageCost>;
 
+// Contracts 7.10：被测 agent 提的 friction issue（artifacts 中 kind friction），perRun 为每次 run 的平均数量
+export const FrictionStats = z.object({
+  perRun: z.number(),
+  issues: z.array(z.object({ runId: z.string(), url: z.string(), title: z.string() })),
+});
+export type FrictionStats = z.infer<typeof FrictionStats>;
+
 export const LfgQuality = z.object({
   kind: z.literal('lfg'),
   // 得分率：得分 / 满分
@@ -141,7 +148,9 @@ export const CompareCell = z.object({
   runIds: z.array(z.string()),
   quality: z.discriminatedUnion('kind', [LfgQuality, IcQuality]),
   // run 数为 0 时为空
-  cost: z.object({ stages: z.array(StageCost), total: CostBreakdown }).nullable(),
+  cost: z
+    .object({ stages: z.array(StageCost), total: CostBreakdown, friction: FrictionStats })
+    .nullable(),
   rubricItems: z.array(RubricItemMean),
 });
 export type CompareCell = z.infer<typeof CompareCell>;

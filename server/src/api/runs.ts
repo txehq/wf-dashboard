@@ -152,5 +152,15 @@ export const runRoutes: FastifyPluginCallbackZod<{ runs: Runs; settings: Setting
     },
   );
 
+  // Contracts 10：新 run 的摘要（queued）
+  app.post(
+    '/api/runs/:id/rerun',
+    { schema: { params: IdParams, response: { 201: RunSummary } } },
+    (request, reply) => {
+      void reply.code(201);
+      return runs.rerun(request.params.id);
+    },
+  );
+
   done();
 };

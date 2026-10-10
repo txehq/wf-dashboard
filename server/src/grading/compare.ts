@@ -1,8 +1,8 @@
-import { and, asc, eq, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { max, mean, min, sampleStandardDeviation } from 'simple-statistics';
 import { runCostBreakdown } from '../cost.js';
 import type { Db } from '../db/index.js';
-import { grades, runs } from '../db/schema.js';
+import { artifacts, grades, runs } from '../db/schema.js';
 import { readReport } from '../stages/report.js';
 import { IC_STAGES, LFG_STAGES } from '../stages/workflow.js';
 import { loadTask } from '../tasks/loader.js';
@@ -13,6 +13,7 @@ import {
   type CompareResult,
   type CostBreakdown,
   type Distribution,
+  type FrictionStats,
   type RunGrades,
   type StageCost,
 } from './schema.js';
@@ -151,6 +152,18 @@ function meanBreakdown(breakdowns: CostBreakdown[]): CostBreakdown {
   };
 }
 
+// Contracts 7.10：这组 run 提的 friction issue 与每次 run 的平均数量
+function frictionStats(db: Db, runIds: string[]): FrictionStats {
+  const issues = db
+    .select({ runId: artifacts.runId, url: artifacts.location, title: artifacts.snapshot })
+    .from(artifacts)
+    .where(and(eq(artifacts.kind, 'friction'), inArray(artifacts.runId, runIds)))
+    .orderBy(asc(artifacts.createdAt), asc(artifacts.id))
+    .all()
+    .map((a) => ({ runId: a.runId, url: a.url, title: a.title ?? '' }));
+  return { perRun: issues.length / runIds.length, issues };
+}
+
 export interface CompareQuery {
   variants: string[];
   tasks: string[];
@@ -207,6 +220,10 @@ export function compareRuns(db: Db, query: CompareQuery): CompareResult {
             : {
                 stages: stageCosts(db, graded, task.kind),
                 total: meanBreakdown(graded.map((g) => runCostBreakdown(db, g.run.id))),
+                friction: frictionStats(
+                  db,
+                  rows.map((r) => r.id),
+                ),
               },
         rubricItems: task.kind === 'lfg' ? rubricItems(graded) : [],
       };

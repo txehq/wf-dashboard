@@ -13,6 +13,7 @@ import { Link, useParams } from 'react-router';
 import { Conversation } from '@/components/runs/conversation';
 import { RunArtifacts } from '@/components/runs/run-artifacts';
 import { RunGradesPanel } from '@/components/runs/run-grades';
+import { RerunButton } from '@/components/runs/rerun-button';
 import { StageText } from '@/components/runs/run-list';
 import { RunStatusLabel } from '@/components/runs/run-status';
 import { RequestTimeline, type TimelineFocus } from '@/components/sessions/request-timeline';
@@ -164,6 +165,7 @@ function Header({ run }: { run: RunDetail }) {
             {cancel.isPending ? '正在取消…' : '取消运行'}
           </Button>
         )}
+        <RerunButton run={run} className="ml-auto" />
       </div>
       <p className="flex flex-wrap gap-x-3 text-sm text-muted-foreground">
         <span className="font-mono">{run.id}</span>

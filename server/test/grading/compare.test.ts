@@ -23,6 +23,7 @@ import {
 import { eq } from 'drizzle-orm';
 import { compareRuns } from '../../src/grading/compare.js';
 import { CompareResult, type CrossRunRef } from '../../src/grading/schema.js';
+import { upsertFriction } from '../../src/runs/records.js';
 import { IC_STAGES, LFG_STAGES } from '../../src/stages/workflow.js';
 import { loadIcTask, loadLfgTask, syncTasks } from '../../src/tasks/loader.js';
 import type { RubricArtifact } from '../../src/tasks/schema.js';
@@ -270,6 +271,12 @@ for (const [id, factor, passed, reached] of [
   seedIcGrades(db, id, passed, reached);
 }
 
+// friction issue（Contracts 7.10）：l1 两个，有人工干预的 l4 一个
+const frictionUrl = (n: number) => `https://github.com/txehq/txe-workflow/issues/${String(n)}`;
+upsertFriction(db, 'l1', frictionUrl(101), 'ctx 未安装时 /history 报错');
+upsertFriction(db, 'l1', frictionUrl(102), 'wf obsidian 找不到 product 目录');
+upsertFriction(db, 'l4', frictionUrl(103), 'gh 认证过期');
+
 // 与实现无关的样本标准差，用来核对
 function sampleStd(xs: number[]) {
   const m = xs.reduce((a, b) => a + b, 0) / xs.length;
@@ -410,6 +417,29 @@ describe('compare', () => {
     expect(c.cost?.total.stageCheck).toBeCloseTo(0.01, 12);
     expect(c.cost?.total.grading).toBeCloseTo(0.08, 12);
     expect(c.cost?.total.total).toBeCloseTo(7 / 3 + 0.14, 12);
+  });
+
+  it('friction：每次 run 的平均 issue 数量与 issue 列表，只算参与对比的 run（Contracts 7.10）', () => {
+    const c = cell(compareRuns(db, query), 'baseline', lfgTask.id);
+    expect(c.runIds).toEqual(['l1', 'l2', 'l3']);
+    // l1 两个、l2 l3 没有；l4 有人工干预，默认不参与
+    expect(c.cost?.friction.perRun).toBeCloseTo(2 / 3, 12);
+    expect(c.cost?.friction.issues).toEqual([
+      { runId: 'l1', url: frictionUrl(101), title: 'ctx 未安装时 /history 报错' },
+      { runId: 'l1', url: frictionUrl(102), title: 'wf obsidian 找不到 product 目录' },
+    ]);
+    const all = cell(
+      compareRuns(db, { ...query, includeIntervened: true }),
+      'baseline',
+      lfgTask.id,
+    );
+    expect(all.cost?.friction.perRun).toBeCloseTo(3 / 4, 12);
+    expect(all.cost?.friction.issues.map((i) => i.runId)).toEqual(['l1', 'l1', 'l4']);
+    // 没有 friction 的格子为 0
+    expect(cell(compareRuns(db, query), 'baseline', icTask.id).cost?.friction).toEqual({
+      perRun: 0,
+      issues: [],
+    });
   });
 
   it('ic：测试通过率的分布与到达终点的比例；没有 run 的格子质量为空、成本为空', () => {

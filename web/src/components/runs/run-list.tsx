@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { CircleSlash, Hand, Link2 } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
+import { RerunButton } from '@/components/runs/rerun-button';
 import { RunStatusLabel } from '@/components/runs/run-status';
 import { formatDateTime, formatDuration, formatUsd } from '@/lib/format';
 import {
@@ -122,6 +123,7 @@ function RunRow({ run, now }: { run: RunSummary; now: number }) {
               参考了其他 run
             </span>
           )}
+          <RerunButton run={run} className="no-underline" />
         </span>
       </td>
     </tr>

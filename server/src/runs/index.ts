@@ -1,7 +1,7 @@
 import { randomInt, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, max, sql } from 'drizzle-orm';
 import { runCostBreakdown } from '../cost.js';
 import {
   artifacts,
@@ -366,6 +366,48 @@ export function createRuns(deps: RunnerDeps) {
       }
       db.update(runs).set({ invalidReason: reason }).where(eq(runs.id, id)).run();
       events.publish({ type: 'run.status', runId: id, status: row.status });
+    },
+
+    // Contracts 10：同一 batch 中为同一 task × variant 新建一个 run 并进入队列，原 run 不变。
+    // variant 在建 batch 时已冻结，直接复用
+    rerun(id: string): RunSummary {
+      const row = runRow(id);
+      if (!terminalStatuses.has(row.status)) {
+        throw new HttpError(409, `run ${id} 还没有结束（${row.status}），不能重跑`);
+      }
+      const rerunId = newId('r');
+      db.transaction((tx) => {
+        const last = tx
+          .select({ repeatIndex: max(runs.repeatIndex) })
+          .from(runs)
+          .where(
+            and(
+              eq(runs.batchId, row.batchId),
+              eq(runs.taskId, row.taskId),
+              eq(runs.variantId, row.variantId),
+            ),
+          )
+          .get();
+        if (typeof last?.repeatIndex !== 'number') {
+          throw new Error(`batch ${row.batchId} 中没有 run ${id}`);
+        }
+        tx.insert(runs)
+          .values({
+            id: rerunId,
+            batchId: row.batchId,
+            taskId: row.taskId,
+            variantId: row.variantId,
+            repeatIndex: last.repeatIndex + 1,
+            sessionId: randomUUID(),
+            workspacePath: path.join(deps.runsDir, rerunId, 'workspace'),
+          })
+          .run();
+      });
+      events.publish({ type: 'run.status', runId: rerunId, status: 'queued' });
+      pump();
+      const [summary] = summaries([runRow(rerunId)]);
+      if (summary === undefined) throw new Error(`run ${rerunId} 没有摘要`);
+      return summary;
     },
 
     // 测试与关闭服务时等待全部进行中的 run 结束

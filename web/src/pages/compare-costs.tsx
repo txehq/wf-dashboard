@@ -1,5 +1,6 @@
 import type { TaskRecord } from '@wf-dashboard/server/tasks/schema';
 import { useState } from 'react';
+import { Link } from 'react-router';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { CompareCell, CompareResult, SelectedVariant } from '@/lib/compare';
 import { seriesColor } from '@/lib/compare';
@@ -260,6 +261,77 @@ function BreakdownMultiples({
   );
 }
 
+// Contracts 7.10：被测 agent 提的 friction issue，每个 variant 一行，点开列出 issue 链接
+function FrictionCounts({
+  cells,
+  variants,
+}: {
+  cells: CompareCell[];
+  variants: SelectedVariant[];
+}) {
+  return (
+    <ul className="flex flex-col gap-1.5" data-testid="friction-counts">
+      {variants.map((v, i) => {
+        const friction = cells[i]?.cost?.friction ?? null;
+        return (
+          <li key={v.id} className="rounded-lg border px-3 py-2 text-sm" data-variant={v.id}>
+            {friction === null ? (
+              <span className="flex items-center gap-2">
+                <span className="size-2.5 rounded-sm" style={{ background: seriesColor(v.slot) }} />
+                {v.name}
+                <span className="text-xs text-muted-foreground">没有 run</span>
+              </span>
+            ) : (
+              <details>
+                <summary className="flex cursor-pointer items-center gap-2">
+                  <span
+                    className="size-2.5 rounded-sm"
+                    style={{ background: seriesColor(v.slot) }}
+                  />
+                  {v.name}
+                  <span className="font-semibold tabular-nums" data-testid="friction-per-run">
+                    {friction.perRun.toFixed(friction.perRun >= 10 ? 0 : 1)}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    个 / 每次 run · 共 {friction.issues.length} 个
+                  </span>
+                </summary>
+                {friction.issues.length === 0 ? (
+                  <p className="mt-1.5 text-xs text-muted-foreground">没有提 friction。</p>
+                ) : (
+                  <ul className="mt-1.5 flex flex-col gap-1">
+                    {friction.issues.map((issue) => (
+                      <li
+                        key={`${issue.runId}:${issue.url}`}
+                        className="flex flex-wrap items-baseline gap-x-3"
+                      >
+                        <a href={issue.url} target="_blank" rel="noreferrer" className="underline">
+                          {issue.title === '' ? issue.url : issue.title}
+                        </a>
+                        {issue.url.includes('#issuecomment-') && (
+                          <span className="rounded border px-1 text-xs text-muted-foreground">
+                            评论
+                          </span>
+                        )}
+                        <Link
+                          to={`/runs/${issue.runId}`}
+                          className="font-mono text-xs text-muted-foreground hover:underline"
+                        >
+                          {issue.runId}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </details>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export function CostComparison({
   result,
   tasks,
@@ -333,6 +405,10 @@ export function CostComparison({
           <div className="flex flex-col gap-2">
             <h3 className="text-sm font-medium">run 总成本的四项（每次 run 平均）</h3>
             <BreakdownMultiples cells={cells} variants={variants} />
+          </div>
+          <div className="flex flex-col gap-2">
+            <h3 className="text-sm font-medium">friction 报告（每次 run 平均）</h3>
+            <FrictionCounts cells={cells} variants={variants} />
           </div>
         </>
       )}

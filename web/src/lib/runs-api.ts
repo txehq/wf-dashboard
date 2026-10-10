@@ -236,6 +236,16 @@ export function setRunInvalid(id: string, reason: string | null) {
     : call<{ ok: true }>('POST', `/api/runs/${id}/invalidate`, { reason });
 }
 
+// Contracts 10：同一 batch 中为同一 task × variant 新建 run，返回新 run
+export function rerunRun(id: string) {
+  return call<RunSummary>('POST', `/api/runs/${id}/rerun`);
+}
+
+// 页面上显示"重跑"按钮的 run：失败、取消或已标为无效
+export function rerunnable(run: RunSummary): boolean {
+  return run.status === 'failed' || run.status === 'cancelled' || run.invalidReason !== null;
+}
+
 const runEvents = [
   'run.status',
   'run.message',
