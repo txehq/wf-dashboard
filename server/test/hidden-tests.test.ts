@@ -19,7 +19,7 @@ describe('隐藏测试（本地 fixture 仓库）', { timeout: 5 * 60_000 }, () 
     await git(checkout, ['commit', '-m', 'feat: subtract']);
     const head = (await git(checkout, ['rev-parse', 'HEAD'])).stdout.trim();
 
-    const result = await runHiddenTests(checkout, task);
+    const result = await runHiddenTests(checkout, task, new AbortController().signal);
     expect(result.junitPath).toBe(path.join(config.runsDir, runId, 'grading/junit.xml'));
     expect(result.head).toBe(head);
     expect(result.declared).toBe(8);
@@ -38,7 +38,9 @@ describe('隐藏测试（本地 fixture 仓库）', { timeout: 5 * 60_000 }, () 
       ['divide by one', 'not-run'],
     ]);
     // 同一个 checkout 不能评分两次
-    await expect(runHiddenTests(checkout, task)).rejects.toThrow('已存在');
+    await expect(runHiddenTests(checkout, task, new AbortController().signal)).rejects.toThrow(
+      '已存在',
+    );
   });
 
   it('工单正文：ticket 正文、验收标准清单，末尾 run id', async () => {

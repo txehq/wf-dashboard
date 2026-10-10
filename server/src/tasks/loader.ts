@@ -1,5 +1,12 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import { eq, notInArray } from 'drizzle-orm';
 import { parse, stringify } from 'yaml';
@@ -171,7 +178,10 @@ export function syncTasks(db: Db, tasksDir: string): SyncResult {
 export function saveTask(db: Db, tasksDir: string, definition: TaskDefinition): TaskRecord {
   const file = taskYamlPath(tasksDir, definition.id);
   mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, serializeTask(definition));
+  // 先写临时文件再改名：写到一半时进程退出不会留下损坏的 task.yaml
+  const tmp = `${file}.${String(process.pid)}.tmp`;
+  writeFileSync(tmp, serializeTask(definition));
+  renameSync(tmp, file);
   db.transaction((tx) => {
     upsert(tx, tasksDir, definition.id, emptyResult());
   });

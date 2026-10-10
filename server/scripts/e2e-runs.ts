@@ -6,9 +6,9 @@ import { config } from '../src/config.js';
 import { closeLinearClient, readTicket } from '../src/external/linear.js';
 import { featureDir } from '../src/stages/lfg.js';
 
-// 端到端：对正在运行的 dashboard 服务（WFD_PORT，默认 7340）发真实请求
+// 端到端：对正在运行的 dashboard 服务（config.port，即 WFD_PORT，默认与服务端相同）发真实请求
 // 用法：tsx scripts/e2e-runs.ts lfg|takeover|ic <variantId> [taskId]
-const base = `http://127.0.0.1:${process.env.WFD_PORT ?? '7340'}/api`;
+const base = `http://127.0.0.1:${String(config.port)}/api`;
 const outDir = path.join(config.repoRoot, '.work', 'e2e');
 fs.mkdirSync(outDir, { recursive: true });
 
@@ -120,11 +120,14 @@ function check(cond: boolean, message: string): void {
 }
 
 async function claudeAlive(sessionId: string): Promise<boolean> {
-  // 模式以 -- 开头，要放在 -- 之后，否则 pgrep 把它当作选项
+  // 模式以 -- 开头，要放在 -- 之后，否则 pgrep 把它当作选项。退出码 0 为找到、1 为没有，其余是 pgrep 自身出错
   const result = await execa('pgrep', ['-f', '--', `--session-id ${sessionId}`], {
     reject: false,
   });
-  return result.stdout.trim() !== '';
+  if (result.exitCode !== 0 && result.exitCode !== 1) {
+    throw new Error(`pgrep 退出码 ${String(result.exitCode)}：${result.stderr}`);
+  }
+  return result.exitCode === 0;
 }
 
 async function lfg() {

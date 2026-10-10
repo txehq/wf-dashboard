@@ -75,6 +75,8 @@ function request(sessionId: string, seq: number, costUsd: number, at: number, ca
     seq,
     agentId: null as string | null,
     timestamp: new Date(at),
+    // 每条请求自身的耗时：seq 0–3 依次为 400、500、600、700 ms
+    durationMs: 400 + seq * 100,
     model: 'claude-opus-5-5',
     toolCalls: calls,
     inputTokens: 100,
@@ -395,12 +397,13 @@ describe('compare', () => {
     // interview：每个 run 0.3 × factor，factor 为 1、2、3
     expect(interview?.costUsd).toBeCloseTo(0.6, 12);
     expect(interview).toMatchObject({ inputTokens: 200, outputTokens: 20, cacheReadTokens: 2000 });
-    expect(interview?.durationMs).toBe(1000);
+    // 阶段耗时是其中各条主请求自身耗时之和（W15 Medium 3：以前是首尾两条请求开始时间之差，少算最后一条）
+    expect(interview?.durationMs).toBe(400 + 500);
     expect(interview?.toolCalls).toBe(1);
     // research：0.7 × factor，l1 另有子代理的 1 美元与一次 Bash 调用
     expect(research?.costUsd).toBeCloseTo((1.7 + 1.4 + 2.1) / 3, 12);
     expect(research?.toolCalls).toBeCloseTo(7 / 3, 12);
-    expect(research?.durationMs).toBe(3000);
+    expect(research?.durationMs).toBe(600 + 700);
     expect(research?.inputTokens).toBeCloseTo(700 / 3, 12);
     expect(plan).toMatchObject({ costUsd: 0, toolCalls: 0, durationMs: 0 });
 

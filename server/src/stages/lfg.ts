@@ -6,7 +6,7 @@ import { fromMarkdown } from 'mdast-util-from-markdown';
 import { toString } from 'mdast-util-to-string';
 import { z } from 'zod';
 import { inputString, type RequestRow } from './rows.js';
-import { commandsOf } from './shell.js';
+import { commandsOf, type ObsidianArgs, obsidianArgs } from './shell.js';
 import type { LfgStage } from './workflow.js';
 
 // feature 目录中的固定文件名与 wf obsidian 写入的 frontmatter kind
@@ -53,8 +53,8 @@ export function planLockedLine(body: string): string | null {
 
 export interface LfgDoc {
   path: string;
-  kind: string;
-  feature: string;
+  kind: string | null;
+  feature: string | null;
   hash: string;
   planLockLine: string | null;
 }
@@ -66,8 +66,9 @@ function readDoc(file: string): LfgDoc | null {
   const fm = data as Record<string, unknown>;
   return {
     path: file,
-    kind: typeof fm.kind === 'string' ? fm.kind : '',
-    feature: typeof fm.feature === 'string' ? fm.feature : '',
+    // 没有 frontmatter 或缺字段时为 null：不是 wf obsidian 写出的产物，下面的比较不会通过
+    kind: typeof fm.kind === 'string' ? fm.kind : null,
+    feature: typeof fm.feature === 'string' ? fm.feature : null,
     hash: createHash('sha256').update(raw).digest('hex'),
     planLockLine: planLockedLine(content),
   };
@@ -143,39 +144,6 @@ const LFG_FILE_OF_KIND: Record<string, string> = Object.fromEntries(
   Object.values(LFG_DOCS).map((d) => [d.kind, d.file]),
 );
 
-// 一次 wf obsidian 调用的参数（clap 的 --name value 与 --name=value 两种写法）
-interface ObsidianArgs {
-  kind: string | null;
-  file: string | null;
-  replace: boolean;
-  dryRun: boolean;
-  help: boolean;
-  json: boolean;
-}
-
-function obsidianArgs(argv: string[]): ObsidianArgs | null {
-  if (argv[0] !== 'wf') return null;
-  // --json 是全局参数，可以写在子命令之前
-  const sub = argv.findIndex((w, i) => i > 0 && !w.startsWith('-'));
-  if (sub === -1 || argv[sub] !== 'obsidian') return null;
-  const value = (name: string): string | null => {
-    for (const [i, w] of argv.entries()) {
-      if (w === `--${name}`) return argv[i + 1] ?? null;
-      if (w.startsWith(`--${name}=`)) return w.slice(name.length + 3);
-    }
-    return null;
-  };
-  const has = (...names: string[]) => argv.some((w) => names.includes(w));
-  return {
-    kind: value('kind'),
-    file: value('file'),
-    replace: has('--replace'),
-    dryRun: has('--dry-run'),
-    help: has('--help', '-h'),
-    json: has('--json'),
-  };
-}
-
 function boundaryStage(args: ObsidianArgs): LfgStage | 'plan-candidate' | null {
   const inPlanDir = /(?:^|\/)\.plan\//.test(args.file ?? '');
   if (args.kind === 'brief') return 'interview';
@@ -209,17 +177,14 @@ function writtenPath(args: ObsidianArgs, result: string): string | null {
   );
 }
 
-export async function lfgOfflineBoundaries(
-  main: RequestRow[],
-  cwd: string | null,
-): Promise<LfgBoundary[]> {
+export function lfgOfflineBoundaries(main: RequestRow[], cwd: string | null): LfgBoundary[] {
   const out: LfgBoundary[] = [];
   for (const row of main) {
     for (const call of row.toolCalls) {
       if (call.name !== 'Bash' || call.isError || call.result === null) continue;
       const command = inputString(call.input, 'command');
       if (!command?.includes('obsidian')) continue;
-      for (const argv of await commandsOf(command)) {
+      for (const argv of commandsOf(command)) {
         const args = obsidianArgs(argv);
         if (args === null || args.dryRun || args.help) continue;
         const stage = boundaryStage(args);

@@ -4,7 +4,7 @@ import { execa } from 'execa';
 import { describe, expect, it } from 'vitest';
 import { config } from '../src/config.js';
 import {
-  clonePrBranch,
+  clonePr,
   createEmptyRunRepo,
   createRunRepo,
   icEndpoint,
@@ -42,13 +42,15 @@ describe('GitHub /ic 运行仓库', { timeout: 15 * 60_000 }, () => {
 
   it('createRunRepo：推送 bundle 的固定 commit，push CI 通过，ruleset 生效', async () => {
     task = await buildFixtureTask(runId);
-    const created = await createRunRepo(task, runId);
+    const created = await createRunRepo(task, runId, new AbortController().signal);
     repo = created.repo;
     console.log(`GitHub 仓库 ${created.url}`);
     expect(repo).toBe(`txehq/wfe-${runId}`);
     expect(created.mainSha).toBe(task.repo.commit);
     expect(created.url).toBe(`https://github.com/${repo}`);
-    const runs = await waitRuns(repo, created.mainSha);
+    // W15 Medium 18：推送之后删除本地的 seed.git
+    expect(fs.existsSync(path.join(config.runsDir, runId, 'seed.git'))).toBe(false);
+    const runs = await waitRuns(repo, created.mainSha, new AbortController().signal);
     expect(runs.map((r) => [r.event, r.conclusion])).toEqual([['push', 'success']]);
     console.log(`push CI ${runs.map((r) => r.url).join(', ')}`);
     expect(await requiredContexts(repo, 'main')).toEqual(['ci']);
@@ -75,7 +77,7 @@ describe('GitHub /ic 运行仓库', { timeout: 15 * 60_000 }, () => {
     const opened = await openPr(repo, work, branch, ['--draft'], `W7 集成测试 · ${runId}`);
     pr = opened.number;
     prHead = (await git(work, ['rev-parse', 'HEAD'])).stdout.trim();
-    const runs = await waitRuns(repo, prHead);
+    const runs = await waitRuns(repo, prHead, new AbortController().signal);
     expect(runs.map((r) => [r.event, r.conclusion])).toEqual([['pull_request', 'success']]);
 
     expect(await readPr(repo)).toEqual({
@@ -91,13 +93,17 @@ describe('GitHub /ic 运行仓库', { timeout: 15 * 60_000 }, () => {
 
     await gh(['pr', 'ready', String(pr), '--repo', repo]);
     expect(await icEndpoint(repo, pr)).toEqual({ ...draft, reached: true, isDraft: false });
+
+    // W15 Medium 14：已关闭的 PR 即使 check 全绿也不算到达终点；之后按 pull/<n>/head 取代码，与分支是否存在无关
+    await gh(['pr', 'close', String(pr), '--repo', repo, '--delete-branch']);
+    expect(await icEndpoint(repo, pr)).toEqual({ ...draft, reached: false, isDraft: false });
   });
 
   it('runHiddenTests：通过 3 / 声明 8，文件级错误与未运行的测试计入分母', async () => {
     const checkout = path.join(config.runsDir, runId, 'grading/checkout');
-    const { head } = await clonePrBranch(repo, branch, checkout);
+    const { head } = await clonePr(repo, pr, checkout);
     expect(head).toBe(prHead);
-    const result = await runHiddenTests(checkout, task);
+    const result = await runHiddenTests(checkout, task, new AbortController().signal);
     console.log(`JUnit ${String(result.junitPath)}`);
     expect(result.junitPath).toBe(path.join(config.runsDir, runId, 'grading/junit.xml'));
     expect(result.head).toBe(prHead);
@@ -122,7 +128,7 @@ describe('GitHub /ic 运行仓库', { timeout: 15 * 60_000 }, () => {
 describe('GitHub /lfg 运行仓库', { timeout: 5 * 60_000 }, () => {
   it('createEmptyRunRepo：一个初始提交，没有 CI 与 ruleset，PR 上 checks 为空', async () => {
     const runId = testRunId('w7-lfg');
-    const created = await createEmptyRunRepo(runId);
+    const created = await createEmptyRunRepo(runId, new AbortController().signal);
     console.log(`GitHub 仓库 ${created.url}`);
     const repo = created.repo;
     expect(repo).toBe(`txehq/wfe-${runId}`);

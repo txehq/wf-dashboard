@@ -30,6 +30,14 @@ type RequestRow = typeof requests.$inferInsert;
 type UserMessageRow = typeof userMessages.$inferInsert;
 
 const resultLimit = 20_000;
+
+// tool 结果截断到 20000 个 UTF-16 单元（Contracts 2）；截断点落在代理对中间时少保留一个，不留下半个字符
+export function truncateResult(text: string): string {
+  if (text.length <= resultLimit) return text;
+  const code = text.charCodeAt(resultLimit - 1);
+  const cut = code >= 0xd800 && code <= 0xdbff ? resultLimit - 1 : resultLimit;
+  return text.slice(0, cut);
+}
 const titleLength = 80;
 // Claude Code 在本地生成的 API 错误、中断提示，不是模型请求
 const syntheticModel = '<synthetic>';
@@ -237,6 +245,9 @@ function parseLines(ctx: ParseContext, lines: string[]): ParseOutput {
         });
         state.lastUserAt = at;
       }
+      // 其他 Claude session 发来的消息（Orca orchestration，isMeta）同样开始新的一轮：之后第一条请求的
+      // duration_ms 从它算起。它不作为用户消息返回（归类待 Contracts 2 约定）
+      if (record.origin?.kind === 'peer') state.lastUserAt = at;
     }
   }
   return out;
@@ -257,7 +268,7 @@ function attachResult(
   if (call === undefined)
     throw new Error(`message ${messageId} 中没有 tool_use ${block.tool_use_id}`);
   const text = resultText(block.content);
-  call.result = text.length > resultLimit ? text.slice(0, resultLimit) : text;
+  call.result = truncateResult(text);
   call.resultChars = text.length;
   call.isError = block.is_error === true;
   call.spillPath = spillPath(ctx, text);

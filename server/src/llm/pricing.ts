@@ -12,18 +12,21 @@ function price(input: number, output: number, cacheRead: number): Price {
   return { input, output, cacheWrite5m: input * 1.25, cacheWrite1h: input * 2, cacheRead };
 }
 
-// 按模型名前缀匹配，顺序从具体到一般。gateway 上的名称带后缀，例如 claude-sonnet-5-cc[1m]。
+// 按模型族与版本号匹配，顺序从具体到一般。gateway 上的名称可以带提供方前缀（us.anthropic.）与后缀
+// （日期 -20251001、-cc、[1m]）；版本号之后不能再接一段版本号，未列出的版本（例如 claude-sonnet-5-7）直接抛错，
+// 不按同族的其他版本计价
+const model = (name: string) => new RegExp(`^(?:[a-z]+\\.)*${name}(?!-\\d{1,2}(?:\\D|$))`);
 const table: { match: RegExp; price: Price }[] = [
-  { match: /^claude-fable-5-1/, price: price(10, 50, 0.25) },
-  { match: /^claude-fable-5/, price: price(10, 50, 0.25) },
-  { match: /^claude-opus-5-5/, price: price(4, 20, 0.2) },
-  { match: /^claude-opus-5/, price: price(5, 25, 0.5) },
-  { match: /^claude-opus-4-[678]/, price: price(5, 25, 0.5) },
-  { match: /^claude-sonnet-5-5/, price: price(2, 10, 0.2) },
-  { match: /^claude-sonnet-5/, price: price(2, 10, 0.2) },
-  { match: /^claude-sonnet-4-6/, price: price(3, 15, 0.3) },
-  { match: /^claude-haiku-5-5/, price: price(0.1, 0.5, 0.01) },
-  { match: /^claude-haiku-4-5/, price: price(1, 5, 0.1) },
+  { match: model('claude-fable-5-1'), price: price(10, 50, 0.25) },
+  { match: model('claude-fable-5'), price: price(10, 50, 0.25) },
+  { match: model('claude-opus-5-5'), price: price(4, 20, 0.2) },
+  { match: model('claude-opus-5'), price: price(5, 25, 0.5) },
+  { match: model('claude-opus-4-[678]'), price: price(5, 25, 0.5) },
+  { match: model('claude-sonnet-5-5'), price: price(2, 10, 0.2) },
+  { match: model('claude-sonnet-5'), price: price(2, 10, 0.2) },
+  { match: model('claude-sonnet-4-6'), price: price(3, 15, 0.3) },
+  { match: model('claude-haiku-5-5'), price: price(0.1, 0.5, 0.01) },
+  { match: model('claude-haiku-4-5'), price: price(1, 5, 0.1) },
 ];
 
 export function priceOf(model: string): Price {
@@ -52,7 +55,8 @@ export function costUsd(usage: TokenUsage, model: string): number {
   );
 }
 
-// Messages API 返回的 usage 转成 TokenUsage；cache_creation 细分缺失时按 5 分钟计
+// Messages API 返回的 usage 转成 TokenUsage。有 cache write 时必须有 5 分钟 / 1 小时的细分，
+// 两种价格不同，缺失时无法计价，直接抛错
 export function fromApiUsage(u: {
   input_tokens: number;
   output_tokens: number;
@@ -63,14 +67,20 @@ export function fromApiUsage(u: {
     ephemeral_1h_input_tokens?: number;
   } | null;
 }): TokenUsage {
-  const write1h = u.cache_creation?.ephemeral_1h_input_tokens ?? 0;
-  const write5m =
-    u.cache_creation?.ephemeral_5m_input_tokens ?? (u.cache_creation_input_tokens ?? 0) - write1h;
+  const written = u.cache_creation_input_tokens ?? 0;
+  const split = u.cache_creation;
+  const write5m = split?.ephemeral_5m_input_tokens;
+  const write1h = split?.ephemeral_1h_input_tokens;
+  if (written > 0 && (write5m === undefined || write1h === undefined)) {
+    throw new Error(
+      `usage 有 ${String(written)} 个 cache write token，但没有 5 分钟 / 1 小时的细分`,
+    );
+  }
   return {
     inputTokens: u.input_tokens,
     outputTokens: u.output_tokens,
     cacheReadTokens: u.cache_read_input_tokens ?? 0,
-    cacheWrite5mTokens: write5m,
-    cacheWrite1hTokens: write1h,
+    cacheWrite5mTokens: write5m ?? 0,
+    cacheWrite1hTokens: write1h ?? 0,
   };
 }

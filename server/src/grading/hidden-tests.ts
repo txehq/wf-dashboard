@@ -6,7 +6,7 @@ import { parse, type TestSuite, type TestSuites } from 'junit2json';
 import treeKill from 'tree-kill';
 import { z } from 'zod';
 import { config } from '../config.js';
-import { placeHiddenConfig } from '../tasks/ic.js';
+import { junitCases, placeHiddenConfig, scoreAgainstManifest } from '../tasks/ic.js';
 import type { IcTask } from '../tasks/schema.js';
 
 // 隐藏测试在 checkout 中的位置，与 Contracts 第 6 节一致
@@ -43,44 +43,8 @@ export function scoreJUnit(
   report: TestSuites | TestSuite,
   manifest: Record<string, string[]>,
 ): Pick<HiddenTestsResult, 'declared' | 'passed' | 'outcomes' | 'fileErrors'> {
-  // 根元素是 <testsuite> 时 junit2json 直接返回该 suite
-  const suites: TestSuite[] =
-    'testcase' in report ? [report] : ((report as TestSuites).testsuite ?? []);
-  const seen = new Map<string, Outcome['outcome']>();
-  const fileErrors: FileError[] = [];
-  for (const c of suites.flatMap((s) => s.testcase ?? [])) {
-    if (c.classname === undefined || c.name === undefined) {
-      throw new Error(`JUnit testcase 缺少 classname 或 name：${JSON.stringify(c)}`);
-    }
-    if (c.name === c.classname) {
-      const message = (c.failure ?? c.error)?.[0]?.message;
-      if (message === undefined) throw new Error(`文件级 testcase 没有错误信息：${c.classname}`);
-      fileErrors.push({ file: c.classname, message });
-      continue;
-    }
-    const outcome =
-      c.failure !== undefined
-        ? 'failed'
-        : c.error !== undefined
-          ? 'errored'
-          : c.skipped !== undefined
-            ? 'skipped'
-            : 'passed';
-    seen.set(`${c.classname}\0${c.name}`, outcome);
-  }
-  const outcomes = Object.entries(manifest).flatMap(([file, names]) =>
-    names.map((name): Outcome => ({
-      file,
-      name,
-      outcome: seen.get(`${file}\0${name}`) ?? 'not-run',
-    })),
-  );
-  return {
-    declared: outcomes.length,
-    passed: outcomes.filter((o) => o.outcome === 'passed').length,
-    outcomes,
-    fileErrors,
-  };
+  const run = junitCases(report);
+  return { ...scoreAgainstManifest(run, manifest), fileErrors: run.fileErrors };
 }
 
 // sandbox-exec 的 SBPL 字符串字面量
@@ -131,6 +95,8 @@ interface Step {
   // stdout 与 stderr 追加写入的日志文件；写文件而不经过管道，强制结束后不会被残留进程挂住
   log: string;
   timeoutMs: number;
+  // 取消评分或服务关闭：结束整棵进程树，抛出 signal.reason
+  signal: AbortSignal;
 }
 
 interface StepResult {
@@ -138,8 +104,9 @@ interface StepResult {
   timedOut: boolean;
 }
 
-// 超时时结束整棵进程树（vitest worker、Playwright 的 webServer 与浏览器都在其中）
+// 超时或取消时结束整棵进程树（vitest worker、Playwright 的 webServer 与浏览器都在其中）
 async function runStep(step: Step): Promise<StepResult> {
+  step.signal.throwIfAborted();
   const [file, ...args] =
     step.sandbox === null
       ? step.argv
@@ -159,14 +126,20 @@ async function runStep(step: Step): Promise<StepResult> {
     throw new Error(`${step.name} 没有启动：${String((await child).originalMessage)}`);
   }
   const state = { timedOut: false };
-  const timer = setTimeout(() => {
-    state.timedOut = true;
+  const kill = () => {
     treeKill(pid, 'SIGKILL', (error) => {
       if (error !== undefined) throw error;
     });
+  };
+  const timer = setTimeout(() => {
+    state.timedOut = true;
+    kill();
   }, step.timeoutMs);
+  step.signal.addEventListener('abort', kill, { once: true });
   const result = await child;
   clearTimeout(timer);
+  step.signal.removeEventListener('abort', kill);
+  step.signal.throwIfAborted();
   if (state.timedOut) return { exitCode: -1, timedOut: true };
   if (result.exitCode === undefined) {
     throw new Error(`${step.name} 被信号 ${String(result.signal)} 结束：${tail(step.log)}`);
@@ -238,15 +211,20 @@ function failedResult(task: IcTask, head: string, error: string): HiddenTestsRes
 
 // checkout 位于 data/runs/<runId>/grading/checkout。npm ci 与测试命令在 sandbox 中运行：只能写 grading 目录，
 // 读不到凭据与其他 run；测试配置由 task 提供并放在 checkout 之外，JUnit 写在 checkout 之外
-export async function runHiddenTests(checkout: string, task: IcTask): Promise<HiddenTestsResult> {
+export async function runHiddenTests(
+  checkout: string,
+  task: IcTask,
+  signal: AbortSignal,
+): Promise<HiddenTestsResult> {
   const gradingDir = path.dirname(checkout);
   const junitPath = path.join(gradingDir, 'junit.xml');
   const dest = path.join(checkout, HIDDEN_TESTS_DEST);
-  if (fs.existsSync(dest)) throw new Error(`checkout 中已存在 ${HIDDEN_TESTS_DEST}：${dest}`);
   if (fs.existsSync(junitPath)) throw new Error(`JUnit 输出已存在：${junitPath}`);
   const { stdout } = await execa('git', ['-C', checkout, 'rev-parse', 'HEAD']);
   const head = stdout.trim();
 
+  // PR 自己带的 test/hidden 不参与评分：整个目录换成 task 的隐藏测试
+  fs.rmSync(dest, { recursive: true, force: true });
   fs.cpSync(path.join(task.dir, task.hiddenTests.dir), dest, { recursive: true });
   const configPath = placeHiddenConfig(task, checkout, path.join(gradingDir, 'hidden-config'));
   // 工具向上查找 package.json 与 tsconfig.json 时停在 grading 目录，不读到 dashboard 仓库的文件（sandbox 禁止读取）：
@@ -291,6 +269,7 @@ export async function runHiddenTests(checkout: string, task: IcTask): Promise<Hi
     sandbox,
     log: path.join(gradingDir, 'npm-ci.log'),
     timeoutMs,
+    signal,
   });
   if (install.timedOut) return failedResult(task, head, timeoutError('npm ci', timeoutSeconds));
   if (install.exitCode !== 0) {
@@ -311,6 +290,7 @@ export async function runHiddenTests(checkout: string, task: IcTask): Promise<Hi
       sandbox: null,
       log,
       timeoutMs,
+      signal,
     });
     if (browsers.timedOut) {
       return failedResult(task, head, timeoutError('playwright install', timeoutSeconds));
@@ -333,6 +313,7 @@ export async function runHiddenTests(checkout: string, task: IcTask): Promise<Hi
     sandbox,
     log,
     timeoutMs,
+    signal,
   });
   if (run.timedOut) return failedResult(task, head, timeoutError('隐藏测试命令', timeoutSeconds));
   // 有失败的测试时退出码为 1，这是正常的评分结果

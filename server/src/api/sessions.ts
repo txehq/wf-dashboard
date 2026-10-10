@@ -1,4 +1,5 @@
-import { and, asc, count, desc, eq, inArray, isNull, like, lt, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
+import type { SQLiteColumn } from 'drizzle-orm/sqlite-core';
 import {
   type FastifyPluginCallbackZod,
   serializerCompiler,
@@ -185,14 +186,16 @@ function summaries(db: Db, rows: SummaryRow[]): SessionSummary[] {
       .all()
       .map((m) => [m.sessionId, sessionTitle(m.text)]),
   );
+  // 与 readReport 相同：run 的 session 不受判定版本号限制
   const analyzed = new Set(
     db
       .select({ id: stageAnalyses.sessionId })
       .from(stageAnalyses)
+      .innerJoin(sessions, eq(sessions.id, stageAnalyses.sessionId))
       .where(
         and(
           inArray(stageAnalyses.sessionId, ids),
-          eq(stageAnalyses.version, STAGE_ANALYSIS_VERSION),
+          or(eq(stageAnalyses.version, STAGE_ANALYSIS_VERSION), isNotNull(sessions.runId)),
         ),
       )
       .all()
@@ -298,13 +301,11 @@ export const sessionsRoutes: FastifyPluginCallbackZod<SessionsRoutesOptions> = (
       const conditions = [visible];
       if (source !== undefined) conditions.push(eq(sources.path, source));
       if (q !== undefined) {
-        const pattern = `%${q}%`;
+        // q 按字面匹配：% 与 _ 不是通配符
+        const pattern = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+        const contains = (column: SQLiteColumn) => sql`${column} like ${pattern} escape '\\'`;
         conditions.push(
-          or(
-            like(sessions.title, pattern),
-            like(sessions.cwd, pattern),
-            like(sessions.id, pattern),
-          ),
+          or(contains(sessions.title), contains(sessions.cwd), contains(sessions.id)),
         );
       }
       if (workflow === 'lfg') conditions.push(eq(sessions.hasLfg, true));
@@ -450,6 +451,13 @@ export const sessionsRoutes: FastifyPluginCallbackZod<SessionsRoutesOptions> = (
       const messageConditions = [eq(userMessages.sessionId, id), ofAgent(userMessages.agentId)];
       const lower = fromSeq === undefined || fromSeq === 0 ? undefined : seqAt(fromSeq - 1);
       const upper = toSeq === undefined ? undefined : seqAt(toSeq);
+      // 区间端点必须是存在的请求：不存在时去掉这一侧的界限会返回范围之外的用户消息
+      if (fromSeq !== undefined && fromSeq > 0 && lower === undefined) {
+        return reply.code(404).send({ error: `session ${id} 中没有请求 #${String(fromSeq - 1)}` });
+      }
+      if (toSeq !== undefined && upper === undefined) {
+        return reply.code(404).send({ error: `session ${id} 中没有请求 #${String(toSeq)}` });
+      }
       if (lower !== undefined)
         messageConditions.push(sql`${userMessages.timestamp} > ${lower.getTime()}`);
       if (upper !== undefined)

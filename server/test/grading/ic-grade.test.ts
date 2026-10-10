@@ -35,7 +35,7 @@ describe('ic 评分（真实 GitHub 仓库，只读取）', { timeout: 10 * 60_0
     const task = await fixtureTask();
     const runId = testRunId('w9-ic');
     insertRun(db, { id: runId, taskId: task.id, variantId: 'baseline', githubRepo: REPO_WITH_PR });
-    await gradeRun(db, runId);
+    await gradeRun(db, runId, new AbortController().signal);
     const grades = readRunGrades(db, runId);
     const outDir = path.join(config.repoRoot, '.work/grading');
     fs.mkdirSync(outDir, { recursive: true });
@@ -68,6 +68,10 @@ describe('ic 评分（真实 GitHub 仓库，只读取）', { timeout: 10 * 60_0
       ['divide by one', 'not-run'],
     ]);
     expect(fs.existsSync(path.join(config.runsDir, runId, 'grading/junit.xml'))).toBe(true);
+    // W15 Medium 18：评分之后删除 checkout（含 node_modules）与评分用的 HOME
+    for (const dir of ['checkout', 'home', 'tmp']) {
+      expect(fs.existsSync(path.join(config.runsDir, runId, 'grading', dir)), dir).toBe(false);
+    }
   });
 
   it('没有 PR：测试记 0 / 声明数，终点为否', async () => {
@@ -79,7 +83,7 @@ describe('ic 评分（真实 GitHub 仓库，只读取）', { timeout: 10 * 60_0
       variantId: 'baseline',
       githubRepo: REPO_WITHOUT_PR,
     });
-    await gradeRun(db, runId);
+    await gradeRun(db, runId, new AbortController().signal);
     const ic = readRunGrades(db, runId)?.ic;
     expect(ic).toMatchObject({ testsPassed: 0, testsDeclared: 8, reachedEnd: false });
     expect(ic?.detail.pr).toBeNull();
@@ -95,7 +99,7 @@ describe('ic 评分（真实 GitHub 仓库，只读取）', { timeout: 10 * 60_0
     const runId = testRunId('w18a-ic-timeout');
     insertRun(db, { id: runId, taskId: task.id, variantId: 'baseline', githubRepo: REPO_WITH_PR });
     const message = `npm ci 超过 ${String(timeoutSeconds)} 秒没有结束，已强制结束`;
-    await expect(gradeRun(db, runId)).rejects.toThrow(message);
+    await expect(gradeRun(db, runId, new AbortController().signal)).rejects.toThrow(message);
     const ic = readRunGrades(db, runId)?.ic;
     expect(ic).toMatchObject({ testsPassed: 0, testsDeclared: 8, reachedEnd: true });
     expect(ic?.detail.error).toBe(message);
@@ -107,7 +111,9 @@ describe('ic 评分（真实 GitHub 仓库，只读取）', { timeout: 10 * 60_0
     const task = await fixtureTask();
     const runId = testRunId('w9-ic-norepo');
     insertRun(db, { id: runId, taskId: task.id, variantId: 'baseline' });
-    await expect(gradeRun(db, runId)).rejects.toThrow('没有 GitHub 仓库');
+    await expect(gradeRun(db, runId, new AbortController().signal)).rejects.toThrow(
+      '没有 GitHub 仓库',
+    );
     expect(readRunGrades(db, runId)).toBeNull();
   });
 });

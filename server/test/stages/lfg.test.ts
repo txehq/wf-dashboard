@@ -150,9 +150,9 @@ describe('lfg 离线规则：wf obsidian 边界调用', () => {
   const locked = path.join(featureDir(VAULT, 'Tokun', 'model-pool'), 'Research.md');
   const unlocked = path.join(featureDir(VAULT, 'Magi', 'optional-mcp-install'), 'Research.md');
 
-  test('四个边界依次识别，dry-run 被排除', async () => {
+  test('四个边界依次识别，dry-run 被排除', () => {
     const rows = session('run-offline-a', locked);
-    const boundaries = await lfgOfflineBoundaries(rows, ws);
+    const boundaries = lfgOfflineBoundaries(rows, ws);
     expect(boundaries.map((b) => [b.stage, b.seq])).toEqual([
       ['interview', 3],
       ['research', 4],
@@ -167,7 +167,7 @@ describe('lfg 离线规则：wf obsidian 边界调用', () => {
 
   test('--replace 写入的文件没有锁定标记时 plan 不算完成，报告标出未检测到锁定标记', async () => {
     const rows = session('run-offline-b', unlocked);
-    expect((await lfgOfflineBoundaries(rows, ws)).map((b) => b.stage)).toEqual([
+    expect(lfgOfflineBoundaries(rows, ws).map((b) => b.stage)).toEqual([
       'interview',
       'research',
       'ticketing',
@@ -253,10 +253,10 @@ describe('lfg 离线规则：wf obsidian 边界调用', () => {
     expect(report.outside.requests).toBe(0);
   });
 
-  test('写出的文件被删除后不算边界', async () => {
+  test('写出的文件被删除后不算边界', () => {
     const rows = session('run-offline-c', locked);
     fs.rmSync(path.join(vault, 'Project Magi Eval/Features/run-offline-c/Tickets.md'));
-    expect((await lfgOfflineBoundaries(rows, ws)).map((b) => b.stage)).toEqual([
+    expect(lfgOfflineBoundaries(rows, ws).map((b) => b.stage)).toEqual([
       'interview',
       'research',
       'plan',
@@ -264,7 +264,7 @@ describe('lfg 离线规则：wf obsidian 边界调用', () => {
   });
 
   // W15 H10：命令按 bash 语法解析，heredoc 正文与其他命令的参数不参与，--json 的输出按信封读取
-  test('heredoc 正文中的 -h、前一条命令的 --kind、--json 输出、--help 与命令行中只是提到 wf obsidian', async () => {
+  test('heredoc 正文中的 -h、前一条命令的 --kind、--json 输出、--help 与命令行中只是提到 wf obsidian', () => {
     const feature = 'run-offline-h10';
     const wf = (args: string) =>
       `wf obsidian ${args} --product "Magi Eval" --feature "${feature}" --vault "${vault}"`;
@@ -284,7 +284,7 @@ describe('lfg 离线规则：wf obsidian 边界调用', () => {
     ].map((r, seq) => ({ ...r, seq, agentId: null }));
     const jsonOut = rows[2]?.toolCalls[0]?.result ?? '';
     expect(JSON.parse(jsonOut)).toMatchObject({ ok: true, command: 'obsidian' });
-    const boundaries = await lfgOfflineBoundaries(rows, ws);
+    const boundaries = lfgOfflineBoundaries(rows, ws);
     expect(boundaries.map((b) => [b.stage, b.seq])).toEqual([
       ['interview', 0],
       ['research', 1],
@@ -293,5 +293,62 @@ describe('lfg 离线规则：wf obsidian 边界调用', () => {
     expect(boundaries[2]?.path).toBe(
       path.join(vault, `Project Magi Eval/Features/${feature}/Tickets.md`),
     );
+  });
+
+  // W15 Low 11：gate 已回答而之后还没有请求时，以前这一轮在写出 Tickets.md 的那一条（seq 6）结束，
+  // 回答之前的 seq 7 落在轮次之外
+  test('gate 回答之后还没有请求：这一轮到回答之前的最后一条请求为止', async () => {
+    const t0 = Date.parse('2026-10-09T09:00:00.000Z');
+    const [reply] = dryRuns;
+    if (!reply) throw new Error('缺少模板请求');
+    const rows = [
+      ...session('run-offline-g', locked),
+      {
+        ...reply,
+        messageId: `${reply.messageId}-gate-question`,
+        text: '要派发吗？',
+        toolCalls: [],
+      },
+    ].map((r, seq) => ({ ...r, seq, timestamp: new Date(t0 + seq * 1000) }));
+    const sessionId = 'lfg-gate-no-after';
+    insertSession(db, sessionId, rows, ws);
+    db.insert(userMessages)
+      .values({
+        sessionId,
+        agentId: null,
+        uuid: 'gate-answer-g',
+        kind: 'user',
+        timestamp: new Date(t0 + 7500),
+        text: '不派发，到此结束。',
+      })
+      .run();
+    const report = await analyzeSession(db, sessionId, TEST_STAGE_MODEL);
+    expect(report.lfg[0]?.endSeq).toBe(7);
+    expect(report.lfg[0]?.stages.at(-1)).toMatchObject({ stage: 'ticketing', endSeq: 7 });
+  });
+
+  // W15 Medium 2：由 Skill research 开始的一轮（还没有写出任何产物）以前显示 interview 进行中
+  test('由 Skill research 开始的一轮：interview 为 skipped，research 进行中', async () => {
+    const research = {
+      ...skillRow,
+      messageId: `${skillRow.messageId}-research`,
+      toolCalls: skillRow.toolCalls.map((c) =>
+        c.name === 'Skill' ? { ...c, id: `${c.id}-research`, input: { skill: 'research' } } : c,
+      ),
+    };
+    const [follow] = dryRuns;
+    if (!follow) throw new Error('缺少模板请求');
+    const rows = [research, { ...follow, messageId: `${follow.messageId}-m2`, toolCalls: [] }].map(
+      (r, seq) => ({ ...r, seq, agentId: null }),
+    );
+    const sessionId = 'lfg-from-research';
+    insertSession(db, sessionId, rows, ws);
+    const report = await analyzeSession(db, sessionId, TEST_STAGE_MODEL);
+    expect(report.lfg[0]?.stages.map((v) => [v.stage, v.status, v.startSeq, v.endSeq])).toEqual([
+      ['interview', 'skipped', 0, -1],
+      ['research', 'active', 0, 1],
+      ['plan', 'not-reached', null, null],
+      ['ticketing', 'not-reached', null, null],
+    ]);
   });
 });

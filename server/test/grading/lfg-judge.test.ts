@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,10 +9,17 @@ import { config } from '../../src/config.js';
 import { runCostBreakdown } from '../../src/cost.js';
 import { artifacts, runs } from '../../src/db/schema.js';
 import { closeLinearClient } from '../../src/external/linear.js';
-import { gradeRun, readRunGrades, ticketsContent } from '../../src/grading/index.js';
+import {
+  createdTickets,
+  gradeRun,
+  readRunGrades,
+  ticketsContent,
+} from '../../src/grading/index.js';
 import { RunGrades } from '../../src/grading/schema.js';
+import { ingestFile } from '../../src/ingest/ingest.js';
 import { models } from '../../src/llm/client.js';
 import { loadLfgTask, syncTasks } from '../../src/tasks/loader.js';
+import { unpackRunFixture } from '../helpers/run-fixture.js';
 import { openTestDb } from '../stages/db.js';
 import { insertRun, insertVariant } from './seed.js';
 
@@ -49,15 +57,29 @@ afterAll(async () => {
 });
 
 describe('lfg rubric judge（真实 vault 文档、真实 judge 调用）', { timeout: 10 * 60_000 }, () => {
-  it('tickets 产物附上 Tickets.md 中引用、在 run 开始之后创建的 Linear 工单', async () => {
-    seedLfgRun('w9-lfg-tickets');
+  // W15 Medium 15：以前取 Tickets.md 中提到、run 开始之后创建的工单。r-20261009-dqva52 的 Tickets.md 提到
+  // 同一时段由其他 ic run 建出的 TXE-3764、TXE-3767，这两张会被误算进来
+  it('tickets 产物附上该 run 的 session 中 save_issue 新建的工单（不含修改已有工单与其他 run 的工单）', async () => {
+    const sessionId = '0188c133-3e7b-4592-a963-fc717cf283de';
+    const jsonl = unpackRunFixture(
+      'r-20261009-dqva52',
+      sessionId,
+      path.join(outDir, 'tickets-session', randomUUID()),
+    );
+    ingestFile(db, jsonl);
+    insertRun(db, { id: 'w9-lfg-tickets', taskId: task.id, variantId: 'baseline', startedAt });
+    db.update(runs).set({ sessionId }).where(eq(runs.id, 'w9-lfg-tickets')).run();
     const run = db.select().from(runs).where(eq(runs.id, 'w9-lfg-tickets')).get();
     if (run === undefined) throw new Error('run 未写入');
-    const snapshot = fs.readFileSync(path.join(featureDir, 'Tickets.md'), 'utf8');
-    const content = await ticketsContent(run, snapshot);
+    const created = [3776, 3777, 3778, 3780, 3781, 3782, 3783, 3784, 3785].map(
+      (n) => `TXE-${String(n)}`,
+    );
+    expect(createdTickets(db, run)).toEqual(created);
+    const snapshot = '# Tickets\n\nTXE-3764 TXE-3767 TXE-3776\n';
+    const content = await ticketsContent(db, run, snapshot);
     const attached = [...content.matchAll(/^## (TXE-\d+) /gm)].map((m) => m[1]);
     console.log(`附上的工单：${attached.join(', ')}`);
-    expect(attached).toEqual(['TXE-2105', 'TXE-2106', 'TXE-2107']);
+    expect(attached).toEqual(created);
     expect(content.startsWith(snapshot)).toBe(true);
     expect(content).toContain('# Linear 中该 run 建出的工单');
   });
@@ -65,7 +87,8 @@ describe('lfg rubric judge（真实 vault 文档、真实 judge 调用）', { ti
   it('同一输入评两次：输出完整、分数在范围内，缺失产物记 0 分；差异写入 .work/grading', async () => {
     seedLfgRun('w9-lfg-a');
     seedLfgRun('w9-lfg-b');
-    await Promise.all([gradeRun(db, 'w9-lfg-a'), gradeRun(db, 'w9-lfg-b')]);
+    const never = new AbortController().signal;
+    await Promise.all([gradeRun(db, 'w9-lfg-a', never), gradeRun(db, 'w9-lfg-b', never)]);
     const results = ['w9-lfg-a', 'w9-lfg-b'].map((id) => {
       const g = readRunGrades(db, id);
       if (g?.lfg == null) throw new Error(`run ${id} 没有 lfg 评分`);
@@ -150,7 +173,9 @@ describe('lfg rubric judge（真实 vault 文档、真实 judge 调用）', { ti
   });
 
   it('同一个 run 不能评分两次；GET /api/runs/:id/grades 返回按产物分组的结果', async () => {
-    await expect(gradeRun(db, 'w9-lfg-a')).rejects.toThrow('已经评分过');
+    await expect(gradeRun(db, 'w9-lfg-a', new AbortController().signal)).rejects.toThrow(
+      '已经评分过',
+    );
     const app = await buildApp({
       db,
       sseHeartbeatMs: config.sseHeartbeatMs,

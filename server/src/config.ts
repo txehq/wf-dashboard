@@ -19,8 +19,10 @@ export const config = {
   variantsDir: path.join(dataDir, 'variants'),
   runsDir: path.join(dataDir, 'runs'),
   tasksDir: path.join(repoRoot, 'tasks'),
-  // 被评估的 workflow 仓库，基线 variant 从它的 commit 导出
-  txeWorkflowRepo: '/Users/linhaoz/Project/txe/txe-workflow',
+  // 被评估的 workflow 仓库，基线 variant 从它的 commit 导出；其他机器用 WFD_TXE_WORKFLOW 指定
+  txeWorkflowRepo: path.resolve(
+    process.env.WFD_TXE_WORKFLOW ?? path.join(os.homedir(), 'Project/txe/txe-workflow'),
+  ),
   // wf-history MCP 直接启动真实的 ctx
   ctxBin: path.join(os.homedir(), '.local/bin/ctx'),
   migrationsDir: fileURLToPath(new URL('../drizzle', import.meta.url)),

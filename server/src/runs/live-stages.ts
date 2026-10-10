@@ -17,12 +17,13 @@ import { models } from '../llm/client.js';
 import {
   advanceIc,
   BATCH_SIZE,
+  type Behaviour,
   behavioursOf,
   type IcBoundary,
   type IcState,
 } from '../stages/ic.js';
 import { type LfgDoc, LfgTracker } from '../stages/lfg.js';
-import { type Cycle, cycleEnd, icCycle, lfgCycle } from '../stages/report.js';
+import { type Cycle, icCycles, lfgCycle, workflowMarks } from '../stages/report.js';
 import { loadSessionRows, type RequestRow, type SessionRows } from '../stages/rows.js';
 import { LFG_STAGES, type LfgStage } from '../stages/workflow.js';
 import { upsertArtifact } from './records.js';
@@ -46,6 +47,8 @@ export abstract class LiveStages {
   private readonly statuses = new Map<string, StageStatus>();
   // 判定串行执行
   private queue: Promise<void> = Promise.resolve();
+  // 一次判定出错后 run 失败，之后的判定不再执行，也不再写 stage_spans 与 artifacts
+  private failed = false;
 
   constructor(protected readonly opts: LiveStagesOptions) {
     this.db = opts.db;
@@ -54,9 +57,10 @@ export abstract class LiveStages {
   }
 
   protected enqueue(work: () => Promise<void> | void): Promise<void> {
-    const next = this.queue.then(work);
-    // 判定出错时交给 run 记为失败；之后的调用照常排队
+    const next = this.queue.then(() => (this.failed ? undefined : work()));
+    // 判定出错时交给 run 记为失败
     this.queue = next.catch((error: unknown) => {
+      this.failed = true;
       this.opts.onError(error instanceof Error ? error : new Error(String(error)));
     });
     return this.queue;
@@ -68,6 +72,11 @@ export abstract class LiveStages {
   abstract onSessionUpdated(): void;
   // run 结束：做最后一次判定并停止监听
   abstract close(): Promise<void>;
+  // run 失败：不再判定，停止监听
+  async stop(): Promise<void> {
+    this.failed = true;
+    await this.queue;
+  }
 
   // jsonl 还没写出 session 时为 null
   protected sessionRows(): SessionRows | null {
@@ -225,17 +234,36 @@ export class LfgLiveStages extends LiveStages {
     });
     await this.watcher?.close();
   }
+
+  override async stop() {
+    await super.stop();
+    await this.watcher?.close();
+  }
 }
 
+interface IcJudged {
+  state: IcState;
+  boundaries: IcBoundary[];
+}
+
+// advanceIc 每次调用从 0 起给轮次编号（0 为调用开始时已在进行的一轮）；接在已有的 cycles 轮之后时换成整个 session 的编号
+function renumber(boundaries: IcBoundary[], cycles: number): IcBoundary[] {
+  return boundaries.map((b) => ({ ...b, cycle: b.cycle === 0 ? cycles : cycles + b.cycle }));
+}
+
+const cyclesOf = (boundaries: IcBoundary[]) => Math.max(0, ...boundaries.map((b) => b.cycle));
+
+// 与离线判定（stages/report 的 judgeIcSession）使用同一组批次：行为从 ic 的第一个粗判标志所在的请求起，
+// 以流程外为初始状态，按 20 条一批。只有满 20 条的批次计入已确定的结果；不满一批的末尾在一轮结束时
+// 从已确定的状态起临时判定，用于显示，下一次判定时连同新增的行为重新判；run 结束时最后一批计入。
+// 这样 run 结束时的结果与导入后离线判定的结果来自同样的批次与同样的提问
 export class IcLiveStages extends LiveStages {
-  // 与离线判定一样从流程外开始：/ic 的第一条动作进入 claim
-  private state: IcState = 'outside';
-  // 本轮进入各阶段的边界；离开本轮的边界（stage 为 outside）
-  private readonly entries: IcBoundary[] = [];
-  private leave: IcBoundary | undefined;
-  // 已判定过的行为条数
+  private committed: IcJudged = { state: 'outside', boundaries: [] };
+  // 已确定的行为条数
   private judged = 0;
   private judging = false;
+  // ic 第一个粗判标志所在的请求：一经出现就不会再变，批次从这里起
+  private icStart: number | undefined;
 
   constructor(
     opts: LiveStagesOptions,
@@ -245,65 +273,81 @@ export class IcLiveStages extends LiveStages {
     super(opts);
   }
 
-  // 只判定已经完整的请求：最后一条请求在一轮结束前还可能追加 content block
-  private behaviours(rows: RequestRow[], complete: boolean) {
-    const last = lastSeqOf(rows);
-    return behavioursOf(complete ? rows : rows.filter((r) => r.seq < last));
+  // complete 为 false 时不含最后一条请求：它在一轮结束前还可能追加 content block
+  private behaviours(rows: SessionRows, complete: boolean): Behaviour[] {
+    const start = workflowMarks(rows).ic[0];
+    if (start === undefined) return [];
+    if (this.icStart !== undefined && start !== this.icStart) {
+      throw new Error(`ic 的起点从请求 #${String(this.icStart)} 变成了 #${String(start)}`);
+    }
+    this.icStart = start;
+    const last = lastSeqOf(rows.main);
+    return behavioursOf(rows.main.filter((r) => r.seq >= start && (complete || r.seq < last)));
   }
 
-  private async judge(complete: boolean) {
+  // 第一轮已经离开：run 在 ready-for-review 之后结束，之后的行为不再判定
+  private left(judged: IcJudged): boolean {
+    return judged.boundaries.some((b) => b.cycle === 1 && b.stage === 'outside');
+  }
+
+  private async advance(from: IcJudged, behaviours: Behaviour[]): Promise<IcJudged> {
+    const result = await advanceIc(this.db, {
+      sessionId: this.sessionId,
+      current: from.state,
+      behaviours,
+      model: models.stageCheck,
+    });
+    return {
+      state: result.stage,
+      boundaries: [...from.boundaries, ...renumber(result.boundaries, cyclesOf(from.boundaries))],
+    };
+  }
+
+  private async judge(complete: boolean, final: boolean) {
     const rows = this.sessionRows();
     if (rows === null || rows.main.length === 0) return;
-    const fresh = this.behaviours(rows.main, complete).slice(this.judged);
-    // run 在 ready-for-review 之后结束；离开本轮之后的行为不再判定
-    if (fresh.length > 0 && this.leave === undefined) {
-      const result = await advanceIc(this.db, {
-        sessionId: this.sessionId,
-        current: this.state,
-        behaviours: fresh,
-        model: models.stageCheck,
-      });
-      this.state = result.stage;
-      for (const b of result.boundaries) {
-        if (this.leave !== undefined) break;
-        if (b.stage === 'outside') {
-          if (this.entries.length > 0) this.leave = b;
-        } else {
-          this.entries.push(b);
-        }
+    const all = this.behaviours(rows, complete);
+    const whole = Math.floor((all.length - this.judged) / BATCH_SIZE) * BATCH_SIZE;
+    if (whole > 0 && !this.left(this.committed)) {
+      this.committed = await this.advance(
+        this.committed,
+        all.slice(this.judged, this.judged + whole),
+      );
+    }
+    this.judged += whole;
+    let shown = this.committed;
+    const rest = all.slice(this.judged);
+    if (complete && rest.length > 0 && !this.left(this.committed)) {
+      shown = await this.advance(this.committed, rest);
+      if (final) {
+        this.committed = shown;
+        this.judged += rest.length;
       }
     }
-    this.judged += fresh.length;
-    const first = this.entries[0];
-    if (first === undefined) return;
-    const lastSeq = lastSeqOf(this.sessionRows()?.main ?? []);
-    this.writeCycle('llm', {
-      label: this.label,
-      startSeq: first.seq,
-      endSeq: this.leave === undefined ? null : cycleEnd(this.leave),
-      spans: icCycle(this.entries, this.leave, lastSeq),
-    });
+    const cycle = icCycles(shown.boundaries, this.sessionRows()?.main ?? [])[0];
+    if (cycle === undefined) return;
+    this.writeCycle('llm', { ...cycle, label: this.label });
   }
 
   onTurnEnd(): Promise<void> {
-    return this.enqueue(() => this.judge(true));
+    return this.enqueue(() => this.judge(true, false));
   }
 
-  // 新增满 20 条行为时判定一次
+  // 新增满一批行为时判定一次
   onSessionUpdated() {
     if (this.judging) return;
     const rows = this.sessionRows();
-    if (rows === null || this.behaviours(rows.main, false).length - this.judged < BATCH_SIZE) {
+    if (rows === null || this.behaviours(rows, false).length - this.judged < BATCH_SIZE) {
       return;
     }
     this.judging = true;
     void this.enqueue(async () => {
-      await this.judge(false);
+      await this.judge(false, false);
       this.judging = false;
     });
   }
 
   async close() {
-    await this.enqueue(() => this.judge(true));
+    await this.enqueue(() => this.judge(true, true));
   }
 }

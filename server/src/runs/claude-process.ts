@@ -53,6 +53,7 @@ export class ClaudeProcess {
   private readonly log: fs.WriteStream;
   private readonly controlWaiters = new Map<string, () => void>();
   private stdinClosed = false;
+  private broken = false;
 
   constructor(private readonly opts: ClaudeProcessOptions) {
     fs.mkdirSync(opts.logDir, { recursive: true });
@@ -78,9 +79,10 @@ export class ClaudeProcess {
     this.child.on('error', (error) => {
       opts.onError(error);
     });
-    // 子进程退出后写入会报 EPIPE；退出本身由 exited 报告
-    this.child.stdin.on('error', (error) => {
+    // EPIPE：子进程已关闭 stdin 或正在退出，退出本身由 exited 报告；其余写入错误让 run 失败（回答没有送达）
+    this.child.stdin.on('error', (error: NodeJS.ErrnoException) => {
       this.record('stdin-error', error.message);
+      if (error.code !== 'EPIPE') opts.onError(error);
     });
     readline.createInterface({ input: this.child.stdout }).on('line', (line) => {
       this.onLine(line);
@@ -96,12 +98,14 @@ export class ClaudeProcess {
   }
 
   private onLine(line: string) {
-    if (line.trim() === '') return;
+    // 出现过无法解析的输出之后不再处理后续行：run 已经失败，不能再回答 control_request
+    if (this.broken || line.trim() === '') return;
     let event: StreamEvent;
     try {
       event = parseStreamEvent(JSON.parse(line));
     } catch (error) {
       // 无法解析的输出让整个 run 失败，原始行写入错误信息
+      this.broken = true;
       this.opts.onError(
         new Error(`claude stdout 无法解析：${line.slice(0, 500)}`, { cause: error }),
       );

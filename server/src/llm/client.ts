@@ -58,12 +58,18 @@ export function setModels(next: Models) {
 
 let client: Anthropic | undefined;
 
-export function anthropic(): Anthropic {
-  client ??= new Anthropic({
-    baseURL: env.ANTHROPIC_BASE_URL,
-    authToken: env.ANTHROPIC_AUTH_TOKEN,
+export function gatewayClient(baseURL: string, authToken: string): Anthropic {
+  return new Anthropic({
+    baseURL,
+    authToken,
     apiKey: null,
+    // 不自动重试：gateway 的 429 / 5xx / 连接错误直接交给调用方
+    maxRetries: 0,
   });
+}
+
+export function anthropic(): Anthropic {
+  client ??= gatewayClient(env.ANTHROPIC_BASE_URL, env.ANTHROPIC_AUTH_TOKEN);
   return client;
 }
 
@@ -85,24 +91,29 @@ export async function parseStructured<T>(args: {
   user: string;
   schema: z.ZodType<T>;
   maxTokens: number;
+  // 取消评分时中止进行中的请求
+  signal?: AbortSignal;
 }): Promise<StructuredResult<T>> {
-  const response = await anthropic().messages.create({
-    model: args.model,
-    max_tokens: args.maxTokens,
-    system: `${args.system}${OUTPUT_RULE}`,
-    messages: [{ role: 'user', content: args.user }],
-    tools: [
-      {
-        name: OUTPUT_TOOL,
-        description: '提交最终结果。',
-        // zodOutputFormat 由 z.toJSONSchema 生成并转成 strict 支持的子集（整数范围、字符串长度等移入 description），
-        // 这些约束由下面的 schema.parse 校验
-        input_schema: ToolInputSchema.parse(zodOutputFormat(args.schema).schema),
-        strict: true,
-      },
-    ],
-    tool_choice: { type: 'auto' },
-  });
+  const response = await anthropic().messages.create(
+    {
+      model: args.model,
+      max_tokens: args.maxTokens,
+      system: `${args.system}${OUTPUT_RULE}`,
+      messages: [{ role: 'user', content: args.user }],
+      tools: [
+        {
+          name: OUTPUT_TOOL,
+          description: '提交最终结果。',
+          // zodOutputFormat 由 z.toJSONSchema 生成并转成 strict 支持的子集（整数范围、字符串长度等移入 description），
+          // 这些约束由下面的 schema.parse 校验
+          input_schema: ToolInputSchema.parse(zodOutputFormat(args.schema).schema),
+          strict: true,
+        },
+      ],
+      tool_choice: { type: 'auto' },
+    },
+    args.signal === undefined ? {} : { signal: args.signal },
+  );
   const call = response.content.find((block) => block.type === 'tool_use');
   if (call?.type !== 'tool_use') {
     throw new Error(

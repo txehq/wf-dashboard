@@ -77,37 +77,37 @@ function bash(command: string, result: string, isError = false): RequestRow {
 }
 
 describe('验收报告（Contracts 7.2）', () => {
-  test('真实 session：截图的 img 发布与 --help 不算，只识别标题含 acceptance 的页面', async () => {
+  test('真实 session：截图的 img 发布与 --help 不算，只识别标题含 acceptance 的页面', () => {
     const rows = db.select().from(requests).where(eq(requests.sessionId, sessionId)).all();
     const publishes = rows.flatMap((r) =>
       r.toolCalls.filter((c) => JSON.stringify(c.input).includes('wf publish-artifact')),
     );
     expect(publishes.length).toBeGreaterThan(2);
-    const reports = await acceptanceReports(rows);
+    const reports = acceptanceReports(rows);
     expect(reports.map((r) => r.url)).toContain(REPORT);
     expect(reports.every((r) => r.url.startsWith('https://engapp.dev/artifacts/page/'))).toBe(true);
     expect(reports.find((r) => r.url === REPORT)?.title).toBe('TXE-3875 单位换算页面 - acceptance');
   });
 
-  test('写入 artifacts：每个 run 一条，location 为最后一次发布的页面', async () => {
-    await recordAcceptanceReport(db, runId, sessionId);
-    await recordAcceptanceReport(db, runId, sessionId);
+  test('写入 artifacts：每个 run 一条，location 为最后一次发布的页面', () => {
+    recordAcceptanceReport(db, runId, sessionId);
+    recordAcceptanceReport(db, runId, sessionId);
     const rows = db
       .select()
       .from(artifacts)
       .where(and(eq(artifacts.runId, runId), eq(artifacts.kind, 'acceptance')))
       .all();
     expect(rows).toHaveLength(1);
-    const all = await acceptanceReports(
+    const all = acceptanceReports(
       db.select().from(requests).where(eq(requests.sessionId, sessionId)).all(),
     );
     expect(rows[0]?.location).toBe(all.at(-1)?.url);
     expect(JSON.parse(rows[0]?.snapshot ?? 'null')).toMatchObject({ title: all.at(-1)?.title });
   });
 
-  test('env 前缀、--title= 写法、dry-run、失败的调用与其他标题', async () => {
+  test('env 前缀、--title= 写法、dry-run、失败的调用与其他标题', () => {
     const page = (id: string) => `https://engapp.dev/artifacts/page/${id}`;
-    const reports = await acceptanceReports([
+    const reports = acceptanceReports([
       bash(
         'env -u ALL_PROXY HTTPS_PROXY=http://p wf publish-artifact r.html --title "A - acceptance"',
         page('aaaaaaaa'),

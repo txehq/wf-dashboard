@@ -15,7 +15,7 @@ import { config } from '../src/config.js';
 import { type Db, openDatabase } from '../src/db/index.js';
 import * as schema from '../src/db/schema.js';
 import { type AppEvent, events } from '../src/events.js';
-import { ingestFile } from '../src/ingest/ingest.js';
+import { ingestFile, truncateResult } from '../src/ingest/ingest.js';
 import { watchSession } from '../src/ingest/watch.js';
 
 // 真实样本在主仓库的 .spikes/ 下（gitignore），子 worktree 中用绝对路径读取
@@ -164,7 +164,8 @@ describe('watchSession', () => {
     const full = readFileSync(watched, 'utf8');
     const { lines, at } = splitPoint(watched);
     writePrefix(watched, lines, at);
-    const watcher = await watchSession(db, watched);
+    const errors: Error[] = [];
+    const watcher = await watchSession(db, watched, (error) => errors.push(error));
     const before = snapshot(db, sample.id).requests.length;
 
     const updated = new Promise<void>((resolve) => {
@@ -182,6 +183,7 @@ describe('watchSession', () => {
     appendFileSync(watched, full.slice(readFileSync(watched, 'utf8').length));
     await updated;
     await watcher.close();
+    expect(errors).toEqual([]);
 
     // 对同一个文件一次导入作为对照
     const reference = openTestDb();
@@ -446,5 +448,41 @@ describe('ingest fork 子代理', () => {
     });
     expect(ingestFile(incremental, main).changed).toBe(true);
     expect(snapshot(incremental, forkSample.id)).toEqual(snap);
+  });
+});
+
+// W15 Low 17：以前按 UTF-16 单元直接截断，可能留下半个代理对
+test('tool 结果截断不切开代理对', () => {
+  const emoji = '😀';
+  const text = `${'a'.repeat(19_999)}${emoji}b`;
+  const cut = truncateResult(text);
+  expect(cut).toBe('a'.repeat(19_999));
+  expect(truncateResult(`${'a'.repeat(19_998)}${emoji}b`)).toBe(`${'a'.repeat(19_998)}${emoji}`);
+  expect(truncateResult('short')).toBe('short');
+});
+
+// W15 Medium 1：其他 Claude session 发来的 peer 消息（origin.kind peer、isMeta）开始一轮；
+// 以前不更新触发时间，之后第一条请求的 duration_ms 为空或从几小时前的上一条用户消息算起
+describe('peer 消息', () => {
+  test('peer 消息之后的第一条请求从 peer 消息算起，peer 消息不是用户消息', () => {
+    const db = openTestDb();
+    const id = 'b7199c56-42d6-4dda-ac96-117d3937ebdd';
+    ingestFile(db, path.join(import.meta.dirname, 'fixtures/peer', `${id}.jsonl`));
+    const first = db
+      .select()
+      .from(schema.requests)
+      .where(eq(schema.requests.sessionId, id))
+      .orderBy(asc(schema.requests.seq))
+      .get();
+    expect(first?.seq).toBe(0);
+    expect(first?.durationMs).toBe(
+      Date.parse('2026-09-25T09:20:33.252Z') - Date.parse('2026-09-25T09:20:28.098Z'),
+    );
+    const users = db
+      .select()
+      .from(schema.userMessages)
+      .where(eq(schema.userMessages.sessionId, id))
+      .all();
+    expect(users.some((m) => m.text.includes('cross-session-message'))).toBe(false);
   });
 });

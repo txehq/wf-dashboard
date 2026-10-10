@@ -75,7 +75,7 @@ describe.concurrent.each(icIds)('%s', (id) => {
 
     const start = path.join(workDir, id, 'grading-start', 'checkout');
     checkoutStartRepo(task, start);
-    const startResult = await runHiddenTests(start, task);
+    const startResult = await runHiddenTests(start, task, new AbortController().signal);
     expect(startResult.head).toBe(task.repo.commit);
     expect(startResult.declared).toBe(declared);
     expect(startResult.passed).toBe(expectedStartPassed[id]);
@@ -83,7 +83,7 @@ describe.concurrent.each(icIds)('%s', (id) => {
     const reference = path.join(workDir, id, 'grading-reference', 'checkout');
     checkoutStartRepo(task, reference);
     applyReference(task, reference);
-    const referenceResult = await runHiddenTests(reference, task);
+    const referenceResult = await runHiddenTests(reference, task, new AbortController().signal);
     expect(referenceResult.fileErrors).toEqual([]);
     expect(referenceResult.outcomes.filter((o) => o.outcome !== 'passed')).toEqual([]);
     expect(referenceResult.passed).toBe(declared);

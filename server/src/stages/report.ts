@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import {
+  sessions,
   STAGE_ANALYSIS_VERSION,
   stageAnalyses,
   stageChecks,
@@ -11,11 +12,13 @@ import {
   workflows,
   type StageStatus,
 } from '../db/schema.js';
+import type { ToolCall } from '../db/schema.js';
 import { events } from '../events.js';
 import { detectFromToolCall, detectFromUserText, type WorkflowFlags } from '../ingest/workflows.js';
 import { judgeIcSession, type IcBoundary, type IcProgress } from './ic.js';
 import { lfgOfflineBoundaries, type LfgBoundary } from './lfg.js';
-import { loadSessionRows, type RequestRow, type SessionRows } from './rows.js';
+import { inputString, loadSessionRows, type RequestRow, type SessionRows } from './rows.js';
+import { commandsOf } from './shell.js';
 import { IC_STAGES, LFG_STAGES, type LfgStage } from './workflow.js';
 
 export const StageStats = z.object({
@@ -120,12 +123,14 @@ function gateEnd(rows: SessionRows, ticketingSeq: number): number | null {
   const answer = users[0];
   if (answer === undefined) return null;
   const following = users[1];
+  // 回答之后还没有请求时，这一轮到回答之前的最后一条请求为止（不一定是写出 Tickets.md 的那一条）
   const before = rows.main.filter(
-    (r) =>
-      r.timestamp.getTime() > answer.timestamp.getTime() &&
-      (following === undefined || r.timestamp.getTime() < following.timestamp.getTime()),
+    (r) => following === undefined || r.timestamp.getTime() < following.timestamp.getTime(),
   );
-  return before[before.length - 1]?.seq ?? ticketingSeq;
+  const last = before[before.length - 1];
+  if (last === undefined)
+    throw new Error(`dispatch gate 的回答之前没有请求（seq ${String(ticketingSeq)}）`);
+  return last.seq;
 }
 
 // 离线用 wf obsidian 边界；实时运行（runs 模块）用产物出现时的 seq
@@ -134,6 +139,8 @@ export function lfgCycle(
   start: number,
   boundaries: { stage: LfgStage; seq: number }[],
   lastSeq: number,
+  // 这一轮从哪个阶段开始（Skill research 开始的一轮之前的阶段为 skipped）
+  entered: LfgStage = 'interview',
 ) {
   const spans: Span[] = [];
   let cursor = start;
@@ -165,7 +172,7 @@ export function lfgCycle(
     const later = LFG_STAGES.slice(i + 1).find((s) =>
       boundaries.some((x) => x.stage === s && x.seq >= cursor),
     );
-    if (later !== undefined) {
+    if (later !== undefined || i < LFG_STAGES.indexOf(entered)) {
       const evidence = stage === 'plan' ? { note: '未检测到锁定标记' } : null;
       spans.push({ stage, status: 'skipped', startSeq: cursor, endSeq: cursor - 1, evidence });
       continue;
@@ -176,6 +183,19 @@ export function lfgCycle(
   return { spans, endSeq };
 }
 
+// 标志所在的请求以哪个 lfg 阶段的 Skill 开始（Contracts 5：一轮从 /lfg 或首个 lfg 阶段开始）；
+// /lfg、interview 或 wf obsidian 写出产物的标志从 interview 开始
+function lfgEntry(rows: SessionRows, seq: number): LfgStage {
+  const row = rows.main.find((r) => r.seq === seq);
+  for (const call of row?.toolCalls ?? []) {
+    if (call.name !== 'Skill') continue;
+    const skill = inputString(call.input, 'skill');
+    const stage = LFG_STAGES.find((s) => s === skill);
+    if (stage !== undefined) return stage;
+  }
+  return 'interview';
+}
+
 // 一轮从 lfg 标志开始，在 dispatch gate 的回答之后结束；结束之后的下一个标志开始下一轮
 function lfgCycles(rows: SessionRows, marks: number[], boundaries: LfgBoundary[]): Cycle[] {
   const lastSeq = rows.main[rows.main.length - 1]?.seq ?? -1;
@@ -183,7 +203,7 @@ function lfgCycles(rows: SessionRows, marks: number[], boundaries: LfgBoundary[]
   let start = marks[0];
   while (start !== undefined) {
     const from = start;
-    const { spans, endSeq } = lfgCycle(rows, from, boundaries, lastSeq);
+    const { spans, endSeq } = lfgCycle(rows, from, boundaries, lastSeq, lfgEntry(rows, from));
     const brief = boundaries.find((b) => b.stage === 'interview' && b.seq >= from);
     cycles.push({
       label: brief === undefined ? `第 ${String(cycles.length + 1)} 轮` : featureOf(brief.path),
@@ -199,30 +219,49 @@ function lfgCycles(rows: SessionRows, marks: number[], boundaries: LfgBoundary[]
 
 // Project X/Features/<slug>/Brief.md 的 slug
 function featureOf(file: string): string {
-  const parts = file.split('/');
-  return parts[parts.length - 2] ?? file;
+  const slug = file.split('/').at(-2);
+  if (slug === undefined) throw new Error(`产物路径不在 Features/<slug>/ 下：${file}`);
+  return slug;
 }
 
-const TICKET_IN_LINEAR = /"(?:id|issueId|issue)":"([A-Z][A-Z0-9]*-\d+)"/;
-const PR_NUMBER = [
-  /\/pull\/(\d+)/,
-  /\bgh\s+pr\s+(?:ready|view|checks|merge|edit|comment|review|diff)\s+(\d+)/,
-  /--pr[\s=]+(\d+)/,
-];
+const TICKET = /^[A-Z][A-Z0-9]*-\d+$/;
+const LINEAR_TOOL = /^mcp__.*linear.*__/i;
+const PR_URL = /\/pull\/(\d+)\b/;
 
-// 轮次标签：判定证据中的工单编号，其次 PR 编号
-function icLabel(evidence: IcBoundary[], index: number): string {
-  for (const b of evidence) {
-    const ticket = /^mcp__[^:]*linear[^:]*:/.test(b.summary)
-      ? TICKET_IN_LINEAR.exec(b.summary)
-      : null;
-    if (ticket?.[1]) return ticket[1];
-  }
-  for (const b of evidence) {
-    for (const re of PR_NUMBER) {
-      const m = re.exec(b.summary);
-      if (m?.[1]) return `PR #${m[1]}`;
+// 一次 tool 调用涉及的 PR 编号：gh pr <子命令> 的编号参数、--pr 参数，或输入中的 PR 链接
+function prNumberOf(call: ToolCall): string | null {
+  const command = call.name === 'Bash' ? inputString(call.input, 'command') : null;
+  for (const argv of command === null ? [] : commandsOf(command)) {
+    if (argv[0] === 'gh' && argv[1] === 'pr') {
+      const number = argv.slice(3).find((w) => /^\d+$/.test(w));
+      if (number !== undefined) return number;
     }
+    for (const [i, w] of argv.entries()) {
+      const value = w === '--pr' ? argv[i + 1] : w.startsWith('--pr=') ? w.slice(5) : undefined;
+      if (value !== undefined && /^\d+$/.test(value)) return value;
+    }
+  }
+  const strings = JSON.stringify(call.input);
+  return PR_URL.exec(strings)?.[1] ?? null;
+}
+
+// 轮次标签：判定证据中 Linear 工具输入的工单编号，其次 PR 编号；证据按 toolCallId 找到原始的 tool 调用
+function icLabel(evidence: IcBoundary[], index: number, calls: Map<string, ToolCall>): string {
+  const evidenceCalls = evidence.map((b) => {
+    const call = calls.get(b.toolCallId);
+    if (call === undefined) throw new Error(`判定证据的 tool 调用 ${b.toolCallId} 不在 session 中`);
+    return call;
+  });
+  for (const call of evidenceCalls) {
+    if (!LINEAR_TOOL.test(call.name)) continue;
+    for (const key of ['id', 'issueId', 'issue']) {
+      const value = inputString(call.input, key);
+      if (value !== null && TICKET.test(value)) return value;
+    }
+  }
+  for (const call of evidenceCalls) {
+    const pr = prNumberOf(call);
+    if (pr !== null) return `PR #${pr}`;
   }
   return `第 ${String(index)} 轮`;
 }
@@ -271,7 +310,10 @@ export function icCycle(
   });
 }
 
-function icCycles(boundaries: IcBoundary[], lastSeq: number): Cycle[] {
+// main：主 session 的请求，轮次标签从判定证据对应的 tool 调用中读取
+export function icCycles(boundaries: IcBoundary[], main: RequestRow[]): Cycle[] {
+  const lastSeq = main[main.length - 1]?.seq ?? -1;
+  const calls = new Map(main.flatMap((r) => r.toolCalls.map((c) => [c.id, c] as const)));
   const byCycle = new Map<number, IcBoundary[]>();
   for (const b of boundaries) {
     if (b.cycle === 0) throw new Error('离线判定从流程外开始，不会有第 0 轮');
@@ -285,7 +327,7 @@ function icCycles(boundaries: IcBoundary[], lastSeq: number): Cycle[] {
       const first = entries[0];
       if (first === undefined) throw new Error(`第 ${String(index)} 轮没有进入的阶段`);
       return {
-        label: icLabel(entries, index),
+        label: icLabel(entries, index, calls),
         startSeq: first.seq,
         endSeq: leave === undefined ? null : cycleEnd(leave),
         spans: icCycle(entries, leave, lastSeq),
@@ -308,8 +350,7 @@ function emptyStats(): StageStats {
   };
 }
 
-// 一组主 session 请求的统计：子代理的请求计入其父调用所在的请求；
-// 耗时为每段连续 seq 的第一条到最后一条请求的时间之和
+// 一组主 session 请求的统计：子代理的请求计入其父调用所在的请求
 function statsOf(rows: SessionRows, main: RequestRow[]): StageStats {
   const stats = emptyStats();
   const agentIds = new Set(
@@ -325,15 +366,9 @@ function statsOf(rows: SessionRows, main: RequestRow[]): StageStats {
     stats.costUsd += r.costUsd;
     for (const c of r.toolCalls) stats.toolCalls[c.name] = (stats.toolCalls[c.name] ?? 0) + 1;
   }
-  let runStart: RequestRow | undefined;
-  for (const [i, r] of main.entries()) {
-    const prev = main[i - 1];
-    if (prev === undefined || r.seq !== prev.seq + 1) runStart = r;
-    const next = main[i + 1];
-    if (next?.seq !== r.seq + 1 && runStart !== undefined) {
-      stats.durationMs += r.timestamp.getTime() - runStart.timestamp.getTime();
-    }
-  }
+  // 耗时：各条主请求的 duration_ms 之和（从触发它的用户消息或 tool_result 到它的最后一条记录）。
+  // session 第一条请求之前没有触发记录时 duration_ms 为空，这一条不计入
+  for (const r of main) stats.durationMs += r.durationMs ?? 0;
   stats.subagents = agentIds.size;
   stats.mainRequests = main.length;
   return stats;
@@ -343,8 +378,22 @@ function inRange(seq: number, startSeq: number | null, endSeq: number | null): b
   return startSeq !== null && endSeq !== null && seq >= startSeq && seq <= endSeq;
 }
 
-function current<T extends { version: number }>(row: T | undefined): T | undefined {
-  return row?.version === STAGE_ANALYSIS_VERSION ? row : undefined;
+// 有效的判定结果：当前版本的离线判定；dashboard 发起的 run 的 session 由实时判定写入，运行结束后不会重新判定，
+// 不受版本号限制（版本提高后历史 run 的阶段与 Compare 的阶段成本照常可读）
+function currentAnalysis(db: Db, sessionId: string) {
+  const row = db.select().from(stageAnalyses).where(eq(stageAnalyses.sessionId, sessionId)).get();
+  if (row === undefined) return undefined;
+  if (row.version === STAGE_ANALYSIS_VERSION || isRunSession(db, sessionId)) return row;
+  return undefined;
+}
+
+function isRunSession(db: Db, sessionId: string): boolean {
+  const session = db
+    .select({ runId: sessions.runId })
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    .get();
+  return session?.runId != null;
 }
 
 // session 在判定之后继续增长时，未结束的轮次中最后一个进行中的阶段延伸到当前最后一条请求：
@@ -367,9 +416,7 @@ function extendOpen<T extends Pick<Span, 'status' | 'startSeq' | 'endSeq'>>(
 }
 
 export function readReport(db: Db, sessionId: string): StageReport | null {
-  const analysis = current(
-    db.select().from(stageAnalyses).where(eq(stageAnalyses.sessionId, sessionId)).get(),
-  );
+  const analysis = currentAnalysis(db, sessionId);
   if (!analysis) return null;
   const rows = loadSessionRows(db, sessionId);
   const lastSeq = rows.main[rows.main.length - 1]?.seq ?? -1;
@@ -420,7 +467,10 @@ export function readReport(db: Db, sessionId: string): StageReport | null {
     .select()
     .from(stageChecks)
     .where(
-      and(eq(stageChecks.sessionId, sessionId), eq(stageChecks.version, STAGE_ANALYSIS_VERSION)),
+      and(
+        eq(stageChecks.sessionId, sessionId),
+        isRunSession(db, sessionId) ? undefined : eq(stageChecks.version, STAGE_ANALYSIS_VERSION),
+      ),
     )
     .all();
   return StageReport.parse({
@@ -502,14 +552,12 @@ async function analyze(
     icStart === undefined
       ? null
       : judgeIcSession(db, sessionId, rows.main, icStart, model, onProgress);
-  const [lfgBoundaries, icJudged] = await Promise.all([
-    lfgOfflineBoundaries(rows.main, rows.cwd),
-    icJudging,
-  ]);
+  const lfgBoundaries = lfgOfflineBoundaries(rows.main, rows.cwd);
+  const icJudged = await icJudging;
   const lfgJudged = lfgCycles(rows, marks.lfg, lfgBoundaries);
   const { lfg, ic } = exclusive(
     lfgJudged,
-    icJudged === null ? [] : icCycles(icJudged.boundaries, lastSeq),
+    icJudged === null ? [] : icCycles(icJudged.boundaries, rows.main),
     lastSeq,
   );
   db.transaction((tx) => {
@@ -608,10 +656,7 @@ function startJob(db: Db, sessionId: string, model: string): Job {
 }
 
 function isAnalyzed(db: Db, sessionId: string): boolean {
-  return (
-    current(db.select().from(stageAnalyses).where(eq(stageAnalyses.sessionId, sessionId)).get()) !==
-    undefined
-  );
+  return currentAnalysis(db, sessionId) !== undefined;
 }
 
 // 等待判定完成：已按当前版本判定过的 session 直接返回已有结果；进行中的判定共用。

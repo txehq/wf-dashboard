@@ -26,7 +26,7 @@ export function linearLoggedIn(): boolean {
   return fs.existsSync(tokensPath);
 }
 
-async function connect(): Promise<Client> {
+async function connect(onClose: () => void): Promise<Client> {
   // 未登录时 mcp-remote 会打开浏览器等待授权，进程会一直挂起
   if (!linearLoggedIn()) throw new Error(`Linear 未登录：${tokensPath} 不存在`);
   const transport = new StdioClientTransport({
@@ -43,20 +43,25 @@ async function connect(): Promise<Client> {
     }
   });
   const c = new Client({ name: 'wf-dashboard', version: '0.0.0' });
-  // 子进程退出后下一次调用重新启动
-  c.onclose = () => {
-    client = undefined;
-  };
+  c.onclose = onClose;
   await c.connect(transport);
   return c;
 }
 
-// 进程内单例：一个 mcp-remote 子进程，所有 run 共用
+// 进程内单例：一个 mcp-remote 子进程，所有 run 共用。连接失败（例如还没有登录）不缓存，登录之后的下一次调用重新连接；
+// 子进程退出时进行中的调用照常报错，下一次调用重新启动。只清除自己这一个连接：旧连接迟到的 onclose 不清掉新连接
 let client: Promise<Client> | undefined;
 
 export function linearClient(): Promise<Client> {
-  client ??= connect();
-  return client;
+  if (client !== undefined) return client;
+  const current: Promise<Client> = connect(() => {
+    if (client === current) client = undefined;
+  });
+  client = current;
+  current.catch(() => {
+    if (client === current) client = undefined;
+  });
+  return current;
 }
 
 export async function closeLinearClient(): Promise<void> {

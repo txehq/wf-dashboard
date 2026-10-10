@@ -308,6 +308,14 @@ export interface IcProgress {
   costUsd: number;
 }
 
+// 批内下标对应的请求 seq；下标已由 batchIndexOf 校验，不存在时是判定代码的错误
+function seqAt(batch: Behaviour[], index: number): number {
+  const b = batch[index];
+  if (b === undefined)
+    throw new Error(`批内下标 ${String(index)} 超出批大小 ${String(batch.length)}`);
+  return b.seq;
+}
+
 async function judgeBatch<T>(
   db: Db,
   args: { sessionId: string; model: string },
@@ -339,7 +347,7 @@ async function judgeBatch<T>(
       toSeq: last.seq,
       inputChars: q.system.length + q.user.length,
       entered: q.entered(verdict),
-      enteredAtSeq: index === null ? null : (batch[index]?.seq ?? null),
+      enteredAtSeq: index === null ? null : seqAt(batch, index),
       answer: JSON.stringify(verdict),
       model: result.model,
       inputTokens: u.inputTokens + u.cacheReadTokens + u.cacheWrite5mTokens + u.cacheWrite1hTokens,

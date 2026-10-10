@@ -4,6 +4,7 @@ import Fastify from 'fastify';
 import { config } from '../config.js';
 import type { Db } from '../db/index.js';
 import { events } from '../events.js';
+import { closeLinearClient } from '../external/linear.js';
 import { defaultSourceDirs } from '../ingest/sources.js';
 import { createRuns } from '../runs/index.js';
 import { createSettingsStore } from '../runs/settings.js';
@@ -74,7 +75,11 @@ export async function buildApp({ db, sseHeartbeatMs, logger, tasksDir, webDir }:
   });
   await app.register(runRoutes, { runs, settings });
   await app.register(settingsRoutes, { settings });
-  app.addHook('onClose', () => runs.shutdown());
+  // 先结束 run（它们可能还在调用 Linear），再关闭 mcp-remote 子进程
+  app.addHook('onClose', async () => {
+    await runs.shutdown();
+    await closeLinearClient();
+  });
 
   const environment = createEnvironment({
     models: () => models,

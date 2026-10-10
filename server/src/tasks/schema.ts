@@ -2,6 +2,15 @@ import { z } from 'zod';
 
 // 本文件只依赖 zod，web 也直接引用这里的 schema
 
+// task 目录内的相对路径：不能是绝对路径，不能经过 ..（加载与评分时按它复制文件）
+const taskPath = z
+  .string()
+  .min(1)
+  .refine(
+    (p) => !p.startsWith('/') && !p.includes('\\') && !p.split('/').includes('..'),
+    '必须是 task 目录内的相对路径（不能以 / 开头，不能含 .. 或反斜杠）',
+  );
+
 export const rubricArtifacts = ['brief', 'research', 'plan', 'tickets'] as const;
 export type RubricArtifact = (typeof rubricArtifacts)[number];
 
@@ -65,23 +74,29 @@ export const IcTaskDefinition = z.strictObject({
   }),
   repo: z.strictObject({
     // 相对 task 目录，指向 git bundle
-    path: z.string().min(1),
+    path: taskPath,
     commit: z.string().regex(/^[0-9a-f]{40}$/, 'commit 必须是完整的 40 位 sha'),
   }),
   hiddenTests: z.strictObject({
     // 相对 task 目录，运行时复制到 checkout 的 test/hidden/
-    dir: z.string().min(1),
+    dir: taskPath,
     // 相对 task 目录的测试配置文件；评分时放在 checkout 之外，经 {configPath} 传给命令
-    config: z.string().min(1),
+    config: taskPath,
     command: z
       .string()
       .includes('{junitPath}', { message: 'command 必须包含 {junitPath} 占位符' })
       .includes('{configPath}', { message: 'command 必须包含 {configPath} 占位符' }),
     // npm ci 与测试命令各自的时限，超时强制结束并记为评分错误
     timeoutSeconds: z.int().positive().default(600),
-    // 键为相对 checkout 根目录的路径（即 JUnit classname），值为测试名；评分的分母
+    // 键为相对 checkout 根目录的路径（即 JUnit classname），值为测试名；评分的分母。同一文件中测试名不能重复
     manifest: z
-      .record(z.string().min(1), z.array(z.string().min(1)).min(1))
+      .record(
+        z.string().min(1),
+        z
+          .array(z.string().min(1))
+          .min(1)
+          .refine((names) => new Set(names).size === names.length, '同一文件中的测试名不能重复'),
+      )
       .refine((m) => Object.keys(m).length > 0, '清单不能为空'),
   }),
 });

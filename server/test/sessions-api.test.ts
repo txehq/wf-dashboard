@@ -134,6 +134,13 @@ describe('sessions api', () => {
 
     const q = await get<{ sessions: Summary[] }>(`/api/sessions?q=${n9f.slice(0, 8)}`);
     expect(q.sessions.map((s) => s.id)).toEqual([n9f]);
+    // W15 Low 19：% 与 _ 按字面匹配，不是通配符
+    for (const wildcard of ['%', '_']) {
+      const literal = await get<{ sessions: Summary[] }>(
+        `/api/sessions?q=${encodeURIComponent(wildcard)}`,
+      );
+      expect(literal.sessions, wildcard).toEqual([]);
+    }
 
     const source = await get<{ sessions: Summary[] }>(
       `/api/sessions?source=${encodeURIComponent(path.join(projectsDir, txe))}`,
@@ -206,6 +213,15 @@ describe('sessions api', () => {
     expect(range.items.filter((i) => i.kind === 'request').map((r) => r.seq)).toEqual([
       10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
     ]);
+    // W15 Medium 5：端点不存在时以前去掉这一侧的界限，返回 0 条请求加上从头开始的全部用户消息
+    for (const query of ['fromSeq=1000000', 'toSeq=1000000']) {
+      const missing = await app.inject({
+        method: 'GET',
+        url: `/api/sessions/${f0}/requests?${query}`,
+      });
+      expect(missing.statusCode, query).toBe(404);
+      expect(missing.json<{ error: string }>().error).toContain('没有请求 #');
+    }
   });
 
   test('取消勾选后该来源的 session 不再出现，variant 的 session 仍在', async () => {

@@ -1,7 +1,9 @@
 import { asc, eq } from 'drizzle-orm';
+import { z } from 'zod';
 import type { Db } from '../db/index.js';
-import { artifacts, gradeItems, grades, runs } from '../db/schema.js';
-import { EVAL_TEAM, readIssueContent } from '../external/linear.js';
+import { artifacts, gradeItems, grades, requests, runs } from '../db/schema.js';
+import { readIssueContent } from '../external/linear.js';
+import { inputField } from '../stages/rows.js';
 import { loadTask } from '../tasks/loader.js';
 import type { ArtifactRubric, IcTask, LfgTask } from '../tasks/schema.js';
 import { gradeIc } from './ic.js';
@@ -21,26 +23,54 @@ interface JudgedGroup {
   costUsd: number;
 }
 
-// Tickets.md 中引用、且在 run 开始之后创建的工单视为该 run 建出的工单；Tickets.md 也会引用已有的相关工单
-export async function ticketsContent(run: Run, snapshot: string): Promise<string> {
-  if (run.startedAt === null) throw new Error(`run ${run.id} 没有 started_at`);
-  const startedAt = run.startedAt.getTime();
-  const identifiers = [...new Set(snapshot.match(new RegExp(`\\b${EVAL_TEAM}-\\d+\\b`, 'g')))];
+const LINEAR_SAVE_ISSUE = /^mcp__.*linear.*__save_issue$/i;
+const SavedIssue = z.looseObject({ id: z.string().regex(/^[A-Z][A-Z0-9]*-\d+$/) });
+
+// 该 run 建出的工单（Contracts 7.9）：run 的 session（含子代理）中 Linear save_issue 成功的新建调用
+// （输入不带 id；带 id 的是修改已有工单）返回的 identifier，按调用顺序
+export function createdTickets(db: Db, run: Run): string[] {
+  const rows = db
+    .select()
+    .from(requests)
+    .where(eq(requests.sessionId, run.sessionId))
+    .orderBy(asc(requests.timestamp), asc(requests.id))
+    .all();
+  const out: string[] = [];
+  for (const call of rows.flatMap((r) => r.toolCalls)) {
+    if (!LINEAR_SAVE_ISSUE.test(call.name) || inputField(call.input, 'id') !== undefined) continue;
+    if (call.isError || call.result === null) continue;
+    if (call.resultChars > call.result.length) {
+      throw new Error(`save_issue ${call.id} 的结果被截断，读不到建出的工单`);
+    }
+    const { id } = SavedIssue.parse(JSON.parse(call.result));
+    if (!out.includes(id)) out.push(id);
+  }
+  return out;
+}
+
+// tickets 产物：Tickets.md 加上 Linear 中该 run 建出的工单的标题与正文
+export async function ticketsContent(db: Db, run: Run, snapshot: string): Promise<string> {
   const issues = [];
-  for (const identifier of identifiers) {
-    const issue = await readIssueContent(identifier);
-    if (Date.parse(issue.createdAt) >= startedAt) issues.push(issue);
+  for (const identifier of createdTickets(db, run)) {
+    issues.push(await readIssueContent(identifier));
   }
   const section =
     issues.length === 0
-      ? 'Tickets.md 中没有引用该 run 建出的工单。'
+      ? '该 run 没有在 Linear 中建出工单。'
       : issues
           .map((i) => `## ${i.id} ${i.title}\n\n${i.url}\n\n${i.description ?? '（正文为空）'}`)
           .join('\n\n');
   return `${snapshot}\n\n---\n\n# Linear 中该 run 建出的工单\n\n${section}`;
 }
 
-async function judgeGroup(run: Run, task: LfgTask, group: ArtifactRubric, rows: ArtifactRow[]) {
+async function judgeGroup(
+  db: Db,
+  run: Run,
+  task: LfgTask,
+  group: ArtifactRubric,
+  rows: ArtifactRow[],
+  signal: AbortSignal,
+) {
   const artifact = rows.find((a) => a.kind === group.artifact);
   if (artifact === undefined) {
     return {
@@ -57,8 +87,11 @@ async function judgeGroup(run: Run, task: LfgTask, group: ArtifactRubric, rows: 
     throw new Error(`run ${run.id} 的 ${group.artifact} 产物没有内容快照`);
   }
   const content =
-    group.artifact === 'tickets' ? await ticketsContent(run, artifact.snapshot) : artifact.snapshot;
-  const judged = await judgeArtifact(task, group, content);
+    group.artifact === 'tickets'
+      ? await ticketsContent(db, run, artifact.snapshot)
+      : artifact.snapshot;
+  signal.throwIfAborted();
+  const judged = await judgeArtifact(task, group, content, signal);
   return {
     group,
     artifact,
@@ -70,9 +103,12 @@ async function judgeGroup(run: Run, task: LfgTask, group: ArtifactRubric, rows: 
   } satisfies JudgedGroup;
 }
 
-async function gradeLfg(db: Db, run: Run, task: LfgTask) {
+async function gradeLfg(db: Db, run: Run, task: LfgTask, signal: AbortSignal) {
   const rows = db.select().from(artifacts).where(eq(artifacts.runId, run.id)).all();
-  const judged = await Promise.all(task.rubric.map((g) => judgeGroup(run, task, g, rows)));
+  const judged = await Promise.all(
+    task.rubric.map((g) => judgeGroup(db, run, task, g, rows, signal)),
+  );
+  signal.throwIfAborted();
   db.transaction((tx) => {
     for (const j of judged) {
       const grade = tx
@@ -96,9 +132,9 @@ async function gradeLfg(db: Db, run: Run, task: LfgTask) {
   });
 }
 
-async function gradeIcRun(db: Db, run: Run, task: IcTask) {
+async function gradeIcRun(db: Db, run: Run, task: IcTask, signal: AbortSignal) {
   if (run.githubRepo === null) throw new Error(`run ${run.id} 没有 GitHub 仓库`);
-  const result = await gradeIc(task, run.id, run.githubRepo);
+  const result = await gradeIc(task, run.id, run.githubRepo, signal);
   db.insert(grades)
     .values({
       runId: run.id,
@@ -113,16 +149,17 @@ async function gradeIcRun(db: Db, run: Run, task: IcTask) {
   if (result.detail.error !== null) throw new Error(result.detail.error);
 }
 
-// runs 模块在进入 grading 时调用；全部评分完成后一次写入，任何一步失败都不留下部分结果
-export async function gradeRun(db: Db, runId: string): Promise<void> {
+// runs 模块在进入 grading 时调用；全部评分完成后一次写入，任何一步失败都不留下部分结果。
+// signal 中止（取消评分、服务关闭）时结束评分的子进程与模型请求，抛出 signal.reason，不写入
+export async function gradeRun(db: Db, runId: string, signal: AbortSignal): Promise<void> {
   const run = db.select().from(runs).where(eq(runs.id, runId)).get();
   if (run === undefined) throw new Error(`没有 run ${runId}`);
   if (db.select({ id: grades.id }).from(grades).where(eq(grades.runId, runId)).get()) {
     throw new Error(`run ${runId} 已经评分过`);
   }
   const task = loadTask(db, run.taskId);
-  if (task.kind === 'lfg') await gradeLfg(db, run, task);
-  else await gradeIcRun(db, run, task);
+  if (task.kind === 'lfg') await gradeLfg(db, run, task, signal);
+  else await gradeIcRun(db, run, task, signal);
 }
 
 // 尚未评分时为 null

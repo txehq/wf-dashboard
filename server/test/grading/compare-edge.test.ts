@@ -1,0 +1,153 @@
+import fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { afterAll, describe, expect, it } from 'vitest';
+import { config } from '../../src/config.js';
+import {
+  gradeItems,
+  grades,
+  STAGE_ANALYSIS_VERSION,
+  stageAnalyses,
+  stageCycles,
+  stageSpans,
+} from '../../src/db/schema.js';
+import { compareRuns } from '../../src/grading/compare.js';
+import { readReport } from '../../src/stages/report.js';
+import { IC_STAGES } from '../../src/stages/workflow.js';
+import { loadLfgTask, syncTasks } from '../../src/tasks/loader.js';
+import { openTestDb } from '../stages/db.js';
+import { insertRun, insertVariant } from './seed.js';
+
+// W15 H8、Medium 12、Low 10 的复现（wfd-w15/.work/review-grading/compare-repro.ts）
+const workDir = path.join(config.repoRoot, '.work/test-compare-edge', randomUUID());
+const tasksDir = path.join(workDir, 'tasks');
+fs.cpSync(
+  fileURLToPath(new URL('../fixtures/lfg-tasks/optional-mcp-install', import.meta.url)),
+  path.join(tasksDir, 'optional-mcp-install'),
+  { recursive: true },
+);
+fs.cpSync(path.join(config.tasksDir, 'ic-money-format'), path.join(tasksDir, 'ic-money-format'), {
+  recursive: true,
+});
+const { db, close } = openTestDb();
+syncTasks(db, tasksDir);
+const lfgTask = loadLfgTask(db, 'optional-mcp-install');
+for (const v of ['ic-v', 'lfg-v', 'empty-v']) insertVariant(db, v);
+
+afterAll(() => {
+  close();
+  fs.rmSync(workDir, { recursive: true, force: true });
+});
+
+function icRun(id: string) {
+  const sessionId = insertRun(db, {
+    id,
+    taskId: 'ic-money-format',
+    variantId: 'ic-v',
+    status: 'succeeded',
+  });
+  db.insert(grades)
+    .values({
+      runId: id,
+      kind: 'ic',
+      testsPassed: 0,
+      testsDeclared: 19,
+      reachedEnd: false,
+      icDetail: { pr: null, outcomes: [], fileErrors: [], endpoint: null, error: null },
+    })
+    .run();
+  return sessionId;
+}
+
+// agent 一开始就报告无法继续：实时判定写了判定记录，但没有任何轮次
+const noCycle = icRun('r-ic');
+db.insert(stageAnalyses)
+  .values({ sessionId: noCycle, version: STAGE_ANALYSIS_VERSION, hasLfg: false, hasIc: true })
+  .run();
+// 实时判定写于旧版本：版本号提高后仍然可读
+const old = icRun('r-old');
+db.insert(stageAnalyses)
+  .values({ sessionId: old, version: STAGE_ANALYSIS_VERSION - 1, hasLfg: false, hasIc: true })
+  .run();
+db.insert(stageCycles)
+  .values({ sessionId: old, workflow: 'ic', cycle: 1, label: 'x', startSeq: 0, endSeq: null })
+  .run();
+for (const [i, stage] of IC_STAGES.entries()) {
+  db.insert(stageSpans)
+    .values({
+      sessionId: old,
+      workflow: 'ic',
+      cycle: 1,
+      stage,
+      method: 'llm',
+      evidence: null,
+      status: i === 0 ? 'active' : 'not-reached',
+      startSeq: null,
+      endSeq: null,
+    })
+    .run();
+}
+// 没有任何判定记录
+icRun('r-none');
+
+// 两个 lfg run 都拿满分；b1 的满分在第二个 run 时被改成 1（task 的 rubric 被修改过）
+function lfgRun(id: string, maxB1: number) {
+  insertRun(db, { id, taskId: lfgTask.id, variantId: 'lfg-v', status: 'succeeded' });
+  for (const group of lfgTask.rubric) {
+    const g = db
+      .insert(grades)
+      .values({ runId: id, kind: 'rubric', artifact: group.artifact, judgeModel: 'm', costUsd: 0 })
+      .returning({ id: grades.id })
+      .get();
+    for (const item of group.items) {
+      const max = item.id === 'b1' ? maxB1 : item.maxScore;
+      db.insert(gradeItems)
+        .values({
+          gradeId: g.id,
+          itemId: item.id,
+          criterion: item.criterion,
+          score: max,
+          maxScore: max,
+          reasoning: 'ok',
+        })
+        .run();
+    }
+  }
+}
+const b1Max = lfgTask.rubric[0]?.items.find((i) => i.id === 'b1')?.maxScore;
+lfgRun('r-a', b1Max ?? 0);
+lfgRun('r-b', 1);
+
+const query = { includeIntervened: false, includeCrossRef: false, includeCancelled: false };
+
+describe('compare 的边界情况', () => {
+  it('H8：没有阶段轮次、没有判定记录的 run 不让 compare 报错，阶段记为未到达、成本按 0；旧版本的实时判定照常读取', () => {
+    expect(readReport(db, old)?.ic[0]?.stages[0]?.status).toBe('active');
+    const c = compareRuns(db, { ...query, variants: ['ic-v'], tasks: ['ic-money-format'] })
+      .cells[0];
+    expect(c?.runIds).toEqual(['r-ic', 'r-old', 'r-none']);
+    expect(c?.cost?.stages.map((s) => [s.stage, s.reached])).toEqual(
+      IC_STAGES.map((s, i) => [s, i === 0 ? 1 : 0]),
+    );
+    expect(c?.cost?.stages.every((s) => s.costUsd === 0)).toBe(true);
+  });
+
+  it('Medium 12：满分不同的同一条目分开统计；Low 10：没有 run 的格子也列出 rubric 条目', () => {
+    const result = compareRuns(db, {
+      ...query,
+      variants: ['lfg-v', 'empty-v'],
+      tasks: [lfgTask.id],
+    });
+    const b1 = result.cells[0]?.rubricItems.filter((i) => i.itemId === 'b1');
+    expect(b1?.map((i) => [i.maxScore, i.score.mean, i.score.n])).toEqual([
+      [b1Max, b1Max, 1],
+      [1, 1, 1],
+    ]);
+    const empty = result.cells[1]?.rubricItems;
+    expect(empty?.map((i) => i.itemId)).toEqual(
+      lfgTask.rubric.flatMap((g) => g.items.map((i) => i.id)),
+    );
+    expect(empty?.every((i) => i.score.n === 0)).toBe(true);
+  });
+});

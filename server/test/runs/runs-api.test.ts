@@ -6,7 +6,8 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { buildApp } from '../../src/api/app.js';
 import { config } from '../../src/config.js';
 import { openDatabase } from '../../src/db/index.js';
-import { batches, runs, variants } from '../../src/db/schema.js';
+import { batches, runMessages, runs, variants } from '../../src/db/schema.js';
+import { type AppEvent, events } from '../../src/events.js';
 import { models, setModels } from '../../src/llm/client.js';
 import { newId, RUN_ID } from '../../src/runs/index.js';
 import { RunSummary } from '../../src/runs/views.js';
@@ -70,12 +71,44 @@ db.insert(runs)
   })
   .run();
 
+// 结束后被页面接管过的 run（W15 Medium 11）：没有 driver 时 mode 由接管与交还的系统事件决定
+const takenOver = 'r-20261010-human1';
+db.insert(runs)
+  .values({
+    id: takenOver,
+    batchId: 'b-20261009-before',
+    taskId: 'lfg-calculator',
+    variantId,
+    repeatIndex: 10,
+    status: 'succeeded',
+    humanIntervened: true,
+    sessionId: randomUUID(),
+    workspacePath: path.join(work, takenOver),
+  })
+  .run();
+db.insert(runMessages)
+  .values([
+    {
+      runId: takenOver,
+      seq: 0,
+      role: 'system',
+      content: '页面接管了对话',
+      payload: { kind: 'event', event: 'takeover' },
+    },
+    { runId: takenOver, seq: 1, role: 'human', content: '继续' },
+  ])
+  .run();
+
+// W15 H11：启动时修正的状态推送给已连接的页面
+const startupEvents: AppEvent[] = [];
+const stopStartup = events.subscribe((e) => startupEvents.push(e));
 const app = await buildApp({
   db,
   sseHeartbeatMs: config.sseHeartbeatMs,
   logger: false,
   tasksDir: config.tasksDir,
 });
+stopStartup();
 
 beforeAll(async () => {
   await app.ready();
@@ -110,6 +143,25 @@ describe('服务重启时的状态修正', () => {
       grading: { status: 'failed', error: '服务重启中断' },
     });
     expect(byId.get(before.succeeded)).toMatchObject({ grading: { status: 'none', error: null } });
+    // 每个被修正的 run 推送一次 run.status
+    expect(
+      startupEvents
+        .filter((e) => e.type === 'run.status')
+        .map((e) => [e.runId, e.status])
+        .sort(),
+    ).toEqual(
+      [
+        [before.preparing, 'failed'],
+        [before.running, 'failed'],
+        [before.grading, 'failed'],
+        [cancelledGrading, 'cancelled'],
+      ].sort(),
+    );
+  });
+
+  test('结束后的 run：曾被接管时 mode 为 human', async () => {
+    const response = await app.inject({ method: 'GET', url: `/api/runs/${takenOver}` });
+    expect(response.json()).toMatchObject({ mode: 'human', pending: null });
   });
 
   test('run 详情：没有 session 时 stages 为 null，成本四项为 0', async () => {

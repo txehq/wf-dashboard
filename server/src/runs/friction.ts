@@ -1,10 +1,10 @@
 import { and, eq } from 'drizzle-orm';
 import { execa } from 'execa';
-import { parse } from 'shell-quote';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import { artifacts, requests } from '../db/schema.js';
 import { inputString, type RequestRow } from '../stages/rows.js';
+import { commandsOf } from '../stages/shell.js';
 import { upsertFriction } from './records.js';
 
 // Contracts 7.10：被测 agent 的 /report-friction 在 txehq/txe-workflow 提的 issue 与评论
@@ -20,14 +20,10 @@ export interface FrictionCall {
   toolCallId: string;
 }
 
-// 命令中是否有一段 `gh issue create|comment … --repo txehq/txe-workflow`；复合命令按 shell 运算符切段
+// 命令中是否有一条 `gh issue create|comment … --repo txehq/txe-workflow`。命令的结构由 tree-sitter-bash 解析
+// （stages/shell.ts）：多行命令的每一行、管道与命令替换中的命令各自是一条，heredoc 正文不是命令
 function frictionAction(command: string): 'create' | 'comment' | null {
-  const segments: string[][] = [[]];
-  for (const token of parse(command)) {
-    if (typeof token === 'string') segments[segments.length - 1]?.push(token);
-    else if ('op' in token) segments.push([]);
-  }
-  for (const words of segments) {
+  for (const words of commandsOf(command)) {
     const [gh, issue, action] = words;
     if (gh !== 'gh' || issue !== 'issue' || (action !== 'create' && action !== 'comment')) continue;
     const repo = words.findIndex((w, i) => (w === '--repo' || w === '-R') && i > 2);

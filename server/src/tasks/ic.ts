@@ -86,6 +86,26 @@ function outcomeOf(c: TestCase): { outcome: CaseOutcome; message: string | null 
   return { outcome: 'passed', message: null };
 }
 
+// JUnit 中的测试与无法加载的文件（name 与 classname 相同的 testcase）；评分与生成清单共用。
+// classname、name 缺失或文件级错误没有信息时抛错
+export function junitCases(report: TestSuites | TestSuite): Omit<HiddenRun, 'exitCode'> {
+  const cases: HiddenCase[] = [];
+  const fileErrors: HiddenRun['fileErrors'] = [];
+  for (const c of suitesOf(report).flatMap((s) => s.testcase ?? [])) {
+    if (c.classname === undefined || c.name === undefined) {
+      throw new Error(`JUnit testcase 缺少 classname 或 name：${JSON.stringify(c)}`);
+    }
+    const { outcome, message } = outcomeOf(c);
+    if (c.name === c.classname) {
+      if (message === null) throw new Error(`文件级 testcase 没有错误信息：${c.classname}`);
+      fileErrors.push({ file: c.classname, message });
+    } else {
+      cases.push({ file: c.classname, name: c.name, outcome, message });
+    }
+  }
+  return { cases, fileErrors };
+}
+
 // 运行 task 的测试命令（vitest 有失败测试时退出码为 1，属于正常结果），解析 JUnit XML；
 // JUnit 与测试配置写在 outDir 下
 export async function runHiddenTestCases(
@@ -107,16 +127,7 @@ export async function runHiddenTestCases(
   }
   const report = await parseJUnit(readFileSync(junitPath, 'utf8'));
   if (!report) throw new Error(`${junitPath} 是空的 JUnit 报告`);
-  const cases: HiddenCase[] = [];
-  const fileErrors: HiddenRun['fileErrors'] = [];
-  for (const c of suitesOf(report).flatMap((s) => s.testcase ?? [])) {
-    const file = c.classname ?? '';
-    const name = c.name ?? '';
-    const { outcome, message } = outcomeOf(c);
-    if (name === file) fileErrors.push({ file, message: message ?? '' });
-    else cases.push({ file, name, outcome, message });
-  }
-  return { exitCode: proc.status, cases, fileErrors };
+  return { exitCode: proc.status, ...junitCases(report) };
 }
 
 // 在参考实现上运行得到的清单：必须全部通过，否则参考实现本身有问题
@@ -139,12 +150,17 @@ export interface ManifestScore {
   outcomes: { file: string; name: string; outcome: CaseOutcome | 'not-run' }[];
 }
 
-// 分母取清单：文件无法加载时 XML 中缺少的测试记为 not-run
+// 分母取清单：文件无法加载时 XML 中缺少的测试记为 not-run。同一文件中同名的测试无法区分结果，直接抛错
 export function scoreAgainstManifest(
-  result: HiddenRun,
+  result: Pick<HiddenRun, 'cases'>,
   manifest: Record<string, string[]>,
 ): ManifestScore {
-  const seen = new Map(result.cases.map((c) => [`${c.file}\0${c.name}`, c.outcome]));
+  const seen = new Map<string, CaseOutcome>();
+  for (const c of result.cases) {
+    const key = `${c.file}\0${c.name}`;
+    if (seen.has(key)) throw new Error(`JUnit 中有同名的测试：${c.file} > ${c.name}`);
+    seen.set(key, c.outcome);
+  }
   const outcomes = Object.entries(manifest).flatMap(([file, names]) =>
     names.map((name) => ({
       file,

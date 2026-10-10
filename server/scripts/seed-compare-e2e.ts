@@ -44,7 +44,7 @@ if (config.dataDir === path.join(config.repoRoot, 'data')) {
 }
 
 const fixtures = path.join(config.repoRoot, 'server/scripts/fixtures/compare');
-const vault = '/Users/linhaoz/Documents/Obsidian Vault';
+const vault = config.vaultDir;
 const agentModel = 'claude-opus-5-5';
 const judgeModel = 'claude-opus-5-5';
 const stageCheckModel = 'claude-haiku-4-5';

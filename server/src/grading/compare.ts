@@ -6,7 +6,7 @@ import { artifacts, grades, runs } from '../db/schema.js';
 import { readReport } from '../stages/report.js';
 import { IC_STAGES, LFG_STAGES } from '../stages/workflow.js';
 import { loadTask } from '../tasks/loader.js';
-import { rubricArtifacts } from '../tasks/schema.js';
+import { type LfgTask, rubricArtifacts } from '../tasks/schema.js';
 import { readRunGrades } from './index.js';
 import {
   type CompareCell,
@@ -79,31 +79,44 @@ function icQuality(graded: GradedRun[]): CompareCell['quality'] {
   };
 }
 
-// 按 rubric 顺序（首次出现的顺序）列出条目；条目的 criterion 与满分取首次出现的 run
-function rubricItems(graded: GradedRun[]): CompareCell['rubricItems'] {
-  const items = new Map<
-    string,
-    {
-      artifact: (typeof rubricArtifacts)[number];
-      itemId: string;
-      criterion: string;
-      maxScore: number;
-      values: { runId: string; value: number }[];
+interface RubricEntry {
+  artifact: (typeof rubricArtifacts)[number];
+  itemId: string;
+  criterion: string;
+  maxScore: number;
+  values: { runId: string; value: number }[];
+}
+
+// 按 rubric 顺序列出条目：先是 task 当前的 rubric（没有 run 时也列出，分布为空），再是 run 评分时用过、
+// 之后被修改的条目。键含 criterion 与满分：task 修改过 rubric 时，满分不同的同一条目分开统计，原始分不混在一起平均
+function rubricItems(task: LfgTask, graded: GradedRun[]): CompareCell['rubricItems'] {
+  const items = new Map<string, RubricEntry>();
+  const keyOf = (e: Omit<RubricEntry, 'values'>) =>
+    JSON.stringify([e.artifact, e.itemId, e.criterion, e.maxScore]);
+  for (const group of task.rubric) {
+    for (const item of group.items) {
+      const entry = {
+        artifact: group.artifact,
+        itemId: item.id,
+        criterion: item.criterion,
+        maxScore: item.maxScore,
+      };
+      items.set(keyOf(entry), { ...entry, values: [] });
     }
-  >();
+  }
   for (const g of graded) {
     for (const group of lfgOf(g).artifacts) {
       for (const item of group.items) {
-        const key = `${group.artifact}\0${item.itemId}`;
-        const entry = items.get(key) ?? {
+        const entry = {
           artifact: group.artifact,
           itemId: item.itemId,
           criterion: item.criterion,
           maxScore: item.maxScore,
-          values: [],
         };
-        entry.values.push({ runId: g.run.id, value: item.score });
-        items.set(key, entry);
+        const key = keyOf(entry);
+        const existing = items.get(key) ?? { ...entry, values: [] };
+        existing.values.push({ runId: g.run.id, value: item.score });
+        items.set(key, existing);
       }
     }
   }
@@ -113,15 +126,13 @@ function rubricItems(graded: GradedRun[]): CompareCell['rubricItems'] {
   }));
 }
 
+// 没有进入任何阶段的 run（没有判定结果，或判定中没有这个 workflow 的轮次，例如 agent 一开始就报告无法继续）：
+// 全部阶段记为未到达，成本按 0 计入均值
 function stageCosts(db: Db, graded: GradedRun[], kind: 'lfg' | 'ic'): StageCost[] {
   const stages = kind === 'lfg' ? LFG_STAGES : IC_STAGES;
   const reports = graded.map((g) => {
-    const report = readReport(db, g.run.sessionId);
-    if (report === null) throw new Error(`run ${g.run.id} 的 session 没有阶段判定结果`);
     // dashboard 发起的运行只有一轮
-    const views = report[kind][0]?.stages;
-    if (views === undefined) throw new Error(`run ${g.run.id} 的阶段判定中没有 ${kind}`);
-    return views;
+    return readReport(db, g.run.sessionId)?.[kind][0]?.stages ?? [];
   });
   return stages.map((stage) => {
     const views = reports.map((vs) => vs.find((v) => v.stage === stage));
@@ -225,7 +236,7 @@ export function compareRuns(db: Db, query: CompareQuery): CompareResult {
                   rows.map((r) => r.id),
                 ),
               },
-        rubricItems: task.kind === 'lfg' ? rubricItems(graded) : [],
+        rubricItems: task.kind === 'lfg' ? rubricItems(task, graded) : [],
       };
     }),
   );

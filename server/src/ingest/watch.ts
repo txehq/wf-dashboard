@@ -10,25 +10,44 @@ const TRAILING_MS = 200;
 
 // 实时运行：监听主 jsonl 与 <sessionId>/subagents/，每次变化做一次增量导入；监听就绪后返回。
 // chokidar 监听尚不存在的目录中的文件时，另一个进程建目录并写入不会产生事件，
-// 所以先建好 jsonl 所在目录，监听这个目录，只处理主 jsonl 与 subagents/ 下的变化
-export async function watchSession(db: Db, file: string): Promise<FSWatcher> {
+// 所以先建好 jsonl 所在目录，监听这个目录，只处理主 jsonl 与 subagents/ 下的变化。
+// 事件回调中的导入错误交给 onError（runner 让这个 run 失败），之后不再导入；不能从回调中抛出，
+// 否则成为 uncaught exception，整个服务退出
+export async function watchSession(
+  db: Db,
+  file: string,
+  onError: (error: Error) => void,
+): Promise<FSWatcher> {
   const absolute = path.resolve(file);
   const dir = path.dirname(absolute);
   const subagentsDir = path.join(dir, path.basename(absolute, '.jsonl'), 'subagents');
   mkdirSync(dir, { recursive: true });
   const watcher = watch(dir, { ignoreInitial: true });
   let trailing: NodeJS.Timeout | undefined;
+  let failed = false;
+  const fail = (error: unknown) => {
+    failed = true;
+    clearTimeout(trailing);
+    onError(error instanceof Error ? error : new Error(String(error)));
+  };
+  const ingestNow = () => {
+    // 监听关闭后（run 结束、测试关闭数据库）或已经出错后不再导入
+    if (failed || watcher.closed) return;
+    try {
+      ingestFile(db, absolute);
+    } catch (error) {
+      fail(error);
+    }
+  };
   const ingest = (changed: string) => {
     if (changed !== absolute && !changed.startsWith(`${subagentsDir}${path.sep}`)) return;
-    ingestFile(db, absolute);
+    ingestNow();
     clearTimeout(trailing);
-    trailing = setTimeout(() => {
-      // 监听关闭后（run 结束、测试关闭数据库）不再导入
-      if (!watcher.closed) ingestFile(db, absolute);
-    }, TRAILING_MS);
+    if (!failed) trailing = setTimeout(ingestNow, TRAILING_MS);
   };
   watcher.on('add', ingest);
   watcher.on('change', ingest);
+  watcher.on('error', fail);
   await new Promise<void>((resolve) => watcher.once('ready', resolve));
   // 运行刚启动时 jsonl 可能还没写出，出现后由 add 事件导入
   if (existsSync(absolute)) ingestFile(db, absolute);

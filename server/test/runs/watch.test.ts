@@ -20,54 +20,98 @@ afterAll(() => {
   fs.rmSync(work, { recursive: true, force: true });
 });
 
-async function waitSession(id: string, ms: number): Promise<boolean> {
+async function waitFor(check: () => boolean, ms: number): Promise<boolean> {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
-    if (db.select().from(sessions).where(eq(sessions.id, id)).get()) return true;
+    if (check()) return true;
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
-  return false;
+  return check();
+}
+
+const sessionRow = (id: string) => db.select().from(sessions).where(eq(sessions.id, id)).get();
+
+// fixture 换成新的 session id，写到 .work 下；返回内容
+function copyFixture(id: string): string {
+  const source = fs.readFileSync(fixture, 'utf8').replaceAll(sessionId, id);
+  fs.mkdirSync(work, { recursive: true });
+  fs.writeFileSync(path.join(work, `${id}.source.jsonl`), source);
+  return source;
 }
 
 describe('watchSession 用于实时运行', () => {
   test('目录先建好、文件之后才出现：出现后导入', async () => {
+    const id = randomUUID();
+    const source = copyFixture(id);
     const dir = path.join(work, 'projects', 'r-20261009-watch1');
     fs.mkdirSync(dir, { recursive: true });
-    const watcher = await watchSession(db, path.join(dir, `${sessionId}.jsonl`));
-    fs.copyFileSync(fixture, path.join(dir, `${sessionId}.jsonl`));
-    // 并行跑全部测试时文件事件与导入都会变慢，10 秒曾经不够
-    expect(await waitSession(sessionId, 30_000)).toBe(true);
+    const errors: Error[] = [];
+    const watcher = await watchSession(db, path.join(dir, `${id}.jsonl`), (e) => errors.push(e));
+    fs.writeFileSync(path.join(dir, `${id}.jsonl`), source);
+    expect(await waitFor(() => sessionRow(id) !== undefined || errors.length > 0, 10_000)).toBe(
+      true,
+    );
+    expect(errors).toEqual([]);
     await watcher.close();
-  }, 40_000);
+  }, 20_000);
 
   // 与真实运行相同：开始监听时 projects/<runId>/ 还不存在，由 claude 进程建目录并分几次写入
   test('目录还不存在、由另一个进程建目录并追加写入：全部导入', async () => {
     const id = randomUUID();
+    const source = copyFixture(id);
     const dir = path.join(work, 'projects', 'r-20261009-watch2');
     const file = path.join(dir, `${id}.jsonl`);
-    const source = fs.readFileSync(fixture, 'utf8').replaceAll(sessionId, id);
-    const copy = path.join(work, `${id}.source.jsonl`);
-    fs.mkdirSync(work, { recursive: true });
-    fs.writeFileSync(copy, source);
-    const watcher = await watchSession(db, file);
+    const errors: Error[] = [];
+    const watcher = await watchSession(db, file, (e) => errors.push(e));
     const writer = spawn('bash', [
       '-c',
       'mkdir -p "$1" && head -n 5 "$2" > "$3" && sleep 1 && tail -n +6 "$2" >> "$3"',
       'writer',
       dir,
-      copy,
+      path.join(work, `${id}.source.jsonl`),
       file,
     ]);
     const code = await new Promise<number | null>((resolve) => writer.on('exit', resolve));
     expect(code).toBe(0);
-    const deadline = Date.now() + 30_000;
-    const done = () =>
-      db.select().from(sessions).where(eq(sessions.id, id)).get()?.parseOffset ===
-      Buffer.byteLength(source);
-    while (!done() && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 200));
-    }
-    expect(done()).toBe(true);
+    const done = () => sessionRow(id)?.parseOffset === Buffer.byteLength(source);
+    expect(await waitFor(() => done() || errors.length > 0, 10_000)).toBe(true);
+    expect(errors).toEqual([]);
     await watcher.close();
-  }, 40_000);
+  }, 20_000);
+
+  // W15 H1：事件回调中的导入错误以前成为 uncaught exception，整个服务退出；现在交给 onError，之后不再导入
+  test('增量导入出错时交给 onError，进程不退出，之后的写入不再导入', async () => {
+    const id = randomUUID();
+    const source = copyFixture(id);
+    const dir = path.join(work, 'projects', 'r-20261009-watch3');
+    const file = path.join(dir, `${id}.jsonl`);
+    fs.mkdirSync(dir, { recursive: true });
+    const head = source.split('\n').slice(0, 12).join('\n');
+    fs.writeFileSync(file, `${head}\n`);
+    const errors: Error[] = [];
+    const watcher = await watchSession(db, file, (e) => errors.push(e));
+    const imported = sessionRow(id)?.parseOffset;
+    expect(imported).toBe(Buffer.byteLength(`${head}\n`));
+    // 一条找不到 tool_use 的 tool_result（W15 的 watch-crash 复现）
+    const bad = {
+      type: 'user',
+      uuid: randomUUID(),
+      parentUuid: null,
+      sessionId: id,
+      timestamp: '2026-10-09T15:08:00.000Z',
+      message: {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'toolu_missing', content: 'x' }],
+      },
+    };
+    fs.appendFileSync(file, `${JSON.stringify(bad)}\n`);
+    expect(await waitFor(() => errors.length > 0, 10_000)).toBe(true);
+    expect(errors[0]?.message).toContain('tool_result toolu_missing 没有对应的 tool_use');
+    // 出错的那次导入整体回滚；之后追加的内容不再导入，错误只报告一次
+    fs.appendFileSync(file, source.split('\n').slice(12).join('\n'));
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    expect(sessionRow(id)?.parseOffset).toBe(imported);
+    expect(errors).toHaveLength(1);
+    await watcher.close();
+  }, 20_000);
 });

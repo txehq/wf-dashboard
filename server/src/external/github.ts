@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { execa } from 'execa';
 import { z } from 'zod';
 import { config } from '../config.js';
@@ -42,16 +43,17 @@ async function repoView(repo: string) {
   return ghJson(['repo', 'view', repo, '--json', 'url,defaultBranchRef'], RepoView);
 }
 
-// 空仓库的 defaultBranchRef 为空；第一次推送后要过几秒才变成 main
-async function waitDefaultBranchMain(repo: string) {
+// 空仓库的 defaultBranchRef 为空；第一次推送后要过几秒才变成 main。signal 中止（服务关闭）时停止等待
+async function waitDefaultBranchMain(repo: string, signal: AbortSignal) {
   const deadline = Date.now() + DEFAULT_BRANCH_TIMEOUT_MS;
   for (;;) {
+    signal.throwIfAborted();
     const view = await repoView(repo);
     if (view.defaultBranchRef.name === 'main') return view;
     if (view.defaultBranchRef.name !== '' || Date.now() > deadline) {
       throw new Error(`${repo} 的默认分支是 "${view.defaultBranchRef.name}"，应为 main`);
     }
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    await sleep(1_000, undefined, { signal });
   }
 }
 
@@ -71,10 +73,15 @@ const Run = z
   .loose();
 export type WorkflowRun = z.infer<typeof Run>;
 
-// 推送后几秒内列表可能为空，要等到"非空且全部 completed"
-export async function waitRuns(repo: string, sha: string): Promise<WorkflowRun[]> {
+// 推送后几秒内列表可能为空，要等到"非空且全部 completed"；signal 中止时停止等待
+export async function waitRuns(
+  repo: string,
+  sha: string,
+  signal: AbortSignal,
+): Promise<WorkflowRun[]> {
   const deadline = Date.now() + RUN_TIMEOUT_MS;
   for (;;) {
+    signal.throwIfAborted();
     const runs = await ghJson(
       [
         'run',
@@ -92,7 +99,7 @@ export async function waitRuns(repo: string, sha: string): Promise<WorkflowRun[]
     if (Date.now() > deadline) {
       throw new Error(`${repo}@${sha} 的 workflow run ${String(RUN_TIMEOUT_MS)}ms 内未结束`);
     }
-    await new Promise((resolve) => setTimeout(resolve, RUN_POLL_MS));
+    await sleep(RUN_POLL_MS, undefined, { signal });
   }
 }
 
@@ -117,7 +124,11 @@ const ciRuleset = {
 
 // /ic 运行的仓库副本。顺序不能调换：ruleset 生效后直接推送 main 会被拒绝（GH013），
 // 所以先推送起始代码、等这次 push 的 CI 结束，最后建 ruleset，agent 只能经 PR 改代码
-export async function createRunRepo(task: IcTask, runId: string): Promise<RunRepo> {
+export async function createRunRepo(
+  task: IcTask,
+  runId: string,
+  signal: AbortSignal,
+): Promise<RunRepo> {
   const repo = runRepoName(runId);
   const bundle = path.join(task.dir, task.repo.path);
   const seed = path.join(config.runsDir, runId, 'seed.git');
@@ -143,13 +154,15 @@ export async function createRunRepo(task: IcTask, runId: string): Promise<RunRep
     `https://github.com/${repo}.git`,
     `${task.repo.commit}:refs/heads/main`,
   ]);
-  const view = await waitDefaultBranchMain(repo);
+  // 推送之后本地副本不再需要
+  fs.rmSync(seed, { recursive: true });
+  const view = await waitDefaultBranchMain(repo, signal);
   const mainSha = await branchSha(repo, 'main');
   if (mainSha !== task.repo.commit) {
     throw new Error(`${repo} main 在 ${mainSha}，应为 ${task.repo.commit}`);
   }
 
-  const failed = (await waitRuns(repo, mainSha)).filter((r) => r.conclusion !== 'success');
+  const failed = (await waitRuns(repo, mainSha, signal)).filter((r) => r.conclusion !== 'success');
   if (failed.length > 0) {
     throw new Error(`${repo} 起始代码的 CI 未通过：${failed.map((r) => r.url).join(', ')}`);
   }
@@ -163,7 +176,7 @@ export async function createRunRepo(task: IcTask, runId: string): Promise<RunRep
 
 // /lfg 运行用：只有一个初始提交，没有 CI 与 ruleset。
 // 初始提交在本地建在 main 上再推送：--add-readme 会用组织的默认分支名（txehq 为 master）
-export async function createEmptyRunRepo(runId: string): Promise<RunRepo> {
+export async function createEmptyRunRepo(runId: string, signal: AbortSignal): Promise<RunRepo> {
   const repo = runRepoName(runId);
   const seed = path.join(config.runsDir, runId, 'seed');
   fs.mkdirSync(seed, { recursive: true });
@@ -195,7 +208,8 @@ export async function createEmptyRunRepo(runId: string): Promise<RunRepo> {
   await cmd('git', ['push', `https://github.com/${repo}.git`, 'main:refs/heads/main'], {
     cwd: seed,
   });
-  const view = await waitDefaultBranchMain(repo);
+  fs.rmSync(seed, { recursive: true });
+  const view = await waitDefaultBranchMain(repo, signal);
   return { repo, url: view.url, mainSha: await branchSha(repo, 'main') };
 }
 
@@ -209,11 +223,14 @@ export async function prChecks(repo: string, pr: number): Promise<PrCheck[]> {
     ['pr', 'checks', String(pr), '--repo', repo, '--json', 'name,bucket,state'],
     { reject: false },
   );
+  if (result.exitCode === undefined) {
+    throw new Error(`gh pr checks ${repo}#${String(pr)} 被信号 ${String(result.signal)} 结束`);
+  }
   // 有 check 未通过时退出码为 1（fail）或 8（pending），JSON 照常输出
-  if (result.stdout.trim() !== '' && [0, 1, 8].includes(result.exitCode ?? -1)) {
+  if (result.stdout.trim() !== '' && [0, 1, 8].includes(result.exitCode)) {
     return z.array(PrCheck).parse(JSON.parse(result.stdout));
   }
-  // head 上还没有任何 check（例如刚推送、workflow 尚未注册）
+  // head 上还没有任何 check（例如刚推送、workflow 尚未注册）：gh 只用这句 stderr 区分它与其他退出码 1 的错误
   if (result.exitCode === 1 && result.stderr.includes('no checks reported')) return [];
   throw new Error(
     `gh pr checks ${repo}#${String(pr)} 退出码 ${String(result.exitCode)}：${result.stderr}`,
@@ -293,11 +310,17 @@ export interface IcEndpoint {
   missingRequired: string[];
 }
 
-// 终点：PR 已离开 draft，当前 head 上 check 非空且全部 pass，required contexts 全部在通过的 check 中
+// 终点：PR 仍处于 OPEN 并已离开 draft，当前 head 上 check 非空且全部 pass，required contexts 全部在通过的 check 中。
+// /ic 的终点是一个等待人审阅的 PR：已关闭或已合并的 PR 不算
 export async function icEndpoint(repo: string, pr: number): Promise<IcEndpoint> {
   const view = await ghJson(
-    ['pr', 'view', String(pr), '--repo', repo, '--json', 'isDraft,headRefOid,baseRefName'],
-    z.object({ isDraft: z.boolean(), headRefOid: z.string(), baseRefName: z.string() }),
+    ['pr', 'view', String(pr), '--repo', repo, '--json', 'isDraft,headRefOid,baseRefName,state'],
+    z.object({
+      isDraft: z.boolean(),
+      headRefOid: z.string(),
+      baseRefName: z.string(),
+      state: z.string(),
+    }),
   );
   const checks = await prChecks(repo, pr);
   const required = await requiredContexts(repo, view.baseRefName);
@@ -306,7 +329,7 @@ export async function icEndpoint(repo: string, pr: number): Promise<IcEndpoint> 
   const ciGreen =
     checks.length > 0 && checks.every((c) => c.bucket === 'pass') && missingRequired.length === 0;
   return {
-    reached: !view.isDraft && ciGreen,
+    reached: view.state === 'OPEN' && !view.isDraft && ciGreen,
     ciGreen,
     isDraft: view.isDraft,
     head: view.headRefOid,
@@ -314,7 +337,7 @@ export async function icEndpoint(repo: string, pr: number): Promise<IcEndpoint> 
   };
 }
 
-// PR 的 head 分支名，供 clonePrBranch 使用
+// PR 的 head 分支名，记在评分明细中
 export async function prBranch(repo: string, pr: number): Promise<string> {
   return (
     await ghJson(
@@ -324,12 +347,11 @@ export async function prBranch(repo: string, pr: number): Promise<string> {
   ).headRefName;
 }
 
-// 隐藏测试用：把 PR 分支浅克隆到 dest（data/runs/<runId>/grading/checkout）
-export async function clonePrBranch(
-  repo: string,
-  branch: string,
-  dest: string,
-): Promise<{ head: string }> {
-  await cmd('gh', ['repo', 'clone', repo, dest, '--', '--branch', branch, '--depth', '1']);
+// 隐藏测试用：把 PR 的 head 浅克隆到 dest（data/runs/<runId>/grading/checkout）。按 refs/pull/<n>/head 取，
+// PR 已合并、分支已删除时同样可以取到
+export async function clonePr(repo: string, pr: number, dest: string): Promise<{ head: string }> {
+  await cmd('gh', ['repo', 'clone', repo, dest, '--', '--depth', '1']);
+  await cmd('git', ['-C', dest, 'fetch', '--depth', '1', 'origin', `pull/${String(pr)}/head`]);
+  await cmd('git', ['-C', dest, 'checkout', '--quiet', '--detach', 'FETCH_HEAD']);
   return { head: (await cmd('git', ['-C', dest, 'rev-parse', 'HEAD'])).trim() };
 }

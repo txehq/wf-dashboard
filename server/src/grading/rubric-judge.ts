@@ -55,6 +55,7 @@ export async function judgeArtifact(
   task: LfgTask,
   group: ArtifactRubric,
   content: string,
+  signal: AbortSignal,
 ): Promise<JudgeResult> {
   const ids = group.items.map((i) => i.id);
   const schema = z.object({
@@ -66,6 +67,7 @@ export async function judgeArtifact(
     user: userPrompt(task, group, content),
     schema,
     maxTokens: 8000,
+    signal,
   });
   const byId = new Map(result.value.items.map((i) => [i.itemId, i]));
   const returned = result.value.items.map((i) => i.itemId);

@@ -1,4 +1,5 @@
 import type { ToolCall } from '../db/schema.js';
+import { commandsOf, obsidianArgs } from '../stages/shell.js';
 
 // session 是否含 lfg / ic 的粗判（System Design 第 5 节最后一条）
 const lfgSkills = new Set(['lfg', 'interview', 'research', 'plan', 'ticketing']);
@@ -13,13 +14,11 @@ const icSkills = new Set([
   'ready-for-review',
 ]);
 
-// 命令位置上的 wf obsidian（Stage Markers 1.7），排除只是提到命令的调用
-const wfObsidian = /(?:^|[\n;&|(])\s*wf\s+obsidian\s/;
-const wfObsidianNoWrite = /--dry-run\b|--help\b|\s-h\b/;
+// wf obsidian 写出的产物路径（Stage Markers 1.7）
 const wfObsidianWritten =
   /Project [^/\n]+\/Features\/[^/\n]+\/(?:Brief|Research|System Design|Tickets)\.md/;
-const ghPr = /(?:^|[\n;&|(])\s*gh\s+pr\s/;
-const linearTool = /^mcp__[^_]*linear[^_]*__(save_issue|save_comment)$/;
+// Linear MCP 的工具名：mcp__<server>__<tool>，server 名中含 linear（例如 capso-linear、claude_ai_Linear）
+const linearTool = /^mcp__.*linear.*__(save_issue|save_comment)$/i;
 const commandName = /<command-name>\/([\w-]+)<\/command-name>/g;
 
 export interface WorkflowFlags {
@@ -44,15 +43,15 @@ export function detectFromToolCall(call: ToolCall): WorkflowFlags {
   if (call.name === 'Bash') {
     const command = field(call.input, 'command');
     if (typeof command === 'string') {
-      if (
-        wfObsidian.test(command) &&
-        !wfObsidianNoWrite.test(command) &&
-        call.result !== null &&
-        !call.isError &&
-        wfObsidianWritten.test(call.result)
-      )
+      // 命令位置上的 wf obsidian 与 gh pr；只是提到命令（echo、grep、heredoc 正文）的调用不算
+      const commands = commandsOf(command);
+      const writes = commands.some((argv) => {
+        const args = obsidianArgs(argv);
+        return args !== null && !args.dryRun && !args.help;
+      });
+      if (writes && call.result !== null && !call.isError && wfObsidianWritten.test(call.result))
         flags.lfg = true;
-      if (ghPr.test(command)) flags.ic = true;
+      if (commands.some((argv) => argv[0] === 'gh' && argv[1] === 'pr')) flags.ic = true;
     }
   }
   // Linear 认领：save_issue 指派负责人，或 /claim 的认领评论

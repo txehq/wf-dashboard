@@ -20,9 +20,9 @@ export interface AcceptanceReport {
 
 // 脚本中最后一个 `wf publish-artifact … --title <标题>` 的标题；wf 前可以有 env 与环境变量赋值；
 // --dry-run 不算发布
-async function publishedTitle(script: string): Promise<string | null> {
+function publishedTitle(script: string): string | null {
   let title: string | null = null;
-  for (const argv of await commandsOf(script)) {
+  for (const argv of commandsOf(script)) {
     const at = argv.findIndex(
       (w, i) => path.basename(w) === 'wf' && argv[i + 1] === 'publish-artifact',
     );
@@ -37,14 +37,14 @@ async function publishedTitle(script: string): Promise<string | null> {
 }
 
 // 成功发布的验收报告；按时间顺序，最后一次在最后
-export async function acceptanceReports(rows: RequestRow[]): Promise<AcceptanceReport[]> {
+export function acceptanceReports(rows: RequestRow[]): AcceptanceReport[] {
   const out: AcceptanceReport[] = [];
   for (const row of rows) {
     for (const call of row.toolCalls) {
       if (call.name !== 'Bash' || call.isError || call.result === null) continue;
       const command = inputString(call.input, 'command');
       if (!command?.includes('publish-artifact')) continue;
-      const title = await publishedTitle(command);
+      const title = publishedTitle(command);
       if (title === null || !ACCEPTANCE_TITLE.test(title)) continue;
       const url = [...call.result.matchAll(PAGE_URL)].at(-1)?.[0];
       if (url === undefined) continue;
@@ -55,18 +55,14 @@ export async function acceptanceReports(rows: RequestRow[]): Promise<AcceptanceR
 }
 
 // 主 session 与子代理中最后一次发布的验收报告写入 artifacts（每个 run 一条）
-export async function recordAcceptanceReport(
-  db: Db,
-  runId: string,
-  sessionId: string,
-): Promise<void> {
+export function recordAcceptanceReport(db: Db, runId: string, sessionId: string): void {
   const rows = db
     .select()
     .from(requests)
     .where(eq(requests.sessionId, sessionId))
     .orderBy(asc(requests.timestamp), asc(requests.id))
     .all();
-  const last = (await acceptanceReports(rows)).at(-1);
+  const last = acceptanceReports(rows).at(-1);
   if (last === undefined) return;
   upsertArtifact(
     db,

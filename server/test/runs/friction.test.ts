@@ -122,4 +122,38 @@ describe('friction 报告（Contracts 7.10）', () => {
       }),
     ]);
   });
+
+  // shell-quote 把换行当空白：多行命令被并成一段，第二行的 gh 不在段首；heredoc 正文被当成参数。
+  // 改用 tree-sitter-bash 的 commandsOf 之后按真实的命令结构识别
+  test('多行命令与 heredoc：第二行的 gh 被识别，heredoc 正文中的 gh 不算', () => {
+    const row = (id: string, command: string, result: string) =>
+      ({
+        seq: 0,
+        toolCalls: [
+          {
+            id,
+            name: 'Bash',
+            input: { command },
+            result,
+            resultChars: result.length,
+            isError: false,
+            spillPath: null,
+            subagentId: null,
+          },
+        ],
+      }) as unknown as RequestRow;
+    const calls = frictionCalls([
+      row(
+        'multi',
+        'cd /x\ngh issue create --repo txehq/txe-workflow --title t --body-file b.md',
+        ISSUE_80,
+      ),
+      row(
+        'heredoc',
+        "cat > b.md <<'EOF'\ngh issue create --repo txehq/txe-workflow --title t\nEOF\necho done",
+        ISSUE_80,
+      ),
+    ]);
+    expect(calls.map((c) => [c.toolCallId, c.action])).toEqual([['multi', 'create']]);
+  });
 });

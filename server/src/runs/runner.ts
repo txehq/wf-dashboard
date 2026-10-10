@@ -103,6 +103,10 @@ export class RunDriver {
   private simulating = false;
   private ending: 'finish' | 'cancel' | null = null;
   private shuttingDown = false;
+  // 取消评分与服务关闭时中止 gradeRun：结束评分的子进程（npm ci、隐藏测试）与 judge 请求
+  private readonly gradingAbort = new AbortController();
+  // 服务关闭时中止准备阶段的等待（等默认分支、等起始代码的 CI）
+  private readonly stopping = new AbortController();
   private failure: ((error: Error) => void) | null = null;
   private readonly failed: Promise<never>;
 
@@ -201,15 +205,26 @@ export class RunDriver {
       );
     }
     this.setStatus('grading');
-    await this.grade();
+    // 评分中被页面取消：评分记为 failed 与原因，status 为 cancelled；服务关闭时照常让 run 失败
+    const cancelled = await this.grade().then(
+      () => false,
+      (error: unknown) => {
+        if (this.gradingAbort.signal.aborted && !this.shuttingDown) return true;
+        throw error;
+      },
+    );
     this.updateCost();
+    if (cancelled) {
+      this.setStatus('cancelled', { endedAt: new Date() });
+      return;
+    }
     this.setStatus('succeeded', { endedAt: new Date() });
   }
 
   // Contracts 7.6
   private async grade() {
     this.setGrading('running', null);
-    await Promise.race([gradeRun(this.db, this.runId), this.failed]).then(
+    await Promise.race([gradeRun(this.db, this.runId, this.gradingAbort.signal), this.failed]).then(
       () => {
         this.setGrading('done', null);
       },
@@ -232,7 +247,7 @@ export class RunDriver {
     let repo: string;
     let initial: string;
     if (task.kind === 'lfg') {
-      const created = await createEmptyRunRepo(this.runId);
+      const created = await createEmptyRunRepo(this.runId, this.stopping.signal);
       repo = created.repo;
       this.update({ githubRepo: repo });
       upsertArtifact(this.db, this.runId, 'repo', created.url, null);
@@ -246,7 +261,7 @@ export class RunDriver {
         `Repository: ${repo}`,
       ].join('\n');
     } else {
-      const created = await createRunRepo(task, this.runId);
+      const created = await createRunRepo(task, this.runId, this.stopping.signal);
       repo = created.repo;
       this.update({ githubRepo: repo });
       upsertArtifact(this.db, this.runId, 'repo', created.url, null);
@@ -255,7 +270,9 @@ export class RunDriver {
       upsertArtifact(this.db, this.runId, 'ticket', ticket.url, ticket.identifier);
       initial = `/ic ${ticket.identifier}`;
     }
-    await execa('gh', ['repo', 'clone', repo, run.workspacePath]);
+    await execa('gh', ['repo', 'clone', repo, run.workspacePath], {
+      cancelSignal: this.stopping.signal,
+    });
     return initial;
   }
 
@@ -289,7 +306,7 @@ export class RunDriver {
       `${run.sessionId}.jsonl`,
     );
     this.jsonl = jsonl;
-    this.sessionWatcher = await watchSession(this.db, jsonl);
+    this.sessionWatcher = await watchSession(this.db, jsonl, this.fail);
 
     const stageOptions = {
       db: this.db,
@@ -388,7 +405,7 @@ export class RunDriver {
     this.update({ crossRunRefs: scanCrossRunRefs(this.db, this.runId) });
     await recordFriction(this.db, this.runId, this.row().sessionId);
     if (this.task.kind === 'ic') {
-      await recordAcceptanceReport(this.db, this.runId, this.row().sessionId);
+      recordAcceptanceReport(this.db, this.runId, this.row().sessionId);
       await this.pollPr();
     }
   }
@@ -558,6 +575,7 @@ export class RunDriver {
 
   takeover() {
     this.requireRunning();
+    if (this.mode === 'human') throw new HttpError(409, `run ${this.runId} 已经被接管`);
     this.mode = 'human';
     this.update({ humanIntervened: true });
     addMessage(this.db, this.runId, {
@@ -613,8 +631,32 @@ export class RunDriver {
     this.finishProcess();
   }
 
-  // interrupt 控制消息 → 等 result → 关闭 stdin；超时则 SIGTERM
+  // 正在评分（grading，或取消后按已写出的产物评分）：中止评分，结束评分的子进程
+  get gradingCancellable(): boolean {
+    const row = this.row();
+    return (
+      !this.gradingAbort.signal.aborted &&
+      row.gradingStatus === 'running' &&
+      (row.status === 'grading' || row.status === 'cancelled')
+    );
+  }
+
+  private async cancelGrading() {
+    addMessage(this.db, this.runId, {
+      role: 'system',
+      content: '页面取消了评分',
+      payload: { kind: 'event', event: 'cancel-grading' },
+    });
+    this.gradingAbort.abort(new Error('评分被页面取消'));
+    await this.done;
+  }
+
+  // interrupt 控制消息 → 等 result → 关闭 stdin；超时则 SIGTERM。评分中取消时中止评分
   async cancel() {
+    if (this.gradingCancellable) {
+      await this.cancelGrading();
+      return;
+    }
     this.requireRunning();
     const proc = this.proc;
     if (proc === null) throw new Error('claude 进程尚未启动');
@@ -676,7 +718,7 @@ export class RunDriver {
     this.update({ crossRunRefs: scanCrossRunRefs(this.db, this.runId) });
     await recordFriction(this.db, this.runId, this.row().sessionId);
     if (this.task.kind === 'ic') {
-      await recordAcceptanceReport(this.db, this.runId, this.row().sessionId);
+      recordAcceptanceReport(this.db, this.runId, this.row().sessionId);
       await this.pollPr();
     }
     this.updateCost();
@@ -687,6 +729,7 @@ export class RunDriver {
     if (this.prTimer !== null) clearInterval(this.prTimer);
     this.unsubscribe?.();
     await this.sessionWatcher?.close();
+    await this.stages?.stop();
     const proc = this.proc;
     if (proc !== null) {
       this.ending ??= 'cancel';
@@ -700,12 +743,13 @@ export class RunDriver {
     this.setPending(null);
   }
 
-  // 服务关闭：结束 claude 子进程，run 记为失败；准备阶段的 run 由下次启动时的状态修正处理
+  // 服务关闭：结束 claude 子进程与评分的子进程，run 记为失败；准备阶段的 run 在当前一步（建仓库、clone）
+  // 结束后停止，不再启动 claude。等 drive 完全结束，不留下子进程
   async shutdown() {
     this.shuttingDown = true;
-    const proc = this.proc;
-    if (proc === null) return;
-    proc.terminate();
+    this.stopping.abort(new Error('服务关闭，运行中断'));
+    this.gradingAbort.abort(new Error('服务关闭，评分中断'));
+    this.proc?.terminate();
     await this.done;
   }
 }

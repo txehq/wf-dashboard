@@ -21,7 +21,7 @@ import { IC_STAGES, LFG_STAGES } from '../stages/workflow.js';
 import { HttpError } from '../variants/errors.js';
 import { artifactView, listMessages, messageView } from './records.js';
 import { RunDriver, type RunnerDeps } from './runner.js';
-import type { BatchDetail, BatchSummary, RunDetail, RunSummary } from './views.js';
+import type { BatchDetail, BatchSummary, RunDetail, RunMode, RunSummary } from './views.js';
 
 const ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
@@ -38,6 +38,18 @@ export const RUN_ID = /^r-\d{8}-[a-z0-9]{6}$/;
 
 const terminalStatuses = new Set<RunStatus>(['succeeded', 'failed', 'cancelled']);
 
+// 对话由谁回答：最后一次接管或交还的系统事件；run 结束或服务重启后同样适用（runner 切换模式时写这两条事件）
+function modeOf(messages: ReturnType<typeof listMessages>): RunMode {
+  const last = messages.findLast(
+    (m) =>
+      m.payload?.kind === 'event' &&
+      (m.payload.event === 'takeover' || m.payload.event === 'release'),
+  );
+  return last?.payload?.kind === 'event' && last.payload.event === 'takeover'
+    ? 'human'
+    : 'simulated';
+}
+
 type RunRow = typeof runs.$inferSelect;
 
 export interface RunFilter {
@@ -52,16 +64,26 @@ export function createRuns(deps: RunnerDeps) {
   const drivers = new Map<string, RunDriver>();
   let stopped = false;
 
-  // 上次服务退出时仍在进行的 run 不会再继续
-  db.update(runs)
+  // 上次服务退出时仍在进行的 run 不会再继续；修正后的状态推送给已连接的页面
+  const interrupted = db
+    .update(runs)
     .set({ status: 'failed', error: '服务重启中断', endedAt: new Date() })
     .where(inArray(runs.status, ['preparing', 'running', 'grading']))
-    .run();
+    .returning({ id: runs.id })
+    .all();
   // 取消后正在评分的 run 状态保持 cancelled，评分记为中断
-  db.update(runs)
+  const gradingInterrupted = db
+    .update(runs)
     .set({ gradingStatus: 'failed', gradingError: '服务重启中断' })
     .where(eq(runs.gradingStatus, 'running'))
-    .run();
+    .returning({ id: runs.id, status: runs.status })
+    .all();
+  for (const r of interrupted) {
+    events.publish({ type: 'run.status', runId: r.id, status: 'failed' });
+  }
+  for (const r of gradingInterrupted) {
+    events.publish({ type: 'run.status', runId: r.id, status: r.status });
+  }
 
   function pump() {
     const limit = settings.get().runConcurrency;
@@ -307,14 +329,15 @@ export function createRuns(deps: RunnerDeps) {
       const location = (kind: string) =>
         artifactRows.find((a) => a.kind === kind)?.location ?? null;
       const dir = featureDir(deps.vaultDir, deps.product, id);
+      const messages = listMessages(db, id);
       return {
         ...summary,
         sessionId: row.sessionId,
         workspacePath: row.workspacePath,
-        mode: driver?.mode ?? 'simulated',
+        mode: modeOf(messages),
         pending: driver?.pending ?? null,
         stages: readReport(db, row.sessionId),
-        messages: listMessages(db, id).map(messageView),
+        messages: messages.map(messageView),
         artifacts: artifactRows.map(artifactView),
         costs: runCostBreakdown(db, id),
         links: {
@@ -325,7 +348,11 @@ export function createRuns(deps: RunnerDeps) {
         },
         friction: artifactRows
           .filter((a) => a.kind === 'friction')
-          .map((a) => ({ url: a.location, title: a.snapshot ?? '' })),
+          .map((a) => {
+            // friction 产物写入时总带 issue 标题（runs/records.ts 的 upsertFriction）
+            if (a.snapshot === null) throw new Error(`friction 产物 ${a.location} 没有标题`);
+            return { url: a.location, title: a.snapshot };
+          }),
       };
     },
 
@@ -353,6 +380,12 @@ export function createRuns(deps: RunnerDeps) {
           .where(and(eq(runs.id, id), eq(runs.status, 'queued')))
           .run();
         events.publish({ type: 'run.status', runId: id, status: 'cancelled' });
+        return;
+      }
+      // 正在评分（grading，或取消后按已写出的产物评分）时取消评分
+      const driver = drivers.get(id);
+      if (driver?.gradingCancellable === true) {
+        await driver.cancel();
         return;
       }
       await driverOf(id).cancel();
