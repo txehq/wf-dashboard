@@ -38,11 +38,14 @@ export interface SimulatedReply {
 }
 
 // 文字提问的回答没有 answers 字段；AskUserQuestion 的回答必须给出 answers。
-// 结构化输出不支持任意键的对象，answers 以数组输出后再转成 Record
-const TextOutput = z.object({ reply: z.string(), done: z.boolean() });
+// 结构化输出不支持任意键的对象，answers 以数组输出后再转成 Record；
+// 问题用编号指代（/ic 的 Goal 确认问题长达数百字，模型逐字抄写会抄错或留空）
+const TextOutput = z.object({ reply: z.string().min(1), done: z.boolean() });
 const QuestionOutput = z.object({
-  reply: z.string(),
-  answers: z.array(z.object({ question: z.string(), answer: z.string() })).min(1),
+  reply: z.string().min(1),
+  answers: z
+    .array(z.object({ questionNumber: z.number().int(), answer: z.string().min(1) }))
+    .min(1),
   done: z.boolean(),
 });
 
@@ -62,9 +65,13 @@ function facts(ctx: SimulatedUserContext): string[] {
 
 function doneRule(task: Task): string {
   return task.kind === 'lfg'
-    ? '这是 /lfg 运行。done 为 true 的条件（同时满足）：你在之前的对话中已经回答过 dispatch gate（不派发），并且 agent 最新一轮报告了结束状态。其他情况一律为 false。'
+    ? '这是 /lfg 运行。done 为 true 的条件（满足其一）：你在之前的对话中已经回答过 dispatch gate（不派发），并且 agent 最新一轮报告了结束状态；或 agent 明确报告无法继续。其他情况一律为 false。'
     : '这是 /ic 运行。done 为 true 的条件（满足其一）：agent 最新一轮报告 PR 已经标记为 ready for review（工单已移到 review 状态）；或 agent 明确报告无法继续。其他情况一律为 false。';
 }
+
+// agent 停下来等一个外部条件（额度恢复、服务可用、别人操作）而不是向用户提问时，对话不会再推进
+const WAITING_RULE =
+  'agent 最新一轮没有向你提问，而是说明它在等待某个外部条件（例如额度恢复、某个服务恢复、别人完成某个操作）才能继续时，视为 agent 无法继续：done 为 true。';
 
 export function systemPrompt(ctx: SimulatedUserContext): string {
   const { task } = ctx;
@@ -98,12 +105,13 @@ export function systemPrompt(ctx: SimulatedUserContext): string {
     '',
     '## 何时结束（done）',
     doneRule(task),
+    WAITING_RULE,
     'done 为 true 时，reply 写一句简短的结束语，它不会发给 agent。',
     '',
     '## 输出',
     '- 文字中需要引号时一律用中文引号「」，不要用英文双引号。',
     '- agent 用文字提问或汇报时（即使文字里列出了 A/B 之类的选项）：reply 是你要发给 agent 的话，在 reply 里写出你的选择。',
-    '- agent 用 AskUserQuestion 的选项提问时：answers 为每个问题各给一项，question 是问题原文（一字不差），answer 是所选选项的 label 原文（只写 label，不带说明）；多选时用 ", " 连接多个 label；没有合适的选项时可以写你自己的简短回答。reply 用一句话说明你的选择。',
+    '- agent 用 AskUserQuestion 的选项提问时：answers 为每个问题各给一项，questionNumber 是问题的编号（「问题 1」即 1），answer 是所选选项的 label 原文（只写 label，不带说明）；多选时用 ", " 连接多个 label；没有合适的选项时可以写你自己的简短回答。reply 用一句话说明你的选择。',
   );
   return lines.join('\n');
 }
@@ -159,13 +167,20 @@ export async function simulateUser(
     const result = await parseStructured({ ...call, schema: QuestionOutput });
     ({ reply, done } = result.value);
     cost = result;
-    answers = Object.fromEntries(result.value.answers.map((a) => [a.question, a.answer]));
-    const expected = prompt.questions.map((q) => q.question).sort();
-    if (JSON.stringify(Object.keys(answers).sort()) !== JSON.stringify(expected)) {
+    const numbers = result.value.answers.map((a) => a.questionNumber).sort((a, b) => a - b);
+    const expected = prompt.questions.map((_, i) => i + 1);
+    if (JSON.stringify(numbers) !== JSON.stringify(expected)) {
       throw new Error(
-        `模拟用户回答的问题 ${JSON.stringify(Object.keys(answers))} 与提问 ${JSON.stringify(expected)} 不一致`,
+        `模拟用户回答的问题编号 ${JSON.stringify(numbers)} 与提问的编号 ${JSON.stringify(expected)} 不一致`,
       );
     }
+    answers = Object.fromEntries(
+      result.value.answers.map((a): [string, string] => {
+        const question = prompt.questions[a.questionNumber - 1];
+        if (question === undefined) throw new Error(`问题编号 ${String(a.questionNumber)} 不存在`);
+        return [question.question, a.answer];
+      }),
+    );
   } else {
     const result = await parseStructured({ ...call, schema: TextOutput });
     ({ reply, done } = result.value);

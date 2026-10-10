@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { config } from '../../src/config.js';
+import { models, setModels } from '../../src/llm/client.js';
 import {
   DISPATCH_GATE_REPLY,
   simulateUser,
@@ -11,7 +12,8 @@ import {
 import { parseTaskYaml } from '../../src/tasks/loader.js';
 import type { LfgTask } from '../../src/tasks/schema.js';
 
-// 真实调用 gateway 上的 models.simulatedUser
+// 真实调用 gateway；模拟用户用 opus（W12：gateway 上 sonnet 的结构化回答经常为空或是占位词）
+setModels({ ...models, simulatedUser: models.judge });
 const file = path.join(config.tasksDir, 'lfg-calculator', 'task.yaml');
 const definition = parseTaskYaml(fs.readFileSync(file, 'utf8'), file);
 if (definition.kind !== 'lfg') throw new Error('lfg-calculator 应为 lfg task');
@@ -127,5 +129,111 @@ describe('模拟用户（真实 gateway）', () => {
     );
     console.log('[after gate]', r.reply);
     expect(r.done).toBe(true);
+  }, 120_000);
+
+  // r-20261009-i6vxt1（W12）：research 等 Codex 额度时，模拟用户与 agent 来回「好的 / 好」直到回答次数上限
+  test('agent 在等外部条件而不是提问：done 为 true', async () => {
+    const r = await simulateUser(
+      ctx,
+      [
+        initial,
+        {
+          speaker: 'agent',
+          content:
+            '好的。账号额度我们这边自己处理，不会再拿这件事麻烦你。额度恢复以后，我会从对抗评审接着做，先把调研草稿和这六个问题再审一遍。',
+        },
+        { speaker: 'user', content: '好，那就等你们那边弄好了，六个问题整理好发给我。' },
+      ],
+      {
+        kind: 'text',
+        text: '好的。我刚才又试了一次，Codex 的额度还没有恢复，所以这一步还在等。额度恢复以后，我会先把六个问题审好，再整理好发给你。',
+      },
+    );
+    console.log('[waiting]', r.reply);
+    expect(r.done).toBe(true);
+  }, 120_000);
+
+  test('agent 还在正常提问：done 为 false', async () => {
+    const r = await simulateUser(ctx, [initial], {
+      kind: 'text',
+      text: '在开始之前想先确认一下：这个计算器主要是谁在用？在什么场合用？',
+    });
+    expect(r.done).toBe(false);
+  }, 120_000);
+});
+
+// r-20261009-jzo9c4（W12）中 /ic 的 Goal 确认：问题长达数百字，模型逐字抄写问题时留空，run 因此失败
+describe('模拟用户回答 /ic 的长问题（真实 gateway）', () => {
+  const icFile = path.join(config.tasksDir, 'ic-money-format', 'task.yaml');
+  const icDefinition = parseTaskYaml(fs.readFileSync(icFile, 'utf8'), icFile);
+  if (icDefinition.kind !== 'ic') throw new Error('ic-money-format 应为 ic task');
+  const icRunId = 'r-20261009-jzo9c4';
+  const icCtx: SimulatedUserContext = {
+    task: { ...icDefinition, dir: path.dirname(icFile) },
+    runId: icRunId,
+    repo: `txehq/wfe-${icRunId}`,
+    ticket: 'TXE-3820',
+    product: 'Magi Eval',
+  };
+  const goal =
+    "TXE-3820: make `formatMoney` in `src/format.js` take each currency's decimals from `src/currencies.js` (JPY/KRW with no fraction, KWD with three digits), put the minus sign before the symbol, show amounts up to Number.MAX_SAFE_INTEGER exactly, and throw RangeError (unsupported currency) / TypeError (amount not a safe integer). The checklist holds 8 requirements. /readiness will check node >=22.12.0 with npm. Authority ceiling: code and tests in this repo, a draft PR on txehq/wfe-r-20261009-jzo9c4, and Linear updates on this ticket, with no merge and no other external side effects. Is that the work?";
+
+  test('Goal 确认的 AskUserQuestion：answers 的键是问题原文，选确认项', async () => {
+    const r = await simulateUser(icCtx, [{ speaker: 'user', content: '/ic TXE-3820' }], {
+      kind: 'questions',
+      questions: [
+        {
+          question: goal,
+          header: 'Goal',
+          multiSelect: false,
+          options: [
+            {
+              label: 'Yes, run it',
+              description: 'Run /readiness through /ready-for-review without asking again.',
+            },
+            {
+              label: 'Correct the goal',
+              description: "I'll describe the correction, and it gets folded into the checklist.",
+            },
+          ],
+        },
+      ],
+    });
+    console.log('[ic goal]', r.answers, r.reply);
+    expect(r.answers).toEqual({ [goal]: 'Yes, run it' });
+    expect(r.done).toBe(false);
+  }, 120_000);
+
+  test('两个问题：按编号对应到各自的问题原文', async () => {
+    const q1 = 'Which Node version should /readiness require for this repository?';
+    const q2 =
+      'Should the PR also update README.md to document the new RangeError and TypeError behaviour?';
+    const r = await simulateUser(icCtx, [{ speaker: 'user', content: '/ic TXE-3820' }], {
+      kind: 'questions',
+      questions: [
+        {
+          question: q1,
+          header: 'Node',
+          multiSelect: false,
+          options: [
+            { label: '>=22.12.0', description: 'What package.json engines says' },
+            { label: '>=20', description: 'Older LTS' },
+          ],
+        },
+        {
+          question: q2,
+          header: 'README',
+          multiSelect: false,
+          options: [
+            { label: 'Yes', description: 'Document the errors in README' },
+            { label: 'No', description: 'Code and tests only' },
+          ],
+        },
+      ],
+    });
+    console.log('[ic two]', r.answers);
+    expect(Object.keys(r.answers ?? {}).sort()).toEqual([q1, q2].sort());
+    // 没有合适的选项时 prompt 允许写自己的简短回答，这里只要求每个问题都有回答
+    for (const q of [q1, q2]) expect(r.answers?.[q]).toMatch(/\S/);
   }, 120_000);
 });
