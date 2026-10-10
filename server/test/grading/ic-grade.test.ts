@@ -88,17 +88,13 @@ describe('ic 评分（真实 GitHub 仓库，只读取）', { timeout: 10 * 60_0
     expect(fs.existsSync(path.join(config.runsDir, runId, 'grading'))).toBe(false);
   });
 
-  it('隐藏测试超时：写入 0 / 8 与超时错误，gradeRun 抛出同样的错误', async () => {
-    // 每次评分的 npm 缓存都是空的，并行跑全部测试时 npm ci 需要几十秒
-    const timeoutSeconds = 90;
+  it('评分步骤超时：写入 0 / 8 与超时错误，gradeRun 抛出同样的错误', async () => {
+    // 时限 1 秒，npm ci 一定超时；测试命令中的死循环由 isolation.test.ts 覆盖
+    const timeoutSeconds = 1;
     const task = await fixtureTask(timeoutSeconds);
-    fs.writeFileSync(
-      path.join(task.dir, task.hiddenTests.dir, 'divide.hidden.test.js'),
-      'while (true) {}\n',
-    );
     const runId = testRunId('w18a-ic-timeout');
     insertRun(db, { id: runId, taskId: task.id, variantId: 'baseline', githubRepo: REPO_WITH_PR });
-    const message = `隐藏测试命令 超过 ${String(timeoutSeconds)} 秒没有结束，已强制结束`;
+    const message = `npm ci 超过 ${String(timeoutSeconds)} 秒没有结束，已强制结束`;
     await expect(gradeRun(db, runId)).rejects.toThrow(message);
     const ic = readRunGrades(db, runId)?.ic;
     expect(ic).toMatchObject({ testsPassed: 0, testsDeclared: 8, reachedEnd: true });
