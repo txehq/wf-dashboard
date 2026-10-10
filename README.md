@@ -12,6 +12,19 @@ pnpm install
 pnpm exec playwright install chromium
 ```
 
+## 本地使用
+
+```sh
+pnpm install
+pnpm start
+```
+
+`pnpm start` 构建页面与服务端，由同一个进程在 http://127.0.0.1:7317 提供页面与 API（端口由 `WFD_PORT` 覆盖），只需要打开这一个地址。运行时数据写在 `data/`。
+
+页面左侧导航底部是运行环境的检查结果（`GET /api/environment`）：claude、gateway 上三个角色的模型、gh 与 txehq、Linear MCP、Codex、Obsidian vault、txe-workflow 仓库、`wf` / `uv` / `ctx`。未通过的项点开可以看到真实输出与修复命令。
+
+第一次使用请读 Obsidian vault 中的使用手册 `Project Magi/Dashboard/User Guide.md`：安装与启动、环境检查各项的修复、一次完整评估的操作步骤、离线分析、花费与时长的参考、已知限制。
+
 ## 运行
 
 ```sh
@@ -36,15 +49,17 @@ pnpm e2e
 
 ## 命令
 
-| 命令             | 作用                                                                   |
-| ---------------- | ---------------------------------------------------------------------- |
-| `pnpm dev`       | 同时启动服务端（tsx watch）与页面（Vite）                              |
-| `pnpm build`     | 编译服务端到 `server/dist/`，构建页面到 `web/dist/`                    |
-| `pnpm test`      | Vitest，服务端测试在 `.work/test-db/` 下用真实 SQLite 文件跑迁移并读写 |
-| `pnpm e2e`       | Playwright，自动启动两个开发服务器，截图写到 `.work/screenshots/`      |
-| `pnpm typecheck` | 全部 TypeScript 项目的类型检查                                         |
-| `pnpm lint`      | ESLint 与 Prettier 检查                                                |
-| `pnpm format`    | Prettier 格式化                                                        |
+| 命令             | 作用                                                                    |
+| ---------------- | ----------------------------------------------------------------------- |
+| `pnpm start`     | 构建后由服务端一个端口提供页面与 API                                    |
+| `pnpm dev`       | 同时启动服务端（tsx watch）与页面（Vite）                               |
+| `pnpm build`     | 编译服务端到 `server/dist/`，构建页面到 `web/dist/`                     |
+| `pnpm test`      | Vitest，服务端测试在 `.work/test-db/` 下用真实 SQLite 文件跑迁移并读写  |
+| `pnpm e2e`       | Playwright，自动启动各项目的服务，截图写到 `.work/screenshots/`         |
+| `pnpm e2e:guide` | 使用手册的截图（真实发起一个 lfg run），写到 `.work/guide/screenshots/` |
+| `pnpm typecheck` | 全部 TypeScript 项目的类型检查                                          |
+| `pnpm lint`      | ESLint 与 Prettier 检查                                                 |
+| `pnpm format`    | Prettier 格式化                                                         |
 
 修改 `server/src/db/schema.ts` 后，在 `server/` 下执行 `pnpm db:generate --name <迁移名>` 生成新的迁移文件。
 

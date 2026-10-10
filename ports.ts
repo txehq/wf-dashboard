@@ -19,3 +19,8 @@ export const compareWebPort = webPort + 1000;
 // Runs 的 e2e 同样另起一对服务（专用数据目录，其中有导入的已结束 run），端口加 2000
 export const runsServerPort = serverPort + 2000;
 export const runsWebPort = webPort + 2000;
+
+// 环境检查与 pnpm start 的 e2e：构建后由服务端一个端口提供页面与 API，端口加 3000；
+// 使用手册的截图另起一个同样的服务，端口加 4000
+export const environmentServerPort = serverPort + 3000;
+export const guideServerPort = serverPort + 4000;

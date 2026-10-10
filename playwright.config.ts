@@ -3,6 +3,7 @@ import { defineConfig, devices } from '@playwright/test';
 import {
   compareServerPort,
   compareWebPort,
+  environmentServerPort,
   runsServerPort,
   runsWebPort,
   serverPort,
@@ -13,6 +14,8 @@ import {
 const compareDataDir = '.work/e2e/compare-data';
 // Runs 的 e2e 数据目录：保留在多次运行之间，其中有导入的 W4 端到端 run 与测试中构建的 variant
 const runsDataDir = '.work/e2e/runs-data';
+// 环境检查的 e2e 数据目录：每次删除重建，Settings 从默认值开始
+const environmentDataDir = '.work/e2e/environment-data';
 // Sessions 的阶段判定从未判定的状态开始：服务端每次使用删除重建的数据库
 const dbDir = path.resolve(import.meta.dirname, '.work/e2e-db');
 
@@ -28,7 +31,7 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      testIgnore: ['compare.spec.ts', 'runs.spec.ts'],
+      testIgnore: ['compare.spec.ts', 'runs.spec.ts', 'environment.spec.ts', 'guide/**'],
       use: {
         ...devices['Desktop Chrome'],
         baseURL: `http://127.0.0.1:${String(webPort)}`,
@@ -49,6 +52,15 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         baseURL: `http://127.0.0.1:${String(runsWebPort)}`,
+        viewport: { width: 1600, height: 1000 },
+      },
+    },
+    {
+      name: 'environment',
+      testMatch: 'environment.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: `http://127.0.0.1:${String(environmentServerPort)}`,
         viewport: { width: 1600, height: 1000 },
       },
     },
@@ -97,6 +109,19 @@ export default defineConfig({
       url: `http://127.0.0.1:${String(runsWebPort)}`,
       reuseExistingServer: false,
       env: { WFD_PORT: String(runsServerPort), WFD_WEB_PORT: String(runsWebPort) },
+    },
+    {
+      // 与 pnpm start 相同：构建后只开服务端一个端口；阶段判定用 W4 中 gateway 上没有渠道的模型名，
+      // 环境清单中有一项真实未通过
+      command: `rm -rf ${environmentDataDir} && pnpm build && pnpm --filter @wf-dashboard/server start`,
+      url: `http://127.0.0.1:${String(environmentServerPort)}/api/health`,
+      reuseExistingServer: false,
+      timeout: 300_000,
+      env: {
+        WFD_DATA_DIR: environmentDataDir,
+        WFD_PORT: String(environmentServerPort),
+        WFD_STAGE_CHECK_MODEL: 'claude-haiku-4-5-20251001-cc',
+      },
     },
   ],
 });

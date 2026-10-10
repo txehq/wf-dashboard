@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Play } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
+import { EnvironmentWarning } from '@/components/environment/environment-warning';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -170,6 +171,7 @@ export function LaunchBatch() {
               </span>
             )}
           </div>
+          <EnvironmentWarning />
         </div>
         {launch.isError && (
           <p role="alert" className="text-sm text-destructive">

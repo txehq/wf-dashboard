@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Columns2, GitBranch, History, ListChecks, Play } from 'lucide-react';
 import { NavLink, Outlet } from 'react-router';
+import { EnvironmentStatus } from '@/components/environment/environment-status';
 import { Button } from '@/components/ui/button';
 import { healthQuery } from '@/lib/api';
 
@@ -42,7 +43,8 @@ export function Layout() {
             </Button>
           ))}
         </nav>
-        <div className="mt-auto">
+        <div className="mt-auto flex flex-col gap-2">
+          <EnvironmentStatus />
           <ServerStatus />
         </div>
       </aside>

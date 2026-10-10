@@ -1,4 +1,5 @@
 import { fastifySSE } from '@fastify/sse';
+import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
 import { config } from '../config.js';
 import type { Db } from '../db/index.js';
@@ -15,15 +16,20 @@ import { taskRoutes } from './tasks.js';
 import { variantRoutes } from './variants.js';
 import { compareRoutes } from './compare.js';
 import { gradeRoutes } from './grades.js';
+import { createEnvironment } from '../environment.js';
+import { models } from '../llm/client.js';
+import { environmentRoutes } from './environment.js';
 
 export interface AppOptions {
   db: Db;
   sseHeartbeatMs: number;
   logger: boolean;
   tasksDir: string;
+  // pnpm start：构建好的页面目录（web/dist），由同一个进程提供
+  webDir?: string | undefined;
 }
 
-export async function buildApp({ db, sseHeartbeatMs, logger, tasksDir }: AppOptions) {
+export async function buildApp({ db, sseHeartbeatMs, logger, tasksDir, webDir }: AppOptions) {
   const app = Fastify({ logger });
   await app.register(fastifySSE, { heartbeatInterval: sseHeartbeatMs });
 
@@ -69,6 +75,29 @@ export async function buildApp({ db, sseHeartbeatMs, logger, tasksDir }: AppOpti
   await app.register(runRoutes, { runs, settings });
   await app.register(settingsRoutes, { settings });
   app.addHook('onClose', () => runs.shutdown());
+
+  const environment = createEnvironment({
+    models: () => models,
+    vaultDir: config.vaultDir,
+    product: config.evalProduct,
+    txeWorkflowRepo: config.txeWorkflowRepo,
+    ctxBin: config.ctxBin,
+    codexAuthPath: config.codexAuthPath,
+    codexConfigPath: config.codexConfigPath,
+    workDir: config.environmentDir,
+  });
+  await app.register(environmentRoutes, { environment });
+
+  // 页面的路由在浏览器中：未匹配 /api 的路径都返回 index.html
+  if (webDir !== undefined) {
+    await app.register(fastifyStatic, { root: webDir });
+    app.setNotFoundHandler((request, reply) => {
+      if (request.url.startsWith('/api/') || request.method !== 'GET') {
+        return reply.code(404).send({ message: `${request.method} ${request.url} 不存在` });
+      }
+      return reply.sendFile('index.html');
+    });
+  }
 
   return app;
 }

@@ -9,9 +9,11 @@
   "scripts": {
     "dev": "concurrently --kill-others --names server,web --prefix-colors blue,magenta \"pnpm --filter @wf-dashboard/server dev\" \"pnpm --filter @wf-dashboard/web dev\"",
     "build": "pnpm --recursive build",
+    "start": "pnpm build && pnpm --filter @wf-dashboard/server start",
     "test": "pnpm --recursive test",
     "test:external": "pnpm --filter @wf-dashboard/server test:external",
     "e2e": "playwright test",
+    "e2e:guide": "playwright test --config playwright.guide.config.ts",
     "typecheck": "tsc --project tsconfig.json && pnpm --recursive typecheck",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write ."

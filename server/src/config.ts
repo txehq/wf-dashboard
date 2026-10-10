@@ -38,6 +38,12 @@ export const config = {
   codexAuthPath: path.resolve(
     process.env.WFD_CODEX_AUTH ?? path.join(os.homedir(), '.codex/auth.json'),
   ),
+  // codex exec 的模型与 provider 配置（例如经 gateway 调用），其中的模型配置运行前写进 variant 的 CODEX_HOME
+  codexConfigPath: path.resolve(
+    process.env.WFD_CODEX_CONFIG ?? path.join(os.homedir(), '.codex/config.toml'),
+  ),
+  // 环境检查的工作目录：Codex 检查在其中的 codex-home 下准备配置后运行 codex exec
+  environmentDir: path.join(dataDir, 'environment'),
   // 评估运行写入的 Obsidian vault 与其中的 product（wf obsidian 写到 <vault>/Project <product>/）
   vaultDir: path.join(os.homedir(), 'Documents/Obsidian Vault'),
   evalProduct: 'Magi Eval',
