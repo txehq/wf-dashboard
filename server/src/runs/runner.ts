@@ -3,7 +3,6 @@ import path from 'node:path';
 import type { FSWatcher } from 'chokidar';
 import { eq } from 'drizzle-orm';
 import { execa } from 'execa';
-import { runCostBreakdown } from '../cost.js';
 import type { Db } from '../db/index.js';
 import { type AskQuestion, type RunStatus, runs } from '../db/schema.js';
 import { events } from '../events.js';
@@ -18,6 +17,7 @@ import type { Task } from '../tasks/schema.js';
 import { HttpError } from '../variants/errors.js';
 import type { Variants } from '../variants/index.js';
 import { ClaudeProcess } from './claude-process.js';
+import { refreshRunCost, watchRunCost } from './cost-refresh.js';
 import { scanCrossRunRefs } from './cross-run-refs.js';
 import { recordFriction } from './friction.js';
 import { IcLiveStages, LfgLiveStages, type LiveStages } from './live-stages.js';
@@ -290,11 +290,16 @@ export class RunDriver {
         this.guard(this.pollPr());
       }, PR_POLL_MS);
     }
-    this.unsubscribe = events.subscribe((event) => {
+    const stopSession = events.subscribe((event) => {
       if (event.type === 'session.updated' && event.sessionId === run.sessionId) {
         this.stages?.onSessionUpdated();
       }
     });
+    const stopCost = watchRunCost(this.db, this.runId, run.sessionId, this.fail);
+    this.unsubscribe = () => {
+      stopSession();
+      stopCost();
+    };
 
     this.proc = new ClaudeProcess({
       sessionId: run.sessionId,
@@ -616,10 +621,7 @@ export class RunDriver {
   }
 
   private updateCost() {
-    const { total } = runCostBreakdown(this.db, this.runId);
-    if (total === this.row().costUsd) return;
-    this.update({ costUsd: total });
-    events.publish({ type: 'run.cost', runId: this.runId, costUsd: total });
+    refreshRunCost(this.db, this.runId);
   }
 
   // 进程退出后：最后一次读入 jsonl 与阶段判定，停止监听
