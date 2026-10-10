@@ -2,6 +2,7 @@ node_modules/
 dist/
 data/
 .work/
+**/.work/
 .spikes/
 .interview/
 pnpm-lock.yaml

@@ -13,6 +13,7 @@ export default tseslint.config(
       '**/dist/',
       'data/',
       '.work/',
+      '**/.work/',
       '.spikes/',
       '.interview/',
       'tasks/',
