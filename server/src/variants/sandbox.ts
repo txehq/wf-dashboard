@@ -15,6 +15,10 @@ export function wfSandboxProfile(variantDir: string): string {
 }
 
 export interface SandboxRoots {
+  // dashboard 仓库（源代码、tasks/ 中的隐藏测试与 rubric、.spikes/、.work/）
+  repoRoot: string;
+  // 数据目录（db.sqlite、各 run 与各 variant）；WFD_DATA_DIR 指向仓库外时同样整体禁止读
+  dataDir: string;
   runsDir: string;
   variantsDir: string;
   // <vault>/Project Magi Eval/Features
@@ -23,6 +27,8 @@ export interface SandboxRoots {
 }
 
 const defaultRoots = (): SandboxRoots => ({
+  repoRoot: config.repoRoot,
+  dataDir: config.dataDir,
   runsDir: config.runsDir,
   variantsDir: config.variantsDir,
   featuresDir: path.join(config.vaultDir, `Project ${config.evalProduct}`, 'Features'),
@@ -53,7 +59,8 @@ const protectedDirs = [
 
 // claude 进程的 profile（Contracts 7.3），claude、hook、MCP 与 tool 子进程都继承：
 // 写——home 下只允许本 run 的目录、本 variant 的目录、vault 中本 run 的 feature 目录与工具缓存；
-// 读——不能读其他 run 的目录、其他 variant 的目录、本 variant 中其他 run 的 session 与其他 run 的 feature 目录。
+// 读——整个 dashboard 仓库与数据目录都不能读，只放行本 run 的目录与本 variant 的目录（其中再禁止其他 run 的 session），
+// 也不能读其他 run 的 feature 目录。
 // 读限制只拦 file-read-data（文件内容与目录列表），路径查找与 stat 照常，父目录不影响访问自己的目录。
 // SBPL 中后出现的规则优先
 export function claudeSandboxProfile(
@@ -75,7 +82,7 @@ export function claudeSandboxProfile(
         `(deny file-write* ${subpath(path.join(roots.home, dir))} (with send-signal SIGKILL))`,
     ),
     `(deny file-write* (literal ${literal(path.join(roots.home, '.claude.json'))}) (with send-signal SIGKILL))`,
-    `(deny file-read-data ${subpath(roots.runsDir)} ${subpath(roots.variantsDir)} ${subpath(roots.featuresDir)})`,
+    `(deny file-read-data ${[roots.repoRoot, roots.dataDir, roots.runsDir, roots.variantsDir, roots.featuresDir].map(subpath).join(' ')})`,
     `(allow file-read-data ${subpath(runDir)} ${subpath(variantDir)} ${subpath(featureDir)})`,
     `(deny file-read-data ${subpath(projectsDir)})`,
     `(allow file-read-data ${subpath(path.join(projectsDir, runId))})`,

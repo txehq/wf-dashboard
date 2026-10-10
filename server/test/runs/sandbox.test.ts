@@ -10,6 +10,8 @@ import { claudeSandboxProfile } from '../../src/variants/sandbox.js';
 // 真实 sandbox-exec：一个 run 能读写自己的目录，读不到其他 run 的 workspace、session 与 vault 目录（Contracts 7.3）
 const root = path.join(config.repoRoot, '.work', 'test-sandbox', randomUUID());
 const roots = {
+  repoRoot: config.repoRoot,
+  dataDir: path.join(root, 'data'),
   runsDir: path.join(root, 'data', 'runs'),
   variantsDir: path.join(root, 'data', 'variants'),
   featuresDir: path.join(root, 'vault', 'Project Magi Eval', 'Features'),
@@ -38,6 +40,9 @@ const files = {
   otherSession: path.join(projects(variantId), otherRun, 'session.jsonl'),
   ownFeature: path.join(roots.featuresDir, runId, 'Brief.md'),
   otherFeature: path.join(roots.featuresDir, otherRun, 'Research.md'),
+  db: path.join(roots.dataDir, 'db.sqlite'),
+  // .spikes/ 被 gitignore，worktree 中不一定存在：测试中建一个样本文件，结束时删除
+  spike: path.join(config.repoRoot, '.spikes', `test-sandbox-${randomUUID()}.jsonl`),
 };
 for (const file of Object.values(files)) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -48,6 +53,7 @@ const probe = `wfd-sandbox-${randomUUID()}`;
 
 afterAll(() => {
   fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(files.spike, { force: true });
   fs.rmSync(path.join(os.homedir(), '.cache', probe), { force: true });
 });
 
@@ -87,6 +93,22 @@ describe('claude 进程的 sandbox', () => {
     }
     // 路径查找与 stat 照常：能判断目录存在，读不到内容
     expect((await sh(`test -d ${q(path.join(roots.runsDir, otherRun))}`)).code).toBe(0);
+  });
+
+  test('读不到 dashboard 仓库与数据目录：隐藏测试、隐藏需求、数据库、源代码、.spikes', async () => {
+    for (const file of [
+      path.join(config.tasksDir, 'ic-money-format', 'hidden-tests', 'format.hidden.test.js'),
+      path.join(config.tasksDir, 'lfg-calculator', 'task.yaml'),
+      files.db,
+      path.join(config.repoRoot, 'server', 'src', 'grading', 'hidden-tests.ts'),
+      files.spike,
+    ]) {
+      expect(fs.existsSync(file), file).toBe(true);
+      const r = await sh(`cat ${q(file)}`);
+      expect(r.code, file).not.toBe(0);
+      expect(r.err).toContain('Operation not permitted');
+    }
+    expect((await sh(`ls ${q(config.tasksDir)}`)).code).not.toBe(0);
   });
 
   test('写：自己的 run、variant 与 feature 目录可以；其他 run 的 feature 目录、product 根目录与 home 其他位置不行', async () => {
