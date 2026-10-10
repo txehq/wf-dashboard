@@ -17,6 +17,7 @@ import { StageText } from '@/components/runs/run-list';
 import { RunStatusLabel } from '@/components/runs/run-status';
 import { RequestTimeline, type TimelineFocus } from '@/components/sessions/request-timeline';
 import { StageGraph } from '@/components/sessions/stage-graph';
+import { StageRequests } from '@/components/sessions/stage-requests';
 import { Button } from '@/components/ui/button';
 import { formatDateTime, formatDuration, formatUsd } from '@/lib/format';
 import {
@@ -348,17 +349,33 @@ function CrossRefs({
   );
 }
 
-function Requests({ run, focus }: { run: RunDetail; focus: TimelineFocus | null }) {
+// Contracts 第 12 节：选中阶段时只显示该阶段的请求（与 Sessions 详情相同）；显示全部时运行中跟随最新一条
+function Requests({
+  run,
+  focus,
+  stage,
+  onShowAll,
+}: {
+  run: RunDetail;
+  focus: TimelineFocus | null;
+  stage: StageView | null;
+  onShowAll: () => void;
+}) {
   const session = useQuery({ ...sessionQuery(run.sessionId), retry: false });
   const live = liveStatuses.has(run.status);
   return (
     <section
-      className="flex scroll-mt-4 flex-col gap-2"
+      className="flex min-w-0 scroll-mt-4 flex-col gap-2"
       aria-labelledby="requests-title"
       id="run-requests"
     >
       <h2 id="requests-title" className="text-sm font-medium">
         请求流
+        {stage === null && session.isSuccess && (
+          <span className="ml-2 text-xs font-normal text-muted-foreground">
+            点击阶段框只看该阶段的请求
+          </span>
+        )}
       </h2>
       {session.isPending ? (
         <p className="text-sm text-muted-foreground">加载中…</p>
@@ -371,6 +388,15 @@ function Requests({ run, focus }: { run: RunDetail; focus: TimelineFocus | null 
             ? 'Claude Code 还没有写出 session 记录，通常在启动后几分钟内出现。'
             : '这个 run 没有 session 记录。'}
         </p>
+      ) : stage !== null ? (
+        <StageRequests
+          sessionId={run.sessionId}
+          workflow={run.taskKind}
+          cycle={run.stages?.[run.taskKind][0]}
+          view={stage}
+          subagents={session.data.subagents}
+          onShowAll={onShowAll}
+        />
       ) : (
         <RequestTimeline
           sessionId={run.sessionId}
@@ -389,13 +415,15 @@ function RunView({ run }: { run: RunDetail }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [focus, setFocus] = useState<TimelineFocus | null>(null);
   const live = liveStatuses.has(run.status);
+  const selectedView = views.find((v) => v.stage === selected) ?? null;
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-w-0 flex-col gap-4">
       <Header run={run} />
       <Failure run={run} views={views} />
       <CrossRefs
         refs={run.crossRunRefs}
         onFocus={(ref) => {
+          setSelected(null);
           setFocus({ seq: ref.requestSeq, toolCallId: ref.toolCallId, nonce: Date.now() });
           document.getElementById('run-requests')?.scrollIntoView({ behavior: 'smooth' });
         }}
@@ -411,7 +439,15 @@ function RunView({ run }: { run: RunDetail }) {
           views={views}
           selected={selected}
           onSelect={(stage) => {
-            setSelected(selected === stage ? null : stage);
+            const next = selected === stage ? null : stage;
+            setSelected(next);
+            if (next !== null) {
+              requestAnimationFrame(() => {
+                document
+                  .getElementById('run-requests')
+                  ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              });
+            }
           }}
           live={live}
         />
@@ -421,7 +457,14 @@ function RunView({ run }: { run: RunDetail }) {
         <RunArtifacts run={run} />
       </div>
       <Grading run={run} />
-      <Requests run={run} focus={focus} />
+      <Requests
+        run={run}
+        focus={focus}
+        stage={selectedView}
+        onShowAll={() => {
+          setSelected(null);
+        }}
+      />
     </div>
   );
 }

@@ -268,6 +268,35 @@ export function requestsQuery(id: string, range: RequestRange) {
   });
 }
 
+// Contracts 第 11 节：session 主 agent 的对话；seq 指向请求明细中的那一行
+export interface ConversationQuestion {
+  question: string;
+  header?: string;
+  options: { label: string; description?: string }[];
+  multiSelect?: boolean;
+}
+
+export type ConversationItem =
+  | { kind: 'user' | 'notice'; text: string; timestamp: string; seq: number | null }
+  | { kind: 'agent'; text: string; timestamp: string; seq: number }
+  | {
+      kind: 'question';
+      toolCallId: string;
+      questions: ConversationQuestion[];
+      answers: Record<string, string> | null;
+      timestamp: string;
+      seq: number;
+    };
+
+// 键在 ['session', id] 之下：session.updated 时随 session 一起刷新
+export function conversationQuery(id: string) {
+  return queryOptions({
+    queryKey: ['session', id, 'conversation'],
+    queryFn: async () =>
+      ((await getJson(`/api/sessions/${id}/conversation`)) as { items: ConversationItem[] }).items,
+  });
+}
+
 function invalidateSession(client: QueryClient, sessionId: string) {
   void client.invalidateQueries({ queryKey: ['sessions'] });
   void client.invalidateQueries({ queryKey: ['session', sessionId] });

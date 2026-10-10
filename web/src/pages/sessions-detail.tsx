@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, LoaderCircle, Sparkles } from 'lucide-react';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
-import { RequestTimeline } from '@/components/sessions/request-timeline';
+import { SessionConversation } from '@/components/runs/conversation';
+import { RequestTimeline, type TimelineFocus } from '@/components/sessions/request-timeline';
 import { StageBars } from '@/components/sessions/stage-bars';
-import { StageDetail } from '@/components/sessions/stage-detail';
 import { StageGraph } from '@/components/sessions/stage-graph';
+import { StageRequests } from '@/components/sessions/stage-requests';
 import { SessionSummaryPanel } from '@/components/sessions/session-summary';
 import { Button } from '@/components/ui/button';
 import { formatInteger, formatUsd } from '@/lib/format';
@@ -200,7 +201,17 @@ function CycleTabs({
   );
 }
 
-function StagesSection({ session, report }: { session: SessionDetail; report: StageReport }) {
+function StagesSection({
+  session,
+  report,
+  focus,
+  onJump,
+}: {
+  session: SessionDetail;
+  report: StageReport;
+  focus: TimelineFocus | null;
+  onJump: (seq: number, toolCallId: string | null) => void;
+}) {
   const [params, setParams] = useSearchParams();
   const selection = parseSelection(params.get('stage'));
   const detailRef = useRef<HTMLDivElement>(null);
@@ -220,10 +231,14 @@ function StagesSection({ session, report }: { session: SessionDetail; report: St
     const index = Number(params.get(workflow) ?? '1');
     return cycles.find((c) => c.index === index) ?? cycles[0];
   };
+  // 再次点击已选中的阶段恢复全部请求
   const select = (workflow: Workflow, stage: string) => {
+    const again = selection?.workflow === workflow && selection.stage === stage;
     update((next) => {
-      next.set('stage', `${workflow}:${stage}`);
+      if (again) next.delete('stage');
+      else next.set('stage', `${workflow}:${stage}`);
     });
+    if (again) return;
     requestAnimationFrame(() => {
       detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
@@ -286,31 +301,40 @@ function StagesSection({ session, report }: { session: SessionDetail; report: St
           <StageBars views={cycle.stages} />
         </section>
       ))}
+      <SessionConversation sessionId={session.id} onJump={onJump} />
       <div ref={detailRef} className="scroll-mt-4">
         {selection !== null && selectedView !== undefined ? (
-          <div className="flex flex-col gap-3">
-            <Button variant="outline" size="sm" className="self-start" onClick={clear}>
-              查看全部请求
-            </Button>
-            <StageDetail
-              sessionId={session.id}
-              workflow={selection.workflow}
-              cycle={cycleOf(selection.workflow)}
-              view={selectedView}
-              subagents={session.subagents}
-            />
-          </div>
+          <StageRequests
+            sessionId={session.id}
+            workflow={selection.workflow}
+            cycle={cycleOf(selection.workflow)}
+            view={selectedView}
+            subagents={session.subagents}
+            onShowAll={clear}
+          />
         ) : (
-          <AllRequests session={session} hint={graphs.length > 0} />
+          <AllRequests session={session} hint={graphs.length > 0} focus={focus} />
         )}
       </div>
     </>
   );
 }
 
-function AllRequests({ session, hint }: { session: SessionDetail; hint: boolean }) {
+function AllRequests({
+  session,
+  hint,
+  focus,
+}: {
+  session: SessionDetail;
+  hint: boolean;
+  focus: TimelineFocus | null;
+}) {
   return (
-    <section aria-label="全部请求" className="flex flex-col gap-3">
+    <section
+      aria-label="全部请求"
+      className="flex scroll-mt-4 flex-col gap-3"
+      id="session-requests"
+    >
       <h2 className="text-base font-semibold">
         全部请求
         {hint && (
@@ -319,15 +343,34 @@ function AllRequests({ session, hint }: { session: SessionDetail; hint: boolean 
           </span>
         )}
       </h2>
-      <RequestTimeline sessionId={session.id} range={{}} subagents={session.subagents} />
+      <RequestTimeline
+        sessionId={session.id}
+        range={{}}
+        subagents={session.subagents}
+        focus={focus}
+      />
     </section>
   );
 }
 
 function SessionView({ session }: { session: SessionDetail }) {
   const stages = useQuery(stagesQuery(session.id));
+  const [, setParams] = useSearchParams();
+  const [focus, setFocus] = useState<TimelineFocus | null>(null);
+  // 对话条目跳到请求明细：先恢复全部请求，再定位到那一条（请求明细负责把它滚到视野中）
+  const jump = (seq: number, toolCallId: string | null) => {
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('stage');
+        return next;
+      },
+      { replace: true },
+    );
+    setFocus({ seq, toolCallId, nonce: Date.now() });
+  };
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex min-w-0 flex-col gap-6">
       <SessionSummaryPanel session={session} outside={stages.data?.outside ?? null} />
       {stages.isPending ? (
         <p className="text-sm text-muted-foreground">正在读取阶段判定…</p>
@@ -338,10 +381,11 @@ function SessionView({ session }: { session: SessionDetail }) {
       ) : stages.data === null ? (
         <>
           <AnalyzePanel session={session} />
-          <AllRequests session={session} hint={false} />
+          <SessionConversation sessionId={session.id} onJump={jump} />
+          <AllRequests session={session} hint={false} focus={focus} />
         </>
       ) : (
-        <StagesSection session={session} report={stages.data} />
+        <StagesSection session={session} report={stages.data} focus={focus} onJump={jump} />
       )}
     </div>
   );

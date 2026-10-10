@@ -62,10 +62,11 @@ const SubagentsContext = createContext<ReadonlyMap<string, SubagentInfo>>(new Ma
 // 被外部定位到的请求（message id），该行加框标出
 const FocusContext = createContext<string | null>(null);
 
-// 外部要求定位的主 session 请求；nonce 让同一条请求可以被再次定位
+// 外部要求定位的主 session 请求；nonce 让同一条请求可以被再次定位。
+// toolCallId 为空时只滚动到该请求（对话条目的跳转）
 export interface TimelineFocus {
   seq: number;
-  toolCallId: string;
+  toolCallId: string | null;
   nonce: number;
 }
 
@@ -533,6 +534,7 @@ export function RequestTimeline({
   const subagentMap = useMemo(() => new Map(subagents.map((s) => [s.agentId, s])), [subagents]);
   const query = useQuery(requestsQuery(sessionId, range));
   const scrollRef = useRef<((index: number) => void) | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   // 定位：滚动到该请求并展开对应的 tool 调用；调用在子代理中时展开该请求发起的子代理。
   // open 的引用随展开状态变化，放在 ref 中，定位只随 focus 与数据变化执行
@@ -545,13 +547,31 @@ export function RequestTimeline({
     const index = query.data.findIndex((i) => i.kind === 'request' && i.seq === focus.seq);
     const item = query.data[index];
     if (item?.kind !== 'request') return;
-    const call = item.toolCalls.find((c) => c.id === focus.toolCallId);
-    if (call === undefined) {
-      for (const c of item.toolCalls) if (c.subagentId !== null) openRef.current(`agent:${c.id}`);
-    } else {
-      openRef.current(`tool:${call.id}`);
+    if (focus.toolCallId !== null) {
+      const call = item.toolCalls.find((c) => c.id === focus.toolCallId);
+      if (call === undefined) {
+        for (const c of item.toolCalls) if (c.subagentId !== null) openRef.current(`agent:${c.id}`);
+      } else {
+        openRef.current(`tool:${call.id}`);
+      }
     }
     scrollRef.current?.(index);
+    // 虚拟列表滚动后下一帧才渲染出这一行：等它出现，再把它连同页面一起滚到视野中央
+    let frames = 0;
+    let handle = 0;
+    const reveal = () => {
+      const row = rootRef.current?.querySelector('[data-focused="true"]');
+      if (row !== null && row !== undefined) {
+        row.scrollIntoView({ block: 'center' });
+        return;
+      }
+      frames += 1;
+      if (frames < 30) handle = requestAnimationFrame(reveal);
+    };
+    handle = requestAnimationFrame(reveal);
+    return () => {
+      cancelAnimationFrame(handle);
+    };
   }, [focus, query.data]);
   const focusedId = useMemo(() => {
     if (focus === null) return null;
@@ -577,7 +597,7 @@ export function RequestTimeline({
   return (
     <ExpandContext value={expand}>
       <SubagentsContext value={subagentMap}>
-        <div className="flex flex-col gap-2">
+        <div ref={rootRef} className="flex min-w-0 flex-col gap-2">
           {query.data !== undefined && (
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               <span>

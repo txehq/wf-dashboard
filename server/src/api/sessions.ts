@@ -23,6 +23,7 @@ import {
   setCheckedSources,
   type SourceDirs,
 } from '../ingest/sources.js';
+import { ConversationItem, sessionConversation } from '../ingest/conversation.js';
 import { displayUserText, sessionTitle } from './user-text.js';
 
 const ErrorBody = z.object({ error: z.string() });
@@ -498,6 +499,23 @@ export const sessionsRoutes: FastifyPluginCallbackZod<SessionsRoutesOptions> = (
       ]
         .sort((a, b) => a.at - b.at || a.order - b.order)
         .map((e) => e.item);
+      return { items };
+    },
+  );
+
+  // Contracts 第 11 节
+  app.get(
+    '/sessions/:id/conversation',
+    {
+      schema: {
+        params: z.object({ id: z.string() }),
+        response: { 200: z.object({ items: z.array(ConversationItem) }), 404: ErrorBody },
+      },
+    },
+    async (request, reply) => {
+      const items = sessionConversation(db, request.params.id);
+      if (items === null)
+        return reply.code(404).send({ error: `session ${request.params.id} 不存在` });
       return { items };
     },
   );

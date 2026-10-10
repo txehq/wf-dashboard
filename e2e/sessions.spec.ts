@@ -194,7 +194,7 @@ test('Sessions：来源勾选、列表、详情、阶段判定、阶段请求、
 
   // 1280px 宽：lfg 与 ic 的阶段框全部显示，页面与阶段图都没有横向滚动；ic 换成两行
   await page.setViewportSize({ width: 1280, height: 1000 });
-  await page.getByRole('button', { name: '查看全部请求' }).click();
+  await page.getByRole('button', { name: '显示全部' }).click();
   const noHorizontalScroll = async (selector: string) =>
     page.locator(selector).evaluate((el) => el.scrollWidth <= el.clientWidth);
   await expect.poll(() => noHorizontalScroll('html')).toBe(true);
