@@ -1,5 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
+import { config } from '../config.js';
 
 // sandbox-exec 的 SBPL 字符串字面量
 const literal = (value: string) => JSON.stringify(value);
@@ -13,25 +14,70 @@ export function wfSandboxProfile(variantDir: string): string {
   );
 }
 
-// claude 进程的 profile：禁止写真实的 Claude 配置、wf 状态、Codex 配置与 ~/.local/bin；
-// claude、hook 与 MCP 子进程都继承这个限制
-export function claudeSandboxProfile(): string {
-  const home = os.homedir();
-  const protectedDirs = [
-    '.claude',
-    'Library/Application Support/wf',
-    'Library/Caches/wf',
-    '.codex',
-    '.local/bin',
-  ];
-  return (
-    '(version 1)(allow default)' +
-    protectedDirs
-      .map(
-        (dir) =>
-          `(deny file-write* (subpath ${literal(path.join(home, dir))}) (with send-signal SIGKILL))`,
-      )
-      .join('') +
-    `(deny file-write* (literal ${literal(path.join(home, '.claude.json'))}) (with send-signal SIGKILL))`
-  );
+export interface SandboxRoots {
+  runsDir: string;
+  variantsDir: string;
+  // <vault>/Project Magi Eval/Features
+  featuresDir: string;
+  home: string;
+}
+
+const defaultRoots = (): SandboxRoots => ({
+  runsDir: config.runsDir,
+  variantsDir: config.variantsDir,
+  featuresDir: path.join(config.vaultDir, `Project ${config.evalProduct}`, 'Features'),
+  home: os.homedir(),
+});
+
+// home 下工具运行需要写的缓存与状态目录（npm、Playwright 浏览器、gh、mcp-remote 的登录、ctx）
+const homeCaches = [
+  '.npm',
+  '.cache',
+  '.config',
+  '.mcp-auth',
+  '.ctx',
+  '.local/share',
+  '.local/state',
+  'Library/Caches',
+  'Library/pnpm',
+];
+
+// 真实的 Claude 配置、wf 状态、Codex 配置与 ~/.local/bin：越界写入的进程被 SIGKILL
+const protectedDirs = [
+  '.claude',
+  'Library/Application Support/wf',
+  'Library/Caches/wf',
+  '.codex',
+  '.local/bin',
+];
+
+// claude 进程的 profile（Contracts 7.3），claude、hook、MCP 与 tool 子进程都继承：
+// 写——home 下只允许本 run 的目录、本 variant 的目录、vault 中本 run 的 feature 目录与工具缓存；
+// 读——不能读其他 run 的目录、其他 variant 的目录、本 variant 中其他 run 的 session 与其他 run 的 feature 目录。
+// 读限制只拦 file-read-data（文件内容与目录列表），路径查找与 stat 照常，父目录不影响访问自己的目录。
+// SBPL 中后出现的规则优先
+export function claudeSandboxProfile(
+  runId: string,
+  variantId: string,
+  roots: SandboxRoots = defaultRoots(),
+): string {
+  const runDir = path.join(roots.runsDir, runId);
+  const variantDir = path.join(roots.variantsDir, variantId);
+  const projectsDir = path.join(variantDir, 'home', 'claude', 'projects');
+  const featureDir = path.join(roots.featuresDir, runId);
+  const subpath = (dir: string) => `(subpath ${literal(dir)})`;
+  return [
+    '(version 1)(allow default)',
+    `(deny file-write* ${subpath(roots.home)})`,
+    `(allow file-write* ${[runDir, variantDir, featureDir, ...homeCaches.map((d) => path.join(roots.home, d))].map(subpath).join(' ')})`,
+    ...protectedDirs.map(
+      (dir) =>
+        `(deny file-write* ${subpath(path.join(roots.home, dir))} (with send-signal SIGKILL))`,
+    ),
+    `(deny file-write* (literal ${literal(path.join(roots.home, '.claude.json'))}) (with send-signal SIGKILL))`,
+    `(deny file-read-data ${subpath(roots.runsDir)} ${subpath(roots.variantsDir)} ${subpath(roots.featuresDir)})`,
+    `(allow file-read-data ${subpath(runDir)} ${subpath(variantDir)} ${subpath(featureDir)})`,
+    `(deny file-read-data ${subpath(projectsDir)})`,
+    `(allow file-read-data ${subpath(path.join(projectsDir, runId))})`,
+  ].join('');
 }

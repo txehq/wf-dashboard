@@ -68,7 +68,6 @@ export interface RuntimeEnv {
   mcpConfigPath: string;
   // --model、--effort 与 --mcp-config
   claudeArgs: string[];
-  sandboxProfile: string;
   // claude 写 session jsonl 的目录，Ingester 的来源
   sessionsDir: string;
 }
@@ -629,9 +628,18 @@ export function createVariants({
         },
         mcpConfigPath: dirs.mcpConfig,
         claudeArgs: ['--model', row.model, '--effort', row.effort, '--mcp-config', dirs.mcpConfig],
-        sandboxProfile: claudeSandboxProfile(),
         sessionsDir: path.join(dirs.claudeDir, 'projects'),
       };
+    },
+
+    // 一个 run 的 claude 进程的 sandbox（Contracts 7.3）；runsDir 是 runs 模块存放各 run 的目录
+    sandboxProfile(id: string, runId: string, runsDir: string): string {
+      return claudeSandboxProfile(runId, id, {
+        runsDir,
+        variantsDir: path.dirname(layout.variant(id).dir),
+        featuresDir: path.join(config.vaultDir, `Project ${config.evalProduct}`, 'Features'),
+        home: os.homedir(),
+      });
     },
   };
 }

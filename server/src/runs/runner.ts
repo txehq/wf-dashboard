@@ -306,7 +306,11 @@ export class RunDriver {
       cwd: run.workspacePath,
       env,
       variantArgs: runtime.claudeArgs,
-      sandboxProfile: runtime.sandboxProfile,
+      sandboxProfile: this.deps.variants.sandboxProfile(
+        run.variantId,
+        this.runId,
+        this.deps.runsDir,
+      ),
       logDir: this.runDir(),
       onEvent: (event) => {
         this.onEvent(event);

@@ -226,11 +226,13 @@ describe('variant 构建与隔离安装', { timeout: 1_800_000 }, () => {
     const work = path.join(variants.layout(mod.id).dir, 'work', 'probe');
     fs.mkdirSync(work, { recursive: true });
     await execa('git', ['init', '-q'], { cwd: work });
+    // 与 runner 相同：run 的 sandbox，session 写到 projects/<runId>/
+    const runId = 'r-20261010-probe1';
     const result = await execa(
       'sandbox-exec',
       [
         '-p',
-        runtime.sandboxProfile,
+        variants.sandboxProfile(mod.id, runId, path.join(dataDir, 'runs')),
         'claude',
         '-p',
         '列出可用 skill 名称',
@@ -240,7 +242,12 @@ describe('variant 构建与隔离安装', { timeout: 1_800_000 }, () => {
         'bypassPermissions',
         ...runtime.claudeArgs,
       ],
-      { cwd: work, env: runtime.env, extendEnv: false, stdin: 'ignore' },
+      {
+        cwd: work,
+        env: { ...runtime.env, CLAUDE_CODE_PROJECT_DIR_NAME: runId },
+        extendEnv: false,
+        stdin: 'ignore',
+      },
     );
     const output = z
       .looseObject({ is_error: z.boolean(), result: z.string(), session_id: z.string() })
