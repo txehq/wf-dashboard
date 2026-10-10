@@ -37,6 +37,7 @@ export default defineConfig({
         'variants-imported.spec.ts',
         'details.spec.ts',
         'environment.spec.ts',
+        'compare-empty.spec.ts',
         'guide/**',
       ],
       use: {
@@ -64,7 +65,8 @@ export default defineConfig({
     },
     {
       name: 'environment',
-      testMatch: 'environment.spec.ts',
+      // 数据目录每次删除重建：Compare 的空状态也在这里测试
+      testMatch: ['environment.spec.ts', 'compare-empty.spec.ts'],
       use: {
         ...devices['Desktop Chrome'],
         baseURL: `http://127.0.0.1:${String(environmentServerPort)}`,
@@ -83,7 +85,8 @@ export default defineConfig({
     {
       command: 'pnpm --filter @wf-dashboard/web dev',
       url: `http://127.0.0.1:${String(webPort)}`,
-      reuseExistingServer: true,
+      // 端口被其他 worktree 的页面占用时报错，不测试别人的页面
+      reuseExistingServer: false,
     },
     {
       command:
