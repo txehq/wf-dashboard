@@ -37,8 +37,9 @@ export function LaunchBatch() {
     },
   });
 
-  const repeatCount = repeats ?? settings.data?.defaultRepeats ?? 1;
-  const total = variantIds.length * taskIds.length * repeatCount;
+  // 默认次数来自设置；设置还没有读到（或读取失败）时不能发起，不用 1 次代替
+  const repeatCount = repeats ?? settings.data?.defaultRepeats ?? null;
+  const total = variantIds.length * taskIds.length * (repeatCount ?? 0);
   const chosenTasks = (tasks.data ?? []).filter((t) => taskIds.includes(t.task.id));
   const hasLfg = chosenTasks.some((t) => t.task.kind === 'lfg');
   const hasIc = chosenTasks.some((t) => t.task.kind === 'ic');
@@ -130,22 +131,33 @@ export function LaunchBatch() {
           </fieldset>
           <label className="flex flex-col gap-1.5 text-sm">
             <span className="font-medium">重复次数</span>
-            <Input
-              type="number"
-              min={1}
-              max={50}
-              value={repeatCount}
-              className="w-24"
-              onChange={(event) => {
-                setRepeats(Number(event.target.value));
-              }}
-            />
+            {repeatCount === null ? (
+              settings.isError ? (
+                <span role="alert" className="text-destructive" data-testid="repeats-error">
+                  读取默认次数失败：{settings.error.message}
+                </span>
+              ) : (
+                <span className="text-muted-foreground">加载中…</span>
+              )
+            ) : (
+              <Input
+                type="number"
+                min={1}
+                max={50}
+                value={repeatCount}
+                className="w-24"
+                onChange={(event) => {
+                  setRepeats(Number(event.target.value));
+                }}
+              />
+            )}
           </label>
         </div>
         <div className="flex flex-wrap items-center gap-4 border-t pt-4">
           <Button
-            disabled={total === 0 || launch.isPending}
+            disabled={repeatCount === null || total === 0 || launch.isPending}
             onClick={() => {
+              if (repeatCount === null) throw new Error('还没有重复次数');
               launch.mutate({ variantIds, taskIds, repeats: repeatCount });
             }}
           >
@@ -157,8 +169,8 @@ export function LaunchBatch() {
             data-testid="launch-summary"
           >
             <span>
-              {variantIds.length} 个 variant × {taskIds.length} 个 task × {repeatCount} 次 = {total}{' '}
-              个 run；选中的 variant 将被冻结，之后不能再编辑。
+              {variantIds.length} 个 variant × {taskIds.length} 个 task × {repeatCount ?? '?'} 次 ={' '}
+              {total} 个 run；选中的 variant 将被冻结，之后不能再编辑。
             </span>
             {hasLfg && (
               <span>

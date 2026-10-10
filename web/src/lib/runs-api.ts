@@ -1,6 +1,7 @@
 import { queryOptions, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
-import type { StageReport, Workflow } from '@/lib/sessions-api';
+import { requestJson } from '@/lib/http';
+import { invalidateThrottled, type LiveEventType, useLiveEvent } from '@/lib/live-events';
+import type { StageReport, StageStatus, Workflow } from '@/lib/sessions-api';
 
 // 与 Contracts.md 第 7 节的 Runs API 对应（server/src/runs/views.ts）
 
@@ -90,7 +91,7 @@ export interface RunSummary {
   variantName: string;
   repeatIndex: number;
   status: RunStatus;
-  currentStage: { workflow: Workflow; stage: string; status: string } | null;
+  currentStage: { workflow: Workflow; stage: string; status: StageStatus } | null;
   costUsd: number;
   durationMs: number | null;
   humanIntervened: boolean;
@@ -154,22 +155,9 @@ export interface Settings {
   models: { simulatedUser: string; judge: string; stageCheck: string };
 }
 
-// 失败时抛出服务端返回的 message
+// 失败时抛出带 URL、状态码与服务端原因的错误
 async function call<T>(method: string, url: string, body?: unknown): Promise<T> {
-  const response = await fetch(url, {
-    method,
-    ...(body === undefined
-      ? {}
-      : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
-  });
-  const json: unknown = await response.json();
-  if (!response.ok) {
-    const message = (json as { message?: unknown }).message;
-    throw new Error(
-      typeof message === 'string' ? message : `${url} 返回 ${String(response.status)}`,
-    );
-  }
-  return json as T;
+  return (await requestJson(method, url, body)) as T;
 }
 
 export interface RunFilter {
@@ -246,39 +234,32 @@ export function rerunnable(run: RunSummary): boolean {
   return run.status === 'failed' || run.status === 'cancelled' || run.invalidReason !== null;
 }
 
-const runEvents = [
+const runEvents = new Set<LiveEventType>([
   'run.status',
   'run.message',
   'run.pending',
   'run.stage',
   'run.artifact',
   'run.cost',
-];
+]);
 
-// 订阅 /api/events：run.* 刷新列表与对应 run 的详情；session.updated 刷新该 session 的请求明细
+// run.* 刷新列表与对应 run 的详情；session.updated 刷新该 session 的请求明细。
+// 同一查询在窗口内只刷新一次：batch 创建时几十条 run.status、长时间运行中每秒数次 session.updated
 export function useRunEvents() {
   const client = useQueryClient();
-  useEffect(() => {
-    const source = new EventSource('/api/events');
-    const onRun = (event: MessageEvent<string>) => {
-      const data = JSON.parse(event.data) as { runId: string };
-      void client.invalidateQueries({ queryKey: ['runs', 'list'] });
-      void client.invalidateQueries({ queryKey: ['runs', 'batches'] });
-      void client.invalidateQueries({ queryKey: ['runs', 'detail', data.runId] });
-      void client.invalidateQueries({ queryKey: ['runs', data.runId, 'grades'] });
-    };
-    const onSession = (event: MessageEvent<string>) => {
-      const data = JSON.parse(event.data) as { sessionId: string };
-      void client.invalidateQueries({ queryKey: ['requests', data.sessionId] });
-      void client.invalidateQueries({ queryKey: ['session', data.sessionId] });
-    };
-    for (const type of runEvents) source.addEventListener(type, onRun);
-    source.addEventListener('session.updated', onSession);
-    source.addEventListener('stage.changed', onSession);
-    return () => {
-      source.close();
-    };
-  }, [client]);
+  useLiveEvent((type, data) => {
+    if (runEvents.has(type)) {
+      const { runId } = data as { runId: string };
+      invalidateThrottled(client, ['runs', 'list'], 500);
+      invalidateThrottled(client, ['runs', 'batches'], 500);
+      invalidateThrottled(client, ['runs', 'detail', runId], 300);
+      invalidateThrottled(client, ['runs', runId, 'grades'], 300);
+    } else if (type === 'session.updated' || type === 'stage.changed') {
+      const { sessionId } = data as { sessionId: string };
+      invalidateThrottled(client, ['requests', sessionId], 1_000);
+      invalidateThrottled(client, ['session', sessionId], 1_000);
+    }
+  });
 }
 
 export const statusLabel: Record<RunStatus, string> = {

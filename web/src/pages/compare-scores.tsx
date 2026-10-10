@@ -124,10 +124,22 @@ function ScoreCell({
   );
 }
 
+type RubricItem = CompareCell['rubricItems'][number];
+
+// 同一条目：rubric 修改过时，满分或说明不同的同名条目是不同的行
+const sameItem = (a: RubricItem, b: RubricItem) =>
+  a.artifact === b.artifact &&
+  a.itemId === b.itemId &&
+  a.criterion === b.criterion &&
+  a.maxScore === b.maxScore;
+
 function LfgDetail({ cells, variants }: { cells: CompareCell[]; variants: SelectedVariant[] }) {
   const [base] = cells;
   if (base === undefined) throw new Error('没有基线的格子');
-  const items = cells.find((c) => c.rubricItems.length > 0)?.rubricItems ?? [];
+  const items: RubricItem[] = [];
+  for (const item of cells.flatMap((c) => c.rubricItems)) {
+    if (!items.some((x) => sameItem(x, item))) items.push(item);
+  }
   const artifacts = base.quality.kind === 'lfg' ? base.quality.artifacts : [];
   return (
     <table className="w-full text-sm" data-testid="rubric-detail">
@@ -170,7 +182,10 @@ function LfgDetail({ cells, variants }: { cells: CompareCell[]; variants: Select
             {items
               .filter((item) => item.artifact === artifact)
               .map((item) => (
-                <tr key={item.itemId} className="border-b last:border-0">
+                <tr
+                  key={`${item.itemId}\0${item.criterion}\0${String(item.maxScore)}`}
+                  className="border-b last:border-0"
+                >
                   <td className="py-1.5 pr-3">
                     <span className="mr-2 font-mono text-xs text-muted-foreground">
                       {item.itemId}
@@ -178,12 +193,8 @@ function LfgDetail({ cells, variants }: { cells: CompareCell[]; variants: Select
                     {item.criterion}
                   </td>
                   {cells.map((cell, i) => {
-                    const own = cell.rubricItems.find(
-                      (x) => x.artifact === artifact && x.itemId === item.itemId,
-                    );
-                    const baseItem = base.rubricItems.find(
-                      (x) => x.artifact === artifact && x.itemId === item.itemId,
-                    );
+                    const own = cell.rubricItems.find((x) => sameItem(x, item));
+                    const baseItem = base.rubricItems.find((x) => sameItem(x, item));
                     if (own?.score.mean == null) {
                       return (
                         <td key={cell.variantId} className="px-3 py-1.5 text-muted-foreground">

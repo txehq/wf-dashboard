@@ -21,6 +21,7 @@ import { StageGraph } from '@/components/sessions/stage-graph';
 import { StageRequests } from '@/components/sessions/stage-requests';
 import { Button } from '@/components/ui/button';
 import { formatDateTime, formatDuration, formatUsd } from '@/lib/format';
+import { isNotFound } from '@/lib/http';
 import {
   type CrossRunRef,
   liveStatuses,
@@ -130,8 +131,15 @@ function Header({ run }: { run: RunDetail }) {
   const live = liveStatuses.has(run.status);
   const now = useNow(live);
   const duration = runDuration(run, now);
-  const cancel = useMutation({ mutationFn: () => runAction(run.id, 'cancel') });
-  const cancellable = run.status === 'queued' || run.status === 'running';
+  const client = useQueryClient();
+  // 成功后等详情重新拉取完再恢复按钮，不依赖实时事件
+  const cancel = useMutation({
+    mutationFn: () => runAction(run.id, 'cancel'),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['runs', 'detail', run.id] }),
+  });
+  // 评分中也可以取消（取消评分，结束评分的子进程）
+  const grading = run.status === 'grading' || run.grading.status === 'running';
+  const cancellable = run.status === 'queued' || run.status === 'running' || grading;
   return (
     <div className="flex flex-col gap-3 rounded-lg border px-4 py-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -158,12 +166,14 @@ function Header({ run }: { run: RunDetail }) {
             className="ml-auto"
             disabled={cancel.isPending}
             onClick={() => {
-              if (window.confirm('取消这个 run？取消后按已写出的产物评分，不能继续。'))
-                cancel.mutate();
+              const question = grading
+                ? '取消评分？评分记为失败，run 记为已取消。'
+                : '取消这个 run？取消后按已写出的产物评分，不能继续。';
+              if (window.confirm(question)) cancel.mutate();
             }}
           >
             <Ban />
-            {cancel.isPending ? '正在取消…' : '取消运行'}
+            {cancel.isPending ? '正在取消…' : grading ? '取消评分' : '取消运行'}
           </Button>
         )}
         <RerunButton run={run} className="ml-auto" />
@@ -382,15 +392,22 @@ function Requests({
       </h2>
       {session.isPending ? (
         <p className="text-sm text-muted-foreground">加载中…</p>
-      ) : session.isError ? (
-        <p
-          className="rounded-lg border border-dashed py-6 text-center text-sm text-muted-foreground"
-          data-testid="requests-empty"
-        >
-          {live
-            ? 'Claude Code 还没有写出 session 记录，通常在启动后几分钟内出现。'
-            : '这个 run 没有 session 记录。'}
-        </p>
+      ) : session.data === undefined ? (
+        // 只有 404 是"还没有 session"；其他错误（500、网络错误）显示原文
+        isNotFound(session.error) ? (
+          <p
+            className="rounded-lg border border-dashed py-6 text-center text-sm text-muted-foreground"
+            data-testid="requests-empty"
+          >
+            {live
+              ? 'Claude Code 还没有写出 session 记录，通常在启动后几分钟内出现。'
+              : '这个 run 没有 session 记录。'}
+          </p>
+        ) : (
+          <p role="alert" className="text-sm text-destructive" data-testid="requests-error">
+            读取 session 失败：{session.error.message}
+          </p>
+        )
       ) : stage !== null ? (
         <StageRequests
           sessionId={run.sessionId}
@@ -488,12 +505,20 @@ export function RunDetailPage() {
       </Link>
       {run.isPending ? (
         <p className="text-sm text-muted-foreground">正在加载 run…</p>
-      ) : run.isError ? (
+      ) : run.data === undefined ? (
         <p role="alert" className="text-sm text-destructive">
           加载 run 失败：{run.error.message}
         </p>
       ) : (
-        <RunView run={run.data} />
+        <>
+          {/* 后台重新拉取失败时保留已有内容，错误显示在上方 */}
+          {run.isError && (
+            <p role="alert" className="text-sm text-destructive">
+              刷新 run 失败：{run.error.message}
+            </p>
+          )}
+          <RunView run={run.data} />
+        </>
       )}
     </div>
   );

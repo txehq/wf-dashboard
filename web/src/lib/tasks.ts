@@ -6,25 +6,7 @@ import {
   TaskRecord,
 } from '@wf-dashboard/server/tasks/schema';
 import { z } from 'zod';
-
-const ServerError = z.object({ message: z.string() });
-
-async function request(method: string, url: string, body?: unknown): Promise<unknown> {
-  const response = await fetch(url, {
-    method,
-    ...(body === undefined
-      ? {}
-      : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
-  });
-  const json: unknown = await response.json();
-  if (!response.ok) {
-    const parsed = ServerError.safeParse(json);
-    throw new Error(
-      parsed.success ? parsed.data.message : `${url} 返回 ${String(response.status)}`,
-    );
-  }
-  return json;
-}
+import { requestJson as request } from '@/lib/http';
 
 export const tasksQuery = queryOptions({
   queryKey: ['tasks'],

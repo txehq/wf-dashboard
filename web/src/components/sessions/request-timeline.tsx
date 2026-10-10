@@ -496,23 +496,37 @@ function Timeline({
         正在加载请求…
       </p>
     );
-  if (query.isError)
+  // 后台重新拉取失败时 data 仍在：照常显示，错误作为上方提示，滚动位置与展开状态不丢
+  const items = query.data;
+  if (items === undefined)
     return (
       <p role="alert" className="py-6 text-sm text-destructive">
         加载请求失败：{query.error.message}
       </p>
     );
-  const items = query.data;
+  const refreshError = query.isError ? (
+    <p role="alert" className="text-sm text-destructive">
+      刷新请求失败：{query.error.message}
+    </p>
+  ) : null;
   if (items.length === 0)
-    return <p className="py-6 text-sm text-muted-foreground">这一段没有请求。</p>;
+    return (
+      <>
+        {refreshError}
+        <p className="py-6 text-sm text-muted-foreground">这一段没有请求。</p>
+      </>
+    );
   return (
-    <VirtualRows
-      items={items}
-      sessionId={sessionId}
-      nested={nested}
-      scrollHandle={scrollHandle}
-      follow={follow}
-    />
+    <>
+      {refreshError}
+      <VirtualRows
+        items={items}
+        sessionId={sessionId}
+        nested={nested}
+        scrollHandle={scrollHandle}
+        follow={follow}
+      />
+    </>
   );
 }
 

@@ -7,20 +7,9 @@ import {
   SkillDiff,
 } from '@wf-dashboard/server/grading/schema';
 import { z } from 'zod';
+import { requestJson } from '@/lib/http';
 
-const ServerError = z.object({ message: z.string() });
-
-async function getJson(url: string): Promise<unknown> {
-  const response = await fetch(url);
-  const json: unknown = await response.json();
-  if (!response.ok) {
-    const parsed = ServerError.safeParse(json);
-    throw new Error(
-      parsed.success ? parsed.data.message : `${url} 返回 ${String(response.status)}`,
-    );
-  }
-  return json;
-}
+const getJson = (url: string) => requestJson('GET', url);
 
 export const compareRunsQuery = queryOptions({
   queryKey: ['compare', 'runs'],

@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bot, Hand, Info, type LucideIcon, ShieldAlert, User, UserRound } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { MarkdownDoc } from '@/components/markdown-doc';
@@ -254,10 +254,12 @@ function MessageBubble({ message, answered }: { message: RunMessage; answered: b
 
 function TextReply({ runId }: { runId: string }) {
   const [text, setText] = useState('');
+  const refresh = useRefreshRun(runId);
   const send = useMutation({
     mutationFn: () => replyRun(runId, text.trim()),
-    onSuccess: () => {
+    onSuccess: async () => {
       setText('');
+      await refresh();
     },
   });
   return (
@@ -306,7 +308,8 @@ function QuestionReply({
     else if (labels.length > 0) answers[q.question] = labels.join(', ');
   }
   const complete = pending.questions.every((q) => answers[q.question] !== undefined);
-  const send = useMutation({ mutationFn: () => answerRun(runId, answers) });
+  const refresh = useRefreshRun(runId);
+  const send = useMutation({ mutationFn: () => answerRun(runId, answers), onSuccess: refresh });
   return (
     <form
       className="flex flex-col gap-3"
@@ -370,9 +373,17 @@ function QuestionReply({
   );
 }
 
+// 操作成功后等运行详情重新拉取完：按钮在新状态出现之前保持不可用，连点不会发出第二次请求
+function useRefreshRun(runId: string) {
+  const client = useQueryClient();
+  return () => client.invalidateQueries({ queryKey: ['runs', 'detail', runId] });
+}
+
 function Takeover({ run }: { run: RunDetail }) {
+  const refresh = useRefreshRun(run.id);
   const action = useMutation({
     mutationFn: (name: 'takeover' | 'release' | 'finish') => runAction(run.id, name),
+    onSuccess: refresh,
   });
   if (run.status !== 'running') {
     return (

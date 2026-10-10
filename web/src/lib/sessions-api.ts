@@ -4,7 +4,8 @@ import {
   useQueryClient,
   type QueryClient,
 } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { readBody, requestJson } from '@/lib/http';
+import { invalidateThrottled, useLiveEvent } from '@/lib/live-events';
 
 // 与 Contracts.md 第 2、5 节的 Sessions API 对应
 
@@ -136,28 +137,9 @@ export interface StageReport {
   checks: { count: number; inputTokens: number; outputTokens: number; costUsd: number };
 }
 
-// 错误响应：路由自己返回 { error }；路由中抛出的错误由 Fastify 返回 { statusCode, error, message }，原文在 message
-export async function readJson(response: Response, url: string): Promise<unknown> {
-  if (!response.ok) {
-    const body = (await response.json()) as { error?: string; message?: string };
-    const reason = body.message ?? body.error;
-    throw new Error(`${url} 返回 ${String(response.status)}${reason ? `：${reason}` : ''}`);
-  }
-  return response.json();
-}
-
-async function getJson(url: string): Promise<unknown> {
-  return readJson(await fetch(url), url);
-}
-
-async function sendJson(method: 'PUT' | 'POST', url: string, body?: unknown): Promise<unknown> {
-  const response = await fetch(url, {
-    method,
-    headers: body === undefined ? {} : { 'content-type': 'application/json' },
-    body: body === undefined ? null : JSON.stringify(body),
-  });
-  return readJson(response, url);
-}
+const getJson = (url: string) => requestJson('GET', url);
+const sendJson = (method: 'PUT' | 'POST', url: string, body?: unknown) =>
+  requestJson(method, url, body);
 
 export const sourcesQuery = queryOptions({
   queryKey: ['sources'],
@@ -213,7 +195,7 @@ export function stagesQuery(id: string) {
       const url = `/api/sessions/${id}/stages`;
       const response = await fetch(url);
       if (response.status === 404) return null;
-      return (await readJson(response, url)) as StageReport;
+      return (await readBody(response, url)) as StageReport;
     },
   });
 }
@@ -297,53 +279,49 @@ export function conversationQuery(id: string) {
   });
 }
 
+// 同一查询在窗口内只刷新一次：长时间运行的 session 每秒数次 session.updated，每次的请求明细可达数 MB
 function invalidateSession(client: QueryClient, sessionId: string) {
-  void client.invalidateQueries({ queryKey: ['sessions'] });
-  void client.invalidateQueries({ queryKey: ['session', sessionId] });
-  void client.invalidateQueries({ queryKey: ['requests', sessionId] });
-  void client.invalidateQueries({ queryKey: ['stages', sessionId] });
+  invalidateThrottled(client, ['sessions'], 1_000);
+  invalidateThrottled(client, ['session', sessionId], 1_000);
+  invalidateThrottled(client, ['requests', sessionId], 1_000);
+  invalidateThrottled(client, ['stages', sessionId], 1_000);
 }
 
-// 订阅 /api/events：session 有新请求写入或阶段变化时刷新相关查询；
-// 判定进度直接写入 analysis 查询，判定完成后刷新阶段结果
+// session 有新请求写入或阶段变化时刷新相关查询；判定进度直接写入 analysis 查询，判定完成后刷新阶段结果
 export function useSessionEvents() {
   const client = useQueryClient();
-  useEffect(() => {
-    const source = new EventSource('/api/events');
-    const onSession = (event: MessageEvent<string>) => {
-      const data = JSON.parse(event.data) as { sessionId: string };
-      invalidateSession(client, data.sessionId);
-    };
-    const onProgress = (event: MessageEvent<string>) => {
-      const { sessionId, workflow, batchesDone, batchesTotal, costUsd } = JSON.parse(
-        event.data,
-      ) as AnalysisProgress & { sessionId: string };
-      client.setQueryData<AnalysisState>(analysisQuery(sessionId).queryKey, {
-        status: 'running',
-        progress: { workflow, batchesDone, batchesTotal, costUsd },
-        error: null,
-      });
-    };
-    const onFailed = (event: MessageEvent<string>) => {
-      const data = JSON.parse(event.data) as { sessionId: string; error: string };
-      client.setQueryData<AnalysisState>(analysisQuery(data.sessionId).queryKey, (prev) => ({
-        status: 'failed',
-        progress: prev?.progress ?? null,
-        error: data.error,
-      }));
-    };
-    const onAnalyzed = (event: MessageEvent<string>) => {
-      const data = JSON.parse(event.data) as { sessionId: string };
-      void client.invalidateQueries({ queryKey: ['analysis', data.sessionId] });
-      invalidateSession(client, data.sessionId);
-    };
-    source.addEventListener('session.updated', onSession);
-    source.addEventListener('stage.changed', onSession);
-    source.addEventListener('stage.progress', onProgress);
-    source.addEventListener('stage.failed', onFailed);
-    source.addEventListener('stage.analyzed', onAnalyzed);
-    return () => {
-      source.close();
-    };
-  }, [client]);
+  useLiveEvent((type, data) => {
+    switch (type) {
+      case 'session.updated':
+      case 'stage.changed':
+        invalidateSession(client, (data as { sessionId: string }).sessionId);
+        return;
+      case 'stage.progress': {
+        const { sessionId, workflow, batchesDone, batchesTotal, costUsd } =
+          data as AnalysisProgress & { sessionId: string };
+        client.setQueryData<AnalysisState>(analysisQuery(sessionId).queryKey, {
+          status: 'running',
+          progress: { workflow, batchesDone, batchesTotal, costUsd },
+          error: null,
+        });
+        return;
+      }
+      case 'stage.failed': {
+        const { sessionId, error } = data as { sessionId: string; error: string };
+        client.setQueryData<AnalysisState>(analysisQuery(sessionId).queryKey, (prev) => ({
+          status: 'failed',
+          progress: prev?.progress ?? null,
+          error,
+        }));
+        return;
+      }
+      case 'stage.analyzed': {
+        const { sessionId } = data as { sessionId: string };
+        void client.invalidateQueries({ queryKey: ['analysis', sessionId] });
+        invalidateSession(client, sessionId);
+        return;
+      }
+      default:
+    }
+  });
 }

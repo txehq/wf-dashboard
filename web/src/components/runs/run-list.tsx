@@ -5,6 +5,7 @@ import { Link } from 'react-router';
 import { RerunButton } from '@/components/runs/rerun-button';
 import { RunStatusLabel } from '@/components/runs/run-status';
 import { formatDateTime, formatDuration, formatUsd } from '@/lib/format';
+import { statusMeta } from '@/lib/stage-status';
 import {
   batchesQuery,
   liveStatuses,
@@ -26,7 +27,7 @@ export function StageText({ stage }: { stage: RunSummary['currentStage'] }) {
   return (
     <span className="font-mono text-xs">
       /{stage.workflow} · {stage.stage}
-      {stage.status === 'active' ? '' : `（${stage.status === 'done' ? '完成' : stage.status}）`}
+      {stage.status === 'active' ? '' : `（${statusMeta[stage.status].label}）`}
     </span>
   );
 }
@@ -35,11 +36,14 @@ function FilterSelect<T extends string>({
   label,
   value,
   options,
+  error = null,
   onChange,
 }: {
   label: string;
   value: T | null;
   options: { value: T; label: string }[];
+  // 选项读取失败时显示原文，不当作没有选项
+  error?: Error | null;
   onChange: (value: T | null) => void;
 }) {
   return (
@@ -60,6 +64,11 @@ function FilterSelect<T extends string>({
           </option>
         ))}
       </select>
+      {error !== null && (
+        <span role="alert" className="text-xs text-destructive">
+          选项读取失败：{error.message}
+        </span>
+      )}
     </label>
   );
 }
@@ -167,6 +176,7 @@ export function RunList() {
           label="task"
           value={filter.task}
           options={(tasks.data ?? []).map((t) => ({ value: t.task.id, label: t.task.title }))}
+          error={tasks.error}
           onChange={(task) => {
             setFilter({ ...filter, task });
           }}
@@ -175,6 +185,7 @@ export function RunList() {
           label="variant"
           value={filter.variant}
           options={(variants.data ?? []).map((v) => ({ value: v.id, label: v.name }))}
+          error={variants.error}
           onChange={(variant) => {
             setFilter({ ...filter, variant });
           }}

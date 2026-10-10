@@ -4,11 +4,13 @@ import { Link } from 'react-router';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { CompareCell, CompareResult, SelectedVariant } from '@/lib/compare';
 import { seriesColor } from '@/lib/compare';
+import { formatUsd } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 type StageCost = NonNullable<CompareCell['cost']>['stages'][number];
 
-const usd = (x: number) => `$${x.toFixed(x >= 10 ? 1 : 2)}`;
+// 与其他页面相同的金额格式：不足 1 美分时显示 4 位小数，不显示成 $0.00
+const usd = formatUsd;
 const compact = (x: number) =>
   x >= 1_000_000
     ? `${(x / 1_000_000).toFixed(1)}M`

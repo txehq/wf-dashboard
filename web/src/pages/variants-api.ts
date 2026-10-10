@@ -1,4 +1,5 @@
 import { queryOptions } from '@tanstack/react-query';
+import { requestJson } from '@/lib/http';
 
 export interface Variant {
   id: string;
@@ -54,20 +55,9 @@ export function buildLabel(variant: Variant): string {
   ];
 }
 
-// 失败时抛出服务端返回的 message
+// 失败时抛出带 URL、状态码与服务端原因的错误
 export async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
-  const init: RequestInit = { method };
-  if (body !== undefined) {
-    init.headers = { 'content-type': 'application/json' };
-    init.body = JSON.stringify(body);
-  }
-  const response = await fetch(url, init);
-  if (!response.ok) {
-    const error = (await response.json()) as { message: string };
-    throw new Error(error.message);
-  }
-  const json = response.headers.get('content-type')?.startsWith('application/json') === true;
-  return (json ? await response.json() : await response.text()) as T;
+  return (await requestJson(method, url, body)) as T;
 }
 
 // 失败后不自动重复请求（重试、窗口聚焦、网络恢复、重新挂载都不触发），由页面上的「重试」重新请求

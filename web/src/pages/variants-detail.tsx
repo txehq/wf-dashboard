@@ -115,16 +115,22 @@ function FileEditor({
   variant,
   path,
   onDeleted,
+  onDirtyChange,
 }: {
   variant: Variant;
   path: string;
   onDeleted: () => void;
+  // 是否有未保存的修改，切换文件前据此确认
+  onDirtyChange: (dirty: boolean) => void;
 }) {
   const queryClient = useQueryClient();
   const file = useQuery(fileQuery(variant.id, path));
   const [draft, setDraft] = useState<string | null>(null);
   const readOnly = variant.status === 'frozen' || isImported(variant);
   const dirty = draft !== null && draft !== file.data?.content;
+  useEffect(() => {
+    onDirtyChange(dirty);
+  }, [dirty, onDirtyChange]);
   const saveRef = useRef<() => void>(() => undefined);
 
   const refresh = async () => {
@@ -232,6 +238,13 @@ function EditTab({ variant }: { variant: Variant }) {
   const queryClient = useQueryClient();
   const files = useQuery(filesQuery(variant.id));
   const [selected, setSelected] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(false);
+  // 当前文件有未保存的修改时，切换前确认；确认后修改被丢弃
+  const select = (path: string) => {
+    if (dirty && !window.confirm('当前文件有未保存的修改，切换后会丢弃。继续？')) return;
+    setDirty(false);
+    setSelected(path);
+  };
   const current =
     selected ?? files.data?.find((f) => f.path === 'skills/lfg/SKILL.md')?.path ?? null;
   const create = useMutation({
@@ -286,7 +299,7 @@ function EditTab({ variant }: { variant: Variant }) {
                 node={node}
                 depth={0}
                 selected={current}
-                onSelect={setSelected}
+                onSelect={select}
               />
             ))}
         </nav>
@@ -301,6 +314,7 @@ function EditTab({ variant }: { variant: Variant }) {
           onDeleted={() => {
             setSelected(null);
           }}
+          onDirtyChange={setDirty}
         />
       )}
     </div>
@@ -431,6 +445,11 @@ function Settings({ variant }: { variant: Variant }) {
             update.mutate({ model: event.target.value });
           }}
         >
+          {/* 当前值不在选项中（例如导入的 variant 用了已下线的别名）时照实显示，不显示成第一项 */}
+          {options.data !== undefined &&
+            !options.data.models.some((m) => m.alias === variant.model) && (
+              <option value={variant.model}>{variant.model}（不在当前选项中）</option>
+            )}
           {options.data?.models.map((m) => (
             <option key={m.alias} value={m.alias}>
               {m.alias}（{m.model}）
@@ -448,6 +467,9 @@ function Settings({ variant }: { variant: Variant }) {
             update.mutate({ effort: event.target.value });
           }}
         >
+          {options.data !== undefined && !options.data.efforts.includes(variant.effort) && (
+            <option value={variant.effort}>{variant.effort}（不在当前选项中）</option>
+          )}
           {options.data?.efforts.map((e) => (
             <option key={e} value={e}>
               {e}

@@ -374,7 +374,7 @@ function SessionView({ session }: { session: SessionDetail }) {
       <SessionSummaryPanel session={session} outside={stages.data?.outside ?? null} />
       {stages.isPending ? (
         <p className="text-sm text-muted-foreground">正在读取阶段判定…</p>
-      ) : stages.isError ? (
+      ) : stages.data === undefined ? (
         <p role="alert" className="text-sm text-destructive">
           读取阶段判定失败：{stages.error.message}
         </p>
@@ -385,7 +385,14 @@ function SessionView({ session }: { session: SessionDetail }) {
           <AllRequests session={session} hint={false} focus={focus} />
         </>
       ) : (
-        <StagesSection session={session} report={stages.data} focus={focus} onJump={jump} />
+        <>
+          {stages.isError && (
+            <p role="alert" className="text-sm text-destructive">
+              刷新阶段判定失败：{stages.error.message}
+            </p>
+          )}
+          <StagesSection session={session} report={stages.data} focus={focus} onJump={jump} />
+        </>
       )}
     </div>
   );
@@ -407,12 +414,19 @@ export function SessionDetailPage() {
       </Link>
       {session.isPending ? (
         <p className="text-sm text-muted-foreground">正在加载 session…</p>
-      ) : session.isError ? (
+      ) : session.data === undefined ? (
         <p role="alert" className="text-sm text-destructive">
           加载 session 失败：{session.error.message}
         </p>
       ) : (
-        <SessionView session={session.data} />
+        <>
+          {session.isError && (
+            <p role="alert" className="text-sm text-destructive">
+              刷新 session 失败：{session.error.message}
+            </p>
+          )}
+          <SessionView session={session.data} />
+        </>
       )}
     </div>
   );
