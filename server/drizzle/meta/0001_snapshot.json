@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "45d8f323-ac62-40dd-8c3e-f96ab849d209",
-  "prevId": "e30583d2-3a4e-482f-b07b-d3695a9bd258",
+  "id": "73890895-1095-4b47-b182-cc6e13c32299",
+  "prevId": "2c53f188-7eb6-4016-a419-cdd4086d67eb",
   "tables": {
     "artifacts": {
       "name": "artifacts",
@@ -623,10 +623,11 @@
         }
       },
       "indexes": {
-        "requests_session_message_idx": {
-          "name": "requests_session_message_idx",
+        "requests_session_agent_message_idx": {
+          "name": "requests_session_agent_message_idx",
           "columns": [
             "session_id",
+            "(case when \"agent_id\" is null then '' else \"agent_id\" end)",
             "message_id"
           ],
           "isUnique": true
@@ -865,6 +866,21 @@
         },
         "invalid_reason": {
           "name": "invalid_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "grading_status": {
+          "name": "grading_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'none'"
+        },
+        "grading_error": {
+          "name": "grading_error",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -1844,9 +1860,23 @@
           "notNull": false,
           "autoincrement": false
         },
+        "hidden_tests_config": {
+          "name": "hidden_tests_config",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "test_command": {
           "name": "test_command",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "hidden_tests_timeout_seconds": {
+          "name": "hidden_tests_timeout_seconds",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -2156,6 +2186,14 @@
     "columns": {}
   },
   "internal": {
-    "indexes": {}
+    "indexes": {
+      "requests_session_agent_message_idx": {
+        "columns": {
+          "(case when \"agent_id\" is null then '' else \"agent_id\" end)": {
+            "isExpression": true
+          }
+        }
+      }
+    }
   }
 }
