@@ -81,5 +81,11 @@ export function watchAcceptanceReport(
   sessionId: string,
   onError: (error: Error) => void,
 ): () => void {
-  return onSessionUpdates(sessionId, () => recordAcceptanceReport(db, runId, sessionId), onError);
+  return onSessionUpdates(
+    sessionId,
+    () => {
+      recordAcceptanceReport(db, runId, sessionId);
+    },
+    onError,
+  );
 }
