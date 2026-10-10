@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Hand, Link2 } from 'lucide-react';
+import { CircleSlash, Hand, Link2 } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { RunStatusLabel } from '@/components/runs/run-status';
@@ -17,6 +17,7 @@ import {
 } from '@/lib/runs-api';
 import { tasksQuery } from '@/lib/tasks';
 import { useNow } from '@/lib/use-now';
+import { cn } from '@/lib/utils';
 import { variantsQuery } from '@/pages/variants-api';
 
 export function StageText({ stage }: { stage: RunSummary['currentStage'] }) {
@@ -66,9 +67,15 @@ function RunRow({ run, now }: { run: RunSummary; now: number }) {
   const duration = runDuration(run, now);
   return (
     <tr
-      className="border-b last:border-0 hover:bg-muted/40"
+      className={cn(
+        'border-b last:border-0 hover:bg-muted/40',
+        // 标为无效的 run：整行删除线，原因在最后一列与悬停提示中
+        run.invalidReason !== null && 'text-muted-foreground line-through',
+      )}
       data-testid="run-row"
       data-run={run.id}
+      data-invalid={run.invalidReason !== null}
+      title={run.invalidReason === null ? undefined : `已标为无效：${run.invalidReason}`}
     >
       <td className="py-2 pr-3">
         <Link to={`/runs/${run.id}`} className="font-medium hover:underline">
@@ -90,6 +97,15 @@ function RunRow({ run, now }: { run: RunSummary; now: number }) {
       </td>
       <td className="py-2 pl-3">
         <span className="flex flex-col gap-0.5">
+          {run.invalidReason !== null && (
+            <span
+              className="inline-flex items-center gap-1 text-xs no-underline"
+              data-testid="invalid"
+            >
+              <CircleSlash className="size-3.5" aria-hidden />
+              已标为无效
+            </span>
+          )}
           {run.humanIntervened && (
             <span className="inline-flex items-center gap-1 text-xs" data-testid="intervened">
               <Hand className="size-3.5" aria-hidden />

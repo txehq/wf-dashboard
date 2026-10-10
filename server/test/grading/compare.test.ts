@@ -12,6 +12,7 @@ import {
   grades,
   requests,
   runMessages,
+  runs,
   STAGE_ANALYSIS_VERSION,
   stageAnalyses,
   stageChecks,
@@ -19,6 +20,7 @@ import {
   stageSpans,
   type ToolCall,
 } from '../../src/db/schema.js';
+import { eq } from 'drizzle-orm';
 import { compareRuns } from '../../src/grading/compare.js';
 import { CompareResult, type CrossRunRef } from '../../src/grading/schema.js';
 import { IC_STAGES, LFG_STAGES } from '../../src/stages/workflow.js';
@@ -243,6 +245,9 @@ insertRun(db, { id: 'l5', taskId: lfgTask.id, variantId: 'baseline', status: 'fa
 lfgRun('l6', 'modified', 1, () => true);
 lfgRun('l7', 'baseline', 7, () => true, { crossRef: true });
 lfgRun('l8', 'baseline', 8, () => true, { humanIntervened: true, crossRef: true });
+// 标为无效的 run（Contracts 7.12）：有评分结果、status 不变，任何开关下都不参与对比
+lfgRun('l9', 'baseline', 9, () => true);
+db.update(runs).set({ invalidReason: '评估环境出错' }).where(eq(runs.id, 'l9')).run();
 
 // ic：baseline 两个 run
 for (const [id, factor, passed, reached] of [
@@ -295,6 +300,15 @@ describe('compare', () => {
       'l7',
       'l8',
     ]);
+  });
+
+  it('标为无效的 run 在任何开关下都被排除', () => {
+    for (const includeIntervened of [false, true]) {
+      for (const includeCrossRef of [false, true]) {
+        const result = compareRuns(db, { ...query, includeIntervened, includeCrossRef });
+        expect(cell(result, 'baseline', lfgTask.id).runIds).not.toContain('l9');
+      }
+    }
   });
 
   it('lfg：排除有人工干预与未评分的 run，得分率的均值、标准差、最小值、最大值与原始值', () => {

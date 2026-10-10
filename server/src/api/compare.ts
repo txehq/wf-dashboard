@@ -1,5 +1,5 @@
 import createError from '@fastify/error';
-import { asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import {
   serializerCompiler,
@@ -69,7 +69,7 @@ export function compareRoutes({ db, variants: variantsModule }: { db: Db; varian
       },
     );
 
-    // 全部已评分的 run，页面据此决定默认选择、空状态与产物并排的候选
+    // 全部已评分且未标为无效的 run，页面据此决定默认选择、空状态与产物并排的候选
     app.get('/api/compare/runs', { schema: { response: { 200: z.array(CompareRun) } } }, () =>
       db
         .select({
@@ -81,7 +81,7 @@ export function compareRoutes({ db, variants: variantsModule }: { db: Db; varian
           createdAt: runs.createdAt,
         })
         .from(runs)
-        .where(eq(runs.status, 'succeeded'))
+        .where(and(eq(runs.status, 'succeeded'), isNull(runs.invalidReason)))
         .orderBy(asc(runs.createdAt), asc(runs.id))
         .all()
         .map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })),

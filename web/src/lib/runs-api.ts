@@ -95,6 +95,8 @@ export interface RunSummary {
   durationMs: number | null;
   humanIntervened: boolean;
   crossRunRefs: CrossRunRef[];
+  // 标为无效的原因；compare 总是排除这类 run
+  invalidReason: string | null;
   error: string | null;
   createdAt: number;
   startedAt: number | null;
@@ -223,6 +225,13 @@ export function replyRun(id: string, text: string) {
 
 export function answerRun(id: string, answers: Record<string, string>) {
   return call<{ ok: true }>('POST', `/api/runs/${id}/answer`, { answers });
+}
+
+// Contracts 7.12：标为无效（reason 非空）或恢复
+export function setRunInvalid(id: string, reason: string | null) {
+  return reason === null
+    ? call<{ ok: true }>('POST', `/api/runs/${id}/revalidate`)
+    : call<{ ok: true }>('POST', `/api/runs/${id}/invalidate`, { reason });
 }
 
 const runEvents = [

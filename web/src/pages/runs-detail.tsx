@@ -1,5 +1,13 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Ban, ExternalLink, Hand, Link2, TriangleAlert } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  ArrowLeft,
+  Ban,
+  CircleSlash,
+  ExternalLink,
+  Hand,
+  Link2,
+  TriangleAlert,
+} from 'lucide-react';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { Conversation } from '@/components/runs/conversation';
@@ -18,6 +26,7 @@ import {
   type RunDetail,
   runDuration,
   runQuery,
+  setRunInvalid,
   useRunEvents,
 } from '@/lib/runs-api';
 import { type StageView, sessionQuery, type Workflow } from '@/lib/sessions-api';
@@ -166,8 +175,67 @@ function Header({ run }: { run: RunDetail }) {
         {duration !== null && <span>耗时 {formatDuration(duration)}</span>}
       </p>
       {cancel.isError && <p className="text-sm text-destructive">{cancel.error.message}</p>}
+      <Validity run={run} />
       <ExternalLinks links={run.links} />
       <Costs costs={run.costs} />
+    </div>
+  );
+}
+
+// Contracts 7.12：评估环境出错的 run 标为无效，保留全部记录，对比时总是排除
+function Validity({ run }: { run: RunDetail }) {
+  const client = useQueryClient();
+  const mark = useMutation({
+    mutationFn: (reason: string | null) => setRunInvalid(run.id, reason),
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: ['runs'] });
+    },
+  });
+  if (liveStatuses.has(run.status)) return null;
+  return (
+    <div className="flex flex-col gap-1">
+      {run.invalidReason === null ? (
+        <div className="flex items-center gap-3 text-sm">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={mark.isPending}
+            onClick={() => {
+              const reason = window.prompt(
+                '标为无效的原因（例如评估环境出错）。标记后这个 run 不参与对比，记录全部保留。',
+              );
+              if (reason !== null && reason.trim() !== '') mark.mutate(reason.trim());
+            }}
+          >
+            <CircleSlash />
+            标为无效
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            评估环境本身出错、不能代表 variant 的 run 可以标为无效。
+          </span>
+        </div>
+      ) : (
+        <div
+          className="flex flex-wrap items-center gap-3 rounded-md border border-dashed px-3 py-2 text-sm"
+          data-testid="run-invalid"
+        >
+          <CircleSlash className="size-4" aria-hidden />
+          <span className="font-medium">已标为无效，不参与对比：</span>
+          <span data-testid="run-invalid-reason">{run.invalidReason}</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto"
+            disabled={mark.isPending}
+            onClick={() => {
+              mark.mutate(null);
+            }}
+          >
+            恢复
+          </Button>
+        </div>
+      )}
+      {mark.isError && <p className="text-sm text-destructive">{mark.error.message}</p>}
     </div>
   );
 }

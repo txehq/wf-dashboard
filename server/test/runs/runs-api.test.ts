@@ -9,6 +9,7 @@ import { openDatabase } from '../../src/db/index.js';
 import { batches, runs, variants } from '../../src/db/schema.js';
 import { models, setModels } from '../../src/llm/client.js';
 import { newId, RUN_ID } from '../../src/runs/index.js';
+import { RunSummary } from '../../src/runs/views.js';
 import { createSettingsStore, defaultSettings } from '../../src/runs/settings.js';
 import { syncTasks } from '../../src/tasks/loader.js';
 
@@ -121,6 +122,58 @@ describe('服务重启时的状态修正', () => {
     expect(reply.statusCode).toBe(409);
     const missing = await app.inject({ method: 'GET', url: '/api/runs/r-20261009-nonexi' });
     expect(missing.statusCode).toBe(404);
+  });
+});
+
+// Contracts 7.12
+describe('把 run 标为无效', () => {
+  const post = (id: string, action: string, payload?: object) =>
+    app.inject({
+      method: 'POST',
+      url: `/api/runs/${id}/${action}`,
+      ...(payload === undefined ? {} : { payload }),
+    });
+  const reasonOf = async (id: string) =>
+    RunSummary.parse((await app.inject({ method: 'GET', url: `/api/runs/${id}` })).json())
+      .invalidReason;
+
+  test('终态的 run：写入原因，详情与列表返回它，status 不变；恢复后清空', async () => {
+    expect(await reasonOf(before.succeeded)).toBeNull();
+    const marked = await post(before.succeeded, 'invalidate', {
+      reason: '  Codex 配置未带进 variant  ',
+    });
+    expect(marked.statusCode).toBe(200);
+    expect(await reasonOf(before.succeeded)).toBe('Codex 配置未带进 variant');
+    const list = RunSummary.array().parse(
+      (await app.inject({ method: 'GET', url: '/api/runs?batch=b-20261009-before' })).json(),
+    );
+    expect(list.find((r) => r.id === before.succeeded)).toMatchObject({
+      status: 'succeeded',
+      invalidReason: 'Codex 配置未带进 variant',
+    });
+    expect((await post(before.succeeded, 'revalidate')).statusCode).toBe(200);
+    expect(await reasonOf(before.succeeded)).toBeNull();
+  });
+
+  test('原因为空 400；排队中的 run 409；不存在的 run 404', async () => {
+    expect((await post(before.succeeded, 'invalidate', { reason: '  ' })).statusCode).toBe(400);
+    expect((await post(before.succeeded, 'invalidate', {})).statusCode).toBe(400);
+    const queued = 'r-20261010-queue1';
+    db.insert(runs)
+      .values({
+        id: queued,
+        batchId: 'b-20261009-before',
+        taskId: 'lfg-calculator',
+        variantId,
+        repeatIndex: 9,
+        status: 'queued',
+        sessionId: randomUUID(),
+        workspacePath: path.join(work, queued),
+      })
+      .run();
+    expect((await post(queued, 'invalidate', { reason: '环境出错' })).statusCode).toBe(409);
+    expect((await post(queued, 'revalidate')).statusCode).toBe(409);
+    expect((await post('r-20261009-nonexi', 'invalidate', { reason: 'x' })).statusCode).toBe(404);
   });
 });
 

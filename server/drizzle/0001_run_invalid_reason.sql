@@ -1,0 +1,1 @@
+ALTER TABLE `runs` ADD `invalid_reason` text;

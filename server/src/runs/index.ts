@@ -36,6 +36,8 @@ export function newId(prefix: 'r' | 'b', now = new Date()): string {
 
 export const RUN_ID = /^r-\d{8}-[a-z0-9]{6}$/;
 
+const terminalStatuses = new Set<RunStatus>(['succeeded', 'failed', 'cancelled']);
+
 type RunRow = typeof runs.$inferSelect;
 
 export interface RunFilter {
@@ -162,6 +164,7 @@ export function createRuns(deps: RunnerDeps) {
           r.startedAt === null ? null : (r.endedAt?.getTime() ?? now) - r.startedAt.getTime(),
         humanIntervened: r.humanIntervened,
         crossRunRefs: r.crossRunRefs,
+        invalidReason: r.invalidReason,
         error: r.error,
         createdAt: r.createdAt.getTime(),
         startedAt: r.startedAt?.getTime() ?? null,
@@ -347,6 +350,16 @@ export function createRuns(deps: RunnerDeps) {
         return;
       }
       await driverOf(id).cancel();
+    },
+
+    // Contracts 7.12：只对终态的 run 可用；status 与评分保持原样
+    setInvalid(id: string, reason: string | null) {
+      const row = runRow(id);
+      if (!terminalStatuses.has(row.status)) {
+        throw new HttpError(409, `run ${id} 还没有结束（${row.status}），不能标记有效性`);
+      }
+      db.update(runs).set({ invalidReason: reason }).where(eq(runs.id, id)).run();
+      events.publish({ type: 'run.status', runId: id, status: row.status });
     },
 
     // 测试与关闭服务时等待全部进行中的 run 结束

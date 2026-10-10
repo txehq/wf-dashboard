@@ -67,6 +67,7 @@ export const RunSummary = z.object({
   durationMs: z.number().nullable(),
   humanIntervened: z.boolean(),
   crossRunRefs: z.array(CrossRunRef),
+  invalidReason: z.string().nullable(),
   error: z.string().nullable(),
   createdAt: z.number(),
   startedAt: z.number().nullable(),

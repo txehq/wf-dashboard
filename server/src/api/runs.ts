@@ -127,5 +127,30 @@ export const runRoutes: FastifyPluginCallbackZod<{ runs: Runs; settings: Setting
     },
   );
 
+  // Contracts 7.12
+  app.post(
+    '/api/runs/:id/invalidate',
+    {
+      schema: {
+        params: IdParams,
+        body: z.strictObject({ reason: z.string().trim().min(1) }),
+        response: { 200: Ok },
+      },
+    },
+    (request) => {
+      runs.setInvalid(request.params.id, request.body.reason);
+      return { ok: true as const };
+    },
+  );
+
+  app.post(
+    '/api/runs/:id/revalidate',
+    { schema: { params: IdParams, response: { 200: Ok } } },
+    (request) => {
+      runs.setInvalid(request.params.id, null);
+      return { ok: true as const };
+    },
+  );
+
   done();
 };

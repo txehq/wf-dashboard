@@ -113,6 +113,40 @@ test('列表筛选', async ({ page }) => {
   await expect(page.locator('[data-run="r-20261009-a26chw"]')).toHaveCount(0);
 });
 
+// Contracts 7.12：评估环境出错的 run 标为无效，记录保留，Compare 不再列出它
+test('把 run 标为无效与恢复', async ({ page, request }) => {
+  const id = 'r-20261009-27yz3d';
+  const reason = `e2e ${marker}：评估环境出错`;
+  const compareIds = async () =>
+    ((await (await request.get(`${api}/compare/runs`)).json()) as { id: string }[]).map(
+      (r) => r.id,
+    );
+  expect(await compareIds()).toContain(id);
+
+  page.once('dialog', (dialog) => {
+    void dialog.accept(reason);
+  });
+  await page.goto(`/runs/${id}`);
+  await page.getByRole('button', { name: '标为无效' }).click();
+  await expect(page.getByTestId('run-invalid-reason')).toHaveText(reason);
+  await expect(page.getByTestId('run-grades')).toBeVisible();
+  await shot(page.getByTestId('run-invalid'), 'invalid');
+  expect(await compareIds()).not.toContain(id);
+
+  await page.goto('/runs');
+  const row = page.locator(`[data-run="${id}"]`);
+  await expect(row).toHaveAttribute('data-invalid', 'true');
+  await expect(row).toHaveAttribute('title', `已标为无效：${reason}`);
+  await expect(row.getByTestId('invalid')).toHaveText('已标为无效');
+  await expect(row).toContainText('已完成');
+
+  await page.goto(`/runs/${id}`);
+  await page.getByRole('button', { name: '恢复' }).click();
+  await expect(page.getByTestId('run-invalid')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '标为无效' })).toBeVisible();
+  expect(await compareIds()).toContain(id);
+});
+
 test.describe('真实运行', () => {
   test.setTimeout(40 * 60_000);
 
