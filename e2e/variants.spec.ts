@@ -108,3 +108,41 @@ test('编辑 skill、与基线对比、构建并查看日志', async ({ page, re
   await expect(editor).toBeVisible();
   expect(pageErrors).toEqual([]);
 });
+
+// 切换文件时 DiffEditor 重新创建，第一处改动在文件中部时也要滚动到视野中
+test('在对比的文件之间切换，每个文件的第一处改动都在视野内', async ({ page, request }) => {
+  const base = (await (
+    await request.post(`${api}/variants`, { data: { name: `e2e 切换基线 ${marker}` } })
+  ).json()) as Variant;
+  const draft = (await (
+    await request.post(`${api}/variants/${base.id}/derive`, {
+      data: { name: `e2e 切换修改 ${marker}` },
+    })
+  ).json()) as Variant;
+  const edits = [
+    { path: 'skills/research/SKILL.md', line: '## 6. Converge before you publish' },
+    { path: 'skills/plan/SKILL.md', line: 'neither the user nor a review pass changes the plan.' },
+  ];
+  for (const edit of edits) {
+    const file = (await (
+      await request.get(`${api}/variants/${draft.id}/file?path=${edit.path}`)
+    ).json()) as { content: string };
+    expect(file.content.split(edit.line)).toHaveLength(2);
+    const saved = await request.put(`${api}/variants/${draft.id}/file`, {
+      data: {
+        path: edit.path,
+        content: file.content.replace(edit.line, `${edit.line} e2e-${marker}-${edit.path}`),
+      },
+    });
+    expect(saved.ok()).toBe(true);
+  }
+
+  await page.goto(`/variants/${draft.id}`);
+  await page.getByRole('tab', { name: '对比' }).click();
+  const diff = page.getByTestId('skill-diff');
+  // Monaco 只渲染视野内的行，改动的文字出现在 view-lines 中即在视野内
+  for (const path of ['skills/plan/SKILL.md', 'skills/research/SKILL.md', 'skills/plan/SKILL.md']) {
+    await page.getByRole('button', { name: new RegExp(path.replaceAll('.', '\\.')) }).click();
+    await expect(diff.locator('.modified .view-lines')).toContainText(`e2e-${marker}-${path}`);
+  }
+});

@@ -39,6 +39,9 @@ export function SkillDiffEditor({
       keepCurrentModifiedModel
       onMount={(editor) => {
         models.current = editor.getModel();
+        // 已加载 monaco 时 DiffEditor 在容器仍隐藏时创建，宽度只有几像素；
+        // onMount 时容器已显示，先按实际尺寸布局，否则下面的滚动按几像素宽的折行计算
+        editor.layout();
         // diff 算完后把第一处改动滚动到视野中
         const subscription = editor.onDidUpdateDiff(() => {
           if ((editor.getLineChanges() ?? []).length === 0) return;
