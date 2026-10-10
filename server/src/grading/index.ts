@@ -145,8 +145,7 @@ async function gradeIcRun(db: Db, run: Run, task: IcTask, signal: AbortSignal) {
       icDetail: result.detail,
     })
     .run();
-  // 评分错误写入 grades 之后让 run 失败，失败原因与 grades 中的 error 相同
-  if (result.detail.error !== null) throw new Error(result.detail.error);
+  // detail.error 是 agent 的代码造成的失败（Contracts 7.9）：已记 0 / 声明数，评分照常完成
 }
 
 // runs 模块在进入 grading 时调用；全部评分完成后一次写入，任何一步失败都不留下部分结果。

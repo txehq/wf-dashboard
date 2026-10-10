@@ -188,4 +188,28 @@ describe('评分 sandbox', { timeout: 5 * 60_000 }, () => {
     expect([result.passed, result.declared]).toEqual([4, 19]);
     expect(fs.existsSync(path.join(checkout, 'test/hidden/extra.hidden.test.js'))).toBe(false);
   });
+
+  // Contracts 7.9（W18c）：checkout 内的步骤因 agent 的代码失败，是 agent 的结果——记 0 / 声明数并写明原文，不抛错
+  it('PR 的 package-lock.json 让 npm ci 失败：记 0 / 声明数，error 为 npm ci 的原文', async () => {
+    const task = loadIcTask(db, 'ic-money-format');
+    const runId = testRunId('w18c-npm-ci');
+    const checkout = await startCheckout(task, runId);
+    const lockPath = path.join(checkout, 'package-lock.json');
+    const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8')) as {
+      packages: Record<string, { integrity?: string }>;
+    };
+    const [name, entry] =
+      Object.entries(lock.packages).find(([k, p]) => k !== '' && p.integrity) ?? [];
+    if (name === undefined || entry === undefined)
+      throw new Error('lockfile 中没有带 integrity 的包');
+    // 来源仍是 registry，但完整性校验值是错的
+    entry.integrity = `sha512-${Buffer.alloc(64).toString('base64')}`;
+    fs.writeFileSync(lockPath, JSON.stringify(lock, null, 2));
+    await commitAll(checkout, 'broken lockfile');
+    const result = await runHiddenTests(checkout, task, new AbortController().signal);
+    expect([result.passed, result.declared]).toEqual([0, 19]);
+    expect(result.error).toMatch(/^npm ci 退出码 \d+：/);
+    expect(result.error).toMatch(/EINTEGRITY|integrity/i);
+    expect(new Set(result.outcomes.map((o) => o.outcome))).toEqual(new Set(['not-run']));
+  });
 });

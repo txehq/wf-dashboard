@@ -20,7 +20,8 @@ export const IcEndpoint = z.object({
 });
 
 // ic 评分的明细；没有 PR 时 pr 与 endpoint 为空，清单中的测试全部为 not-run；
-// 评分步骤超时等评分错误写在 error 中（测试全部为 not-run，run 失败），没有该字段的明细读出为 null
+// agent 的代码让 checkout 内的步骤失败或超时时写在 error 中（测试全部为 not-run，记 0 分，评分照常完成，Contracts 7.9），
+// 没有该字段的明细读出为 null
 export const IcDetail = z.object({
   pr: z
     .object({ number: z.number(), url: z.string(), branch: z.string(), head: z.string() })

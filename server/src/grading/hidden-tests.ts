@@ -272,8 +272,11 @@ export async function runHiddenTests(
     signal,
   });
   if (install.timedOut) return failedResult(task, head, timeoutError('npm ci', timeoutSeconds));
+  // checkout 内的步骤失败是 agent 的结果（Contracts 7.9）：记 0 / 声明数并写明原因与原文
   if (install.exitCode !== 0) {
-    throw new Error(
+    return failedResult(
+      task,
+      head,
       `npm ci 退出码 ${String(install.exitCode)}：${tail(path.join(gradingDir, 'npm-ci.log'))}`,
     );
   }
@@ -292,9 +295,8 @@ export async function runHiddenTests(
       timeoutMs,
       signal,
     });
-    if (browsers.timedOut) {
-      return failedResult(task, head, timeoutError('playwright install', timeoutSeconds));
-    }
+    // 浏览器安装是 dashboard 自己的步骤：失败或超时是评分错误
+    if (browsers.timedOut) throw new Error(timeoutError('playwright install', timeoutSeconds));
     if (browsers.exitCode !== 0) {
       throw new Error(`playwright install 退出码 ${String(browsers.exitCode)}：${tail(log)}`);
     }
@@ -316,14 +318,21 @@ export async function runHiddenTests(
     signal,
   });
   if (run.timedOut) return failedResult(task, head, timeoutError('隐藏测试命令', timeoutSeconds));
-  // 有失败的测试时退出码为 1，这是正常的评分结果
+  // 有失败的测试时退出码为 1，这是正常的评分结果；其他退出码、没有写出 JUnit（配置因 agent 的代码无法加载）
+  // 都是 agent 的结果
   if (run.exitCode !== 0 && run.exitCode !== 1) {
-    throw new Error(`隐藏测试命令退出码 ${String(run.exitCode)}：${tail(log)}`);
+    return failedResult(task, head, `隐藏测试命令退出码 ${String(run.exitCode)}：${tail(log)}`);
   }
   if (!fs.existsSync(junitPath)) {
-    throw new Error(`隐藏测试命令没有写出 JUnit（退出码 ${String(run.exitCode)}）：${tail(log)}`);
+    return failedResult(
+      task,
+      head,
+      `隐藏测试命令没有写出 JUnit（退出码 ${String(run.exitCode)}）：${tail(log)}`,
+    );
   }
   const report = await parse(fs.readFileSync(junitPath, 'utf8'));
-  if (report === undefined || report === null) throw new Error(`JUnit 为空：${junitPath}`);
+  if (report === undefined || report === null) {
+    return failedResult(task, head, `隐藏测试命令写出的 JUnit 为空：${tail(log)}`);
+  }
   return { ...scoreJUnit(report, task.hiddenTests.manifest), head, junitPath, error: null };
 }

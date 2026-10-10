@@ -12,11 +12,17 @@ function price(input: number, output: number, cacheRead: number): Price {
   return { input, output, cacheWrite5m: input * 1.25, cacheWrite1h: input * 2, cacheRead };
 }
 
+// 价格按单次请求的 prompt 大小分档：prompt（input 加 cache 读写）超过 above 时整次请求按 price 计
+interface LongContextTier {
+  above: number;
+  price: Price;
+}
+
 // 按模型族与版本号匹配，顺序从具体到一般。gateway 上的名称可以带提供方前缀（us.anthropic.）与后缀
 // （日期 -20251001、-cc、[1m]）；版本号之后不能再接一段版本号，未列出的版本（例如 claude-sonnet-5-7）直接抛错，
 // 不按同族的其他版本计价
 const model = (name: string) => new RegExp(`^(?:[a-z]+\\.)*${name}(?!-\\d{1,2}(?:\\D|$))`);
-const table: { match: RegExp; price: Price }[] = [
+const table: { match: RegExp; price: Price; longContext?: LongContextTier }[] = [
   { match: model('claude-fable-5-1'), price: price(10, 50, 0.25) },
   { match: model('claude-fable-5'), price: price(10, 50, 0.25) },
   { match: model('claude-opus-5-5'), price: price(4, 20, 0.2) },
@@ -25,14 +31,22 @@ const table: { match: RegExp; price: Price }[] = [
   { match: model('claude-sonnet-5-5'), price: price(2, 10, 0.2) },
   { match: model('claude-sonnet-5'), price: price(2, 10, 0.2) },
   { match: model('claude-sonnet-4-6'), price: price(3, 15, 0.3) },
-  { match: model('claude-haiku-5-5'), price: price(0.1, 0.5, 0.01) },
+  // Haiku 5.5：prompt 不超过 100K token 时 $0.10 / $0.50，超过时 $0.50 / $2.50（官方模型表）；
+  // cache 读写按同档 input 的倍率（读 0.1×，写 1.25× / 2×）
+  {
+    match: model('claude-haiku-5-5'),
+    price: price(0.1, 0.5, 0.01),
+    longContext: { above: 100_000, price: price(0.5, 2.5, 0.05) },
+  },
   { match: model('claude-haiku-4-5'), price: price(1, 5, 0.1) },
 ];
 
-export function priceOf(model: string): Price {
+// promptTokens：这次请求的 input 加 cache 读写的 token 总数，决定分档
+export function priceOf(model: string, promptTokens: number): Price {
   const entry = table.find((e) => e.match.test(model));
   if (!entry) throw new Error(`价格表中没有模型 ${model}`);
-  return entry.price;
+  const long = entry.longContext;
+  return long !== undefined && promptTokens > long.above ? long.price : entry.price;
 }
 
 export interface TokenUsage {
@@ -44,7 +58,9 @@ export interface TokenUsage {
 }
 
 export function costUsd(usage: TokenUsage, model: string): number {
-  const p = priceOf(model);
+  const prompt =
+    usage.inputTokens + usage.cacheReadTokens + usage.cacheWrite5mTokens + usage.cacheWrite1hTokens;
+  const p = priceOf(model, prompt);
   return (
     (usage.inputTokens * p.input +
       usage.outputTokens * p.output +

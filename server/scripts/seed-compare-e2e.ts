@@ -660,6 +660,8 @@ const icResults: Record<VariantKey, { passed: number; reached: boolean }[]> = {
     { passed: 14, reached: true },
     { passed: 11, reached: false },
     { passed: 16, reached: true },
+    // agent 的 package-lock.json 让 npm ci 失败的那次 run（Contracts 7.9）：标为无效，不参与对比，只用来看运行详情
+    { passed: 0, reached: false },
   ],
   modified: [
     { passed: 17, reached: true },
@@ -815,6 +817,27 @@ db.update(requests)
 db.update(runs)
   .set({ crossRunRefs: scanCrossRunRefs(db, crossRefRun) })
   .where(eq(runs.id, crossRefRun))
+  .run();
+
+// 隐藏测试因 agent 的代码没能运行：error 为 npm ci 的原文，测试记 0，评分 done
+const npmCiRun = 'r-20261009-baic03';
+seedIcRun('baseline', 3, npmCiRun);
+const npmCiGrade = db.select().from(grades).where(eq(grades.runId, npmCiRun)).get();
+if (npmCiGrade?.icDetail == null) throw new Error(`run ${npmCiRun} 没有 ic 评分`);
+db.update(grades)
+  .set({
+    icDetail: {
+      ...npmCiGrade.icDetail,
+      outcomes: npmCiGrade.icDetail.outcomes.map((o) => ({ ...o, outcome: 'not-run' as const })),
+      error:
+        'npm ci 退出码 1：npm error code EINTEGRITY\nnpm error sha512-AAAA… integrity checksum failed when using sha512',
+    },
+  })
+  .where(eq(grades.id, npmCiGrade.id))
+  .run();
+db.update(runs)
+  .set({ invalidReason: '只用于运行详情的 e2e：隐藏测试的错误显示' })
+  .where(eq(runs.id, npmCiRun))
   .run();
 
 console.log(

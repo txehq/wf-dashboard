@@ -23,18 +23,41 @@ describe('默认模型', () => {
 
 describe('pricing', () => {
   it('按前缀识别 gateway 模型名', () => {
-    expect(priceOf('claude-haiku-4-5-20251001-cc').input).toBe(1);
-    expect(priceOf('claude-opus-5-5').output).toBe(20);
-    expect(() => priceOf('gpt-x')).toThrow();
+    expect(priceOf('claude-haiku-4-5-20251001-cc', 0).input).toBe(1);
+    expect(priceOf('claude-opus-5-5', 0).output).toBe(20);
+    expect(() => priceOf('gpt-x', 0)).toThrow();
   });
 
   // W15 Medium 6：以前按前缀匹配，未列出的新版本静默按同族旧版本计价
   it('提供方前缀可以识别；未列出的版本抛错，不按同族其他版本计价', () => {
-    expect(priceOf('us.anthropic.claude-opus-5-5').input).toBe(4);
-    expect(priceOf('claude-sonnet-5[1m]').input).toBe(2);
-    expect(priceOf('claude-opus-5-5-20261001').input).toBe(4);
-    expect(() => priceOf('claude-sonnet-5-7')).toThrow('价格表中没有模型');
-    expect(() => priceOf('claude-opus-5-9-cc')).toThrow('价格表中没有模型');
+    expect(priceOf('us.anthropic.claude-opus-5-5', 0).input).toBe(4);
+    expect(priceOf('claude-sonnet-5[1m]', 0).input).toBe(2);
+    expect(priceOf('claude-opus-5-5-20261001', 0).input).toBe(4);
+    expect(() => priceOf('claude-sonnet-5-7', 0)).toThrow('价格表中没有模型');
+    expect(() => priceOf('claude-opus-5-9-cc', 0)).toThrow('价格表中没有模型');
+  });
+
+  // W15 Medium 6（W18c）：Haiku 5.5 按单次请求的 prompt（input 加 cache 读写）是否超过 100K 分档
+  it('Haiku 5.5 的两档价格：prompt 超过 100K 时 input / output / cache 都按高档计', () => {
+    const usage = (input: number, cacheRead: number, cacheWrite5m: number) => ({
+      inputTokens: input,
+      outputTokens: 1_000_000,
+      cacheReadTokens: cacheRead,
+      cacheWrite5mTokens: cacheWrite5m,
+      cacheWrite1hTokens: 0,
+    });
+    // 正好 100K：低档（$0.10 / $0.50，cache 读 $0.01、写 $0.125）
+    expect(costUsd(usage(40_000, 50_000, 10_000), 'claude-haiku-5-5')).toBeCloseTo(
+      (40_000 * 0.1 + 1_000_000 * 0.5 + 50_000 * 0.01 + 10_000 * 0.125) / 1_000_000,
+      12,
+    );
+    // 多 1 个 token：整次请求按高档（$0.50 / $2.50，cache 读 $0.05、写 $0.625）
+    expect(costUsd(usage(40_001, 50_000, 10_000), 'claude-haiku-5-5')).toBeCloseTo(
+      (40_001 * 0.5 + 1_000_000 * 2.5 + 50_000 * 0.05 + 10_000 * 0.625) / 1_000_000,
+      12,
+    );
+    // 其他模型没有分档
+    expect(priceOf('claude-opus-5-5', 500_000)).toEqual(priceOf('claude-opus-5-5', 0));
   });
 
   // W15 Medium 7：以前细分缺失时全部按 5 分钟价计

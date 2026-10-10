@@ -286,3 +286,14 @@ test('skill 内容 diff：两个 variant 逐文件对比', async ({ page }) => {
   await expect(section.getByText('2 个文件不同')).toBeVisible();
   await expect(diff.locator('.original .view-lines')).toContainText('Boundaries are asked');
 });
+
+// Contracts 7.9（W18c）：agent 的代码让隐藏测试没能运行时，评分照常完成，运行详情的评分区显示原因与原文
+test('运行详情的评分区显示隐藏测试没能运行的原因', async ({ page }) => {
+  await page.goto('/runs/r-20261009-baic03');
+  const grades = page.getByTestId('run-grades');
+  await expect(grades).toContainText('0 / 19');
+  const error = grades.getByTestId('grade-error');
+  await expect(error).toContainText('隐藏测试没有正常运行，测试记 0 分');
+  await expect(error).toContainText('npm ci 退出码 1：npm error code EINTEGRITY');
+  await page.screenshot({ path: '.work/screenshots/w18c-grade-error.png', animations: 'disabled' });
+});

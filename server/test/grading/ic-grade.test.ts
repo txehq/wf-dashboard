@@ -92,14 +92,15 @@ describe('ic 评分（真实 GitHub 仓库，只读取）', { timeout: 10 * 60_0
     expect(fs.existsSync(path.join(config.runsDir, runId, 'grading'))).toBe(false);
   });
 
-  it('评分步骤超时：写入 0 / 8 与超时错误，gradeRun 抛出同样的错误', async () => {
+  // Contracts 7.9：checkout 内的步骤超时是 agent 的结果，评分照常完成
+  it('评分步骤超时：写入 0 / 8 与超时错误，gradeRun 正常结束', async () => {
     // 时限 1 秒，npm ci 一定超时；测试命令中的死循环由 isolation.test.ts 覆盖
     const timeoutSeconds = 1;
     const task = await fixtureTask(timeoutSeconds);
     const runId = testRunId('w18a-ic-timeout');
     insertRun(db, { id: runId, taskId: task.id, variantId: 'baseline', githubRepo: REPO_WITH_PR });
     const message = `npm ci 超过 ${String(timeoutSeconds)} 秒没有结束，已强制结束`;
-    await expect(gradeRun(db, runId, new AbortController().signal)).rejects.toThrow(message);
+    await gradeRun(db, runId, new AbortController().signal);
     const ic = readRunGrades(db, runId)?.ic;
     expect(ic).toMatchObject({ testsPassed: 0, testsDeclared: 8, reachedEnd: true });
     expect(ic?.detail.error).toBe(message);

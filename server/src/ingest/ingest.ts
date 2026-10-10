@@ -124,9 +124,19 @@ function inheritedFromParent(state: ParseState, raw: unknown, type: string): boo
   );
 }
 
-// Claude Code 自己生成的 user 记录：后台任务通知、本地命令输出（Contracts 第 2 节）
+// Claude Code 自己生成的 user 记录：后台任务通知、本地命令输出；以及其他 agent 会话发来的消息（Contracts 第 2 节）
 function isNotice(record: UserRecord, text: string): boolean {
-  return record.origin?.kind === 'task-notification' || text.startsWith('<local-command-stdout>');
+  return (
+    record.origin?.kind === 'task-notification' ||
+    isPeer(record) ||
+    text.startsWith('<local-command-stdout>')
+  );
+}
+
+// 其他 Claude session 发来的消息（Orca orchestration）：origin.kind 为 peer、isMeta，正文为
+// "Another Claude session sent a message:" 加上带发送方的 <cross-session-message> 元素
+function isPeer(record: UserRecord): boolean {
+  return record.origin?.kind === 'peer';
 }
 
 function parseLines(ctx: ParseContext, lines: string[]): ParseOutput {
@@ -219,7 +229,9 @@ function parseLines(ctx: ParseContext, lines: string[]): ParseOutput {
     if (any.type === 'user') {
       const record = UserRecord.parse(raw);
       const at = Date.parse(record.timestamp);
-      const isInput = record.isMeta !== true && record.isCompactSummary !== true;
+      // peer 消息虽然是 isMeta，也作为 notice 返回；它开始新的一轮，之后第一条请求的 duration_ms 从它算起
+      const isInput =
+        (record.isMeta !== true || isPeer(record)) && record.isCompactSummary !== true;
       const { content } = record.message;
       const texts: string[] = [];
       if (typeof content === 'string') texts.push(content);
@@ -245,9 +257,6 @@ function parseLines(ctx: ParseContext, lines: string[]): ParseOutput {
         });
         state.lastUserAt = at;
       }
-      // 其他 Claude session 发来的消息（Orca orchestration，isMeta）同样开始新的一轮：之后第一条请求的
-      // duration_ms 从它算起。它不作为用户消息返回（归类待 Contracts 2 约定）
-      if (record.origin?.kind === 'peer') state.lastUserAt = at;
     }
   }
   return out;

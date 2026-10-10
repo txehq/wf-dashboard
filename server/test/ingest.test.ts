@@ -16,6 +16,7 @@ import { type Db, openDatabase } from '../src/db/index.js';
 import * as schema from '../src/db/schema.js';
 import { type AppEvent, events } from '../src/events.js';
 import { ingestFile, truncateResult } from '../src/ingest/ingest.js';
+import { sessionConversation } from '../src/ingest/conversation.js';
 import { watchSession } from '../src/ingest/watch.js';
 
 // 真实样本在主仓库的 .spikes/ 下（gitignore），子 worktree 中用绝对路径读取
@@ -265,7 +266,7 @@ describe.each(samples)('ingest $id', (sample) => {
     }
   });
 
-  test('后台任务通知与本地命令输出记为 notice，不作为标题', () => {
+  test('后台任务通知、本地命令输出与其他会话发来的消息记为 notice，不作为标题', () => {
     const expectedNotices = [main, ...subs].flatMap((file) =>
       readFileSync(file, 'utf8')
         .split('\n')
@@ -280,7 +281,7 @@ describe.each(samples)('ingest $id', (sample) => {
               message?: { content: string | { type: string; text?: string }[] };
             },
         )
-        .filter((r) => r.type === 'user' && r.isMeta !== true)
+        .filter((r) => r.type === 'user' && (r.isMeta !== true || r.origin?.kind === 'peer'))
         .filter((r) => {
           const c = r.message?.content;
           const text =
@@ -291,7 +292,9 @@ describe.each(samples)('ingest $id', (sample) => {
                   .map((b) => b.text)
                   .join('\n');
           return (
-            r.origin?.kind === 'task-notification' || text.startsWith('<local-command-stdout>')
+            r.origin?.kind === 'task-notification' ||
+            r.origin?.kind === 'peer' ||
+            text.startsWith('<local-command-stdout>')
           );
         })
         .map((r) => r.uuid),
@@ -464,7 +467,7 @@ test('tool 结果截断不切开代理对', () => {
 // W15 Medium 1：其他 Claude session 发来的 peer 消息（origin.kind peer、isMeta）开始一轮；
 // 以前不更新触发时间，之后第一条请求的 duration_ms 为空或从几小时前的上一条用户消息算起
 describe('peer 消息', () => {
-  test('peer 消息之后的第一条请求从 peer 消息算起，peer 消息不是用户消息', () => {
+  test('peer 消息以 notice 返回并保留发送方，之后的第一条请求从它算起', () => {
     const db = openTestDb();
     const id = 'b7199c56-42d6-4dda-ac96-117d3937ebdd';
     ingestFile(db, path.join(import.meta.dirname, 'fixtures/peer', `${id}.jsonl`));
@@ -478,11 +481,21 @@ describe('peer 消息', () => {
     expect(first?.durationMs).toBe(
       Date.parse('2026-09-25T09:20:33.252Z') - Date.parse('2026-09-25T09:20:28.098Z'),
     );
-    const users = db
+    const messages = db
       .select()
       .from(schema.userMessages)
       .where(eq(schema.userMessages.sessionId, id))
       .all();
-    expect(users.some((m) => m.text.includes('cross-session-message'))).toBe(false);
+    // Contracts 2：peer 消息以 notice 返回，保留发送方；不是用户消息，不参与标题
+    const peer = messages.filter((m) => m.text.includes('cross-session-message'));
+    expect(peer.map((m) => m.kind)).toEqual(['notice']);
+    expect(peer[0]?.text).toContain('from-name="hi-46"');
+    const session = db.select().from(schema.sessions).where(eq(schema.sessions.id, id)).get();
+    expect(session?.title ?? '').not.toContain('cross-session-message');
+    // 对话视图同样按 notice 显示
+    const conversation = sessionConversation(db, id) ?? [];
+    const item = conversation.find((c) => c.kind !== 'question' && c.text.includes('hi-46'));
+    expect(item?.kind).toBe('notice');
+    expect(conversation.filter((c) => c.kind === 'user')).toEqual([]);
   });
 });

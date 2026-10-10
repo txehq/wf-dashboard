@@ -105,6 +105,19 @@ function IcGrades({ grades }: { grades: NonNullable<RunGrades['ic']> }) {
           )}
         </dd>
       </dl>
+      {/* agent 的代码让隐藏测试没能运行（npm ci 失败、超时、没有写出 JUnit）：测试记 0，原因与原文 */}
+      {detail.error !== null && (
+        <div
+          role="alert"
+          className="rounded-md border border-destructive/40 px-3 py-2 text-sm"
+          data-testid="grade-error"
+        >
+          <p className="font-medium text-destructive">隐藏测试没有正常运行，测试记 0 分</p>
+          <pre className="mt-1 max-h-60 overflow-auto text-xs whitespace-pre-wrap">
+            {detail.error}
+          </pre>
+        </div>
+      )}
       {detail.fileErrors.map((e) => (
         <p key={e.file} className="text-sm text-destructive">
           <span className="font-mono text-xs">{e.file}</span>：{e.message}
