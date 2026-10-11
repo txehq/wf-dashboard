@@ -104,7 +104,7 @@ const ACCEPTANCE_RULE =
 const BRIEF_RULE = '调用 respond 之前，先用不超过三句话分析，再提交结果。';
 
 export const SYSTEM_PROMPT = `你判定一个编程 agent 在 /ic 工作流中是否已经进入下一个阶段。
-阶段按固定顺序推进，不会回退：${IC_STAGES.join(' → ')}。fix-pr 内部的修复、重跑验收、再次 review 都属于 fix-pr。
+阶段按固定顺序推进，不会回退：${IC_STAGES.join(' → ')}。fix-pr 内部的修复、重跑验收、再次 review、发处置与总结评论（.fix-pr/ 下的文件）都属于 fix-pr。
 ${BATCH_NOTE}
 判定规则：
 - 只有当某条 tool 调用是下一阶段（或其后任一阶段）自身的动作时，才算进入；只是提到、计划、阅读或讨论该阶段，不算进入。回复文字只作为理解上下文的依据，不能作为进入的那一条。
