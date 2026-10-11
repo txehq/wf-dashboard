@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { models, parseStructured } from '../llm/client.js';
+import { models, parseStructured, type StructuredRequest } from '../llm/client.js';
+import { isFiller } from '../llm/filler.js';
 import type { TokenUsage } from '../llm/pricing.js';
 import type { ArtifactRubric, LfgTask, RubricArtifact } from '../tasks/schema.js';
 import type { GradeItem } from './schema.js';
@@ -18,11 +19,15 @@ const system = `你是一个 AI 编码 workflow 评估系统的评分员。被�
 - 只依据产物文本中实际写出的内容判定。task 的想法与隐藏需求只用于理解条目在问什么；产物没有写出的内容一律视为没有，不替 agent 推测意图，不因写得长或格式好加分。
 - score 为 0 到该条 maxScore 之间的整数：完全满足给满分，完全没有给 0，部分满足按满足的程度给中间分。
 - reasoning 用中文写一到三句：指出产物中支持该分数的具体内容（可以短引原文），或指出缺少的内容。
-- 输出的 items 与 rubric 条目一一对应，itemId 原样使用。`;
+- 按条目编号作答：respond 的参数中 item_1 是条目 1 的评分，item_2 是条目 2 的评分，依此类推，每个条目都有 reasoning 与 score。`;
+
+// 按编号作答（与模拟用户相同，见 Reports/W21、W23）：gateway 不执行 strict tool 的约束，
+// 需要模型抄写的字段会出错，itemId 由代码按编号对应回 rubric
+export const itemKey = (index: number) => `item_${String(index + 1)}`;
 
 function userPrompt(task: LfgTask, group: ArtifactRubric, content: string) {
   const items = group.items
-    .map((i) => `- itemId: ${i.id}（maxScore ${String(i.maxScore)}）：${i.criterion}`)
+    .map((i, n) => `- 条目 ${String(n + 1)}（maxScore ${String(i.maxScore)}）：${i.criterion}`)
     .join('\n');
   return `task：${task.title}
 
@@ -50,35 +55,49 @@ export interface JudgeResult {
   costUsd: number;
 }
 
-// 一个产物一次 judge 调用；条目集合与 rubric 不一致、分数越界时抛错
-export async function judgeArtifact(
+const JudgedItem = z.object({ reasoning: z.string().min(1), score: z.int() });
+
+export function judgeSchema(group: ArtifactRubric) {
+  return z.object(Object.fromEntries(group.items.map((_, i) => [itemKey(i), JudgedItem])));
+}
+
+type Judgment = Record<string, z.infer<typeof JudgedItem>>;
+
+// reasoning 是一到三句完整的话，以句末标点结束（其后可以是引号、括号）。sonnet 有时只写出半句
+// （"每张工单只有一句话的"），其余条目填占位内容（Reports/W23）
+const SENTENCE_END = /[。！？.!?…][」』"”'’）)】\]]*\s*$/u;
+
+// judge 的请求：judgeArtifact 与 .work/w23 的统计脚本共用
+export function judgeRequest(
   task: LfgTask,
   group: ArtifactRubric,
   content: string,
-  signal: AbortSignal,
-): Promise<JudgeResult> {
-  const ids = group.items.map((i) => i.id);
-  const schema = z.object({
-    items: z.array(z.object({ itemId: z.enum(ids), reasoning: z.string().min(1), score: z.int() })),
-  });
-  const result = await parseStructured({
-    model: models.judge,
+  model: string,
+): StructuredRequest<Judgment> {
+  return {
+    model,
     system,
     user: userPrompt(task, group, content),
-    schema,
+    schema: judgeSchema(group),
     maxTokens: 8000,
-    signal,
-  });
-  const byId = new Map(result.value.items.map((i) => [i.itemId, i]));
-  const returned = result.value.items.map((i) => i.itemId);
-  if (byId.size !== returned.length || returned.length !== ids.length) {
-    throw new Error(
-      `judge 返回的 ${group.artifact} 条目与 rubric 不一致：返回 ${returned.join(',')}，rubric 为 ${ids.join(',')}`,
-    );
-  }
-  const items = group.items.map((rubricItem): GradeItem => {
-    const judged = byId.get(rubricItem.id);
+  };
+}
+
+// 按编号把 judge 的回答对应回 rubric 条目；缺少条目、reasoning 是占位内容或没有写完、分数越界时抛错
+export function readJudgment(group: ArtifactRubric, judgment: Judgment): GradeItem[] {
+  return group.items.map((rubricItem, i): GradeItem => {
+    const judged = judgment[itemKey(i)];
     if (judged === undefined) throw new Error(`judge 没有返回条目 ${rubricItem.id}`);
+    if (isFiller(judged.reasoning)) {
+      throw new Error(
+        `judge 给 ${rubricItem.id} 的 reasoning 是占位内容：${JSON.stringify(judged.reasoning)}`,
+      );
+    }
+    if (!SENTENCE_END.test(judged.reasoning)) {
+      throw new Error(
+        `judge 给 ${rubricItem.id} 的 reasoning 没有写完：${JSON.stringify(judged.reasoning)}`,
+      );
+    }
     if (judged.score < 0 || judged.score > rubricItem.maxScore) {
       throw new Error(
         `judge 给 ${rubricItem.id} 的分数 ${String(judged.score)} 超出 0..${String(rubricItem.maxScore)}`,
@@ -92,6 +111,20 @@ export async function judgeArtifact(
       reasoning: judged.reasoning,
     };
   });
+}
+
+// 一个产物一次 judge 调用
+export async function judgeArtifact(
+  task: LfgTask,
+  group: ArtifactRubric,
+  content: string,
+  signal: AbortSignal,
+): Promise<JudgeResult> {
+  const result = await parseStructured({
+    ...judgeRequest(task, group, content, models.judge),
+    signal,
+  });
+  const items = readJudgment(group, result.value);
   return { items, model: result.model, usage: result.usage, costUsd: result.costUsd };
 }
 
