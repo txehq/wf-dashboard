@@ -7,6 +7,7 @@ import {
 } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
+import { ensureImportedBundle } from '../tasks/linear-import.js';
 import { getTaskRecord, listTaskRecords, saveTask } from '../tasks/loader.js';
 import { draftRubric } from '../tasks/rubric-draft.js';
 import { RubricDraft, RubricDraftRequest, TaskDefinition, TaskRecord } from '../tasks/schema.js';
@@ -42,8 +43,10 @@ export function taskRoutes({ db, tasksDir }: { db: Db; tasksDir: string }) {
     app.post(
       '/api/tasks',
       { schema: { body: TaskDefinition, response: { 201: TaskRecord } } },
-      (request, reply) => {
+      async (request, reply) => {
         if (getTaskRecord(db, request.body.id)) throw new TaskExists(request.body.id);
+        // 从 Linear 导入的 task：先在 repo.commit 处生成起始仓库 bundle（Contracts 第 13 节）
+        if (request.body.kind === 'ic') await ensureImportedBundle(request.body, tasksDir);
         void reply.code(201);
         return saveTask(db, tasksDir, request.body);
       },
@@ -52,7 +55,7 @@ export function taskRoutes({ db, tasksDir }: { db: Db; tasksDir: string }) {
     app.put(
       '/api/tasks/:id',
       { schema: { params: IdParams, body: TaskDefinition, response: { 200: TaskRecord } } },
-      (request) => {
+      async (request) => {
         const { id } = request.params;
         if (request.body.id !== id) {
           throw new BadTaskRequest(`body 的 id ${request.body.id} 与路径 ${id} 不一致`);
@@ -60,6 +63,7 @@ export function taskRoutes({ db, tasksDir }: { db: Db; tasksDir: string }) {
         if (requireTask(id).task.kind !== request.body.kind) {
           throw new BadTaskRequest(`task ${id} 的 kind 不能改变`);
         }
+        if (request.body.kind === 'ic') await ensureImportedBundle(request.body, tasksDir);
         return saveTask(db, tasksDir, request.body);
       },
     );

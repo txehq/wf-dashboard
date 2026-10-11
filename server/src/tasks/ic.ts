@@ -3,7 +3,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync } from
 import path from 'node:path';
 import { parse as parseJUnit, type TestCase, type TestSuite, type TestSuites } from 'junit2json';
 import { quote } from 'shell-quote';
-import type { IcTask } from './schema.js';
+import type { IcTask, IcTaskWithTests } from './schema.js';
 
 // 隐藏测试在 checkout 中的位置，与 task 的测试命令一致
 export const hiddenTestsTarget = 'test/hidden';
@@ -34,7 +34,7 @@ export function installDependencies(checkout: string) {
   run('npm', ['ci', '--no-audit', '--no-fund'], checkout);
 }
 
-export function placeHiddenTests(task: IcTask, checkout: string) {
+export function placeHiddenTests(task: IcTaskWithTests, checkout: string) {
   const target = path.join(checkout, hiddenTestsTarget);
   rmSync(target, { recursive: true, force: true });
   cpSync(path.join(task.dir, task.hiddenTests.dir), target, { recursive: true });
@@ -42,7 +42,11 @@ export function placeHiddenTests(task: IcTask, checkout: string) {
 
 // 测试配置由 task 提供，放在 checkout 之外的 configDir；同目录的 node_modules 指向 checkout 的依赖，
 // 配置中的 import（例如 @playwright/test）从 checkout 安装的包解析。返回配置文件的路径
-export function placeHiddenConfig(task: IcTask, checkout: string, configDir: string): string {
+export function placeHiddenConfig(
+  task: IcTaskWithTests,
+  checkout: string,
+  configDir: string,
+): string {
   if (existsSync(configDir)) throw new Error(`隐藏测试配置目录已存在：${configDir}`);
   mkdirSync(configDir, { recursive: true });
   const configPath = path.join(configDir, path.basename(task.hiddenTests.config));
@@ -109,7 +113,7 @@ export function junitCases(report: TestSuites | TestSuite): Omit<HiddenRun, 'exi
 // 运行 task 的测试命令（vitest 有失败测试时退出码为 1，属于正常结果），解析 JUnit XML；
 // JUnit 与测试配置写在 outDir 下
 export async function runHiddenTestCases(
-  task: IcTask,
+  task: IcTaskWithTests,
   checkout: string,
   outDir: string,
 ): Promise<HiddenRun> {

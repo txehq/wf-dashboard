@@ -63,21 +63,43 @@ export const LfgTaskDefinition = z.strictObject({
 });
 export type LfgTaskDefinition = z.infer<typeof LfgTaskDefinition>;
 
-export const IcTaskDefinition = z.strictObject({
+const IcTicket = z.strictObject({
+  title: z.string().trim().min(1),
+  // 不做 trim：从 Linear 导入的正文原样保存，读回逐字节相同
+  body: z.string().refine((s) => s.trim() !== '', '正文不能为空'),
+  acceptanceCriteria: z.array(z.string().trim().min(1)).min(1),
+});
+
+// 从 Linear 导入的 task 的来源（Contracts 第 13 节）：原工单只读取；保存时按 github.repo 与 repo.commit 生成 bundle
+export const IcTaskSource = z.strictObject({
+  linear: z.strictObject({
+    identifier: z.string().regex(/^[A-Z][A-Z0-9]*-\d+$/),
+    url: z.url(),
+  }),
+  github: z.strictObject({
+    repo: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, '仓库写作 owner/name'),
+  }),
+});
+export type IcTaskSource = z.infer<typeof IcTaskSource>;
+
+const icFields = {
   id,
   kind: z.literal('ic'),
   ...common,
-  ticket: z.strictObject({
-    title: z.string().trim().min(1),
-    body: z.string().trim().min(1),
-    acceptanceCriteria: z.array(z.string().trim().min(1)).min(1),
-  }),
+  source: IcTaskSource.optional(),
+  ticket: IcTicket,
   repo: z.strictObject({
     // 相对 task 目录，指向 git bundle
     path: taskPath,
     commit: z.string().regex(/^[0-9a-f]{40}$/, 'commit 必须是完整的 40 位 sha'),
   }),
-  hiddenTests: z.strictObject({
+  // 终点要求通过的 check（GitHub 报告的 check 名）；createRunRepo 以它建 ruleset，为空时不建、终点只要求 PR 不是 draft
+  requiredChecks: z
+    .array(z.string().trim().min(1))
+    .refine((names) => new Set(names).size === names.length, 'requiredChecks 不能重复'),
+  // 没有隐藏测试时 judge 按验收标准逐条评分
+  hiddenTests: z
+    .strictObject({
     // 相对 task 目录，运行时复制到 checkout 的 test/hidden/
     dir: taskPath,
     // 相对 task 目录的测试配置文件；评分时放在 checkout 之外，经 {configPath} 传给命令
@@ -98,9 +120,23 @@ export const IcTaskDefinition = z.strictObject({
           .refine((names) => new Set(names).size === names.length, '同一文件中的测试名不能重复'),
       )
       .refine((m) => Object.keys(m).length > 0, '清单不能为空'),
+    })
+    .optional(),
+};
+
+export const IcTaskDefinition = z.strictObject(icFields);
+export type IcTaskDefinition = z.infer<typeof IcTaskDefinition>;
+export type IcHiddenTests = NonNullable<IcTaskDefinition['hiddenTests']>;
+
+// 从 Linear 导入的预览：工单没有验收标准一节（或没有正文）时为空，由用户在表单中补上后才能保存
+export const IcTaskDraft = z.strictObject({
+  ...icFields,
+  ticket: IcTicket.extend({
+    body: z.string(),
+    acceptanceCriteria: z.array(z.string().trim().min(1)),
   }),
 });
-export type IcTaskDefinition = z.infer<typeof IcTaskDefinition>;
+export type IcTaskDraft = z.infer<typeof IcTaskDraft>;
 
 export const TaskDefinition = z.discriminatedUnion('kind', [LfgTaskDefinition, IcTaskDefinition]);
 export type TaskDefinition = z.infer<typeof TaskDefinition>;
@@ -108,6 +144,8 @@ export type TaskDefinition = z.infer<typeof TaskDefinition>;
 // 加载器产生的 task 额外带 task 目录的绝对路径
 export type LfgTask = LfgTaskDefinition & { dir: string };
 export type IcTask = IcTaskDefinition & { dir: string };
+// 带隐藏测试的 ic task：评分跑隐藏测试（没有隐藏测试时按验收标准评分）
+export type IcTaskWithTests = IcTask & { hiddenTests: IcHiddenTests };
 export type Task = LfgTask | IcTask;
 
 // API 返回的 task

@@ -12,7 +12,7 @@ import {
   requiredContexts,
   waitRuns,
 } from '../src/external/github.js';
-import type { IcTask } from '../src/tasks/schema.js';
+import type { IcTaskWithTests } from '../src/tasks/schema.js';
 import { runHiddenTests } from '../src/grading/hidden-tests.js';
 import { buildFixtureTask, fixtureDir, git, testRunId } from './helpers/ic-fixture.js';
 
@@ -35,7 +35,7 @@ describe('GitHub /ic 运行仓库', { timeout: 15 * 60_000 }, () => {
   const runId = testRunId('w7');
   const work = path.join(config.repoRoot, '.work/test-tasks', runId, 'agent');
   const branch = 'feat/subtract';
-  let task: IcTask;
+  let task: IcTaskWithTests;
   let repo: string;
   let pr: number;
   let prHead: string;
@@ -89,14 +89,26 @@ describe('GitHub /ic 运行仓库', { timeout: 15 * 60_000 }, () => {
       checks: [{ name: 'ci', bucket: 'pass', state: 'SUCCESS' }],
     });
     const draft = { ciGreen: true, head: prHead, missingRequired: [] };
-    expect(await icEndpoint(repo, pr)).toEqual({ ...draft, reached: false, isDraft: true });
+    expect(await icEndpoint(repo, pr, task.requiredChecks)).toEqual({
+      ...draft,
+      reached: false,
+      isDraft: true,
+    });
 
     await gh(['pr', 'ready', String(pr), '--repo', repo]);
-    expect(await icEndpoint(repo, pr)).toEqual({ ...draft, reached: true, isDraft: false });
+    expect(await icEndpoint(repo, pr, task.requiredChecks)).toEqual({
+      ...draft,
+      reached: true,
+      isDraft: false,
+    });
 
     // W15 Medium 14：已关闭的 PR 即使 check 全绿也不算到达终点；之后按 pull/<n>/head 取代码，与分支是否存在无关
     await gh(['pr', 'close', String(pr), '--repo', repo, '--delete-branch']);
-    expect(await icEndpoint(repo, pr)).toEqual({ ...draft, reached: false, isDraft: false });
+    expect(await icEndpoint(repo, pr, task.requiredChecks)).toEqual({
+      ...draft,
+      reached: false,
+      isDraft: false,
+    });
   });
 
   it('runHiddenTests：通过 3 / 声明 8，文件级错误与未运行的测试计入分母', async () => {
@@ -152,10 +164,18 @@ describe('GitHub /lfg 运行仓库', { timeout: 5 * 60_000 }, () => {
       state: 'OPEN',
       checks: [],
     });
-    expect(await icEndpoint(repo, opened.number)).toMatchObject({
+    // 终点只看 task 的 requiredChecks（Contracts 第 13 节）：要求 ci 时没有任何 check 不算到达；为空时只要求不是 draft
+    expect(await icEndpoint(repo, opened.number, ['ci'])).toMatchObject({
       reached: false,
       ciGreen: false,
       isDraft: false,
+      missingRequired: ['ci'],
+    });
+    expect(await icEndpoint(repo, opened.number, [])).toMatchObject({
+      reached: true,
+      ciGreen: true,
+      isDraft: false,
+      missingRequired: [],
     });
   });
 });

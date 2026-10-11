@@ -25,7 +25,7 @@ import { costUsd } from '../src/llm/pricing.js';
 import { scanCrossRunRefs } from '../src/runs/cross-run-refs.js';
 import { updateStages } from '../src/stages/report.js';
 import { LFG_STAGES } from '../src/stages/workflow.js';
-import { loadIcTask, loadLfgTask, syncTasks } from '../src/tasks/loader.js';
+import { loadIcTask, loadLfgTask, syncTasks, withHiddenTests } from '../src/tasks/loader.js';
 import type { RubricArtifact } from '../src/tasks/schema.js';
 import { createVariants } from '../src/variants/index.js';
 
@@ -49,7 +49,7 @@ fs.rmSync(config.dataDir, { recursive: true, force: true });
 const db = openDatabase(config.dbPath, config.migrationsDir);
 syncTasks(db, config.tasksDir);
 const lfgTask = loadLfgTask(db, 'lfg-calculator');
-const icTask = loadIcTask(db, 'ic-money-format');
+const icTask = withHiddenTests(loadIcTask(db, 'ic-money-format'));
 
 // 确定的伪随机数，每次生成相同的数据
 function rng(seed: number) {

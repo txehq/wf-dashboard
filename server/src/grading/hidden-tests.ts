@@ -7,7 +7,7 @@ import treeKill from 'tree-kill';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { junitCases, placeHiddenConfig, scoreAgainstManifest } from '../tasks/ic.js';
-import type { IcTask } from '../tasks/schema.js';
+import type { IcTaskWithTests } from '../tasks/schema.js';
 
 // 隐藏测试在 checkout 中的位置，与 Contracts 第 6 节一致
 export const HIDDEN_TESTS_DEST = 'test/hidden';
@@ -194,7 +194,7 @@ function playwrightVersion(checkout: string): string | null {
   return version;
 }
 
-function failedResult(task: IcTask, head: string, error: string): HiddenTestsResult {
+function failedResult(task: IcTaskWithTests, head: string, error: string): HiddenTestsResult {
   const outcomes = Object.entries(task.hiddenTests.manifest).flatMap(([file, names]) =>
     names.map((name): Outcome => ({ file, name, outcome: 'not-run' })),
   );
@@ -213,7 +213,7 @@ function failedResult(task: IcTask, head: string, error: string): HiddenTestsRes
 // 读不到凭据与其他 run；测试配置由 task 提供并放在 checkout 之外，JUnit 写在 checkout 之外
 export async function runHiddenTests(
   checkout: string,
-  task: IcTask,
+  task: IcTaskWithTests,
   signal: AbortSignal,
 ): Promise<HiddenTestsResult> {
   const gradingDir = path.dirname(checkout);

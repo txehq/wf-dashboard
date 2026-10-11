@@ -72,9 +72,13 @@ describe('自带 task', () => {
       }
       expect(rubricMaxScore(definition.rubric)).toBeGreaterThan(0);
     } else {
-      const declared = Object.values(definition.hiddenTests.manifest).flat();
+      // 自带 ic task 都有隐藏测试，CI 的 check 名都是 ci
+      expect(definition.requiredChecks).toEqual(['ci']);
+      const hidden = definition.hiddenTests;
+      if (hidden === undefined) throw new Error(`${id} 没有隐藏测试`);
+      const declared = Object.values(hidden.manifest).flat();
       expect(declared.length).toBeGreaterThanOrEqual(10);
-      for (const file of Object.keys(definition.hiddenTests.manifest)) {
+      for (const file of Object.keys(hidden.manifest)) {
         expect(file.startsWith('test/hidden/')).toBe(true);
       }
     }

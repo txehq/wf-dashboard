@@ -12,8 +12,12 @@ import {
   runHiddenTestCases,
   scoreAgainstManifest,
 } from '../src/tasks/ic.js';
-import { parseTaskYaml, serializeTask, taskYamlPath } from '../src/tasks/loader.js';
-import type { IcTask } from '../src/tasks/schema.js';
+import {
+  parseTaskYaml,
+  serializeTask,
+  taskYamlPath,
+  withHiddenTests,
+} from '../src/tasks/loader.js';
 
 // 用法：tsx scripts/build-ic-task.ts <task id>
 // 把 .work/ic-src/<id>/ 提交为起始仓库并打成 tasks/<id>/repo.bundle，
@@ -72,7 +76,7 @@ run('git', ['bundle', 'create', '--quiet', bundle, 'main'], repoDir);
 // 3. 参考实现上运行隐藏测试，生成清单
 const definition = parseTaskYaml(readFileSync(yamlFile, 'utf8'), yamlFile);
 if (definition.kind !== 'ic') throw new Error(`${id} 不是 ic task`);
-const task: IcTask = { ...definition, repo: { ...definition.repo, commit }, dir: taskDir };
+const task = withHiddenTests({ ...definition, repo: { ...definition.repo, commit }, dir: taskDir });
 const referenceCheckout = path.join(buildDir, 'reference');
 checkoutStartRepo(task, referenceCheckout);
 installDependencies(referenceCheckout);
@@ -93,7 +97,7 @@ const manifest = manifestFromRun(referenceRun);
 const updated = {
   ...definition,
   repo: task.repo,
-  hiddenTests: { ...definition.hiddenTests, manifest },
+  hiddenTests: { ...task.hiddenTests, manifest },
 };
 writeFileSync(yamlFile, serializeTask(updated));
 

@@ -7,6 +7,7 @@ import { inputField } from '../stages/rows.js';
 import { loadTask } from '../tasks/loader.js';
 import type { ArtifactRubric, IcTask, LfgTask } from '../tasks/schema.js';
 import { gradeIc } from './ic.js';
+import { gradeIcCriteria } from './ic-criteria.js';
 import { judgeArtifact, missingArtifactItems } from './rubric-judge.js';
 import { type ArtifactGrade, type GradeItem, RunGrades } from './schema.js';
 
@@ -134,7 +135,16 @@ async function gradeLfg(db: Db, run: Run, task: LfgTask, signal: AbortSignal) {
 
 async function gradeIcRun(db: Db, run: Run, task: IcTask, signal: AbortSignal) {
   if (run.githubRepo === null) throw new Error(`run ${run.id} 没有 GitHub 仓库`);
-  const result = await gradeIc(task, run.id, run.githubRepo, signal);
+  if (task.hiddenTests === undefined) {
+    await gradeIcCriteriaRun(db, run, task, run.githubRepo, signal);
+    return;
+  }
+  const result = await gradeIc(
+    { ...task, hiddenTests: task.hiddenTests },
+    run.id,
+    run.githubRepo,
+    signal,
+  );
   db.insert(grades)
     .values({
       runId: run.id,
@@ -146,6 +156,37 @@ async function gradeIcRun(db: Db, run: Run, task: IcTask, signal: AbortSignal) {
     })
     .run();
   // detail.error 是 agent 的代码造成的失败（Contracts 7.9）：已记 0 / 声明数，评分照常完成
+}
+
+// 没有隐藏测试：一次 judge 调用按验收标准逐条评分（Contracts 第 13 节），条目写 grade_items
+async function gradeIcCriteriaRun(
+  db: Db,
+  run: Run,
+  task: IcTask,
+  repo: string,
+  signal: AbortSignal,
+) {
+  const result = await gradeIcCriteria(task, repo, signal);
+  signal.throwIfAborted();
+  db.transaction((tx) => {
+    const grade = tx
+      .insert(grades)
+      .values({
+        runId: run.id,
+        kind: 'ic_criteria',
+        judgeModel: result.judge?.model ?? null,
+        inputTokens: result.judge?.usage.inputTokens ?? 0,
+        outputTokens: result.judge?.usage.outputTokens ?? 0,
+        costUsd: result.judge?.costUsd ?? 0,
+        reachedEnd: result.reachedEnd,
+        criteriaDetail: result.detail,
+      })
+      .returning({ id: grades.id })
+      .get();
+    tx.insert(gradeItems)
+      .values(result.items.map((i) => ({ gradeId: grade.id, ...i })))
+      .run();
+  });
 }
 
 // runs 模块在进入 grading 时调用；全部评分完成后一次写入，任何一步失败都不留下部分结果。
@@ -171,6 +212,45 @@ export function readRunGrades(db: Db, runId: string): RunGrades | null {
     .all();
   if (rows.length === 0) return null;
   const costUsd = rows.reduce((sum, r) => sum + r.costUsd, 0);
+  const itemsOf = (gradeId: number) =>
+    db
+      .select()
+      .from(gradeItems)
+      .where(eq(gradeItems.gradeId, gradeId))
+      .orderBy(asc(gradeItems.id))
+      .all()
+      .map(({ itemId, criterion, score, maxScore, reasoning }) => ({
+        itemId,
+        criterion,
+        score,
+        maxScore,
+        reasoning,
+      }));
+  const criteria = rows.find((r) => r.kind === 'ic_criteria');
+  if (criteria !== undefined) {
+    if (criteria.reachedEnd === null || criteria.criteriaDetail === null) {
+      throw new Error(`run ${runId} 的验收标准评分不完整`);
+    }
+    const items = itemsOf(criteria.id);
+    return RunGrades.parse({
+      runId,
+      kind: 'ic',
+      costUsd,
+      lfg: null,
+      ic: null,
+      icCriteria: {
+        items,
+        score: items.reduce((sum, i) => sum + i.score, 0),
+        maxScore: items.reduce((sum, i) => sum + i.maxScore, 0),
+        reachedEnd: criteria.reachedEnd,
+        judgeModel: criteria.judgeModel,
+        inputTokens: criteria.inputTokens,
+        outputTokens: criteria.outputTokens,
+        costUsd: criteria.costUsd,
+        detail: criteria.criteriaDetail,
+      },
+    });
+  }
   const ic = rows.find((r) => r.kind === 'ic');
   if (ic !== undefined) {
     if (
@@ -192,24 +272,13 @@ export function readRunGrades(db: Db, runId: string): RunGrades | null {
         reachedEnd: ic.reachedEnd,
         detail: ic.icDetail,
       },
+      icCriteria: null,
     });
   }
   const groups = rows.map((g): ArtifactGrade => {
     if (g.artifact === null)
       throw new Error(`run ${runId} 的 rubric 评分 ${String(g.id)} 没有产物组`);
-    const items = db
-      .select()
-      .from(gradeItems)
-      .where(eq(gradeItems.gradeId, g.id))
-      .orderBy(asc(gradeItems.id))
-      .all()
-      .map(({ itemId, criterion, score, maxScore, reasoning }) => ({
-        itemId,
-        criterion,
-        score,
-        maxScore,
-        reasoning,
-      }));
+    const items = itemsOf(g.id);
     return {
       artifact: g.artifact,
       present: g.judgeModel !== null,
@@ -233,5 +302,6 @@ export function readRunGrades(db: Db, runId: string): RunGrades | null {
       maxScore: groups.reduce((sum, g) => sum + g.maxScore, 0),
     },
     ic: null,
+    icCriteria: null,
   });
 }

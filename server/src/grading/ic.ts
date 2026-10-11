@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
 import { clonePr, icEndpoint, prBranch, readPr } from '../external/github.js';
-import type { IcTask } from '../tasks/schema.js';
+import type { IcTaskWithTests } from '../tasks/schema.js';
 import { runHiddenTests } from './hidden-tests.js';
 import type { IcDetail } from './schema.js';
 
@@ -19,7 +19,7 @@ export const gradingCheckout = (runId: string) =>
 // 仓库中最新的 PR：隐藏测试跑在 PR 分支的 head 上，终点判定读同一个 head；没有 PR 时测试记 0 / 声明数；
 // agent 的代码造成的失败（例如超时、npm ci 失败）记在 detail.error，测试记 0 / 声明数；signal 取消时在下一步之前抛出 signal.reason
 export async function gradeIc(
-  task: IcTask,
+  task: IcTaskWithTests,
   runId: string,
   repo: string,
   signal: AbortSignal,
@@ -41,7 +41,7 @@ export async function gradeIc(
   const checkout = gradingCheckout(runId);
   const { head } = await clonePr(repo, pr.number, checkout);
   const tests = await runHiddenTests(checkout, task, signal);
-  const endpoint = await icEndpoint(repo, pr.number);
+  const endpoint = await icEndpoint(repo, pr.number, task.requiredChecks);
   signal.throwIfAborted();
   if (endpoint.head !== head) {
     throw new Error(

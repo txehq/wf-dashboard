@@ -42,6 +42,31 @@ export const GradeItem = z.object({
 });
 export type GradeItem = z.infer<typeof GradeItem>;
 
+// 没有隐藏测试的 ic task 的评分明细（Contracts 第 13 节）：没有 PR 时 pr、endpoint 为空，每条验收标准记 0 分，不调用 judge
+export const IcCriteriaDetail = z.object({
+  pr: z
+    .object({ number: z.number(), url: z.string(), branch: z.string(), head: z.string() })
+    .nullable(),
+  endpoint: IcEndpoint.nullable(),
+  // 交给 judge 的 CI 结果：PR head 上各 check 的名字与结论
+  checks: z.array(z.object({ name: z.string(), bucket: z.string(), state: z.string() })),
+  diffChars: z.number(),
+});
+export type IcCriteriaDetail = z.infer<typeof IcCriteriaDetail>;
+
+export const IcCriteriaGrade = z.object({
+  items: z.array(GradeItem),
+  score: z.number(),
+  maxScore: z.number(),
+  reachedEnd: z.boolean(),
+  judgeModel: z.string().nullable(),
+  inputTokens: z.number(),
+  outputTokens: z.number(),
+  costUsd: z.number(),
+  detail: IcCriteriaDetail,
+});
+export type IcCriteriaGrade = z.infer<typeof IcCriteriaGrade>;
+
 export const ArtifactGrade = z.object({
   artifact: z.enum(rubricArtifacts),
   // 评分时产物是否存在；不存在时每条记 0 分，没有 judge 调用
@@ -73,6 +98,8 @@ export const RunGrades = z.object({
       detail: IcDetail,
     })
     .nullable(),
+  // 没有隐藏测试的 ic task：验收标准逐条的得分与理由
+  icCriteria: IcCriteriaGrade.nullable(),
 });
 export type RunGrades = z.infer<typeof RunGrades>;
 
@@ -133,6 +160,24 @@ export const IcQuality = z.object({
   }),
 });
 
+// 没有隐藏测试的 ic task：验收标准得分率（得分 / 满分）与到达终点的比例
+export const IcCriteriaQuality = z.object({
+  kind: z.literal('ic_criteria'),
+  criteriaRate: Distribution,
+  reachedEnd: z.object({
+    ratio: z.number().nullable(),
+    values: z.array(z.object({ runId: z.string(), reached: z.boolean() })),
+  }),
+});
+
+// 每条验收标准在一组 run 上的得分
+export const CriterionMean = z.object({
+  itemId: z.string(),
+  criterion: z.string(),
+  maxScore: z.number(),
+  score: Distribution,
+});
+
 export const RubricItemMean = z.object({
   artifact: z.enum(rubricArtifacts),
   itemId: z.string(),
@@ -146,12 +191,13 @@ export const CompareCell = z.object({
   taskId: z.string(),
   kind: z.enum(['lfg', 'ic']),
   runIds: z.array(z.string()),
-  quality: z.discriminatedUnion('kind', [LfgQuality, IcQuality]),
+  quality: z.discriminatedUnion('kind', [LfgQuality, IcQuality, IcCriteriaQuality]),
   // run 数为 0 时为空
   cost: z
     .object({ stages: z.array(StageCost), total: CostBreakdown, friction: FrictionStats })
     .nullable(),
   rubricItems: z.array(RubricItemMean),
+  criteriaItems: z.array(CriterionMean),
 });
 export type CompareCell = z.infer<typeof CompareCell>;
 

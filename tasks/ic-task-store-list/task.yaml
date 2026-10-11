@@ -29,6 +29,8 @@ ticket:
 repo:
   path: repo.bundle
   commit: af8d995554edc1ff7a4c23dbf1cc9037aef0ea58
+requiredChecks:
+  - ci
 hiddenTests:
   dir: hidden-tests
   config: vitest.hidden.config.mjs

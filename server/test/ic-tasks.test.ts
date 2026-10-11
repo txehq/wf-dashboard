@@ -13,7 +13,7 @@ import {
   runHiddenTestCases,
   scoreAgainstManifest,
 } from '../src/tasks/ic.js';
-import { loadIcTask, syncTasks } from '../src/tasks/loader.js';
+import { loadIcTask, syncTasks, withHiddenTests } from '../src/tasks/loader.js';
 
 const workDir = path.join(config.repoRoot, '.work', 'test-ic', randomUUID());
 const db = openDatabase(path.join(workDir, 'db.sqlite'), config.migrationsDir);
@@ -38,7 +38,7 @@ const expectedStartPassed: Record<string, number> = {
 // 在构建出的页面上运行）
 describe.concurrent.each(icIds)('%s', (id) => {
   test('起始仓库停在固定 commit，隐藏测试有失败；应用参考实现后按清单全部通过', async () => {
-    const task = loadIcTask(db, id);
+    const task = withHiddenTests(loadIcTask(db, id));
     const declared = Object.values(task.hiddenTests.manifest).flat().length;
 
     const start = path.join(workDir, id, 'start');
@@ -70,7 +70,7 @@ describe.concurrent.each(icIds)('%s', (id) => {
 
   // grading 的 runHiddenTests（评分时实际使用的入口）在同样的起始仓库与参考实现上得到相同结果
   test('runHiddenTests 在起始仓库与参考实现上的结果与清单一致', async () => {
-    const task = loadIcTask(db, id);
+    const task = withHiddenTests(loadIcTask(db, id));
     const declared = Object.values(task.hiddenTests.manifest).flat().length;
 
     const start = path.join(workDir, id, 'grading-start', 'checkout');

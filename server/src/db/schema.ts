@@ -43,9 +43,9 @@ export interface ParseState {
 }
 
 // lfg 的 rubric 按产物分组，定义在 task schema 中
-import { type ArtifactRubric, rubricArtifacts } from '../tasks/schema.js';
+import { type ArtifactRubric, type IcTaskSource, rubricArtifacts } from '../tasks/schema.js';
 export type { ArtifactRubric, RubricItem } from '../tasks/schema.js';
-import type { CrossRunRef, IcDetail } from '../grading/schema.js';
+import type { CrossRunRef, IcCriteriaDetail, IcDetail } from '../grading/schema.js';
 
 const createdAt = () =>
   integer('created_at', { mode: 'timestamp_ms' })
@@ -79,6 +79,10 @@ export const tasks = sqliteTable(
     // 相对 task 目录
     repoPath: text('repo_path'),
     repoCommit: text('repo_commit'),
+    // 从 Linear 导入的 ic task 的来源工单与源仓库
+    source: text('source', { mode: 'json' }).$type<IcTaskSource>(),
+    requiredChecks: text('required_checks', { mode: 'json' }).$type<string[]>(),
+    // 没有隐藏测试的 ic task 以下为空
     hiddenTestsDir: text('hidden_tests_dir'),
     hiddenTestsConfig: text('hidden_tests_config'),
     testCommand: text('test_command'),
@@ -506,7 +510,8 @@ export const artifacts = sqliteTable(
   (t) => [uniqueIndex('artifacts_run_kind_location_idx').on(t.runId, t.kind, t.location)],
 );
 
-// lfg：每个 rubric 产物一行（一次 judge 调用，产物不存在时没有调用）；ic：每个 run 一行测试结果与终点判定
+// lfg：每个 rubric 产物一行（一次 judge 调用，产物不存在时没有调用）；ic：每个 run 一行，有隐藏测试时为测试结果与终点判定（kind ic），
+// 没有隐藏测试时为验收标准 judge 的一次调用与终点判定（kind ic_criteria，逐条得分在 grade_items）
 export const grades = sqliteTable(
   'grades',
   {
@@ -514,7 +519,7 @@ export const grades = sqliteTable(
     runId: text('run_id')
       .notNull()
       .references(() => runs.id, { onDelete: 'cascade' }),
-    kind: text('kind', { enum: ['rubric', 'ic'] }).notNull(),
+    kind: text('kind', { enum: ['rubric', 'ic', 'ic_criteria'] }).notNull(),
     // rubric 的产物组；ic 为空
     artifact: text('artifact', { enum: rubricArtifacts }),
     // 评分时产物不存在则为空
@@ -527,6 +532,8 @@ export const grades = sqliteTable(
     testsDeclared: integer('tests_declared'),
     reachedEnd: integer('reached_end', { mode: 'boolean' }),
     icDetail: text('ic_detail', { mode: 'json' }).$type<IcDetail>(),
+    // ic_criteria 的 PR、终点判定与 judge 看到的 check 结果
+    criteriaDetail: text('criteria_detail', { mode: 'json' }).$type<IcCriteriaDetail>(),
     createdAt: createdAt(),
   },
   (t) => [
