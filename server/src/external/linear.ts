@@ -26,9 +26,20 @@ export function linearLoggedIn(): boolean {
   return fs.existsSync(tokensPath);
 }
 
-async function connect(onClose: () => void): Promise<Client> {
+interface Connection {
+  client: Promise<Client>;
+  // 没有登录时不启动 mcp-remote
+  transport: StdioClientTransport | null;
+}
+
+function connect(onLost: () => void): Connection {
   // 未登录时 mcp-remote 会打开浏览器等待授权，进程会一直挂起
-  if (!linearLoggedIn()) throw new Error(`Linear 未登录：${tokensPath} 不存在`);
+  if (!linearLoggedIn()) {
+    return {
+      client: Promise.reject(new Error(`Linear 未登录：${tokensPath} 不存在`)),
+      transport: null,
+    };
+  }
   const transport = new StdioClientTransport({
     command: 'npx',
     args: ['-y', 'mcp-remote', LINEAR_MCP_URL],
@@ -43,31 +54,82 @@ async function connect(onClose: () => void): Promise<Client> {
     }
   });
   const c = new Client({ name: 'wf-dashboard', version: '0.0.0' });
-  c.onclose = onClose;
-  await c.connect(transport);
-  return c;
+  // mcp-remote 子进程退出、stdio 管道出错
+  c.onclose = onLost;
+  c.onerror = onLost;
+  return { client: c.connect(transport).then(() => c), transport };
 }
 
-// 进程内单例：一个 mcp-remote 子进程，所有 run 共用。连接失败（例如还没有登录）不缓存，登录之后的下一次调用重新连接；
-// 子进程退出时进行中的调用照常报错，下一次调用重新启动。只清除自己这一个连接：旧连接迟到的 onclose 不清掉新连接
-let client: Promise<Client> | undefined;
+// 进程内单例：一个 mcp-remote 子进程，所有 run 共用。连接断开时丢弃这个连接，下一次调用新建：
+// 连接失败（例如还没有登录）、mcp-remote 子进程退出、transport 出错、调用抛出 transport 层的错误
+// （网络中断后 mcp-remote 对每次调用返回 -32001 fetch failed，子进程本身不退出）。
+// 不重试：当次调用以原文失败。被丢弃的连接在进行中的调用结束后关闭；旧连接迟到的事件不影响新连接
+interface Entry {
+  connection: Connection;
+  calls: number;
+  dropped: boolean;
+}
+
+let current: Entry | undefined;
+
+function open(): Entry {
+  const connection = connect(() => {
+    drop(entry);
+  });
+  const entry: Entry = { connection, calls: 0, dropped: false };
+  // 连接失败的错误由等待这个连接的调用抛出
+  entry.connection.client.then(undefined, () => {
+    drop(entry);
+  });
+  current = entry;
+  return entry;
+}
+
+function drop(entry: Entry) {
+  if (current === entry) current = undefined;
+  if (entry.dropped) return;
+  entry.dropped = true;
+  closeWhenIdle(entry);
+}
+
+function closeWhenIdle(entry: Entry) {
+  if (!entry.dropped || entry.calls > 0) return;
+  void entry.connection.client.then(
+    (c) => c.close(),
+    // 连接没有建立，没有可关闭的子进程
+    () => undefined,
+  );
+}
 
 export function linearClient(): Promise<Client> {
-  if (client !== undefined) return client;
-  const current: Promise<Client> = connect(() => {
-    if (client === current) client = undefined;
-  });
-  client = current;
-  current.catch(() => {
-    if (client === current) client = undefined;
-  });
-  return current;
+  return (current ?? open()).connection.client;
+}
+
+// 环境检查的"重新检查"：之后的调用都用新建的连接；旧连接在进行中的调用结束后关闭
+export function renewLinearClient() {
+  if (current !== undefined) drop(current);
+  open();
+}
+
+// 是否有给调用使用的连接（建立中或已建立）
+export function hasLinearConnection(): boolean {
+  return current !== undefined;
+}
+
+// 当前连接的 mcp-remote 子进程（npx）的 pid；还没有连接时为 null
+export async function linearConnectionPid(): Promise<number | null> {
+  const entry = current;
+  if (entry === undefined) return null;
+  await entry.connection.client;
+  return entry.connection.transport?.pid ?? null;
 }
 
 export async function closeLinearClient(): Promise<void> {
-  if (client === undefined) return;
-  const c = await client;
-  client = undefined;
+  const entry = current;
+  if (entry === undefined) return;
+  current = undefined;
+  entry.dropped = true;
+  const c = await entry.connection.client;
   await c.close();
 }
 
@@ -76,13 +138,29 @@ const ToolResult = z.object({
   content: z.array(z.object({ type: z.string(), text: z.string().optional() }).loose()),
 });
 
-// Linear MCP 的 tool 结果是一段 JSON 文本；isError 由 SDK 原样返回，不会抛出
+// Linear MCP 的 tool 结果是一段 JSON 文本；isError 由 SDK 原样返回，不会抛出。
+// callTool 抛出的是 transport 层的错误：丢弃这个连接后照常抛出
 export async function callLinear<T>(
   name: string,
   args: Record<string, unknown>,
   schema: z.ZodType<T>,
 ): Promise<T> {
-  const result = ToolResult.parse(await (await linearClient()).callTool({ name, arguments: args }));
+  const entry = current ?? open();
+  entry.calls += 1;
+  const raw = await entry.connection.client
+    .then((c) => c.callTool({ name, arguments: args }))
+    .then(
+      (value) => value,
+      (error: unknown) => {
+        drop(entry);
+        throw error;
+      },
+    )
+    .finally(() => {
+      entry.calls -= 1;
+      closeWhenIdle(entry);
+    });
+  const result = ToolResult.parse(raw);
   const text = result.content
     .filter((c) => c.type === 'text')
     .map((c) => c.text)

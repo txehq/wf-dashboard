@@ -2,7 +2,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execa } from 'execa';
 import { z } from 'zod';
-import { callLinear, LINEAR_MCP_URL, EVAL_TEAM, linearLoggedIn } from './external/linear.js';
+import {
+  callLinear,
+  LINEAR_MCP_URL,
+  EVAL_TEAM,
+  linearLoggedIn,
+  renewLinearClient,
+} from './external/linear.js';
 import { ORG } from './external/github.js';
 import {
   anthropic,
@@ -381,6 +387,8 @@ export function createEnvironment(options: EnvironmentOptions) {
 
   return {
     get(refresh: boolean): Promise<EnvironmentReport> {
+      // 重新检查时 Linear 用新建的连接：网络中断后旧连接可能一直返回错误
+      if (refresh) renewLinearClient();
       if (
         !refresh &&
         cached !== undefined &&

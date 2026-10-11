@@ -4,6 +4,7 @@ import { defineConfig } from 'vitest/config';
 // 其余测试照常并行。gateway 的错误不重试（Contracts 4），挂起的请求 120 秒后以超时错误失败
 export const gatewayTests = [
   'test/environment.test.ts',
+  'test/linear-reconnect.test.ts',
   'test/llm.test.ts',
   'test/tasks-api.test.ts',
   'test/variants.test.ts',
