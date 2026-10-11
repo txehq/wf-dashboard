@@ -86,7 +86,7 @@ export abstract class LiveStages {
     return loadSessionRows(this.db, this.sessionId);
   }
 
-  protected writeCycle(method: 'artifact' | 'llm', cycle: Cycle) {
+  protected writeCycle(cycle: Cycle) {
     const { db, sessionId } = this;
     const workflow = this.opts.workflow;
     db.transaction((tx) => {
@@ -114,7 +114,7 @@ export abstract class LiveStages {
         .run();
       for (const s of cycle.spans) {
         tx.insert(stageSpans)
-          .values({ sessionId, workflow, cycle: 1, method, ...s })
+          .values({ sessionId, workflow, cycle: 1, ...s })
           .run();
       }
     });
@@ -214,7 +214,7 @@ export class LfgLiveStages extends LiveStages {
     if (rows === null || rows.main.length === 0) return;
     // 一轮从第一条请求（/lfg 初始消息）开始，dispatch gate 的回答之后结束
     const { spans, endSeq } = lfgCycle(rows, 0, [...this.done.values()], lastSeq);
-    this.writeCycle('artifact', { label: this.runId, startSeq: 0, endSeq, spans });
+    this.writeCycle({ label: this.runId, startSeq: 0, endSeq, spans });
   }
 
   onTurnEnd(): Promise<void> {
@@ -254,7 +254,7 @@ function renumber(boundaries: IcBoundary[], cycles: number): IcBoundary[] {
 const cyclesOf = (boundaries: IcBoundary[]) => Math.max(0, ...boundaries.map((b) => b.cycle));
 
 // 与离线判定（stages/report 的 judgeIcSession）使用同一组批次：行为从 ic 的第一个粗判标志所在的请求起，
-// 以流程外为初始状态，按 20 条一批。只有满 20 条的批次计入已确定的结果；不满一批的末尾在一轮结束时
+// 以流程外为初始状态，按 BATCH_SIZE 条一批。只有满一批的批次计入已确定的结果；不满一批的末尾在一轮结束时
 // 从已确定的状态起临时判定，用于显示，下一次判定时连同新增的行为重新判；run 结束时最后一批计入。
 // 这样 run 结束时的结果与导入后离线判定的结果来自同样的批次与同样的提问
 export class IcLiveStages extends LiveStages {
@@ -326,7 +326,7 @@ export class IcLiveStages extends LiveStages {
     }
     const cycle = icCycles(shown.boundaries, this.sessionRows()?.main ?? [])[0];
     if (cycle === undefined) return;
-    this.writeCycle('llm', { ...cycle, label: this.label });
+    this.writeCycle({ ...cycle, label: this.label });
   }
 
   onTurnEnd(): Promise<void> {

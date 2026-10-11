@@ -4,7 +4,7 @@ import { ToolBars } from '@/components/sessions/session-summary';
 import { StatusLabel } from '@/components/sessions/status-label';
 import { formatCount, formatDuration, formatInteger, formatUsd } from '@/lib/format';
 import type { StageView, SubagentInfo, Workflow, WorkflowCycle } from '@/lib/sessions-api';
-import { cycleName } from '@/lib/stage-status';
+import { cycleName, methodLabel } from '@/lib/stage-status';
 
 function field(evidence: unknown, key: string): string | number | null {
   if (typeof evidence !== 'object' || evidence === null) return null;
@@ -63,9 +63,17 @@ function Evidence({ workflow, view }: { workflow: Workflow; view: StageView }) {
             : '没有判定证据。'}
       </p>
     );
+  const label =
+    view.method === 'skill'
+      ? view.status === 'skipped'
+        ? '越过它的 Skill 调用'
+        : 'Skill 调用'
+      : view.status === 'skipped'
+        ? '跳过时的行为'
+        : '进入行为';
   return (
-    <dl className="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-1 text-xs">
-      <Row label={view.status === 'skipped' ? '跳过时的行为' : '进入行为'}>
+    <dl className="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-1 text-xs" data-testid="stage-evidence">
+      <Row label={label}>
         <span className="whitespace-pre-wrap">{summary}</span>
       </Row>
       <Row label="所在请求">
@@ -118,7 +126,7 @@ export function StageDetail({
           </span>
         )}
         <span className="text-xs text-muted-foreground">
-          {view.method === 'artifact' ? '按产物文件判定' : '由模型判定'} · {rangeText(view)}
+          <span data-testid="stage-method">{methodLabel[view.method]}</span> · {rangeText(view)}
         </span>
       </header>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

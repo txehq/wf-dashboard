@@ -6,13 +6,20 @@ import {
   SkipForward,
   type LucideIcon,
 } from 'lucide-react';
-import type { StageStatus, WorkflowCycle } from '@/lib/sessions-api';
+import type { StageStatus, StageView, WorkflowCycle } from '@/lib/sessions-api';
 
 // 轮次名称：标签取不到工单或 PR 编号时本身就是"第 N 轮"
 export function cycleName(c: WorkflowCycle): string {
   const ordinal = `第 ${String(c.index)} 轮`;
   return c.label === ordinal ? ordinal : `${ordinal} · ${c.label}`;
 }
+
+// 阶段的判定方式
+export const methodLabel: Record<StageView['method'], string> = {
+  artifact: '按产物文件判定',
+  skill: 'Skill 调用',
+  llm: '由模型判定',
+};
 
 // 状态同时由图标、文字和边框样式区分，颜色只是附加
 export const statusMeta: Record<

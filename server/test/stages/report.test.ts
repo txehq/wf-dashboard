@@ -135,12 +135,13 @@ describe('端到端：导入真实样本后判定', () => {
     );
     console.log('f0aca373 outside', JSON.stringify(report.outside));
 
-    // 每轮 open-pr、fix-pr、ready-for-review 的起点（jsonl 行号，Stage Markers 2.6）。
+    // 每轮 open-pr、fix-pr、ready-for-review 的起点（jsonl 行号，Stage Markers 2.6）与判定方式：
+    // open-pr 都是 Skill 调用；fix-pr 在 #72、#78 是 Skill 调用，#77 没有 fix-pr Skill，由模型判定 watcher 启动的那一条。
     // rfr 第一项是 gh pr ready 那一条；PR #77 中 Sonnet 也会把 ready-for-review 判在第 9100 行（停掉 watcher 并查看 PR 状态）
     const expected = [
-      { label: 'PR #72', openPr: 5811, fixPr: 5883, rfr: [6153] },
-      { label: 'PR #77', openPr: 8397, fixPr: 8430, rfr: [9121, 9100] },
-      { label: 'PR #78', openPr: 12802, fixPr: 12921, rfr: [13678] },
+      { label: 'PR #72', openPr: 5811, fixPr: 5883, fixPrMethod: 'skill', rfr: [6153] },
+      { label: 'PR #77', openPr: 8397, fixPr: 8430, fixPrMethod: 'llm', rfr: [9121, 9100] },
+      { label: 'PR #78', openPr: 12802, fixPr: 12921, fixPrMethod: 'skill', rfr: [13678] },
     ];
     expect(report.ic.map((c) => [c.index, c.label])).toEqual(
       expected.map((e, i) => [i + 1, e.label]),
@@ -170,17 +171,27 @@ describe('端到端：导入真实样本后判定', () => {
         status: 'done',
         startSeq: openPr,
         endSeq: fixPr - 1,
+        method: 'skill',
       });
-      expect(view('fix-pr')).toMatchObject({ status: 'done', startSeq: fixPr, endSeq: rfr - 1 });
+      expect(view('fix-pr')).toMatchObject({
+        status: 'done',
+        startSeq: fixPr,
+        endSeq: rfr - 1,
+        method: e.fixPrMethod,
+      });
       // ready-for-review 在 gh pr ready 之后不久结束，这一轮随之结束
-      expect(ready).toMatchObject({ status: 'done', startSeq: rfr });
+      expect(ready).toMatchObject({ status: 'done', startSeq: rfr, method: 'llm' });
       expect(ready?.endSeq).toBe(cycle.endSeq);
       expect(cycle.endSeq).not.toBeNull();
       expect((cycle.endSeq ?? 0) - prReady).toBeLessThanOrEqual(5);
-      // 这些 PR 没有认领工单，claim 不含任何请求；acceptance 没有运行
+      // 这些 PR 没有认领工单，claim 不含任何请求；acceptance 没有运行，Skill open-pr 越过了它
       expect(view('claim')).toMatchObject({ status: 'skipped', stats: { requests: 0 } });
-      expect(view('acceptance')).toMatchObject({ status: 'skipped', stats: { requests: 0 } });
-      expect(cycle.stages.every((v) => v.method === 'llm')).toBe(true);
+      expect(view('acceptance')).toMatchObject({
+        status: 'skipped',
+        startSeq: openPr,
+        method: 'skill',
+        stats: { requests: 0 },
+      });
       // 轮次之间不重叠
       const next = report.ic[i + 1];
       if (next !== undefined) expect(cycle.endSeq ?? 0).toBeLessThan(next.startSeq);

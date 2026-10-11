@@ -19,6 +19,10 @@ export const config = {
   variantsDir: path.join(dataDir, 'variants'),
   runsDir: path.join(dataDir, 'runs'),
   tasksDir: path.join(repoRoot, 'tasks'),
+  // Sessions 页面的来源目录所在处；e2e 用 WFD_CLAUDE_PROJECTS 指向由真实 session 组成的目录
+  claudeProjectsDir: path.resolve(
+    process.env.WFD_CLAUDE_PROJECTS ?? path.join(os.homedir(), '.claude/projects'),
+  ),
   // 被评估的 workflow 仓库，基线 variant 从它的 commit 导出；其他机器用 WFD_TXE_WORKFLOW 指定
   txeWorkflowRepo: path.resolve(
     process.env.WFD_TXE_WORKFLOW ?? path.join(os.homedir(), 'Project/txe/txe-workflow'),

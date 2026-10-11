@@ -114,7 +114,8 @@ export interface StageView {
   status: StageStatus;
   startSeq: number | null;
   endSeq: number | null;
-  method: 'artifact' | 'llm';
+  // artifact：按产物文件；skill：Skill 调用直接定的边界；llm：模型判定
+  method: 'artifact' | 'llm' | 'skill';
   evidence: unknown;
   stats: StageStats;
 }

@@ -15,7 +15,8 @@
     "test:external": "vitest run --config vitest.external.config.ts",
     "db:generate": "drizzle-kit generate",
     "seed:compare-e2e": "tsx scripts/seed-compare-e2e.ts",
-    "prepare:runs-e2e": "tsx scripts/prepare-runs-e2e.ts"
+    "prepare:runs-e2e": "tsx scripts/prepare-runs-e2e.ts",
+    "prepare:sessions-e2e": "tsx scripts/prepare-sessions-e2e.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.132.1",

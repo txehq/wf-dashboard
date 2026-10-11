@@ -22,8 +22,8 @@ import { openTestDb } from '../stages/db.js';
 // W18b 第 5 项：ic run r-20261009-27yz3d 实时判定为 fix-pr 进行中，导入后离线判定为 open-pr 进行中
 // （停在首次 /review-pr，按 Stage Markers 2.1 属于 open-pr）。两条路径的批次不同：实时判定每次把
 // "上次判定之后的全部行为"作为新的一批，最后一批只有请求 #30–#33（sleep 20; gh pr checks …），
-// 模型看不到前面的 Skill open-pr 与首次 /review-pr，判为进入 fix-pr；离线判定按 20 条一批，这几条与
-// open-pr 的动作在同一批（#22–#33）。实时判定改为与离线相同的批次
+// 模型看不到前面的 Skill open-pr 与首次 /review-pr，判为进入 fix-pr；离线判定按固定大小分批，这几条与
+// open-pr 的动作在同一批。实时判定改为与离线相同的批次
 const runId = 'r-20261009-27yz3d';
 const sessionId = '70e7a9b6-fdad-44c3-9b65-015ee2a0499c';
 const work = path.join(config.repoRoot, '.work', 'test-live-stages', randomUUID());
@@ -103,7 +103,7 @@ describe('实时阶段判定与离线判定使用同样的批次（真实 run、
     console.log('实时', JSON.stringify(liveSpans));
     console.log('离线', JSON.stringify(offlineSpans));
 
-    // 离线的批次：从 ic 起点起的行为按 20 条一批，每批的请求范围
+    // 离线的批次：从 ic 起点起的行为按 BATCH_SIZE 条一批，每批的请求范围
     const rows = loadSessionRows(offline.db, sessionId);
     const start = workflowMarks(rows).ic[0];
     if (start === undefined) throw new Error('样本中没有 ic 标志');

@@ -53,31 +53,57 @@ async function judgeSegment(name: string, s: Sample, from: number, to: number, i
       result.boundaries.map((b) => [b.cycle, b.stage, s.toolLine.get(b.toolCallId), b.summary]),
     ),
   );
-  // 边界换算成 tool_use 所在的 jsonl 行号，与 Stage Markers 2.6 对照；离开流程单独返回
+  // 边界换算成 tool_use 所在的 jsonl 行号与判定方式，与 Stage Markers 2.6 对照；离开流程单独返回
   const lines = Object.fromEntries(
     result.boundaries
       .filter((b) => b.stage !== 'outside')
       .map((b) => [b.stage, s.toolLine.get(b.toolCallId)]),
   );
+  const methods = Object.fromEntries(
+    result.boundaries.filter((b) => b.stage !== 'outside').map((b) => [b.stage, b.method]),
+  );
   const leave = result.boundaries.find((b) => b.stage === 'outside');
-  return { result, lines, leave, checks };
+  return { result, lines, methods, leave, checks };
 }
 
 describe('ic 判定（真实模型）', () => {
+  // open-pr 都是 Skill 调用；fix-pr 在 #72、#78 是 Skill 调用，#77 没有 fix-pr Skill，由模型判定 watcher 启动的那一条。
+  // 这三段都没有运行 /acceptance：Skill open-pr 越过 acceptance，acceptance 没有边界。
   // rfr：ready-for-review 可接受的起点。Stage Markers 2.6（Haiku）为 gh pr ready 那一条；
   // PR #77 中 Sonnet 也会判在第 9100 行（停掉 watcher 并 gh pr view 77 查看 PR 状态），同样是 ready-for-review 的核对动作
   test.each([
-    ['pr72', 5700, 6160, { acceptance: 5811, 'open-pr': 5811, 'fix-pr': 5883, rfr: [6153] }],
-    ['pr77', 8300, 9140, { acceptance: 8397, 'open-pr': 8397, 'fix-pr': 8430, rfr: [9121, 9100] }],
-    ['pr78', 12700, 13700, { acceptance: 12802, 'open-pr': 12802, 'fix-pr': 12921, rfr: [13678] }],
+    ['pr72', 5700, 6160, { 'open-pr': 5811, 'fix-pr': 5883, fixPrMethod: 'skill', rfr: [6153] }],
+    [
+      'pr77',
+      8300,
+      9140,
+      { 'open-pr': 8397, 'fix-pr': 8430, fixPrMethod: 'llm', rfr: [9121, 9100] },
+    ],
+    [
+      'pr78',
+      12700,
+      13700,
+      { 'open-pr': 12802, 'fix-pr': 12921, fixPrMethod: 'skill', rfr: [13678] },
+    ],
   ])(
     'f0aca373 %s 从 implement 开始得到 Stage Markers 2.6 的边界',
     async (name, from, to, expected) => {
-      const { result, lines, leave, checks } = await judgeSegment(name, prs, from, to, 'implement');
+      const { result, lines, methods, leave, checks } = await judgeSegment(
+        name,
+        prs,
+        from,
+        to,
+        'implement',
+      );
       expect(lines).toMatchObject({
-        acceptance: expected.acceptance,
         'open-pr': expected['open-pr'],
         'fix-pr': expected['fix-pr'],
+      });
+      expect(lines.acceptance).toBeUndefined();
+      expect(methods).toMatchObject({
+        'open-pr': 'skill',
+        'fix-pr': expected.fixPrMethod,
+        'ready-for-review': 'llm',
       });
       expect(expected.rfr).toContain(lines['ready-for-review']);
       // 从阶段中开始的调用，边界都属于已在进行的第 0 轮
@@ -89,8 +115,8 @@ describe('ic 判定（真实模型）', () => {
         );
         expect(result.stage).not.toBe('ready-for-review');
       }
-      // 每次调用都写了 stage_checks；回答"是"的次数等于边界数，加上离开之后在同一条上又判为
-      // ready-for-review、并入刚离开那一轮（inclusive）的次数
+      // 每次模型调用都写了 stage_checks，Skill 调用定的边界不调用模型；回答"是"的次数等于模型判定的边界数，
+      // 加上离开之后在同一条上又判为 ready-for-review、并入刚离开那一轮（inclusive）的次数
       const merged = checks.filter(
         (c) =>
           c.entered &&
@@ -98,17 +124,26 @@ describe('ic 判定（真实模型）', () => {
           leave?.inclusive === true &&
           c.enteredAtSeq === leave.seq,
       ).length;
-      expect(checks.filter((c) => c.entered)).toHaveLength(result.boundaries.length + merged);
+      expect(checks.filter((c) => c.entered)).toHaveLength(
+        result.boundaries.filter((b) => b.method === 'llm').length + merged,
+      );
       expect(checks.every((c) => c.costUsd > 0 && c.inputTokens > 0)).toBe(true);
     },
     300_000,
   );
 
-  test('f0aca373 pr72 从流程外开始：进入一轮，ready-for-review 后离开', async () => {
-    const { result, lines, leave } = await judgeSegment('pr72-outside', prs, 5700, 6400, 'outside');
+  test('f0aca373 pr72 从流程外开始：Skill open-pr 开始一轮，ready-for-review 后离开', async () => {
+    const { result, lines, methods, leave } = await judgeSegment(
+      'pr72-outside',
+      prs,
+      5700,
+      6400,
+      'outside',
+    );
     expect(lines['open-pr']).toBe(5811);
     expect(lines['fix-pr']).toBe(5883);
     expect(lines['ready-for-review']).toBe(6153);
+    expect(methods).toMatchObject({ 'open-pr': 'skill', 'fix-pr': 'skill' });
     expect(result.boundaries[0]?.cycle).toBe(1);
     expect(leave).toBeDefined();
     expect(prs.toolLine.get(leave?.toolCallId ?? '')).toBeGreaterThanOrEqual(6153);

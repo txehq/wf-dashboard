@@ -1,8 +1,8 @@
-import { expect, type Page, test } from '@playwright/test';
+import { type APIRequestContext, expect, type Page, test } from '@playwright/test';
 import { runsServerPort } from '../ports.js';
 
-// 数据目录与 runs.spec.ts 相同：W4 端到端导入的真实 run；另外勾选本机 txe-workflow 的来源目录，
-// 判定其中的真实 session f0aca373（第一次运行时约 80 批模型调用，结果保留在数据目录中）
+// 数据目录与 runs.spec.ts 相同：W4 端到端导入的真实 run，它们的 session 已有实时判定的阶段；
+// 另外勾选本机 txe-workflow 的来源目录，用其中 f0aca373 的对话区（含 AskUserQuestion，不需要判定阶段）
 const api = `http://127.0.0.1:${String(runsServerPort)}/api`;
 const source = '/Users/linhaoz/.claude/projects/-Users-linhaoz-Project-txe-txe-workflow';
 const f0 = 'f0aca373-863f-4d62-babd-f48055092328';
@@ -11,7 +11,7 @@ const icRuns = ['r-20261009-a26chw', 'r-20261009-27yz3d'];
 const shots = '.work/screenshots';
 
 test.describe.configure({ mode: 'serial' });
-test.setTimeout(30 * 60_000);
+test.setTimeout(10 * 60_000);
 
 interface StageView {
   stage: string;
@@ -21,6 +21,10 @@ interface StageView {
 }
 
 let lfgSession = '';
+let icSession = '';
+
+const sessionOf = async (request: APIRequestContext, run: string) =>
+  ((await (await request.get(`${api}/runs/${run}`)).json()) as { sessionId: string }).sessionId;
 
 test.beforeAll(async ({ request }) => {
   const sources = (await (await request.get(`${api}/sources`)).json()) as {
@@ -33,26 +37,8 @@ test.beforeAll(async ({ request }) => {
     const put = await request.put(`${api}/sources`, { data: { paths: [...paths, source] } });
     expect(put.ok()).toBe(true);
   }
-  const analysis = (await (await request.get(`${api}/sessions/${f0}/analysis`)).json()) as {
-    status: string;
-  };
-  if (analysis.status !== 'done') {
-    await request.post(`${api}/sessions/${f0}/analyze`);
-    await expect
-      .poll(
-        async () =>
-          (
-            (await (await request.get(`${api}/sessions/${f0}/analysis`)).json()) as {
-              status: string;
-            }
-          ).status,
-        { timeout: 25 * 60_000, intervals: [5000] },
-      )
-      .toBe('done');
-  }
-  lfgSession = (
-    (await (await request.get(`${api}/runs/${lfgRun}`)).json()) as { sessionId: string }
-  ).sessionId;
+  lfgSession = await sessionOf(request, lfgRun);
+  icSession = await sessionOf(request, icRuns[0] ?? '');
 });
 
 const noPageScroll = (page: Page) =>
@@ -76,10 +62,12 @@ async function checkWidth(page: Page, url: string) {
 for (const width of [1280, 1440, 1920]) {
   test(`${String(width)}px：两个详情页没有页面级横向滚动`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 });
-    for (const url of [`/sessions/${f0}`, `/sessions/${lfgSession}`]) await checkWidth(page, url);
+    for (const url of [`/sessions/${icSession}`, `/sessions/${lfgSession}`]) {
+      await checkWidth(page, url);
+    }
     for (const run of [lfgRun, ...icRuns]) await checkWidth(page, `/runs/${run}`);
     if (width === 1280) {
-      await page.goto(`/sessions/${f0}`);
+      await page.goto(`/sessions/${icSession}`);
       await expect(page.getByTestId('workflow-ic')).toBeVisible();
       await page.screenshot({ path: `${shots}/w20-session-1280.png`, animations: 'disabled' });
       await page.goto(`/runs/${icRuns[1] ?? ''}`);
@@ -165,13 +153,10 @@ test('Sessions 详情：对话区显示问答，点击跳到请求明细中的�
   await question.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `${shots}/w20-session-conversation.png`, animations: 'disabled' });
 
-  // 选中某个阶段时跳转：先恢复全部请求，再定位到该请求并展开 AskUserQuestion
-  await page.getByTestId('workflow-ic').getByTestId('stage-open-pr').click();
-  await expect(page.getByTestId('stage-requests')).toBeVisible();
+  // 点击跳到那一条请求，并展开 AskUserQuestion
   const jump = question.getByTestId('conversation-jump');
   const seq = (await jump.textContent()) ?? '';
   await jump.click();
-  await expect(page.getByTestId('stage-requests')).toHaveCount(0);
   const focused = page.locator('[data-testid="request-row"][data-focused="true"]');
   await expect(focused).toHaveCount(1);
   await expect(focused.locator('header')).toContainText(seq);
@@ -185,5 +170,26 @@ test('Sessions 详情：对话区显示问答，点击跳到请求明细中的�
     (await interview.first().getByTestId('conversation-jump').textContent()) ?? '';
   await interview.first().getByTestId('conversation-jump').click();
   await expect(focused.locator('header')).toContainText(interviewSeq);
+  await expect(focused).toBeInViewport();
+});
+
+test('Sessions 详情：选中某个阶段时从对话区跳转，先恢复全部请求再定位', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`/sessions/${lfgSession}`);
+  const conversation = page.getByTestId('conversation');
+  await expect(conversation.getByTestId('message-user').first()).toContainText('/lfg 做一个计算器');
+  await page.getByTestId('workflow-lfg').getByTestId('stage-research').click();
+  await expect(page.getByTestId('stage-requests')).toBeVisible();
+  // 同意计划的回答在 plan 阶段，不在 research 的请求中
+  const answer = conversation
+    .getByTestId('message-user')
+    .filter({ hasText: '可以，这个计划我看了' });
+  const jump = answer.getByTestId('conversation-jump');
+  const seq = (await jump.textContent()) ?? '';
+  await jump.click();
+  await expect(page.getByTestId('stage-requests')).toHaveCount(0);
+  const focused = page.locator('[data-testid="request-row"][data-focused="true"]');
+  await expect(focused).toHaveCount(1);
+  await expect(focused.locator('header')).toContainText(seq);
   await expect(focused).toBeInViewport();
 });

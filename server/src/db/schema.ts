@@ -356,8 +356,12 @@ export const userMessages = sqliteTable(
 export const stageStatuses = ['done', 'active', 'skipped', 'not-reached', 'interrupted'] as const;
 export type StageStatus = (typeof stageStatuses)[number];
 
+// 阶段的判定方式：lfg 按产物文件；ic 由 Skill 调用直接定边界，其余由模型判定
+export const stageMethods = ['artifact', 'llm', 'skill'] as const;
+export type StageMethod = (typeof stageMethods)[number];
+
 // 判定模型的版本；stage_analyses.version 与它不同的结果视为未分析
-export const STAGE_ANALYSIS_VERSION = 3;
+export const STAGE_ANALYSIS_VERSION = 4;
 
 // 一个 session 完成离线阶段判定的记录；不含 lfg 与 ic 的 session 也有一行
 export const stageAnalyses = sqliteTable('stage_analyses', {
@@ -407,7 +411,7 @@ export const stageSpans = sqliteTable(
     // 主 session 的 seq，含端点；skipped 为 [s, s-1]，not-reached 为空
     startSeq: integer('start_seq'),
     endSeq: integer('end_seq'),
-    method: text('method', { enum: ['artifact', 'llm'] }).notNull(),
+    method: text('method', { enum: stageMethods }).notNull(),
     evidence: text('evidence', { mode: 'json' }),
     createdAt: createdAt(),
   },

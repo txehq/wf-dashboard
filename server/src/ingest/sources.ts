@@ -1,5 +1,4 @@
 import { readdirSync, statSync } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { eq, notInArray } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
@@ -7,17 +6,8 @@ import { sources } from '../db/schema.js';
 import { config } from '../config.js';
 import { ingestFile } from './ingest.js';
 
-export const claudeProjectsDir = path.join(os.homedir(), '.claude', 'projects');
-
-export interface SourceDirs {
-  // ~/.claude/projects
-  projectsDir: string;
-  // data/variants
-  variantsDir: string;
-}
-
 export const defaultSourceDirs: SourceDirs = {
-  projectsDir: claudeProjectsDir,
+  projectsDir: config.claudeProjectsDir,
   variantsDir: config.variantsDir,
 };
 
@@ -28,6 +18,13 @@ export interface SourceInfo {
   sessionCount: number;
   lastModified: Date | null;
   checked: boolean;
+}
+
+export interface SourceDirs {
+  // ~/.claude/projects（config.claudeProjectsDir）
+  projectsDir: string;
+  // data/variants
+  variantsDir: string;
 }
 
 function subdirs(dir: string): string[] {

@@ -7,9 +7,11 @@ import {
   stageAnalyses,
   stageChecks,
   stageCycles,
+  stageMethods,
   stageSpans,
   stageStatuses,
   workflows,
+  type StageMethod,
   type StageStatus,
 } from '../db/schema.js';
 import type { ToolCall } from '../db/schema.js';
@@ -42,7 +44,7 @@ export const StageView = z.object({
   status: z.enum(stageStatuses),
   startSeq: z.number().nullable(),
   endSeq: z.number().nullable(),
-  method: z.enum(['artifact', 'llm']),
+  method: z.enum(stageMethods),
   evidence: z.unknown(),
   stats: StageStats,
 });
@@ -76,6 +78,7 @@ export interface Span {
   status: StageStatus;
   startSeq: number | null;
   endSeq: number | null;
+  method: StageMethod;
   evidence: unknown;
 }
 
@@ -108,10 +111,16 @@ export function workflowMarks(rows: SessionRows): { lfg: number[]; ic: number[] 
 }
 
 // 当前阶段之后没有请求时，active 阶段没有区间
-function activeSpan(stage: string, cursor: number, lastSeq: number, evidence: unknown): Span {
+function activeSpan(
+  stage: string,
+  cursor: number,
+  lastSeq: number,
+  method: StageMethod,
+  evidence: unknown,
+): Span {
   return cursor <= lastSeq
-    ? { stage, status: 'active', startSeq: cursor, endSeq: lastSeq, evidence }
-    : { stage, status: 'active', startSeq: null, endSeq: null, evidence };
+    ? { stage, status: 'active', startSeq: cursor, endSeq: lastSeq, method, evidence }
+    : { stage, status: 'active', startSeq: null, endSeq: null, method, evidence };
 }
 
 // dispatch gate 的回答是 ticketing 写出 Tickets.md 之后的第一条用户消息；
@@ -143,12 +152,20 @@ export function lfgCycle(
   entered: LfgStage = 'interview',
 ) {
   const spans: Span[] = [];
+  const method = 'artifact';
   let cursor = start;
   let reachedEnd = false;
   let endSeq: number | null = null;
   for (const [i, stage] of LFG_STAGES.entries()) {
     if (reachedEnd) {
-      spans.push({ stage, status: 'not-reached', startSeq: null, endSeq: null, evidence: null });
+      spans.push({
+        stage,
+        status: 'not-reached',
+        startSeq: null,
+        endSeq: null,
+        method,
+        evidence: null,
+      });
       continue;
     }
     const b = boundaries.find((x) => x.stage === stage && x.seq >= cursor);
@@ -161,10 +178,11 @@ export function lfgCycle(
           status: 'done',
           startSeq: cursor,
           endSeq: endSeq ?? lastSeq,
+          method,
           evidence: b,
         });
       } else {
-        spans.push({ stage, status: 'done', startSeq: cursor, endSeq: b.seq, evidence: b });
+        spans.push({ stage, status: 'done', startSeq: cursor, endSeq: b.seq, method, evidence: b });
       }
       cursor = b.seq + 1;
       continue;
@@ -174,10 +192,17 @@ export function lfgCycle(
     );
     if (later !== undefined || i < LFG_STAGES.indexOf(entered)) {
       const evidence = stage === 'plan' ? { note: '未检测到锁定标记' } : null;
-      spans.push({ stage, status: 'skipped', startSeq: cursor, endSeq: cursor - 1, evidence });
+      spans.push({
+        stage,
+        status: 'skipped',
+        startSeq: cursor,
+        endSeq: cursor - 1,
+        method,
+        evidence,
+      });
       continue;
     }
-    spans.push(activeSpan(stage, cursor, lastSeq, null));
+    spans.push(activeSpan(stage, cursor, lastSeq, method, null));
     reachedEnd = true;
   }
   return { spans, endSeq };
@@ -271,7 +296,7 @@ export function cycleEnd(leave: IcBoundary): number {
   return leave.inclusive === true ? leave.seq : leave.seq - 1;
 }
 
-// 一轮 ic：进入的阶段之前的阶段 skipped；同一条上连续前进时中间的阶段 skipped；
+// 一轮 ic：进入的阶段之前的阶段 skipped；同一条上连续前进、或 Skill 调用越过的中间阶段 skipped；
 // 离开时 ready-for-review 到离开那一条之前为止；session 结束时还在的阶段 active
 export function icCycle(
   entries: IcBoundary[],
@@ -282,14 +307,38 @@ export function icCycle(
   if (first === undefined) throw new Error('一轮至少有一个进入的阶段');
   const reached = new Map(entries.map((b) => [b.stage, b]));
   const last = entries[entries.length - 1] ?? first;
+  const evidenceOf = (b: IcBoundary) => ({
+    seq: b.seq,
+    toolCallId: b.toolCallId,
+    summary: b.summary,
+  });
+  const order = (b: IcBoundary) => IC_STAGES.indexOf(b.stage as (typeof IC_STAGES)[number]);
   return IC_STAGES.map((stage, i): Span => {
     const b = reached.get(stage);
     if (b === undefined) {
-      return IC_STAGES.indexOf(first.stage as (typeof IC_STAGES)[number]) > i
-        ? { stage, status: 'skipped', startSeq: first.seq, endSeq: first.seq - 1, evidence: null }
-        : { stage, status: 'not-reached', startSeq: null, endSeq: null, evidence: null };
+      // 之后进入的第一个阶段：这一轮从它开始，或 Skill 调用越过了这个阶段
+      const after = entries.find((e) => order(e) > i);
+      if (after === undefined) {
+        return {
+          stage,
+          status: 'not-reached',
+          startSeq: null,
+          endSeq: null,
+          method: 'llm',
+          evidence: null,
+        };
+      }
+      return {
+        stage,
+        status: 'skipped',
+        startSeq: after.seq,
+        endSeq: after.seq - 1,
+        method: after.method,
+        evidence: after === first ? null : evidenceOf(after),
+      };
     }
-    const evidence = { seq: b.seq, toolCallId: b.toolCallId, summary: b.summary };
+    const evidence = evidenceOf(b);
+    const method = b.method;
     if (b === last) {
       if (leave !== undefined) {
         return {
@@ -297,16 +346,17 @@ export function icCycle(
           status: 'done',
           startSeq: b.seq,
           endSeq: cycleEnd(leave),
+          method,
           evidence,
         };
       }
-      return activeSpan(stage, b.seq, lastSeq, evidence);
+      return activeSpan(stage, b.seq, lastSeq, method, evidence);
     }
     const next = entries[entries.indexOf(b) + 1];
     if (next === undefined) throw new Error('非最后一个阶段必须有下一阶段');
     return next.seq === b.seq
-      ? { stage, status: 'skipped', startSeq: b.seq, endSeq: b.seq - 1, evidence }
-      : { stage, status: 'done', startSeq: b.seq, endSeq: next.seq - 1, evidence };
+      ? { stage, status: 'skipped', startSeq: b.seq, endSeq: b.seq - 1, method, evidence }
+      : { stage, status: 'done', startSeq: b.seq, endSeq: next.seq - 1, method, evidence };
   });
 }
 
@@ -508,6 +558,7 @@ function interruptCycle(c: Cycle, cut: number, lastSeq: number): Cycle {
         status: 'not-reached',
         startSeq: null,
         endSeq: null,
+        method: s.method,
         evidence: null,
       };
     }
@@ -565,7 +616,7 @@ async function analyze(
     tx.delete(stageSpans).where(eq(stageSpans.sessionId, sessionId)).run();
     tx.delete(stageCycles).where(eq(stageCycles.sessionId, sessionId)).run();
     tx.delete(stageAnalyses).where(eq(stageAnalyses.sessionId, sessionId)).run();
-    const insert = (workflow: 'lfg' | 'ic', method: 'artifact' | 'llm', cycles: Cycle[]) => {
+    const insert = (workflow: 'lfg' | 'ic', cycles: Cycle[]) => {
       for (const [i, c] of cycles.entries()) {
         const cycle = i + 1;
         tx.insert(stageCycles)
@@ -580,13 +631,13 @@ async function analyze(
           .run();
         for (const s of c.spans) {
           tx.insert(stageSpans)
-            .values({ sessionId, workflow, cycle, method, ...s })
+            .values({ sessionId, workflow, cycle, ...s })
             .run();
         }
       }
     };
-    insert('lfg', 'artifact', lfg);
-    insert('ic', 'llm', ic);
+    insert('lfg', lfg);
+    insert('ic', ic);
     tx.insert(stageAnalyses)
       .values({
         sessionId,

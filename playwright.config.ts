@@ -18,6 +18,8 @@ const runsDataDir = '.work/e2e/runs-data';
 const environmentDataDir = '.work/e2e/environment-data';
 // Sessions 的阶段判定从未判定的状态开始：服务端每次使用删除重建的数据库
 const dbDir = path.resolve(import.meta.dirname, '.work/e2e-db');
+// Sessions 的来源目录：每次由种子脚本删除重建，放入真实 run 的 session
+const projectsDir = path.resolve(import.meta.dirname, '.work/e2e/projects');
 
 // 两个开发服务器继承本进程的 WFD_PORT、WFD_WEB_PORT；
 // compare 项目另起一对服务，服务端读取种子脚本写入的专用数据目录
@@ -76,10 +78,10 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: `rm -rf ${dbDir} && pnpm --filter @wf-dashboard/server dev`,
+      command: `rm -rf ${dbDir} && pnpm --filter @wf-dashboard/server prepare:sessions-e2e && pnpm --filter @wf-dashboard/server dev`,
       url: `http://127.0.0.1:${String(serverPort)}/api/health`,
       // 阶段判定使用默认的模型（models.stageCheck，haiku 别名；需要时用 WFD_STAGE_CHECK_MODEL 覆盖）
-      env: { WFD_DB_PATH: path.join(dbDir, 'db.sqlite') },
+      env: { WFD_DB_PATH: path.join(dbDir, 'db.sqlite'), WFD_CLAUDE_PROJECTS: projectsDir },
       reuseExistingServer: false,
     },
     {
