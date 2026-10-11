@@ -376,21 +376,24 @@ export async function runEnvironmentChecks(
   return { checkedAt: Date.now(), checks };
 }
 
-// 结果缓存 10 分钟；角色模型改变后（Settings 保存）下一次读取重新检查；同一时间只进行一次检查
+// 结果缓存 10 分钟；角色模型改变后（Settings 保存）下一次读取重新检查；同样模型的检查同一时间只进行一次，
+// 检查进行中模型改变时另起一次检查，不返回用旧模型的结果
 export function createEnvironment(options: EnvironmentOptions) {
   let cached: { report: EnvironmentReport; modelsKey: string } | undefined;
-  let inflight: Promise<EnvironmentReport> | undefined;
+  let inflight: { promise: Promise<EnvironmentReport>; modelsKey: string } | undefined;
 
   function check(): Promise<EnvironmentReport> {
-    inflight ??= (async () => {
-      const modelsKey = JSON.stringify(options.models());
+    const modelsKey = JSON.stringify(options.models());
+    if (inflight?.modelsKey === modelsKey) return inflight.promise;
+    const promise = (async () => {
       const report = await runEnvironmentChecks(options).finally(() => {
-        inflight = undefined;
+        if (inflight?.promise === promise) inflight = undefined;
       });
       cached = { report, modelsKey };
       return report;
     })();
-    return inflight;
+    inflight = { promise, modelsKey };
+    return promise;
   }
 
   return {

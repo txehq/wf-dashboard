@@ -54,7 +54,7 @@ describe('导入的 variant 派生为可运行的 variant', () => {
     { timeout: 900_000 },
     async () => {
       fs.rmSync(layout.variant(importedId).dir, { recursive: true, force: true });
-      await importRun(db, { dataDir: w4Data }, runId, 'claude-sonnet-5', dataDir);
+      importRun(db, { dataDir: w4Data }, runId, dataDir);
       const imported = variants.get(importedId);
       expect(imported.installDir).toBeNull();
 

@@ -177,4 +177,30 @@ describe('GET /api/environment', () => {
       `gateway：模拟用户模型 ${next}`,
     );
   });
+
+  // 另一个页面的读取先开始了一次检查，检查进行中保存了新的角色模型：之后的读取不返回用旧模型的结果
+  test('检查进行中改了角色模型，之后的读取用新模型重新检查', { timeout: 240_000 }, async () => {
+    const settings = (await app.inject({ method: 'GET', url: '/api/settings' })).json<{
+      models: Record<string, string>;
+    }>();
+    const old = settings.models.judge;
+    const running = app.inject({ method: 'GET', url: '/api/environment?refresh=1' });
+    const next = stripContextTag(claudeSettingsEnv().ANTHROPIC_DEFAULT_SONNET_MODEL);
+    const saved = await app.inject({
+      method: 'PUT',
+      url: '/api/settings',
+      payload: { ...settings, models: { ...settings.models, judge: next } },
+    });
+    expect(saved.statusCode).toBe(200);
+    const after = (await app.inject({ method: 'GET', url: '/api/environment' })).json<{
+      checks: { id: string; label: string }[];
+    }>();
+    const first = (await running).json<{ checks: { id: string; label: string }[] }>();
+    expect(first.checks.find((c) => c.id === 'model-judge')?.label).toBe(
+      `gateway：评分（judge）模型 ${String(old)}`,
+    );
+    expect(after.checks.find((c) => c.id === 'model-judge')?.label).toBe(
+      `gateway：评分（judge）模型 ${next}`,
+    );
+  });
 });

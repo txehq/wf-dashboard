@@ -104,7 +104,9 @@ test('Sessions：来源勾选、列表、详情、导入即有的阶段、进入
   await expect(detail.getByTestId('stage-entries')).toHaveText('调用 1 次');
   await expect(detail.getByTestId('stage-evidence')).toContainText('Skill 调用');
   await expect(detail.getByTestId('stage-evidence')).toContainText('Skill: implement TXE-3764');
-  await expect(detail.getByTestId('stage-evidence')).toContainText(`#${String(implement.startSeq)}`);
+  await expect(detail.getByTestId('stage-evidence')).toContainText(
+    `#${String(implement.startSeq)}`,
+  );
   await expect(detail).toContainText(
     `#${String(implement.startSeq)} – #${String(implement.endSeq)}`,
   );
@@ -206,7 +208,9 @@ test('f0aca373：导入后立即看到 /interview 一轮 lfg 与三轮 ic，fix-
   await ic.getByTestId('stage-fix-pr').click();
   const detail = page.getByTestId('stage-detail');
   await expect(detail.getByTestId('stage-entries')).toHaveText('修复 1 轮');
-  await expect(detail.getByTestId('stage-evidence')).toContainText('Skill: fix-pr txehq/txe-workflow#78');
+  await expect(detail.getByTestId('stage-evidence')).toContainText(
+    'Skill: fix-pr txehq/txe-workflow#78',
+  );
   await expect(detail.getByTestId('stage-evidence')).toContainText('#1154');
   await page.screenshot({ path: `${shots}/w25-session-fix-pr.png`, animations: 'disabled' });
 });
