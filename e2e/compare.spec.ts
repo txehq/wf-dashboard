@@ -141,7 +141,7 @@ test('包含与排除读取了来源的 run：默认排除，开关放回，点�
   await expect(baseCell).toContainText('4 次 run');
   const sourceDot = baseCell.locator('[data-testid="run-dot"][data-source-ref="true"]');
   await expect(sourceDot).toHaveCount(1);
-  await expect(sourceDot).toHaveAttribute('aria-label', /r-20261009-baic05.*读取了来源工单或仓库/);
+  await expect(sourceDot).toHaveAttribute('aria-label', /r-20261009-baic04.*读取了来源工单或仓库/);
   await sourceDot.hover();
   await page.screenshot({ path: '.work/screenshots/w29-compare.png', animations: 'disabled' });
 
@@ -150,7 +150,7 @@ test('包含与排除读取了来源的 run：默认排除，开关放回，点�
 });
 
 test('运行详情的"读取了来源工单 / 仓库"区块：每处的种类、请求编号与摘录', async ({ page }) => {
-  await page.goto('/runs/r-20261009-baic05');
+  await page.goto('/runs/r-20261009-baic04');
   const block = page.getByTestId('source-refs');
   await expect(block).toContainText('读取了来源工单 / 仓库');
   await expect(block).toContainText('对比时默认排除；共 2 处');
@@ -164,7 +164,7 @@ test('运行详情的"读取了来源工单 / 仓库"区块：每处的种类、
   await block.screenshot({ path: '.work/screenshots/w29-source-refs.png', animations: 'disabled' });
 
   await page.goto('/runs');
-  const row = page.locator('[data-run="r-20261009-baic05"]');
+  const row = page.locator('[data-run="r-20261009-baic04"]');
   await expect(row.getByTestId('source-ref')).toHaveText('读取了来源');
 });
 
