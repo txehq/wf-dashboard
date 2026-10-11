@@ -86,13 +86,6 @@ describe('副本仓库只保留 pull_request 的 workflow（真实 GitHub）', {
       expect(await gh(['api', `repos/${repo}/actions/runs`, '--jq', '.total_count'])).toBe('0');
       await sleep(15_000);
     }
-    const registered = JSON.parse(
-      await gh(['api', `repos/${repo}/actions/workflows`, '--jq', '[.workflows[].path]']),
-    ) as string[];
-    expect(registered.sort()).toEqual([
-      '.github/workflows/ci.yml',
-      '.github/workflows/self-hosted-echo.yml',
-    ]);
 
     // 只改 README 的 PR：ci 与 self-hosted-echo 运行并有结论，终点到达
     const pr = await openReadyPr(repo, readmeChange('w29-copy-pr'), 'docs: readme');
@@ -100,6 +93,14 @@ describe('副本仓库只保留 pull_request 的 workflow（真实 GitHub）', {
     expect(runs.map((r) => [r.name, r.event, r.status]).sort()).toEqual([
       ['ci', 'pull_request', 'completed'],
       ['self-hosted-echo', 'pull_request', 'completed'],
+    ]);
+    // GitHub 登记 workflow 的时间不定（推送后 2 分钟仍可能为空）；PR 的 run 结束后登记的只有这两个
+    const registered = JSON.parse(
+      await gh(['api', `repos/${repo}/actions/workflows`, '--jq', '[.workflows[].path]']),
+    ) as string[];
+    expect(registered.sort()).toEqual([
+      '.github/workflows/ci.yml',
+      '.github/workflows/self-hosted-echo.yml',
     ]);
     const checks = await prChecks(repo, pr.pr);
     expect(checks.map((c) => [c.name, c.bucket]).sort()).toEqual([
