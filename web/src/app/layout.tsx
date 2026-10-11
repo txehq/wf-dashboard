@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Columns2, GitBranch, History, ListChecks, Play } from 'lucide-react';
+import { Columns2, GitBranch, History, ListChecks, Microscope, Play } from 'lucide-react';
 import { NavLink, Outlet } from 'react-router';
 import { EnvironmentStatus } from '@/components/environment/environment-status';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,7 @@ const navItems = [
   { to: '/variants', label: 'Variants', icon: GitBranch },
   { to: '/tasks', label: 'Tasks', icon: ListChecks },
   { to: '/compare', label: 'Compare', icon: Columns2 },
+  { to: '/analyses', label: '分析', icon: Microscope },
 ] as const;
 
 function ServerStatus() {

@@ -249,6 +249,7 @@ export const RunArtifact = z.object({
     'ticket',
     'friction',
     'acceptance',
+    'pr_snapshot',
   ]),
   location: z.string(),
   snapshot: z.string().nullable(),

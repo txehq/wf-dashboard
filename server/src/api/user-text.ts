@@ -13,6 +13,12 @@ export function displayUserText(text: string): string {
   return args === '' ? name : `${name} ${args}`;
 }
 
+// slash 命令消息的参数原文（不去空白）；不是 slash 命令时为 null，没有参数时为空字符串
+export function commandArgs(text: string): string | null {
+  if (!COMMAND_MARKUP.test(text) || COMMAND_NAME.exec(text) === null) return null;
+  return COMMAND_ARGS.exec(text)?.[1] ?? '';
+}
+
 const TITLE_LENGTH = 80;
 
 // 列表标题：首条用户消息的前 80 个字符，空白压成一个空格；slash 命令为命令名加参数的第一行

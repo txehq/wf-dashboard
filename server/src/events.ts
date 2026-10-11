@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { RunStatus, StageStatus, Workflow } from './db/schema.js';
+import type { AnalysisStatus, RunStatus, StageStatus, Workflow } from './db/schema.js';
 import type { ArtifactView, Pending, RunMessageView } from './runs/views.js';
 
 // 进程内事件；run.* 由 runs 模块发布（Contracts 7.6）
@@ -30,7 +30,9 @@ export type AppEvent =
       status: StageStatus;
     }
   | { type: 'run.artifact'; runId: string; artifact: ArtifactView }
-  | { type: 'run.cost'; runId: string; costUsd: number };
+  | { type: 'run.cost'; runId: string; costUsd: number }
+  // 分析的状态或步骤进度变化（Contracts 15.2）
+  | { type: 'analysis.updated'; analysisId: string; status: AnalysisStatus };
 
 const emitter = new EventEmitter();
 // 每个 SSE 连接一个监听者

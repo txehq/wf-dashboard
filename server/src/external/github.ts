@@ -376,6 +376,171 @@ export async function readPr(repo: string): Promise<PrInfo | null> {
   };
 }
 
+// PR 的 review、评论与 checks 只在 GitHub 上；run 进入 grading 时存一份快照（Contracts 15.2），仓库被删除后分析仍能读到
+const Author = z.object({ login: z.string() }).nullable();
+const login = (a: z.infer<typeof Author>) => a?.login ?? null;
+
+const SnapshotView = z.object({
+  number: z.number(),
+  url: z.string(),
+  title: z.string(),
+  body: z.string(),
+  state: z.string(),
+  isDraft: z.boolean(),
+  headRefOid: z.string(),
+  reviews: z.array(
+    z.object({ author: Author, state: z.string(), body: z.string(), submittedAt: z.string() }),
+  ),
+  comments: z.array(z.object({ author: Author, body: z.string(), createdAt: z.string() })),
+});
+
+const ThreadComment = z.object({
+  author: Author,
+  body: z.string(),
+  createdAt: z.string(),
+  url: z.string(),
+});
+const PageInfo = z.object({ hasNextPage: z.boolean() });
+const ReviewThreads = z.object({
+  data: z.object({
+    repository: z.object({
+      pullRequest: z.object({
+        reviewThreads: z.object({
+          pageInfo: PageInfo,
+          nodes: z.array(
+            z.object({
+              path: z.string(),
+              line: z.number().nullable(),
+              isResolved: z.boolean(),
+              isOutdated: z.boolean(),
+              comments: z.object({ pageInfo: PageInfo, nodes: z.array(ThreadComment) }),
+            }),
+          ),
+        }),
+      }),
+    }),
+  }),
+});
+
+const REVIEW_THREADS_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100) {
+        pageInfo { hasNextPage }
+        nodes {
+          path line isResolved isOutdated
+          comments(first: 100) {
+            pageInfo { hasNextPage }
+            nodes { author { login } body createdAt url }
+          }
+        }
+      }
+    }
+  }
+}`;
+
+export const PrSnapshot = z.object({
+  number: z.number(),
+  url: z.string(),
+  title: z.string(),
+  body: z.string(),
+  state: z.string(),
+  isDraft: z.boolean(),
+  head: z.string(),
+  reviews: z.array(
+    z.object({
+      author: z.string().nullable(),
+      state: z.string(),
+      body: z.string(),
+      submittedAt: z.string(),
+    }),
+  ),
+  // 行内 review 评论按 thread 分组
+  reviewThreads: z.array(
+    z.object({
+      path: z.string(),
+      line: z.number().nullable(),
+      isResolved: z.boolean(),
+      isOutdated: z.boolean(),
+      comments: z.array(
+        z.object({
+          author: z.string().nullable(),
+          body: z.string(),
+          createdAt: z.string(),
+          url: z.string(),
+        }),
+      ),
+    }),
+  ),
+  // PR 对话区的评论
+  comments: z.array(
+    z.object({ author: z.string().nullable(), body: z.string(), createdAt: z.string() }),
+  ),
+  checks: z.array(PrCheck),
+});
+export type PrSnapshot = z.infer<typeof PrSnapshot>;
+
+// 运行仓库中最新建的 PR 的快照；还没有 PR 时为 null
+export async function readPrSnapshot(repo: string): Promise<PrSnapshot | null> {
+  const latest = await readPr(repo);
+  if (latest === null) return null;
+  const view = await ghJson(
+    [
+      'pr',
+      'view',
+      String(latest.number),
+      '--repo',
+      repo,
+      '--json',
+      'number,url,title,body,state,isDraft,headRefOid,reviews,comments',
+    ],
+    SnapshotView,
+  );
+  const [owner, name] = repo.split('/');
+  if (owner === undefined || name === undefined) throw new Error(`仓库名不是 owner/name：${repo}`);
+  const threads = (
+    await ghJson(
+      [
+        'api',
+        'graphql',
+        '-f',
+        `query=${REVIEW_THREADS_QUERY}`,
+        '-f',
+        `owner=${owner}`,
+        '-f',
+        `name=${name}`,
+        '-F',
+        `number=${String(latest.number)}`,
+      ],
+      ReviewThreads,
+    )
+  ).data.repository.pullRequest.reviewThreads;
+  if (threads.pageInfo.hasNextPage || threads.nodes.some((t) => t.comments.pageInfo.hasNextPage)) {
+    throw new Error(
+      `${repo}#${String(latest.number)} 的 review thread 或评论超过 100 条，快照不完整`,
+    );
+  }
+  return {
+    number: view.number,
+    url: view.url,
+    title: view.title,
+    body: view.body,
+    state: view.state,
+    isDraft: view.isDraft,
+    head: view.headRefOid,
+    reviews: view.reviews.map((r) => ({ ...r, author: login(r.author) })),
+    reviewThreads: threads.nodes.map((t) => ({
+      path: t.path,
+      line: t.line,
+      isResolved: t.isResolved,
+      isOutdated: t.isOutdated,
+      comments: t.comments.nodes.map((c) => ({ ...c, author: login(c.author) })),
+    })),
+    comments: view.comments.map((c) => ({ ...c, author: login(c.author) })),
+    checks: latest.checks,
+  };
+}
+
 const Rule = z.object({ type: z.string() }).loose();
 const RequiredChecksRule = z
   .object({

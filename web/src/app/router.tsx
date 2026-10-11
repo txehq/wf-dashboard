@@ -1,5 +1,8 @@
 import { createBrowserRouter, Navigate } from 'react-router';
 import { Layout } from '@/app/layout';
+import { AnalysesPage } from '@/pages/analyses';
+import { AnalysisDetailPage } from '@/pages/analyses-detail';
+import { AnalysisNewPage } from '@/pages/analyses-new';
 import { ComparePage } from '@/pages/compare';
 import { RunsPage } from '@/pages/runs';
 import { RunDetailPage } from '@/pages/runs-detail';
@@ -27,6 +30,9 @@ export const router = createBrowserRouter([
       { path: 'tasks/new', element: <TaskNewPage /> },
       { path: 'tasks/:id', element: <TaskDetailPage /> },
       { path: 'compare', element: <ComparePage /> },
+      { path: 'analyses', element: <AnalysesPage /> },
+      { path: 'analyses/new', element: <AnalysisNewPage /> },
+      { path: 'analyses/:id', element: <AnalysisDetailPage /> },
     ],
   },
 ]);

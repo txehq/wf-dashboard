@@ -1,6 +1,8 @@
 import path from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
 import {
+  analysesServerPort,
+  analysesWebPort,
   compareServerPort,
   compareWebPort,
   environmentServerPort,
@@ -23,6 +25,9 @@ const projectsDir = path.resolve(import.meta.dirname, '.work/e2e/projects');
 // chromium 项目服务端的数据目录（variants.spec 在这里构建 variant）：保留在多次运行之间，wf runtime 只编译一次。
 // 仓库根目录的 data/ 是用户实例的数据目录，e2e 不写进去
 const chromiumDataDir = path.resolve(import.meta.dirname, '.work/e2e/chromium-data');
+// 分析页面的数据目录与来源目录：每次由 prepare-analyses-e2e 删除重建（两个真实 run 的 session 与 9f2bed6 的基线）
+const analysesDataDir = '.work/e2e/analyses-data';
+const analysesProjectsDir = path.resolve(import.meta.dirname, '.work/e2e/analyses/projects');
 
 // 两个开发服务器继承本进程的 WFD_PORT、WFD_WEB_PORT；
 // compare 项目另起一对服务，服务端读取种子脚本写入的专用数据目录
@@ -43,6 +48,7 @@ export default defineConfig({
         'details.spec.ts',
         'environment.spec.ts',
         'compare-empty.spec.ts',
+        'analyses.spec.ts',
         'guide/**',
       ],
       use: {
@@ -75,6 +81,16 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         baseURL: `http://127.0.0.1:${String(environmentServerPort)}`,
+        viewport: { width: 1600, height: 1000 },
+      },
+    },
+    {
+      // 真实引擎分析真实 session，单个测试的时限在 spec 中加长
+      name: 'analyses',
+      testMatch: 'analyses.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: `http://127.0.0.1:${String(analysesWebPort)}`,
         viewport: { width: 1600, height: 1000 },
       },
     },
@@ -137,6 +153,24 @@ export default defineConfig({
         WFD_DATA_DIR: environmentDataDir,
         WFD_PORT: String(environmentServerPort),
       },
+    },
+    {
+      command:
+        'pnpm --filter @wf-dashboard/server prepare:analyses-e2e && pnpm --filter @wf-dashboard/server exec tsx src/main.ts',
+      url: `http://127.0.0.1:${String(analysesServerPort)}/api/health`,
+      reuseExistingServer: false,
+      timeout: 300_000,
+      env: {
+        WFD_DATA_DIR: analysesDataDir,
+        WFD_CLAUDE_PROJECTS: analysesProjectsDir,
+        WFD_PORT: String(analysesServerPort),
+      },
+    },
+    {
+      command: 'pnpm --filter @wf-dashboard/web dev',
+      url: `http://127.0.0.1:${String(analysesWebPort)}`,
+      reuseExistingServer: false,
+      env: { WFD_PORT: String(analysesServerPort), WFD_WEB_PORT: String(analysesWebPort) },
     },
   ],
 });

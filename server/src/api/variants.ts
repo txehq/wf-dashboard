@@ -27,6 +27,8 @@ const Variant = z.object({
   builtAt: z.date().nullable(),
   createdAt: z.date(),
   frozenAt: z.date().nullable(),
+  analysisId: z.string().nullable(),
+  sourceSessionId: z.string().nullable(),
 });
 
 const IdParams = z.object({ id: z.string() });

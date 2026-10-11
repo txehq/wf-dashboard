@@ -34,6 +34,8 @@ export interface VariantsOptions {
   codexAuthPath?: string | undefined;
   // Codex 模型配置的来源，默认 config.codexConfigPath
   codexConfigPath?: string | undefined;
+  // variant 新建或 skills 内容变化之后调用：session 的自动绑定据此重新判定（Contracts 15.1）
+  onSkillsChanged?: (() => void) | undefined;
 }
 
 export interface SkillFile {
@@ -113,6 +115,7 @@ export function createVariants({
   claudeSettingsPath,
   codexAuthPath = config.codexAuthPath,
   codexConfigPath = config.codexConfigPath,
+  onSkillsChanged = () => undefined,
 }: VariantsOptions) {
   const layout = dataLayout(dataDir);
   const runtimeBuilds = new Map<string, Promise<void>>();
@@ -241,6 +244,7 @@ export function createVariants({
         .set({ skillsHash: hash, version: versionFor(row.baseCommit, hash), buildStatus: 'none' })
         .where(eq(variants.id, row.id))
         .run();
+      onSkillsChanged();
     }
     return get(row.id);
   }
@@ -332,6 +336,7 @@ export function createVariants({
           installDir: dirs.dir,
         })
         .run();
+      onSkillsChanged();
       return get(id);
     },
 
@@ -372,6 +377,7 @@ export function createVariants({
           installDir: dirs.dir,
         })
         .run();
+      onSkillsChanged();
       return get(id);
     },
 

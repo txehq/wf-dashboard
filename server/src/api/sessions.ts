@@ -7,7 +7,17 @@ import {
 } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
-import { requests, sessions, sources, subagents, userMessages, workflows } from '../db/schema.js';
+import {
+  requests,
+  sessions,
+  sources,
+  subagents,
+  userMessages,
+  type VariantBinding,
+  variantBindings,
+  workflows,
+} from '../db/schema.js';
+import { boundVariantNames } from '../bindings/index.js';
 import {
   homeSourceDirs,
   importCheckedSources,
@@ -49,6 +59,9 @@ const SessionSummary = z.object({
   costUsd: z.number(),
   workflows: z.array(z.enum(workflows)),
   runId: z.string().nullable(),
+  // 绑定的 variant 与方式（Contracts 15.1）
+  variant: z.object({ id: z.string(), name: z.string() }).nullable(),
+  variantBinding: z.enum(variantBindings).nullable(),
 });
 type SessionSummary = z.infer<typeof SessionSummary>;
 
@@ -121,6 +134,8 @@ const summaryColumns = {
   hasLfg: sessions.hasLfg,
   hasIc: sessions.hasIc,
   runId: sessions.runId,
+  variantId: sessions.variantId,
+  variantBinding: sessions.variantBinding,
 };
 
 interface SummaryRow {
@@ -133,6 +148,8 @@ interface SummaryRow {
   hasLfg: boolean;
   hasIc: boolean;
   runId: string | null;
+  variantId: string | null;
+  variantBinding: VariantBinding | null;
 }
 
 function summaries(db: Db, rows: SummaryRow[]): SessionSummary[] {
@@ -175,8 +192,16 @@ function summaries(db: Db, rows: SummaryRow[]): SessionSummary[] {
       .all()
       .map((m) => [m.sessionId, sessionTitle(m.text)]),
   );
+  const variantNames = boundVariantNames(
+    db,
+    rows.flatMap((r) => (r.variantId === null ? [] : [r.variantId])),
+  );
   return rows.map((r) => {
     const t = totals.get(r.id);
+    const variantName = r.variantId === null ? undefined : variantNames.get(r.variantId);
+    if (r.variantId !== null && variantName === undefined) {
+      throw new Error(`session ${r.id} 绑定的 variant ${r.variantId} 不存在`);
+    }
     return {
       id: r.id,
       cwd: r.cwd,
@@ -194,6 +219,11 @@ function summaries(db: Db, rows: SummaryRow[]): SessionSummary[] {
       costUsd: t?.costUsd ?? 0,
       workflows: workflows.filter((w) => (w === 'lfg' ? r.hasLfg : r.hasIc)),
       runId: r.runId,
+      variant:
+        r.variantId === null || variantName === undefined
+          ? null
+          : { id: r.variantId, name: variantName },
+      variantBinding: r.variantBinding,
     };
   });
 }

@@ -70,6 +70,9 @@ export const UserRecord = z.object({
   uuid: z.string(),
   timestamp: z.iso.datetime(),
   isMeta: z.boolean().optional(),
+  // 加载 skill 的 isMeta 记录：Skill 调用时指回那次 tool_use；slash 命令时 parentUuid 指向命令那条用户消息
+  sourceToolUseID: z.string().optional(),
+  parentUuid: z.string().nullish(),
   // 上下文压缩后由 Claude Code 生成的摘要，不是用户输入
   isCompactSummary: z.boolean().optional(),
   // 例如 human、task-notification、peer

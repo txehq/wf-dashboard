@@ -19,6 +19,7 @@ const EVENT_TYPES = [
   'run.artifact',
   'run.cost',
   'variant.build',
+  'analysis.updated',
 ] as const;
 export type LiveEventType = (typeof EVENT_TYPES)[number];
 

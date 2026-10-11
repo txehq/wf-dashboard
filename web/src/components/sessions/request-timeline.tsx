@@ -572,7 +572,8 @@ export function RequestTimeline({
       }
     }
     scrollRef.current?.(index);
-    // 虚拟列表滚动后下一帧才渲染出这一行：等它出现，再把它连同页面一起滚到视野中央
+    // 虚拟列表滚动后下一帧才渲染出这一行：等它出现，再把它连同页面一起滚到视野中央。
+    // 打开页面时就带着定位（?seq=）时，列表刚挂载、还没有测量，第一次滚动不生效，没出现时再滚一次
     let frames = 0;
     let handle = 0;
     const reveal = () => {
@@ -581,6 +582,7 @@ export function RequestTimeline({
         row.scrollIntoView({ block: 'center' });
         return;
       }
+      scrollRef.current?.(index);
       frames += 1;
       if (frames < 30) handle = requestAnimationFrame(reveal);
     };

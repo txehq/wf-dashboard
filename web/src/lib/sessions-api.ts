@@ -38,6 +38,8 @@ export interface SessionSummary {
   costUsd: number;
   workflows: Workflow[];
   runId: string | null;
+  variant: { id: string; name: string } | null;
+  variantBinding: 'run' | 'auto' | 'manual' | null;
 }
 
 export interface SubagentInfo {

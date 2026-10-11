@@ -129,6 +129,12 @@ export const variants = sqliteTable(
     builtAt: integer('built_at', { mode: 'timestamp_ms' }),
     createdAt: createdAt(),
     frozenAt: integer('frozen_at', { mode: 'timestamp_ms' }),
+    // 由分析的"另存为 variant"建出时指向那次分析（Contracts 15.3）
+    analysisId: text('analysis_id').references((): AnySQLiteColumn => analyses.id, {
+      onDelete: 'set null',
+    }),
+    // 按 session 的 skill 新建时指向那个 session（Contracts 15.1）；session 可能尚未导入，不加外键
+    sourceSessionId: text('source_session_id'),
   },
   (t) => [index('variants_skills_hash_idx').on(t.skillsHash)],
 );
@@ -244,6 +250,10 @@ export const runs = sqliteTable(
   ],
 );
 
+// run：run 与交互的 session 用的 variant；auto：导入时 skill 正文与 variant 逐字节一致；manual：用户选择或解除
+export const variantBindings = ['run', 'auto', 'manual'] as const;
+export type VariantBinding = (typeof variantBindings)[number];
+
 export const sessions = sqliteTable(
   'sessions',
   {
@@ -264,10 +274,14 @@ export const sessions = sqliteTable(
     // 主 jsonl 已解析到的字节偏移量
     parseOffset: integer('parse_offset').notNull().default(0),
     parseState: text('parse_state', { mode: 'json' }).$type<ParseState>().notNull(),
+    // 绑定的 variant（Contracts 15.1）；manual 且 variant_id 为空表示用户手动解除
+    variantId: text('variant_id').references(() => variants.id, { onDelete: 'set null' }),
+    variantBinding: text('variant_binding', { enum: variantBindings }),
     createdAt: createdAt(),
   },
   (t) => [
     index('sessions_source_idx').on(t.sourceId),
+    index('sessions_variant_idx').on(t.variantId),
     index('sessions_run_idx').on(t.runId),
     index('sessions_started_at_idx').on(t.startedAt, t.id),
   ],
@@ -476,7 +490,8 @@ export const runMessages = sqliteTable(
 );
 
 // ticket 为 ic 的 Linear 工单 identifier；friction 为被测 agent 在 txehq/txe-workflow 提的 issue 或评论，
-// 每个 run 可以有多条，其余种类每个 run 一条；acceptance 为 ic 发布到 engapp.dev 的验收报告
+// 每个 run 可以有多条，其余种类每个 run 一条；acceptance 为 ic 发布到 engapp.dev 的验收报告；
+// pr_snapshot 为进入 grading 时 PR 的 reviews、评论与 checks（json，Contracts 15.2），location 为仓库地址
 export const artifactKinds = [
   'brief',
   'research',
@@ -487,6 +502,7 @@ export const artifactKinds = [
   'ticket',
   'friction',
   'acceptance',
+  'pr_snapshot',
 ] as const;
 export type ArtifactKind = (typeof artifactKinds)[number];
 
@@ -557,4 +573,132 @@ export const gradeItems = sqliteTable(
     reasoning: text('reasoning').notNull(),
   },
   (t) => [uniqueIndex('grade_items_grade_item_idx').on(t.gradeId, t.itemId)],
+);
+
+// session 中每次加载 skill 时 Claude Code 写入的正文（Contracts 15.1）：Skill 调用或 slash 命令之后 isMeta 的 user 记录。
+// text 为 "Base directory for this skill: <dir>\n\n" 之后的原文：SKILL.md 去掉 frontmatter 与开头换行后的正文，
+// 有参数时正文含 $ARGUMENTS 则替换它，否则末尾加 "\n\nARGUMENTS: <args>"
+export const sessionSkills = sqliteTable(
+  'session_skills',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    sessionId: text('session_id')
+      .notNull()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
+    // 主 agent 为空
+    agentId: text('agent_id'),
+    uuid: text('uuid').notNull(),
+    // Base directory 的最后一段
+    name: text('name').notNull(),
+    baseDir: text('base_dir').notNull(),
+    text: text('text').notNull(),
+    // Skill 调用的 input.args 或 slash 命令的 <command-args>；没有参数时为空字符串
+    args: text('args').notNull(),
+    timestamp: integer('timestamp', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => [uniqueIndex('session_skills_session_uuid_idx').on(t.sessionId, t.uuid)],
+);
+
+// 已经提取过 skill 正文的 session：本表出现之前导入的 session 在服务启动时补提取一次
+export const sessionSkillScans = sqliteTable('session_skill_scans', {
+  sessionId: text('session_id')
+    .primaryKey()
+    .references(() => sessions.id, { onDelete: 'cascade' }),
+});
+
+export const analysisEngines = ['claude', 'codex'] as const;
+export type AnalysisEngine = (typeof analysisEngines)[number];
+
+export const analysisStatuses = ['queued', 'running', 'succeeded', 'failed', 'cancelled'] as const;
+export type AnalysisStatus = (typeof analysisStatuses)[number];
+
+// 四个方面各一步，最后一步综合出修改建议
+export const analysisAspects = ['process', 'efficiency', 'interaction', 'quality'] as const;
+export type AnalysisAspect = (typeof analysisAspects)[number];
+export const analysisStepKeys = [...analysisAspects, 'synthesis'] as const;
+export type AnalysisStepKey = (typeof analysisStepKeys)[number];
+
+export interface AnalysisTokens {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  // Codex 的 reasoning_output_tokens（已含在 output 中）；Claude Code 为 0
+  reasoning: number;
+}
+
+export interface AnalysisStep {
+  key: AnalysisStepKey;
+  status: 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+  startedAt: number | null;
+  endedAt: number | null;
+  tokens: AnalysisTokens;
+  // Codex 没有价格时为空
+  costUsd: number | null;
+  // 引擎输出的事件数，运行中表示进度
+  events: number;
+  error: string | null;
+}
+
+export const analyses = sqliteTable('analyses', {
+  // a-<yyyymmdd>-<6 位小写字母数字>
+  id: text('id').primaryKey(),
+  engine: text('engine', { enum: analysisEngines }).notNull(),
+  model: text('model').notNull(),
+  variantId: text('variant_id')
+    .notNull()
+    .references((): AnySQLiteColumn => variants.id, { onDelete: 'restrict' }),
+  sessionIds: text('session_ids', { mode: 'json' }).$type<string[]>().notNull(),
+  status: text('status', { enum: analysisStatuses }).notNull().default('queued'),
+  error: text('error'),
+  steps: text('steps', { mode: 'json' }).$type<AnalysisStep[]>().notNull(),
+  costUsd: real('cost_usd'),
+  createdAt: createdAt(),
+  endedAt: integer('ended_at', { mode: 'timestamp_ms' }),
+});
+
+export interface FindingEvidence {
+  sessionId: string;
+  // 主 agent 的 seq；子代理的请求按启动它的那条主请求引用
+  seq: number;
+  quote: string;
+}
+
+export const findingSeverities = ['high', 'medium', 'low'] as const;
+
+export const analysisFindings = sqliteTable(
+  'analysis_findings',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    analysisId: text('analysis_id')
+      .notNull()
+      .references(() => analyses.id, { onDelete: 'cascade' }),
+    // <方面>-<序号>，序号为发现在该方面输出文件中的位置，从 1 开始；修改建议的 findingIds 引用它
+    findingId: text('finding_id').notNull(),
+    aspect: text('aspect', { enum: analysisAspects }).notNull(),
+    title: text('title').notNull(),
+    stage: text('stage'),
+    skill: text('skill'),
+    severity: text('severity', { enum: findingSeverities }).notNull(),
+    detail: text('detail').notNull(),
+    evidence: text('evidence', { mode: 'json' }).$type<FindingEvidence[]>().notNull(),
+  },
+  (t) => [uniqueIndex('analysis_findings_analysis_finding_idx').on(t.analysisId, t.findingId)],
+);
+
+export const analysisPatches = sqliteTable(
+  'analysis_patches',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    analysisId: text('analysis_id')
+      .notNull()
+      .references(() => analyses.id, { onDelete: 'cascade' }),
+    // 相对 skills/ 的路径，例如 ic/SKILL.md
+    file: text('file').notNull(),
+    findingIds: text('finding_ids', { mode: 'json' }).$type<string[]>().notNull(),
+    rationale: text('rationale').notNull(),
+    // 相对 input/skills/ 的 unified diff
+    patch: text('patch').notNull(),
+  },
+  (t) => [index('analysis_patches_analysis_idx').on(t.analysisId)],
 );
