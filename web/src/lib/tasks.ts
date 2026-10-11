@@ -1,4 +1,5 @@
 import { queryOptions } from '@tanstack/react-query';
+import { ImportPreview, type ImportPreviewRequest } from '@wf-dashboard/server/tasks/import-schema';
 import {
   RubricDraft,
   type RubricDraftRequest,
@@ -29,4 +30,9 @@ export async function createTask(task: TaskDefinition) {
 
 export async function draftRubric(form: RubricDraftRequest) {
   return RubricDraft.parse(await request('POST', '/api/tasks/rubric-draft', form));
+}
+
+// 从 Linear 导入的预览，不保存（Contracts 第 13 节）
+export async function previewImport(body: ImportPreviewRequest) {
+  return ImportPreview.parse(await request('POST', '/api/tasks/from-linear', body));
 }

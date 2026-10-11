@@ -20,8 +20,11 @@ function summary({ task }: TaskRecord) {
 }
 
 function measure({ task }: TaskRecord) {
-  return task.kind === 'lfg'
-    ? `${String(task.rubric.flatMap((g) => g.items).length)} 条 · 满分 ${String(rubricMaxScore(task.rubric))}`
+  if (task.kind === 'lfg') {
+    return `${String(task.rubric.flatMap((g) => g.items).length)} 条 · 满分 ${String(rubricMaxScore(task.rubric))}`;
+  }
+  return task.hiddenTests === undefined
+    ? `${String(task.ticket.acceptanceCriteria.length)} 条验收标准`
     : `${String(Object.values(task.hiddenTests.manifest).flat().length)} 个隐藏测试`;
 }
 
@@ -114,9 +117,9 @@ export function TasksPage() {
           />
           <TaskGroup
             title="/ic"
-            description="一张工单加固定 commit 的起始仓库，按隐藏测试的通过率评分。"
+            description="一张工单加固定 commit 的起始仓库，按隐藏测试的通过率评分；没有隐藏测试时按验收标准逐条评分。"
             summaryLabel="工单"
-            measureLabel="隐藏测试"
+            measureLabel="评分依据"
             records={tasks.data.filter((r) => r.task.kind === 'ic')}
           />
         </>

@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import type { IcCriteriaGrade } from '@wf-dashboard/server/grading/schema';
 import type { RubricArtifact } from '@wf-dashboard/server/tasks/schema';
 import type { TaskRecord } from '@wf-dashboard/server/tasks/schema';
 import { ExternalLink } from 'lucide-react';
@@ -438,16 +439,116 @@ function Pair({
   }
   if (left.isError) return <p className="text-sm text-destructive">{left.error.message}</p>;
   if (right.isError) return <p className="text-sm text-destructive">{right.error.message}</p>;
-  return kind === 'lfg' ? (
-    <LfgSideBySide
-      left={left.data}
-      right={right.data}
-      runs={runs}
-      variants={variants}
-      artifact={artifact}
-      onArtifact={onArtifact}
-    />
-  ) : (
-    <IcSideBySide left={left.data} right={right.data} runs={runs} variants={variants} />
+  if (kind === 'lfg') {
+    return (
+      <LfgSideBySide
+        left={left.data}
+        right={right.data}
+        runs={runs}
+        variants={variants}
+        artifact={artifact}
+        onArtifact={onArtifact}
+      />
+    );
+  }
+  const leftCriteria = left.data.icCriteria;
+  const rightCriteria = right.data.icCriteria;
+  if (leftCriteria !== null && rightCriteria !== null) {
+    return (
+      <CriteriaSideBySide
+        left={leftCriteria}
+        right={rightCriteria}
+        runs={runs}
+        variants={variants}
+      />
+    );
+  }
+  return <IcSideBySide left={left.data} right={right.data} runs={runs} variants={variants} />;
+}
+
+// 没有隐藏测试的 ic task：两次 run 的验收标准逐条得分与理由
+function CriteriaSideBySide({
+  left,
+  right,
+  runs,
+  variants,
+}: {
+  left: IcCriteriaGrade;
+  right: IcCriteriaGrade;
+  runs: [CompareRun, CompareRun];
+  variants: SelectedVariant[];
+}) {
+  return (
+    <div className="flex flex-col gap-4" data-testid="criteria-side-by-side">
+      <div className="grid grid-cols-2 gap-4">
+        {[left, right].map((g, i) => {
+          const run = runs[i];
+          if (run === undefined) throw new Error('缺少对比的 run');
+          return (
+            <div key={run.id} className="flex flex-col gap-2 rounded-lg border p-4 text-sm">
+              <RunHeading run={run} variants={variants} />
+              <p className="tabular-nums">
+                验收标准 {g.score} / {g.maxScore} · {g.reachedEnd ? '已到达终点' : '未到达终点'}
+              </p>
+              {g.detail.pr !== null && (
+                <a
+                  href={g.detail.pr.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 underline"
+                >
+                  PR #{g.detail.pr.number} · {g.detail.pr.branch}
+                  <ExternalLink className="size-3.5" />
+                </a>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <table className="w-full table-fixed text-sm">
+        <thead>
+          <tr className="border-b text-left text-xs text-muted-foreground">
+            <th className="w-1/4 py-1.5 pr-3 font-medium">验收标准</th>
+            <th className="px-3 py-1.5 font-medium">左</th>
+            <th className="px-3 py-1.5 font-medium">右</th>
+          </tr>
+        </thead>
+        <tbody>
+          {left.items.map((item, i) => {
+            const other = right.items[i];
+            return (
+              <tr
+                key={item.itemId}
+                className={cn(
+                  'border-b align-top last:border-0',
+                  other?.score !== item.score && 'bg-muted/50',
+                )}
+              >
+                <td className="py-1.5 pr-3">
+                  <span className="mr-1 font-mono text-xs text-muted-foreground">
+                    {item.itemId}
+                  </span>
+                  {item.criterion}
+                </td>
+                {[item, other].map((x, j) => (
+                  <td key={j} className="px-3 py-1.5">
+                    {x === undefined ? (
+                      '—'
+                    ) : (
+                      <>
+                        <span className="font-semibold tabular-nums">
+                          {x.score} / {x.maxScore}
+                        </span>{' '}
+                        <span className="text-muted-foreground">{x.reasoning}</span>
+                      </>
+                    )}
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
