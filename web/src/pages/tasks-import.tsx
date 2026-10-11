@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { formatUsd } from '@/lib/format';
 import type { IcForm } from '@/lib/task-form';
 import { previewImport } from '@/lib/tasks';
 
@@ -180,6 +181,8 @@ function TextInput({
 
 function ImportPreviewView({ preview }: { preview: ImportPreview }) {
   const { issue } = preview;
+  const drafted = preview.criteria;
+  if (drafted === null) throw new Error('预览中没有确定验收标准');
   return (
     <div className="flex flex-col gap-5" data-testid="import-preview">
       <div className="flex flex-col gap-1">
@@ -207,15 +210,26 @@ function ImportPreviewView({ preview }: { preview: ImportPreview }) {
       </div>
       <div className="flex flex-col gap-2">
         <h3 className="text-sm font-medium">验收标准（用于评分）</h3>
-        {issue.acceptanceCriteria.length === 0 ? (
+        <p className="text-xs text-muted-foreground" data-testid="criteria-cost">
+          由 {drafted.model} 读工单全文确定 · 输入 {drafted.inputTokens} 输出 {drafted.outputTokens}{' '}
+          token · {formatUsd(drafted.costUsd)}
+          。使用后可在表单中增删改。
+        </p>
+        {drafted.criteria.length === 0 ? (
           <p className="text-sm text-muted-foreground" data-testid="no-criteria">
-            正文中没有"验收标准 / Acceptance criteria"一节，使用前在表单中填写。
+            工单没有正文，使用前在表单中填写。
           </p>
         ) : (
-          <ol className="list-decimal pl-5 text-sm" data-testid="import-criteria">
-            {issue.acceptanceCriteria.map((c) => (
-              <li key={c} className="whitespace-pre-wrap">
-                {c}
+          <ol
+            className="flex list-decimal flex-col gap-2 pl-5 text-sm"
+            data-testid="import-criteria"
+          >
+            {drafted.criteria.map((c) => (
+              <li key={c.text}>
+                <span className="whitespace-pre-wrap">{c.text}</span>
+                <blockquote className="mt-0.5 border-l-2 pl-2 text-xs text-muted-foreground">
+                  正文原文：{c.quote}
+                </blockquote>
               </li>
             ))}
           </ol>
@@ -326,11 +340,13 @@ export function SourceRepoFields({
 }) {
   const { source } = form;
   const rereading = useMutation({
+    // 只重新读取 workflow，不再确定验收标准
     mutationFn: () =>
       previewImport({
         issue: source.linear.identifier,
         repo: source.github.repo,
         commit: form.repo.commit,
+        criteria: false,
       }),
     onSuccess: (preview) => {
       onAnalysis(preview.workflows);

@@ -67,12 +67,20 @@ export const LinearIssueDetail = z.object({
   team: z.string(),
   // Linear 返回的 markdown 原文
   description: z.string(),
-  // 正文中"验收标准 / Acceptance criteria"一节的列表项；没有这一节时为空
-  acceptanceCriteria: z.array(z.string()),
   // 工单附件中的 GitHub PR，按合并时间排序，未合并的在后
   linkedPrs: z.array(LinkedPr),
 });
 export type LinearIssueDetail = z.infer<typeof LinearIssueDetail>;
+
+// judge 读工单标题与完整正文确定的验收标准；quote 是该条依据的正文原文，只在预览中显示，task.yaml 只存 text
+export const CriteriaDraft = z.object({
+  criteria: z.array(z.object({ text: z.string(), quote: z.string() })),
+  model: z.string(),
+  inputTokens: z.number(),
+  outputTokens: z.number(),
+  costUsd: z.number(),
+});
+export type CriteriaDraft = z.infer<typeof CriteriaDraft>;
 
 // commit 默认值的来源
 export const CommitSource = z.discriminatedUnion('kind', [
@@ -107,8 +115,10 @@ export const ImportPreviewRequest = z.object({
     .string()
     .regex(/^[0-9a-f]{40}$/, 'commit 必须是完整的 40 位 sha')
     .optional(),
+  // 只按仓库与 commit 重新读取 workflow 时为 false：不再调用 judge 确定验收标准
+  criteria: z.boolean().default(true),
 });
-export type ImportPreviewRequest = z.infer<typeof ImportPreviewRequest>;
+export type ImportPreviewRequest = z.input<typeof ImportPreviewRequest>;
 
 // POST /api/tasks/from-linear 的结果：不保存。task 是可以直接交给 POST /api/tasks 的 ic task 定义
 export const ImportPreview = z.object({
@@ -120,6 +130,8 @@ export const ImportPreview = z.object({
   commitTitle: z.string(),
   commitDate: z.string(),
   workflows: WorkflowAnalysis,
+  // 请求中 criteria 为 false 时为空
+  criteria: CriteriaDraft.nullable(),
   task: IcTaskDraft,
 });
 export type ImportPreview = z.infer<typeof ImportPreview>;

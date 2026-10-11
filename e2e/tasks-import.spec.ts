@@ -35,7 +35,12 @@ test('粘贴工单地址导入：预览完整正文、仓库与 commit、checks�
   await expect(preview).toContainText('Validator Site browser drops the release label');
   // 正文完整渲染（含正文中的代码与说明）
   await expect(preview.getByTestId('artifact-markdown')).toContainText('validator-site-web@0.1.1');
-  await expect(preview.getByTestId('no-criteria')).toBeVisible();
+  // 正文没有验收标准一节：judge 从正文整理出条目，每条带正文原文，显示这次调用的花费
+  const criteria = preview.getByTestId('import-criteria').getByRole('listitem');
+  await expect(criteria.first()).toContainText('正文原文：');
+  const drafted = await criteria.count();
+  expect(drafted).toBeGreaterThan(0);
+  await expect(preview.getByTestId('criteria-cost')).toContainText(/token · \$\d/);
   const repo = preview.getByTestId('import-repo');
   await expect(repo).toContainText('txehq/tokun-cn');
   await expect(repo).toContainText('f8df1eae3559');
@@ -51,14 +56,16 @@ test('粘贴工单地址导入：预览完整正文、仓库与 commit、checks�
   await panel.getByRole('button', { name: '使用这些内容' }).click();
   await expect(page.getByLabel('工单正文')).toHaveValue(/validator-site-web@0\.1\.1/);
   await page.getByLabel('ID').fill(taskId);
-  // 正文没有验收标准一节：在表单中补上
-  await page.getByRole('button', { name: '添加', exact: true }).click();
+  // 表单中是 judge 确定的验收标准，可以增删改：改写第 1 条，再加一条
+  await expect(page.getByRole('textbox', { name: /^验收标准第 \d+ 条$/ })).toHaveCount(drafted);
   await page
     .getByRole('textbox', { name: '验收标准第 1 条' })
-    .fill('analytics 接受部署的 web-config 实际给出的 release 值 validator-site-web@0.1.1-capso.184（允许 @ 与 +）');
+    .fill(
+      'analytics 接受部署的 web-config 实际给出的 release 值 validator-site-web@0.1.1-capso.184（允许 @ 与 +）',
+    );
   await page.getByRole('button', { name: '添加', exact: true }).click();
   await page
-    .getByRole('textbox', { name: '验收标准第 2 条' })
+    .getByRole('textbox', { name: `验收标准第 ${String(drafted + 1)} 条` })
     .fill('单元测试用这个真实的 release 值覆盖修复，npm test 通过');
   const source = page.getByTestId('source-repo');
   await expect(source).toContainText('TXE-3635');
@@ -88,7 +95,9 @@ test('粘贴工单地址导入：预览完整正文、仓库与 commit、checks�
   expect(record.task.repo.commit).toBe('f8df1eae355960da774e3e08f4f6a248f05b0910');
 
   await page.goto('/tasks');
-  await expect(page.locator('[data-slot=card]', { hasText: '/ic' })).toContainText('2 条验收标准');
+  await expect(page.getByRole('row', { name: new RegExp(taskId) })).toContainText(
+    `${String(drafted + 1)} 条验收标准`,
+  );
 });
 
 test('地址不是 Linear 工单时显示原文错误', async ({ page }) => {

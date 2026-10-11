@@ -47,34 +47,34 @@ describe('从 Linear 导入 ic task', { timeout: 5 * 60_000 }, () => {
       github: { repo: 'txehq/take-home-question' },
     });
     expect(preview.commitSource).toEqual({ kind: 'default-branch', branch: 'master' });
-    // 补上验收标准后是合法的 task；YAML 写出再读回，正文逐字节相同
-    const criteria =
-      preview.task.ticket.acceptanceCriteria.length > 0
-        ? preview.task.ticket.acceptanceCriteria
-        : ['正文中的全部要求都实现'];
-    const definition = IcTaskDefinition.parse({
-      ...preview.task,
-      ticket: { ...preview.task.ticket, acceptanceCriteria: criteria },
-    });
+    // judge 确定的验收标准：task 中是各条的 text，每个 quote 都是正文原文
+    const drafted = preview.criteria;
+    if (drafted === null) throw new Error('预览没有确定验收标准');
+    expect(drafted.criteria.length).toBeGreaterThan(0);
+    expect(preview.task.ticket.acceptanceCriteria).toEqual(drafted.criteria.map((c) => c.text));
+    for (const c of drafted.criteria) expect(raw.description).toContain(c.quote);
+    // 合法的 task；YAML 写出再读回，正文逐字节相同
+    const definition = IcTaskDefinition.parse(preview.task);
     const back = parseTaskYaml(serializeTask(definition), 'TXE-3546.yaml');
     expect(back.kind === 'ic' && back.ticket.body).toBe(raw.description);
     console.log(
-      `TXE-3546 正文 ${String(raw.description.length)} 字符，验收标准 ${String(preview.task.ticket.acceptanceCriteria.length)} 条`,
+      `TXE-3546 正文 ${String(raw.description.length)} 字符，验收标准 ${String(drafted.criteria.length)} 条，${drafted.model}，花费 $${drafted.costUsd.toFixed(4)}`,
     );
   });
 
-  it('TXE-2107：## Acceptance criteria 一节的 10 条验收标准', async () => {
-    const issue = await readLinearIssue('TXE-2107');
+  it('TXE-3635：读回正文原文与附件中已合并的 PR', async () => {
+    const issue = await readLinearIssue('TXE-3635');
     expect(issue.status).toBe('Done');
-    expect(issue.acceptanceCriteria).toHaveLength(10);
-    expect(issue.acceptanceCriteria[0]).toBe(
-      '`wf mcp unskip` puts the component back into the `applied` list of the next `wf repair` — verify: integration test',
-    );
-    expect(issue.acceptanceCriteria[9]).toContain("`wf-guard`'s `WF_SUBCOMMANDS`");
+    expect(issue.description).toContain('validator-site-web@0.1.1-capso.184');
+    expect(issue.linkedPrs.map((p) => [p.repo, p.number, p.state])).toEqual([
+      ['txehq/tokun-cn', 638, 'MERGED'],
+    ]);
   });
 
   it('TXE-3635：默认仓库与 commit 取关联的已合并 PR 的 base commit；自托管 runner 的 job 不进 requiredChecks', async () => {
-    const preview = await previewLinearImport({ issue: 'TXE-3635' });
+    const preview = await previewLinearImport({ issue: 'TXE-3635', criteria: false });
+    expect(preview.criteria).toBeNull();
+    expect(preview.task.ticket.acceptanceCriteria).toEqual([]);
     expect(preview.repo).toBe('txehq/tokun-cn');
     expect(preview.commit).toBe('f8df1eae355960da774e3e08f4f6a248f05b0910');
     expect(preview.commitSource).toMatchObject({

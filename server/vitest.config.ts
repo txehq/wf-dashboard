@@ -12,6 +12,7 @@ export const gatewayTests = [
   'test/grading/lfg-judge.test.ts',
   'test/runs/simulated-user.test.ts',
   'test/tasks/linear-import.test.ts',
+  'test/tasks/criteria-draft.test.ts',
   'test/grading/ic-criteria-judge.test.ts',
 ];
 

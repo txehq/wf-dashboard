@@ -1,0 +1,53 @@
+import { afterAll, describe, expect, it } from 'vitest';
+import { closeLinearClient, readIssueForImport } from '../../src/external/linear.js';
+import { draftCriteria, readCriteriaDraft } from '../../src/tasks/criteria-draft.js';
+
+afterAll(closeLinearClient);
+
+// 真实 Linear（只读取）与真实 gateway 上的 judge 模型
+describe('judge 确定验收标准', { timeout: 5 * 60_000 }, () => {
+  it('TXE-1659：有 Acceptance criteria 一节，逐条与原文一致', async () => {
+    const issue = await readIssueForImport('TXE-1659');
+    // 这一节是 5 个以 "* AC" 开头的列表项
+    const expected = issue.description
+      .split('\n')
+      .filter((line) => line.startsWith('* AC'))
+      .map((line) => line.slice(2));
+    expect(expected).toHaveLength(5);
+    const draft = await draftCriteria(issue.title, issue.description);
+    expect(draft.criteria.map((c) => c.text)).toEqual(expected);
+    for (const c of draft.criteria) expect(issue.description).toContain(c.quote);
+    expect(draft.costUsd).toBeGreaterThan(0);
+    console.log(
+      `TXE-1659：${String(draft.criteria.length)} 条，${draft.model}，输入 ${String(draft.inputTokens)} 输出 ${String(draft.outputTokens)} token，花费 $${draft.costUsd.toFixed(4)}`,
+    );
+  });
+
+  it('TXE-3635：没有这一节，从正文整理出条目，每个 quote 都在正文中', async () => {
+    const issue = await readIssueForImport('TXE-3635');
+    expect(issue.description).not.toMatch(/acceptance criteria|验收标准/i);
+    const draft = await draftCriteria(issue.title, issue.description);
+    expect(draft.criteria.length).toBeGreaterThan(0);
+    for (const c of draft.criteria) {
+      expect(issue.description).toContain(c.quote);
+      expect(c.text.length).toBeGreaterThan(5);
+    }
+    console.log(
+      `TXE-3635：${String(draft.criteria.length)} 条，${draft.model}，输入 ${String(draft.inputTokens)} 输出 ${String(draft.outputTokens)} token，花费 $${draft.costUsd.toFixed(4)}`,
+    );
+    for (const c of draft.criteria) console.log(`- ${c.text}\n  quote: ${c.quote}`);
+  });
+
+  it('quote 不是正文的原文、text 是占位内容时以原文抛错', () => {
+    const body = '修复 `formatMoney` 的负号位置。';
+    expect(() =>
+      readCriteriaDraft(body, { criteria: [{ text: '负号在符号之前', quote: '负号位置不对' }] }),
+    ).toThrow('judge 给第 1 条验收标准的 quote 不是正文的原文："负号位置不对"');
+    expect(() =>
+      readCriteriaDraft(body, { criteria: [{ text: 'placeholder', quote: '负号位置' }] }),
+    ).toThrow('judge 给第 1 条验收标准的 text 是占位内容');
+    expect(readCriteriaDraft(body, { criteria: [{ text: '负号在符号之前', quote: '负号位置' }] })).toEqual(
+      [{ text: '负号在符号之前', quote: '负号位置' }],
+    );
+  });
+});

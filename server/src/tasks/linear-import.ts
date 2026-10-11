@@ -12,7 +12,7 @@ import {
   readWorkflowFiles,
 } from '../external/github.js';
 import { readIssueForImport } from '../external/linear.js';
-import { extractAcceptanceCriteria } from './acceptance-criteria.js';
+import { draftCriteria } from './criteria-draft.js';
 import {
   type CommitSource,
   type ImportPreview,
@@ -41,7 +41,7 @@ const byMerge = (a: LinkedPr, b: LinkedPr) =>
       ? -1
       : a.mergedAt.localeCompare(b.mergedAt);
 
-// 工单详情：正文原文、验收标准与附件中的 GitHub PR（只读）
+// 工单详情：正文原文与附件中的 GitHub PR（只读）
 export async function readLinearIssue(identifier: string): Promise<LinearIssueDetail> {
   const issue = await readIssueForImport(identifier);
   const prRefs = issue.attachmentUrls.flatMap((url) => {
@@ -57,7 +57,6 @@ export async function readLinearIssue(identifier: string): Promise<LinearIssueDe
     url: issue.url,
     team: issue.team,
     description: issue.description,
-    acceptanceCriteria: extractAcceptanceCriteria(issue.description),
     linkedPrs: linkedPrs.sort(byMerge),
   };
 }
@@ -98,6 +97,9 @@ export async function previewLinearImport(request: ImportPreviewRequest): Promis
     await readWorkflowFiles(repo, commit.sha),
     readRemoteWorkflow,
   );
+  // 验收标准由 judge 读工单标题与完整正文确定（Contracts 第 13 节）
+  const criteria =
+    request.criteria === false ? null : await draftCriteria(issue.title, issue.description);
   const task: IcTaskDraft = {
     id: slug(issue.identifier),
     kind: 'ic',
@@ -107,9 +109,9 @@ export async function previewLinearImport(request: ImportPreviewRequest): Promis
     source: { linear: { identifier: issue.identifier, url: issue.url }, github: { repo } },
     ticket: {
       title: issue.title,
-      // 正文原样保存（Contracts 第 13 节）；正文为空的工单由用户在表单中填写
+      // 正文原样保存；正文为空的工单由用户在表单中填写
       body: issue.description,
-      acceptanceCriteria: issue.acceptanceCriteria,
+      acceptanceCriteria: criteria?.criteria.map((c) => c.text) ?? [],
     },
     repo: { path: 'repo.bundle', commit: commit.sha },
     requiredChecks: workflows.requiredChecks,
@@ -122,6 +124,7 @@ export async function previewLinearImport(request: ImportPreviewRequest): Promis
     commitTitle: commit.title,
     commitDate: commit.date,
     workflows,
+    criteria,
     task,
   };
 }
