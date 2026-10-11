@@ -43,6 +43,17 @@ afterAll(async () => {
   await closeLinearClient();
 });
 
+const options = () => ({
+  models: () => models,
+  vaultDir: config.vaultDir,
+  product: config.evalProduct,
+  txeWorkflowRepo: config.txeWorkflowRepo,
+  ctxBin: config.ctxBin,
+  codexAuthPath: config.codexAuthPath,
+  codexConfigPath: config.codexConfigPath,
+  workDir: `${config.repoRoot}/.work/test-linear-reconnect`,
+});
+
 describe('Linear 连接断开后重建', () => {
   test('调用进行中 mcp-remote 被结束：当次调用失败，下一次调用用新连接成功', async () => {
     expect(await keys()).toContain(EVAL_TEAM);
@@ -72,16 +83,7 @@ describe('Linear 连接断开后重建', () => {
     expect(await keys()).toContain(EVAL_TEAM);
     const before = await linearConnectionPid();
     if (before === null) throw new Error('没有连接');
-    const environment = createEnvironment({
-      models: () => models,
-      vaultDir: config.vaultDir,
-      product: config.evalProduct,
-      txeWorkflowRepo: config.txeWorkflowRepo,
-      ctxBin: config.ctxBin,
-      codexAuthPath: config.codexAuthPath,
-      codexConfigPath: config.codexConfigPath,
-      workDir: `${config.repoRoot}/.work/test-linear-reconnect`,
-    });
+    const environment = createEnvironment(options());
     const report = await environment.get(true);
     const linear = report.checks.find((c) => c.id === 'linear');
     expect(linear).toMatchObject({ ok: true });
@@ -91,4 +93,21 @@ describe('Linear 连接断开后重建', () => {
     // 旧连接没有进行中的调用，随即关闭
     expect(await waitFor(() => !alive(before), 10_000)).toBe(true);
   }, 300_000);
+
+  // 检查进行中连接断开（与网络中断时相同，调用以 transport 层错误失败）：修复方法是网络恢复后重新检查，
+  // 不提示重新授权；之后的重新检查用新连接通过
+  test('环境检查中连接断开：fix 为网络恢复后重新检查，再次重新检查通过', async () => {
+    const environment = createEnvironment(options());
+    const checking = environment.get(true);
+    const pid = await linearConnectionPid();
+    if (pid === null) throw new Error('没有连接');
+    killTree(pid);
+    const failed = (await checking).checks.find((c) => c.id === 'linear');
+    console.log('连接断开时的 Linear 检查', JSON.stringify(failed));
+    expect(failed?.ok).toBe(false);
+    expect(failed?.fix).toContain('网络恢复后点「重新检查」');
+    expect(failed?.fix).not.toContain('npx -y mcp-remote');
+    const again = (await environment.get(true)).checks.find((c) => c.id === 'linear');
+    expect(again).toMatchObject({ ok: true });
+  }, 600_000);
 });

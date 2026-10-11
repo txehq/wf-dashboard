@@ -188,19 +188,32 @@ const Teams = z
   .object({ teams: z.array(z.object({ key: z.string(), name: z.string() }).loose()) })
   .loose();
 
+const linearLogin = `在终端运行 npx -y mcp-remote ${LINEAR_MCP_URL}，在打开的浏览器中授权 Linear，看到 Proxy established 后按 Ctrl-C，再点「重新检查」`;
+const AUTH_ERROR = /\b401\b|invalid_token|unauthori[sz]ed|authorization|未登录/i;
+const NETWORK_ERROR =
+  /fetch failed|ENOTFOUND|ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|Connection closed|Not connected|timed out|-3200[01]/i;
+
+// Linear 调用失败时的修复方法按错误种类给出：只有需要授权时才提示重新授权
+export function linearFix(error: string): string {
+  if (AUTH_ERROR.test(error)) return linearLogin;
+  if (NETWORK_ERROR.test(error)) {
+    return '网络中断导致与 Linear 的连接断开；网络恢复后点「重新检查」，会用新建的连接再试';
+  }
+  return 'detail 中是 Linear MCP 返回的原文，按它处理后点「重新检查」';
+}
+
 async function linearCheck(): Promise<EnvironmentCheck> {
-  const login = `在终端运行 npx -y mcp-remote ${LINEAR_MCP_URL}，在打开的浏览器中授权 Linear，看到 Proxy established 后按 Ctrl-C，再点「重新检查」`;
   const base = { id: 'linear', label: 'Linear MCP：list_teams' };
   if (!linearLoggedIn()) {
     return {
       ...base,
       ok: false,
       detail: '~/.mcp-auth/mcp-remote-v1 中没有 Linear MCP 的 OAuth token（mcp-remote 未登录）',
-      fix: login,
+      fix: linearLogin,
     };
   }
   const result = await attempt(() => callLinear('list_teams', {}, Teams));
-  if (!result.ok) return { ...base, ok: false, detail: result.error, fix: login };
+  if (!result.ok) return { ...base, ok: false, detail: result.error, fix: linearFix(result.error) };
   const keys = result.value.teams.map((t) => t.key);
   if (!keys.includes(EVAL_TEAM)) {
     return {
@@ -214,7 +227,7 @@ async function linearCheck(): Promise<EnvironmentCheck> {
     ...base,
     ok: true,
     detail: `${String(keys.length)} 个 team，含 ${EVAL_TEAM}`,
-    fix: login,
+    fix: linearLogin,
   };
 }
 
