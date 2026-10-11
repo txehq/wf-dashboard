@@ -1,6 +1,4 @@
 import fs from 'node:fs';
-import path from 'node:path';
-import { type FSWatcher, watch } from 'chokidar';
 import { eq } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
 import {
@@ -22,7 +20,7 @@ import {
   type IcBoundary,
   type IcState,
 } from '../stages/ic.js';
-import { type LfgDoc, LfgTracker } from '../stages/lfg.js';
+import { type LfgDoc, lfgSnapshot, LfgTracker } from '../stages/lfg.js';
 import { type Cycle, icCycles, lfgCycle, workflowMarks } from '../stages/report.js';
 import { loadSessionRows, type RequestRow, type SessionRows } from '../stages/rows.js';
 import { LFG_STAGES, type LfgStage } from '../stages/workflow.js';
@@ -149,43 +147,58 @@ interface LfgDone {
   planLockLine: string | null;
 }
 
+// 读 feature 目录中产物的间隔
+const LFG_POLL_MS = 300;
+
 export class LfgLiveStages extends LiveStages {
   private readonly tracker: LfgTracker;
   private readonly done = new Map<LfgStage, LfgDone>();
-  private watcher: FSWatcher | null = null;
+  private timer: NodeJS.Timeout | null = null;
 
   constructor(
     opts: LiveStagesOptions,
-    private readonly productDir: string,
     readonly featureDir: string,
   ) {
     super(opts);
     this.tracker = new LfgTracker(featureDir, opts.runId);
   }
 
+  // 四个产物的内容 hash；目录还不存在时全部为 null
+  private contents(): string {
+    const docs = lfgSnapshot(this.featureDir, this.runId);
+    return JSON.stringify(Object.values(docs).map((d) => d?.hash ?? null));
+  }
+
+  // 每 LFG_POLL_MS 读一次 feature 目录（不依赖文件系统事件：macOS 的 FSEvents 在大量文件写入时会
+  // 整段丢弃事件）。产物的内容变化后、连续两次读到相同内容（写入已经结束）时判定一次
   async start() {
-    const inFeature = (p: string) =>
-      p === this.featureDir || p.startsWith(`${this.featureDir}${path.sep}`);
-    // feature 目录在 interview 写出 Brief.md 时才出现，所以监听整个 product 目录
-    const watcher = watch(this.productDir, {
-      ignoreInitial: true,
-      awaitWriteFinish: { stabilityThreshold: 300, pollInterval: 100 },
-    });
-    watcher.on('all', (_event, p) => {
-      if (inFeature(p)) {
+    let judged = this.contents();
+    let seen = judged;
+    this.timer = setInterval(() => {
+      let now: string;
+      try {
+        now = this.contents();
+      } catch (error) {
+        this.clearTimer();
+        this.opts.onError(error instanceof Error ? error : new Error(String(error)));
+        return;
+      }
+      if (now !== judged && now === seen) {
+        judged = now;
         void this.enqueue(() => {
           this.observe();
         });
       }
-    });
-    watcher.on('error', (error) => {
-      this.opts.onError(error instanceof Error ? error : new Error(String(error)));
-    });
-    await new Promise<void>((resolve) => watcher.once('ready', resolve));
-    this.watcher = watcher;
+      seen = now;
+    }, LFG_POLL_MS);
     await this.enqueue(() => {
       this.observe();
     });
+  }
+
+  private clearTimer() {
+    if (this.timer !== null) clearInterval(this.timer);
+    this.timer = null;
   }
 
   private snapshot(doc: LfgDoc) {
@@ -229,15 +242,15 @@ export class LfgLiveStages extends LiveStages {
   }
 
   async close() {
+    this.clearTimer();
     await this.enqueue(() => {
       this.observe();
     });
-    await this.watcher?.close();
   }
 
   override async stop() {
+    this.clearTimer();
     await super.stop();
-    await this.watcher?.close();
   }
 }
 

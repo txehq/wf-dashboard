@@ -320,7 +320,6 @@ export class RunDriver {
     if (this.task.kind === 'lfg') {
       const stages = new LfgLiveStages(
         stageOptions,
-        this.productDir(),
         featureDir(this.deps.vaultDir, this.deps.product, this.runId),
       );
       await stages.start();
