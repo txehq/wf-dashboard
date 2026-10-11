@@ -152,6 +152,16 @@ export function createVariants({
     }
   }
 
+  // 从其他数据目录导入的 variant 只有 src/skills，没有安装目录：不能编辑、构建与运行，只能派生
+  function assertInstallable(row: Variant) {
+    if (row.installDir === null) {
+      throw new HttpError(
+        409,
+        `variant ${row.name} 是导入的，只有 skill 内容；派生为新 variant 后才能编辑、构建与运行`,
+      );
+    }
+  }
+
   function assertNameFree(name: string) {
     if (db.select().from(variants).where(eq(variants.name, name)).get() !== undefined) {
       throw new HttpError(409, `名称已被使用：${name}`);
@@ -325,17 +335,28 @@ export function createVariants({
       return get(id);
     },
 
-    // 从任一 variant（含已冻结的）复制出新的 draft
+    // 从任一 variant（含已冻结的）复制出新的 draft。导入的 variant 只有 src/skills：
+    // 新 variant 的 src 由基线导出加上它的 skills 组成，未修改时 skills hash 与它相同
     derive(sourceId: string, input: { name: string }): Variant {
       const source = get(sourceId);
       assertNameFree(input.name);
+      const base = layout.base(source.baseCommit);
+      if (!fs.existsSync(base)) {
+        throw new HttpError(409, `基线 ${source.baseCommit} 的导出不存在：${base}`);
+      }
       const id = randomUUID();
       const dirs = layout.variant(id);
       fs.mkdirSync(dirs.dir, { recursive: true });
-      fs.cpSync(layout.variant(source.id).src, dirs.src, {
-        recursive: true,
-        verbatimSymlinks: true,
-      });
+      const copy = (from: string, to: string) => {
+        fs.cpSync(from, to, { recursive: true, verbatimSymlinks: true });
+      };
+      if (source.installDir === null) {
+        copy(base, dirs.src);
+        fs.rmSync(dirs.skills, { recursive: true, force: true });
+        copy(layout.variant(source.id).skills, dirs.skills);
+      } else {
+        copy(layout.variant(source.id).src, dirs.src);
+      }
       fs.writeFileSync(dirs.buildLog, `=== 从 ${source.name}（${source.id}）派生 ===\n`);
       const hash = skillsHash(dirs.src);
       db.insert(variants)
@@ -359,6 +380,7 @@ export function createVariants({
       input: { model?: ModelAlias | undefined; effort?: Effort | undefined },
     ) {
       const row = get(id);
+      assertInstallable(row);
       assertDraft(row);
       db.update(variants)
         .set({ model: input.model ?? row.model, effort: input.effort ?? row.effort })
@@ -388,6 +410,7 @@ export function createVariants({
     // 保存或新建 skills/ 内的文件
     writeFile(id: string, file: string, content: string): Variant {
       const row = get(id);
+      assertInstallable(row);
       assertDraft(row);
       const absolute = resolveSkillPath(layout.variant(id).src, file);
       if (fs.statSync(absolute, { throwIfNoEntry: false })?.isDirectory()) {
@@ -400,6 +423,7 @@ export function createVariants({
 
     deleteFile(id: string, file: string): Variant {
       const row = get(id);
+      assertInstallable(row);
       assertDraft(row);
       const skillsDir = layout.variant(id).skills;
       const absolute = resolveSkillPath(layout.variant(id).src, file);
@@ -448,6 +472,7 @@ export function createVariants({
     // 构建并隔离安装；每次从空的 dist 与 home 开始
     async build(id: string): Promise<Variant> {
       const row = get(id);
+      assertInstallable(row);
       assertDraft(row);
       if (row.buildStatus === 'building') throw new HttpError(409, `variant ${row.name} 正在构建`);
       db.update(variants)

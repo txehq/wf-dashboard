@@ -2,7 +2,7 @@ import { Editor } from '@monaco-editor/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronRight, FilePlus, FileText, Hammer, Save, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams } from 'react-router';
 import { SkillDiffEditor } from '@/components/skill-diff-editor';
 import { Button } from '@/components/ui/button';
 import { languageOf } from '@/lib/language';
@@ -503,6 +503,22 @@ function Header({
   });
   const frozen = variant.status === 'frozen';
   const imported = isImported(variant);
+  const parent = useQuery({
+    ...variantQuery(variant.parentId ?? ''),
+    enabled: variant.parentId !== null,
+  });
+  const deriveButton = (label: string, defaultName: string) => (
+    <Button
+      variant={frozen || imported ? 'default' : 'outline'}
+      disabled={derive.isPending}
+      onClick={() => {
+        const name = window.prompt('新 variant 名称', defaultName);
+        if (name !== null && name.trim() !== '') derive.mutate(name.trim());
+      }}
+    >
+      {label}
+    </Button>
+  );
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
@@ -515,6 +531,15 @@ function Header({
           {variant.version} · 基线 {variant.baseCommit.slice(0, 7)}
         </span>
       </div>
+      {variant.parentId !== null && (
+        <p className="text-sm text-muted-foreground" data-testid="variant-parent">
+          派生自{' '}
+          <Link className="underline" to={`/variants/${variant.parentId}`}>
+            {parent.data?.name ?? variant.parentId}
+          </Link>
+          {parent.data !== undefined && isImported(parent.data) && '（导入的 variant）'}
+        </p>
+      )}
       {frozen && !imported && (
         <p className="text-sm text-muted-foreground">
           已被运行使用，内容只读。修改请另存为新 variant。
@@ -525,18 +550,13 @@ function Header({
       )}
       <div className="flex flex-wrap items-center gap-3">
         <Settings variant={variant} />
-        {!imported && (
+        {imported ? (
           <div className="ml-auto flex gap-2">
-            <Button
-              variant={frozen ? 'default' : 'outline'}
-              disabled={derive.isPending}
-              onClick={() => {
-                const name = window.prompt('新 variant 名称', `${variant.name} 副本`);
-                if (name !== null && name.trim() !== '') derive.mutate(name.trim());
-              }}
-            >
-              另存为新 variant
-            </Button>
+            {deriveButton('派生为可运行的 variant', `${variant.name}（可运行）`)}
+          </div>
+        ) : (
+          <div className="ml-auto flex gap-2">
+            {deriveButton('另存为新 variant', `${variant.name} 副本`)}
             {!frozen && (
               <Button disabled={building} onClick={onBuild}>
                 <Hammer />

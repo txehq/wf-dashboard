@@ -74,7 +74,7 @@ export function isImported(variant: Variant): boolean {
   return variant.installDir === null;
 }
 
-export const importedLabel = '导入的 variant（只读，不可构建与运行）';
+export const importedLabel = '导入的 variant（只读，派生后可以构建与运行）';
 
 export const variantsQuery = queryOptions({
   queryKey: ['variants'],
