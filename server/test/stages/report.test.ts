@@ -3,7 +3,8 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { buildApp } from '../../src/api/app.js';
 import { config } from '../../src/config.js';
 import { stageAnalyses, stageChecks } from '../../src/db/schema.js';
-import { analyzeSession, StageReport } from '../../src/stages/report.js';
+import { BATCH_SIZE, behavioursOf } from '../../src/stages/ic.js';
+import { analyzeSession, StageReport, workflowMarks } from '../../src/stages/report.js';
 import { watchAnalysis } from './analysis-events.js';
 import { openTestDb } from './db.js';
 import { ingestSample, SAMPLES, type Sample, seqOfToolLine, TEST_STAGE_MODEL } from './samples.js';
@@ -146,18 +147,33 @@ describe('端到端：导入真实样本后判定', () => {
     expect(report.ic.map((c) => [c.index, c.label])).toEqual(
       expected.map((e, i) => [i + 1, e.label]),
     );
+    // 判定从 ic 的第一个标志起按 BATCH_SIZE 条行为一批。Skill 调用给出的边界由确定性规则决定，精确等于
+    // Stage Markers 的行；没有 Skill 调用的批次由模型判定，同一提问不同次的回答可能差几条请求，
+    // 这类边界只要求与 Stage Markers 的那一条在同一批
+    const icStart = workflowMarks(s).ic[0];
+    if (icStart === undefined) throw new Error('样本中没有 ic 标志');
+    const behaviours = behavioursOf(s.main.filter((r) => r.seq >= icStart));
+    const batchOf = (seq: number) => {
+      const index = behaviours.findIndex((b) => b.seq === seq);
+      if (index === -1) throw new Error(`请求 #${String(seq)} 没有行为`);
+      return Math.floor(index / BATCH_SIZE);
+    };
+    const expectBoundary = (
+      v: { startSeq: number | null; method: string } | undefined,
+      lines: number[],
+    ) => {
+      const seqs = lines.map((line) => seqOfToolLine(s, line));
+      const start = v?.startSeq ?? -1;
+      if (v?.method === 'skill') expect(seqs).toContain(start);
+      else expect(seqs.map(batchOf)).toContain(batchOf(start));
+    };
     for (const [i, e] of expected.entries()) {
       const cycle = report.ic[i];
       if (cycle === undefined) throw new Error(`缺少第 ${String(i + 1)} 轮`);
       const view = (stage: string) => cycle.stages.find((v) => v.stage === stage);
-      const openPr = seqOfToolLine(s, e.openPr);
-      const fixPr = seqOfToolLine(s, e.fixPr);
       const [prReadyLine] = e.rfr;
       if (prReadyLine === undefined) throw new Error('缺少 gh pr ready 的行号');
       const prReady = seqOfToolLine(s, prReadyLine);
-      const ready = view('ready-for-review');
-      const rfr = ready?.startSeq ?? -1;
-      expect(e.rfr.map((line) => seqOfToolLine(s, line))).toContain(rfr);
       expect(cycle.stages.map((v) => v.stage)).toEqual([
         'claim',
         'readiness',
@@ -167,29 +183,29 @@ describe('端到端：导入真实样本后判定', () => {
         'fix-pr',
         'ready-for-review',
       ]);
-      expect(view('open-pr')).toMatchObject({
-        status: 'done',
-        startSeq: openPr,
-        endSeq: fixPr - 1,
-        method: 'skill',
-      });
-      expect(view('fix-pr')).toMatchObject({
-        status: 'done',
-        startSeq: fixPr,
-        endSeq: rfr - 1,
-        method: e.fixPrMethod,
-      });
+      const openPr = view('open-pr');
+      const fixPr = view('fix-pr');
+      const ready = view('ready-for-review');
+      expectBoundary(openPr, [e.openPr]);
+      expectBoundary(fixPr, [e.fixPr]);
+      expectBoundary(ready, e.rfr);
+      // PR #77 没有 fix-pr Skill，fix-pr 只能由模型判定；ready-for-review 都由模型判定
+      if (e.fixPrMethod === 'llm') expect(fixPr?.method).toBe('llm');
+      expect(ready?.method).toBe('llm');
+      const fixStart = fixPr?.startSeq ?? -1;
+      const rfr = ready?.startSeq ?? -1;
+      expect(openPr).toMatchObject({ status: 'done', endSeq: fixStart - 1 });
+      expect(fixPr).toMatchObject({ status: 'done', endSeq: rfr - 1 });
       // ready-for-review 在 gh pr ready 之后不久结束，这一轮随之结束
-      expect(ready).toMatchObject({ status: 'done', startSeq: rfr, method: 'llm' });
+      expect(ready).toMatchObject({ status: 'done' });
       expect(ready?.endSeq).toBe(cycle.endSeq);
       expect(cycle.endSeq).not.toBeNull();
       expect((cycle.endSeq ?? 0) - prReady).toBeLessThanOrEqual(5);
-      // 这些 PR 没有认领工单，claim 不含任何请求；acceptance 没有运行，Skill open-pr 越过了它
+      // 这些 PR 没有认领工单，claim 不含任何请求；acceptance 没有运行，被越过而跳过
       expect(view('claim')).toMatchObject({ status: 'skipped', stats: { requests: 0 } });
       expect(view('acceptance')).toMatchObject({
         status: 'skipped',
-        startSeq: openPr,
-        method: 'skill',
+        startSeq: openPr?.startSeq,
         stats: { requests: 0 },
       });
       // 轮次之间不重叠
