@@ -14,6 +14,7 @@ import {
 } from '../src/external/github.js';
 import type { IcTaskWithTests } from '../src/tasks/schema.js';
 import { runHiddenTests } from '../src/grading/hidden-tests.js';
+import { DEFAULT_COPY_RUNNER_LABELS } from '../src/runs/settings.js';
 import { buildFixtureTask, fixtureDir, git, testRunId } from './helpers/ic-fixture.js';
 
 const gh = async (args: string[], cwd?: string) =>
@@ -42,7 +43,12 @@ describe('GitHub /ic 运行仓库', { timeout: 15 * 60_000 }, () => {
 
   it('createRunRepo：推送 bundle 的固定 commit，push CI 通过，ruleset 生效', async () => {
     task = await buildFixtureTask(runId);
-    const created = await createRunRepo(task, runId, new AbortController().signal);
+    const created = await createRunRepo(
+      task,
+      runId,
+      DEFAULT_COPY_RUNNER_LABELS,
+      new AbortController().signal,
+    );
     repo = created.repo;
     console.log(`GitHub 仓库 ${created.url}`);
     expect(repo).toBe(`txehq/wfe-${runId}`);

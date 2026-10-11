@@ -7,12 +7,20 @@ import { defaultModels, setModels } from '../llm/client.js';
 
 const ModelName = z.string().trim().min(1);
 
+// txehq 组织级的自托管 runner 对新建仓库可用（Contracts 第 13 节，Reports/W28 实测）
+export const DEFAULT_COPY_RUNNER_LABELS = ['arc-linux-dind'];
+
 export const Settings = z.strictObject({
   runConcurrency: z.int().min(1).max(32),
   maxUserTurns: z.int().min(1).max(1000),
   defaultRepeats: z.int().min(1).max(50),
   // gateway 上的模型名
   models: z.strictObject({ simulatedUser: ModelName, judge: ModelName }),
+  // 副本仓库中可用的自托管 runner 标签；在它之前保存的设置读出为默认值
+  copyRunnerLabels: z
+    .array(z.string().trim().min(1))
+    .refine((labels) => new Set(labels).size === labels.length, '标签不能重复')
+    .default(DEFAULT_COPY_RUNNER_LABELS),
 });
 export type Settings = z.infer<typeof Settings>;
 
@@ -22,6 +30,7 @@ export function defaultSettings(): Settings {
     maxUserTurns: config.maxUserTurns,
     defaultRepeats: config.defaultRepeats,
     models: defaultModels(),
+    copyRunnerLabels: DEFAULT_COPY_RUNNER_LABELS,
   };
 }
 

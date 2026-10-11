@@ -227,6 +227,7 @@ export interface CompareQuery {
   tasks: string[];
   includeIntervened: boolean;
   includeCrossRef: boolean;
+  includeSourceRef: boolean;
   includeCancelled: boolean;
 }
 
@@ -242,7 +243,7 @@ export function comparableRun(includeCancelled: boolean) {
   );
 }
 
-// 每个 variant × task 一格；默认排除有人工干预、参考了其他 run 与被取消的 run，三个开关各自只放回一类
+// 每个 variant × task 一格；默认排除有人工干预、参考了其他 run、读取了来源与被取消的 run，四个开关各自只放回一类
 export function compareRuns(db: Db, query: CompareQuery): CompareResult {
   const cells = query.variants.flatMap((variantId) =>
     query.tasks.map((taskId): CompareCell => {
@@ -257,6 +258,7 @@ export function compareRuns(db: Db, query: CompareQuery): CompareResult {
             comparableRun(query.includeCancelled),
             query.includeIntervened ? undefined : eq(runs.humanIntervened, false),
             query.includeCrossRef ? undefined : sql`json_array_length(${runs.crossRunRefs}) = 0`,
+            query.includeSourceRef ? undefined : sql`json_array_length(${runs.sourceRefs}) = 0`,
           ),
         )
         .orderBy(asc(runs.createdAt), asc(runs.id))

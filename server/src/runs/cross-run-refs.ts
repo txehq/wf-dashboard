@@ -6,11 +6,11 @@ import type { RequestRow } from '../stages/rows.js';
 
 // Contracts 7.11：run 的 requests（含子代理）中 ToolCall 输入里指向其他评估 run 的引用
 
-const LINEAR_TOOL = /^mcp__.*linear.*__/i;
+export const LINEAR_TOOL = /^mcp__.*linear.*__/i;
 const EXCERPT_CHARS = 80;
 
 // 长的在前，避免一个是另一个的前缀时匹配到短的
-function alternation(literals: string[]): string {
+export function alternation(literals: string[]): string {
   return [...literals]
     .sort((a, b) => b.length - a.length)
     .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
@@ -18,7 +18,7 @@ function alternation(literals: string[]): string {
 }
 
 // input 中的全部字符串（Bash 的 command、Write 的 content、MCP 的各个参数）与它们的字段路径
-function strings(value: unknown, at = '', out: { at: string; text: string }[] = []) {
+export function strings(value: unknown, at = '', out: { at: string; text: string }[] = []) {
   if (typeof value === 'string') out.push({ at, text: value });
   else if (Array.isArray(value)) value.forEach((v, i) => strings(v, `${at}[${String(i)}]`, out));
   else if (typeof value === 'object' && value !== null)
@@ -27,7 +27,7 @@ function strings(value: unknown, at = '', out: { at: string; text: string }[] = 
 }
 
 // 摘录前缀为字段路径，例如 command: …、removeRelatedTo[1]: TXE-3761
-function excerpt(at: string, text: string, start: number, end: number): string {
+export function excerpt(at: string, text: string, start: number, end: number): string {
   const from = Math.max(0, start - EXCERPT_CHARS);
   const to = Math.min(text.length, end + EXCERPT_CHARS);
   const body = text.slice(from, to).replace(/\s+/g, ' ').trim();
@@ -83,7 +83,7 @@ function ticketHits({ at, text }: Field, tickets: RegExp, byTicket: Map<string, 
 }
 
 // 子代理的请求归到发起它的主 session 请求；子代理可以嵌套
-function mainSeqResolver(db: Db, sessionId: string, rows: RequestRow[]) {
+export function mainSeqResolver(db: Db, sessionId: string, rows: RequestRow[]) {
   const rowByToolCall = new Map<string, RequestRow>();
   for (const row of rows) for (const call of row.toolCalls) rowByToolCall.set(call.id, row);
   const parentToolUse = new Map(

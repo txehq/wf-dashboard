@@ -194,6 +194,7 @@ export function createRuns(deps: RunnerDeps) {
           r.startedAt === null ? null : (r.endedAt?.getTime() ?? now) - r.startedAt.getTime(),
         humanIntervened: r.humanIntervened,
         crossRunRefs: r.crossRunRefs,
+        sourceRefs: r.sourceRefs,
         invalidReason: r.invalidReason,
         grading: { status: r.gradingStatus, error: r.gradingError },
         error: r.error,

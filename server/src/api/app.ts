@@ -93,7 +93,7 @@ export async function buildApp({ db, sseHeartbeatMs, logger, tasksDir, webDir }:
     workDir: config.environmentDir,
   });
   await app.register(environmentRoutes, { environment });
-  await app.register(linearImportRoutes());
+  await app.register(linearImportRoutes({ settings }));
 
   // 页面的路由在浏览器中：未匹配 /api 的路径都返回 index.html
   if (webDir !== undefined) {

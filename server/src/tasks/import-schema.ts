@@ -7,8 +7,8 @@ import { IcTaskDraft } from './schema.js';
 export const workflowJobStatuses = [
   // 能在副本的 PR 上运行，check 名进入 requiredChecks 的默认值
   'required',
-  // runs-on 不是 GitHub 托管 runner（例如 arc-linux-dind），副本中没有 runner
-  'self-hosted',
+  // runs-on 不在副本可用的 runner 范围内（GitHub 托管 runner、self-hosted 与设置中的 copyRunnerLabels）
+  'runner-unavailable',
   // GitHub 已停用的托管 runner 标签
   'retired',
   // needs 的 job 无法运行，它也不会运行

@@ -6,7 +6,7 @@ import {
   runStatuses,
   workflows,
 } from '../db/schema.js';
-import { CrossRunRef } from '../grading/schema.js';
+import { CrossRunRef, SourceRef } from '../grading/schema.js';
 import { StageReport } from '../stages/report.js';
 
 // Runs API 与 run.* 事件共用的形状（Contracts 7.6）
@@ -73,6 +73,7 @@ export const RunSummary = z.object({
   durationMs: z.number().nullable(),
   humanIntervened: z.boolean(),
   crossRunRefs: z.array(CrossRunRef),
+  sourceRefs: z.array(SourceRef),
   invalidReason: z.string().nullable(),
   grading: z.object({ status: z.enum(gradingStatuses), error: z.string().nullable() }),
   error: z.string().nullable(),

@@ -1,19 +1,21 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execa } from 'execa';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { config } from '../../src/config.js';
 import { bundleHead, readCommit } from '../../src/external/github.js';
 import { ensureImportedBundle } from '../../src/tasks/linear-import.js';
 import type { IcTaskDefinition } from '../../src/tasks/schema.js';
+import { type CalcRepo, createCalcStartRepo } from '../helpers/calc-repo.js';
 import { testRunId } from '../helpers/ic-fixture.js';
 
-// 一个很小的真实公开仓库（两个 commit），只读取
-const REPO = 'txehq/take-home-question';
-const FIRST = 'f053065ed9a0a2004b3de77793f5c3892bebf0b0';
-const SECOND = '8f2186115f8dd3c84f90a51b431153047b2c2f0c';
+// 测试新建的起始仓库（两个 commit：README，再加测试 workflow），不删除
+let calc: CalcRepo;
+beforeAll(async () => {
+  calc = await createCalcStartRepo();
+}, 5 * 60_000);
 
-function importedTask(commit: string): IcTaskDefinition {
+function importedTask(repo: string, commit: string): IcTaskDefinition {
   return {
     id: 'ic-bundle-probe',
     kind: 'ic',
@@ -21,8 +23,8 @@ function importedTask(commit: string): IcTaskDefinition {
     persona: 'p',
     hiddenRequirements: 'h',
     source: {
-      linear: { identifier: 'TXE-1', url: 'https://linear.app/capso/issue/TXE-1' },
-      github: { repo: REPO },
+      linear: { identifier: 'TXE-3777', url: 'https://linear.app/capso/issue/TXE-3777' },
+      github: { repo },
     },
     ticket: { title: 't', body: 'b', acceptanceCriteria: ['a'] },
     repo: { path: 'repo.bundle', commit },
@@ -34,28 +36,47 @@ describe('从源仓库生成 repo.bundle（真实 GitHub）', { timeout: 5 * 60_
   it('在所选 commit 生成 bundle，main 指向它；换 commit 后重新生成，相同 commit 不重做', async () => {
     const tasksDir = path.join(config.repoRoot, '.work/test-tasks', testRunId('w28-bundle'));
     const bundle = path.join(tasksDir, 'ic-bundle-probe', 'repo.bundle');
+    const first = calc.readmeCommit;
+    const second = calc.workflowsCommit;
 
-    await ensureImportedBundle(importedTask(FIRST), tasksDir);
-    expect(await bundleHead(bundle)).toBe(FIRST);
-    const clone = path.join(tasksDir, 'clone-first');
-    await execa('git', ['clone', '--quiet', bundle, clone]);
-    expect((await execa('git', ['-C', clone, 'rev-list', '--count', 'HEAD'])).stdout).toBe('1');
-    expect(fs.existsSync(path.join(clone, 'README.md'))).toBe(true);
+    await ensureImportedBundle(importedTask(calc.repo, first), tasksDir);
+    expect(await bundleHead(bundle)).toBe(first);
+    const cloneFirst = path.join(tasksDir, 'clone-first');
+    await execa('git', ['clone', '--quiet', bundle, cloneFirst]);
+    expect((await execa('git', ['-C', cloneFirst, 'rev-list', '--count', 'HEAD'])).stdout).toBe(
+      '1',
+    );
+    expect(fs.readdirSync(cloneFirst).sort()).toEqual(['.git', 'README.md']);
 
     const before = fs.statSync(bundle).mtimeMs;
-    await ensureImportedBundle(importedTask(FIRST), tasksDir);
+    await ensureImportedBundle(importedTask(calc.repo, first), tasksDir);
     expect(fs.statSync(bundle).mtimeMs).toBe(before);
 
-    await ensureImportedBundle(importedTask(SECOND), tasksDir);
-    expect(await bundleHead(bundle)).toBe(SECOND);
-    const second = path.join(tasksDir, 'clone-second');
-    await execa('git', ['clone', '--quiet', bundle, second]);
-    expect((await execa('git', ['-C', second, 'log', '--format=%H'])).stdout.split('\n')).toEqual([
-      SECOND,
-      FIRST,
-    ]);
-    expect((await readCommit(REPO, SECOND)).title).toBe('Update README.md');
-    // 临时的 bare 克隆已删除，bundle 旁没有临时文件
+    await ensureImportedBundle(importedTask(calc.repo, second), tasksDir);
+    expect(await bundleHead(bundle)).toBe(second);
+    const cloneSecond = path.join(tasksDir, 'clone-second');
+    await execa('git', ['clone', '--quiet', bundle, cloneSecond]);
+    expect(
+      (await execa('git', ['-C', cloneSecond, 'log', '--format=%H'])).stdout.split('\n'),
+    ).toEqual([second, first]);
+    expect((await readCommit(calc.repo, second)).title).toBe('ci: test workflows');
+    // 临时克隆目录已删除，bundle 旁没有其他文件
     expect(fs.readdirSync(path.dirname(bundle))).toEqual(['repo.bundle']);
+  });
+
+  it('克隆失败：仓库不存在或 commit 不存在时以原文报错，临时目录被删除，没有留下 bundle', async () => {
+    const tasksDir = path.join(config.repoRoot, '.work/test-tasks', testRunId('w29-clone-fail'));
+    const taskDir = path.join(tasksDir, 'ic-bundle-probe');
+    const missingRepo = `txehq/wfe-test-missing-${testRunId('x').slice(2)}`;
+    await expect(
+      ensureImportedBundle(importedTask(missingRepo, calc.readmeCommit), tasksDir),
+    ).rejects.toThrow(/gh repo clone .*Could not resolve to a Repository/s);
+    expect(fs.readdirSync(taskDir)).toEqual([]);
+
+    const missingCommit = 'f'.repeat(40);
+    await expect(
+      ensureImportedBundle(importedTask(calc.repo, missingCommit), tasksDir),
+    ).rejects.toThrow(new RegExp(`git -C .* fetch --quiet origin ${missingCommit}`));
+    expect(fs.readdirSync(taskDir)).toEqual([]);
   });
 });

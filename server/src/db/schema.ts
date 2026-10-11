@@ -45,7 +45,7 @@ export interface ParseState {
 // lfg 的 rubric 按产物分组，定义在 task schema 中
 import { type ArtifactRubric, type IcTaskSource, rubricArtifacts } from '../tasks/schema.js';
 export type { ArtifactRubric, RubricItem } from '../tasks/schema.js';
-import type { CrossRunRef, IcCriteriaDetail, IcDetail } from '../grading/schema.js';
+import type { CrossRunRef, IcCriteriaDetail, IcDetail, SourceRef } from '../grading/schema.js';
 
 const createdAt = () =>
   integer('created_at', { mode: 'timestamp_ms' })
@@ -221,6 +221,11 @@ export const runs = sqliteTable(
     costUsd: real('cost_usd').notNull().default(0),
     crossRunRefs: text('cross_run_refs', { mode: 'json' })
       .$type<CrossRunRef[]>()
+      .notNull()
+      .default(sql`'[]'`),
+    // 读取了来源工单、来源仓库或来源 PR（Contracts 第 13 节）；compare 默认排除
+    sourceRefs: text('source_refs', { mode: 'json' })
+      .$type<SourceRef[]>()
       .notNull()
       .default(sql`'[]'`),
     // 评估环境本身出错、不能代表 variant 的 run 由用户标为无效（Contracts 7.12）；compare 总是排除

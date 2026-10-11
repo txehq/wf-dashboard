@@ -391,30 +391,33 @@ function checkName(name: string, combo: Combo): Named {
 }
 
 type Runner =
-  | { kind: 'hosted' | 'self-hosted' | 'retired'; labels: string }
+  | { kind: 'hosted' | 'copy' | 'unavailable' | 'retired'; labels: string }
   | { kind: 'unresolved'; reason: string };
 
 const Labels = z.union([z.string(), z.array(z.string())]).transform((l) => (typeof l === 'string' ? [l] : l));
 
-function runner(runsOn: unknown, combo: Combo): Runner {
+// 副本中可用的 runner（Contracts 第 13 节）：runs-on 的每个标签都是 GitHub 托管 runner 的标签、self-hosted，
+// 或在 copyRunnerLabels 中（txehq 组织级的自托管 runner）。runner group 是组织另行配置的 runner，不在范围内
+function runner(runsOn: unknown, combo: Combo, copyRunnerLabels: string[]): Runner {
   const r = resolve(runsOn as Value, combo);
   if (!r.ok) return { kind: 'unresolved', reason: `runs-on ${r.reason}` };
   const value = r.value;
   if (isObject(value)) {
     const group = typeof value.group === 'string' ? `group: ${value.group}` : null;
     const labels = value.labels === undefined ? [] : Labels.parse(value.labels);
-    // runner group 是组织配置的 runner（自托管或组织的 larger runner），副本中没有
     return {
-      kind: 'self-hosted',
+      kind: 'unavailable',
       labels: [group, ...labels].filter((l) => l !== null).join(', '),
     };
   }
   const labels = Labels.parse(value);
   const text = labels.join(', ');
-  const only = labels.length === 1 ? labels[0] : undefined;
-  if (only !== undefined && HOSTED_LABELS.has(only)) return { kind: 'hosted', labels: text };
-  if (only !== undefined && RETIRED_LABELS.has(only)) return { kind: 'retired', labels: text };
-  return { kind: 'self-hosted', labels: text };
+  if (labels.some((l) => RETIRED_LABELS.has(l))) return { kind: 'retired', labels: text };
+  if (labels.length === 0) return { kind: 'unresolved', reason: 'runs-on 为空' };
+  if (labels.every((l) => HOSTED_LABELS.has(l))) return { kind: 'hosted', labels: text };
+  const allowed = (l: string) =>
+    HOSTED_LABELS.has(l) || l === 'self-hosted' || copyRunnerLabels.includes(l);
+  return { kind: labels.every(allowed) ? 'copy' : 'unavailable', labels: text };
 }
 
 interface Instance {
@@ -425,7 +428,7 @@ interface Instance {
   needs: string[];
   checkName: string | null;
   runsOn: string | null;
-  intrinsic: { status: 'ok' | 'self-hosted' | 'retired' | 'unresolved'; reason: string };
+  intrinsic: { status: 'ok' | 'runner-unavailable' | 'retired' | 'unresolved'; reason: string };
 }
 
 type Combos = { ok: true; combos: Combo[] } | { ok: false; reason: string };
@@ -444,10 +447,12 @@ const intrinsicOf = (r: Runner): Instance['intrinsic'] => {
   switch (r.kind) {
     case 'hosted':
       return { status: 'ok', reason: `GitHub 托管 runner ${r.labels}` };
-    case 'self-hosted':
+    case 'copy':
+      return { status: 'ok', reason: `副本可用的自托管 runner ${r.labels}（设置中的 copyRunnerLabels）` };
+    case 'unavailable':
       return {
-        status: 'self-hosted',
-        reason: `runs-on ${r.labels} 不是 GitHub 托管 runner，副本仓库中没有这个 runner`,
+        status: 'runner-unavailable',
+        reason: `runs-on ${r.labels} 不在副本可用的 runner 范围内（GitHub 托管 runner 与设置中的 copyRunnerLabels）`,
       };
     case 'retired':
       return { status: 'retired', reason: `runs-on ${r.labels} 是 GitHub 已停用的托管 runner` };
@@ -462,6 +467,7 @@ interface Context {
   workflow: string;
   files: WorkflowFile[];
   readRemote: RemoteWorkflowReader;
+  copyRunnerLabels: string[];
 }
 
 // reusable workflow 的 jobs；读不到或不合法时给出原因
@@ -535,7 +541,7 @@ async function instances(
       }
       continue;
     }
-    const r = runner(job['runs-on'], combo);
+    const r = runner(job['runs-on'], combo, ctx.copyRunnerLabels);
     out.push({
       keys,
       workflow: ctx.workflow,
@@ -549,10 +555,12 @@ async function instances(
   return out;
 }
 
-// 静态分析 workflow：哪些 job 能在副本仓库的 PR 上运行（Contracts 第 13 节）
+// 静态分析 workflow：哪些 job 能在副本仓库的 PR 上运行（Contracts 第 13 节）；
+// copyRunnerLabels 为设置中副本可用的自托管 runner 标签
 export async function analyzeWorkflows(
   files: WorkflowFile[],
   readRemote: RemoteWorkflowReader,
+  copyRunnerLabels: string[],
 ): Promise<WorkflowAnalysis> {
   const jobs: WorkflowJob[] = [];
   const workflows = files
@@ -573,7 +581,7 @@ export async function analyzeWorkflows(
       continue;
     }
     const events = parsed.workflow.on;
-    const ctx: Context = { workflow: file.path, files, readRemote };
+    const ctx: Context = { workflow: file.path, files, readRemote, copyRunnerLabels };
     const all: Instance[] = [];
     for (const [id, job] of Object.entries(parsed.workflow.jobs)) {
       all.push(...(await instances(id, job, ctx, null)));
@@ -600,7 +608,7 @@ export async function analyzeWorkflows(
       let status: WorkflowJobStatus;
       let reason: string;
       // 副本中没有 runner 的 job 无论如何触发都不会运行，先于触发条件列出
-      if (i.intrinsic.status === 'self-hosted' || i.intrinsic.status === 'retired') {
+      if (i.intrinsic.status === 'runner-unavailable' || i.intrinsic.status === 'retired') {
         status = i.intrinsic.status;
         reason = i.intrinsic.reason;
       } else if (!pr.on) {

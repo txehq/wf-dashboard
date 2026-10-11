@@ -3,6 +3,7 @@ import path from 'node:path';
 import { execa } from 'execa';
 import { config } from '../../src/config.js';
 import { createRunRepo, runRepoName, waitRuns } from '../../src/external/github.js';
+import { DEFAULT_COPY_RUNNER_LABELS } from '../../src/runs/settings.js';
 import type { IcTask } from '../../src/tasks/schema.js';
 import { git, testRunId } from './ic-fixture.js';
 
@@ -16,7 +17,12 @@ const gh = async (args: string[], cwd?: string) =>
 export async function repoWithoutPr(task: IcTask, purpose: string): Promise<string> {
   const runId = testRunId(`test-${purpose}`);
   console.log(`测试仓库 ${runRepoName(runId)}`);
-  const repo = await createRunRepo(task, runId, new AbortController().signal);
+  const repo = await createRunRepo(
+    task,
+    runId,
+    DEFAULT_COPY_RUNNER_LABELS,
+    new AbortController().signal,
+  );
   return repo.repo;
 }
 

@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { readRemoteWorkflow, readWorkflowFiles } from '../../src/external/github.js';
+import { readRemoteWorkflow } from '../../src/external/github.js';
 import { analyzeWorkflows, expandMatrix } from '../../src/tasks/workflow-checks.js';
-
-// txehq/txe-workflow 的 main（2026-10-11），只读取
-const TXE_WORKFLOW = 'txehq/txe-workflow';
-const TXE_WORKFLOW_SHA = '3677eca8011db69f8ff50884e76db7b76f7023e5';
 
 describe('matrix 展开（GitHub 文档的规则）', () => {
   it('笛卡尔积、exclude、include 加进组合或成为新组合', () => {
@@ -43,38 +39,63 @@ describe('matrix 展开（GitHub 文档的规则）', () => {
 });
 
 describe('workflow 分析', () => {
-  it('txe-workflow：arc-linux-dind 的 job 列为无法运行，macos-15 的 matrix 实例进入 requiredChecks', async () => {
-    const files = await readWorkflowFiles(TXE_WORKFLOW, TXE_WORKFLOW_SHA);
-    expect(files.map((f) => f.path)).toEqual(['.github/workflows/ci.yml', '.github/workflows/release.yml']);
-    const result = await analyzeWorkflows(files, readRemoteWorkflow);
-    const byName = new Map(result.jobs.map((j) => [`${j.workflow} ${j.checkName ?? j.jobId}`, j]));
-    for (const name of [
-      'guard',
-      'reproducible (arc-linux-dind)',
-      'cross-platform-digest',
-      'budgets',
-      'supply-chain',
-      'test (arc-linux-dind, x86_64-unknown-linux-gnu)',
-    ]) {
-      expect(byName.get(`.github/workflows/ci.yml ${name}`)).toMatchObject({
-        status: 'self-hosted',
-        runsOn: 'arc-linux-dind',
-      });
-    }
-    expect(byName.get('.github/workflows/ci.yml test (macos-15, aarch64-apple-darwin)')).toMatchObject({
-      status: 'required',
-      runsOn: 'macos-15',
-      onPush: false,
-    });
-    // release 只由 tag 推送与手动触发：自托管的 job 列为无法运行，其余（macos 的构建）不由 pull_request 触发
-    const release = result.jobs.filter((j) => j.workflow === '.github/workflows/release.yml');
-    expect(new Set(release.map((j) => j.status))).toEqual(new Set(['self-hosted', 'not-on-pr']));
-    expect(release.every((j) => !j.onPush)).toBe(true);
-    expect(result.requiredChecks).toEqual([
-      'test (macos-15, aarch64-apple-darwin)',
-      'reproducible (macos-15)',
-      'fresh-install (macos-15)',
+  // 形状取自 txe-workflow 的 ci.yml：matrix 中混有组织的自托管 runner 与 GitHub 托管 runner
+  const matrixCi = `
+on:
+  pull_request:
+jobs:
+  guard:
+    runs-on: arc-linux-dind
+    steps: [{ run: echo }]
+  test:
+    strategy:
+      matrix:
+        include:
+          - runner: arc-linux-dind
+            target: x86_64-unknown-linux-gnu
+          - runner: macos-15
+            target: aarch64-apple-darwin
+    runs-on: \${{ matrix.runner }}
+    steps: [{ run: echo }]
+  digest:
+    needs: test
+    runs-on: [self-hosted, linux]
+    steps: [{ run: echo }]
+  grouped:
+    runs-on:
+      group: big-runners
+    steps: [{ run: echo }]
+  old:
+    runs-on: ubuntu-20.04
+    steps: [{ run: echo }]
+`;
+
+  it('copyRunnerLabels：arc-linux-dind 与 self-hosted 可运行；不在其中的标签、runner group、已停用的标签不可运行', async () => {
+    const files = [{ path: '.github/workflows/ci.yml', content: matrixCi }];
+    const withCopy = await analyzeWorkflows(files, readRemoteWorkflow, ['arc-linux-dind']);
+    expect(withCopy.jobs.map((j) => [j.checkName, j.runsOn, j.status])).toEqual([
+      ['guard', 'arc-linux-dind', 'required'],
+      ['test (arc-linux-dind, x86_64-unknown-linux-gnu)', 'arc-linux-dind', 'required'],
+      ['test (macos-15, aarch64-apple-darwin)', 'macos-15', 'required'],
+      // self-hosted 加上 linux：linux 既不是托管 runner 的标签，也不在 copyRunnerLabels 中
+      ['digest', 'self-hosted, linux', 'runner-unavailable'],
+      ['grouped', 'group: big-runners', 'runner-unavailable'],
+      ['old', 'ubuntu-20.04', 'retired'],
     ]);
+    expect(withCopy.requiredChecks).toEqual([
+      'guard',
+      'test (arc-linux-dind, x86_64-unknown-linux-gnu)',
+      'test (macos-15, aarch64-apple-darwin)',
+    ]);
+    const withLinux = await analyzeWorkflows(files, readRemoteWorkflow, ['arc-linux-dind', 'linux']);
+    expect(withLinux.jobs.find((j) => j.checkName === 'digest')?.status).toBe('required');
+
+    // copyRunnerLabels 为空：arc-linux-dind 的 job 不可运行，依赖它们的 job 也不运行
+    const hostedOnly = await analyzeWorkflows(files, readRemoteWorkflow, []);
+    expect(hostedOnly.requiredChecks).toEqual(['test (macos-15, aarch64-apple-darwin)']);
+    expect(hostedOnly.jobs.find((j) => j.checkName === 'guard')?.reason).toContain(
+      'copyRunnerLabels',
+    );
   });
 
   it('needs、push 触发、paths 过滤、表达式与不合法的 workflow', async () => {
@@ -134,12 +155,13 @@ jobs:
         { path: '.github/workflows/nested/ignored.yml', content: docs },
       ],
       readRemoteWorkflow,
+      ['arc-linux-dind'],
     );
     const rows = result.jobs.map((j) => [j.workflow.replace('.github/workflows/', ''), j.checkName, j.status, j.onPush]);
     expect(rows).toEqual([
       ['broken.yml', null, 'invalid', false],
       ['ci.yml', 'build', 'required', true],
-      ['ci.yml', 'deploy', 'self-hosted', false],
+      ['ci.yml', 'deploy', 'runner-unavailable', false],
       ['ci.yml', 'after-deploy', 'blocked', false],
       ['ci.yml', 'dynamic', 'unresolved', false],
       ['ci.yml', 'lint-20', 'required', true],

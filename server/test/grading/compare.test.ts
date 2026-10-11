@@ -250,6 +250,7 @@ describe('compare', () => {
     tasks: [lfgTask.id, icTask.id],
     includeIntervened: false,
     includeCrossRef: false,
+    includeSourceRef: false,
     includeCancelled: false,
   };
 

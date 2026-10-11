@@ -26,6 +26,7 @@ import { recordAcceptanceReport, watchAcceptanceReport } from './acceptance-repo
 import { ClaudeProcess } from './claude-process.js';
 import { refreshRunCost, watchRunCost } from './cost-refresh.js';
 import { scanCrossRunRefs } from './cross-run-refs.js';
+import { scanSourceRefs } from './source-refs.js';
 import { recordFriction } from './friction.js';
 import { LfgArtifacts } from './lfg-artifacts.js';
 import { addMessage, listMessages, upsertArtifact } from './records.js';
@@ -278,7 +279,12 @@ export class RunDriver {
         `Repository: ${repo}`,
       ].join('\n');
     } else {
-      const created = await createRunRepo(task, this.runId, this.stopping.signal);
+      const created = await createRunRepo(
+        task,
+        this.runId,
+        this.deps.settings.get().copyRunnerLabels,
+        this.stopping.signal,
+      );
       repo = created.repo;
       this.update({ githubRepo: repo });
       upsertArtifact(this.db, this.runId, 'repo', created.url, null);
@@ -409,7 +415,10 @@ export class RunDriver {
   private async afterTurn() {
     this.lfgArtifacts?.record();
     this.updateCost();
-    this.update({ crossRunRefs: scanCrossRunRefs(this.db, this.runId) });
+    this.update({
+      crossRunRefs: scanCrossRunRefs(this.db, this.runId),
+      sourceRefs: scanSourceRefs(this.db, this.runId),
+    });
     await recordFriction(this.db, this.runId, this.row().sessionId);
     if (this.task.kind === 'ic') {
       recordAcceptanceReport(this.db, this.runId, this.row().sessionId);
@@ -723,7 +732,10 @@ export class RunDriver {
     this.unsubscribe = null;
     await this.sessionWatcher?.close();
     this.sessionWatcher = null;
-    this.update({ crossRunRefs: scanCrossRunRefs(this.db, this.runId) });
+    this.update({
+      crossRunRefs: scanCrossRunRefs(this.db, this.runId),
+      sourceRefs: scanSourceRefs(this.db, this.runId),
+    });
     await recordFriction(this.db, this.runId, this.row().sessionId);
     if (this.task.kind === 'ic') {
       recordAcceptanceReport(this.db, this.runId, this.row().sessionId);

@@ -278,15 +278,10 @@ export interface RunTicket {
 const SavedIssue = z.object({ id: z.string(), uuid: z.string(), url: z.string() }).loose();
 
 export function runTicketDescription(task: IcTask, runId: string): string {
-  // 从 Linear 导入的 task：副本正文是 ticket.body 的全部内容（其中已有验收标准一节），末尾注明来源工单（Contracts 第 13 节）
+  // 从 Linear 导入的 task：副本正文是 ticket.body 的全部内容（其中已有验收标准一节）加 run id；
+  // 不出现来源工单编号、来源仓库与来源 PR（Contracts 第 13 节），来源只记在 task.yaml 与 run 记录
   if (task.source !== undefined) {
-    return [
-      task.ticket.body,
-      '',
-      `source: ${task.source.linear.identifier}`,
-      '',
-      `run id: \`${runId}\``,
-    ].join('\n');
+    return [task.ticket.body, '', `run id: \`${runId}\``].join('\n');
   }
   return [
     task.ticket.body.trim(),
@@ -308,7 +303,11 @@ export async function createRunTicket(task: IcTask, runId: string): Promise<RunT
     {
       team: EVAL_TEAM,
       project: projectId,
-      title: `[eval] ${task.id} ${runId} ${task.ticket.title}`,
+      // 导入的 task 的 id 默认由来源工单编号得出（ic-txe-3635），副本标题中不放
+      title:
+        task.source === undefined
+          ? `[eval] ${task.id} ${runId} ${task.ticket.title}`
+          : `[eval] ${runId} ${task.ticket.title}`,
       description: runTicketDescription(task, runId),
       labels: [EVAL_LABEL],
       state: 'Todo',

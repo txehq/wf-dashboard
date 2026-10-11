@@ -210,10 +210,11 @@ export async function seedWorkflowFiles(seed: string, commit: string): Promise<W
 
 // /ic 运行的仓库副本。顺序不能调换：ruleset 生效后直接推送 main 会被拒绝（GH013），
 // 所以先推送起始代码、等由 push 触发的 required check 结束，最后以 task 的 requiredChecks 建 ruleset（为空时不建），
-// agent 只能经 PR 改代码
+// agent 只能经 PR 改代码。copyRunnerLabels 为设置中副本可用的自托管 runner 标签
 export async function createRunRepo(
   task: IcTask,
   runId: string,
+  copyRunnerLabels: string[],
   signal: AbortSignal,
 ): Promise<RunRepo> {
   const repo = runRepoName(runId);
@@ -227,6 +228,7 @@ export async function createRunRepo(
   const analysis = await analyzeWorkflows(
     await seedWorkflowFiles(seed, task.repo.commit),
     readRemoteWorkflow,
+    copyRunnerLabels,
   );
   const pushChecks = task.requiredChecks.filter((name) =>
     analysis.jobs.some((j) => j.checkName === name && j.onPush),
@@ -238,7 +240,10 @@ export async function createRunRepo(
     repo,
     '--private',
     '--description',
-    `wf-dashboard eval run ${runId} (${task.id})`,
+    // 导入的 task 的 id 由来源工单编号得出，副本中不出现来源
+    task.source === undefined
+      ? `wf-dashboard eval run ${runId} (${task.id})`
+      : `wf-dashboard eval run ${runId}`,
   ]);
   await cmd('git', [
     '-C',
@@ -587,25 +592,30 @@ export async function readRemoteWorkflow(ref: RemoteWorkflowRef): Promise<string
 // 在 commit 处生成起始仓库的 bundle：完整克隆源仓库（bare），main 指向 commit 后打包 main 的全部历史。
 // 先写临时文件，校验后再改名
 export async function createRepoBundle(repo: string, commit: string, bundlePath: string) {
-  const work = path.join(
-    config.dataDir,
-    'task-imports',
-    `${repo.replace('/', '__')}-${commit.slice(0, 12)}-${String(process.pid)}-${String(Date.now())}`,
-  );
-  fs.mkdirSync(path.dirname(work), { recursive: true });
-  await cmd('gh', ['repo', 'clone', repo, work, '--', '--bare', '--quiet']);
-  // 不在任何分支上的 commit（例如只在 PR 的 ref 中）需要单独取
-  const present = await execa('git', ['-C', work, 'cat-file', '-e', `${commit}^{commit}`], {
-    reject: false,
-  });
-  if (present.exitCode !== 0) await cmd('git', ['-C', work, 'fetch', '--quiet', 'origin', commit]);
-  await cmd('git', ['-C', work, 'update-ref', 'refs/heads/main', commit]);
-  const tmp = `${bundlePath}.${String(process.pid)}.tmp`;
-  fs.mkdirSync(path.dirname(bundlePath), { recursive: true });
-  await cmd('git', ['-C', work, 'bundle', 'create', '--quiet', tmp, 'main']);
-  await cmd('git', ['-C', work, 'bundle', 'verify', '--quiet', tmp]);
-  fs.renameSync(tmp, bundlePath);
-  fs.rmSync(work, { recursive: true });
+  // 克隆与打包都在 bundle 同目录下的临时目录中进行，成功后把 bundle 改名到位；无论成败临时目录都删除，
+  // 失败时错误照原文抛出
+  const dir = path.dirname(bundlePath);
+  fs.mkdirSync(dir, { recursive: true });
+  const work = path.join(dir, `.bundle-tmp-${String(process.pid)}-${String(Date.now())}`);
+  fs.mkdirSync(work);
+  try {
+    const clone = path.join(work, 'source.git');
+    await cmd('gh', ['repo', 'clone', repo, clone, '--', '--bare', '--quiet']);
+    // 不在任何分支上的 commit（例如只在 PR 的 ref 中）需要单独取
+    const present = await execa('git', ['-C', clone, 'cat-file', '-e', `${commit}^{commit}`], {
+      reject: false,
+    });
+    if (present.exitCode !== 0) {
+      await cmd('git', ['-C', clone, 'fetch', '--quiet', 'origin', commit]);
+    }
+    await cmd('git', ['-C', clone, 'update-ref', 'refs/heads/main', commit]);
+    const tmp = path.join(work, 'repo.bundle');
+    await cmd('git', ['-C', clone, 'bundle', 'create', '--quiet', tmp, 'main']);
+    await cmd('git', ['-C', clone, 'bundle', 'verify', '--quiet', tmp]);
+    fs.renameSync(tmp, bundlePath);
+  } finally {
+    fs.rmSync(work, { recursive: true, force: true });
+  }
 }
 
 // bundle 中 main 指向的 commit
