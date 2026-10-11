@@ -61,12 +61,18 @@ export function LiveTerminal({ liveId }: { liveId: string }) {
       send({ type: 'input', data });
     });
     const resizing = term.onResize(sendSize);
+    // 容器高度固定，行列只随窗口与布局变化；放到下一帧，避免在同一次布局中反复触发
+    let frame = 0;
     const observer = new ResizeObserver(() => {
-      fit.fit();
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        fit.fit();
+      });
     });
     observer.observe(element);
     term.focus();
     return () => {
+      cancelAnimationFrame(frame);
       observer.disconnect();
       input.dispose();
       resizing.dispose();
@@ -76,10 +82,11 @@ export function LiveTerminal({ liveId }: { liveId: string }) {
   }, [liveId]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-1">
+    <div className="flex min-w-0 flex-1 flex-col gap-1">
+      {/* 高度固定：xterm.js 按容器大小算行数，容器随内容长高会让行数不断增加 */}
       <div
         ref={container}
-        className="min-h-[32rem] flex-1 overflow-hidden rounded-md bg-[#0b0d10] p-2"
+        className="h-[calc(100vh-18rem)] min-h-[28rem] overflow-hidden rounded-md bg-[#0b0d10] p-2"
         data-testid="live-terminal"
         data-connection={connection}
       />

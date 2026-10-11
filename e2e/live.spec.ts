@@ -126,16 +126,34 @@ test('交互：新建、终端输入、驾驶者切换与交还、重开页面�
     reason: 'release',
   });
 
-  // 关掉页面重开：进程照常运行，终端先收到保留的输出
+  // 关掉页面重开：进程照常运行，终端先收到保留的输出（最早的提问已滚出可见区域，另用一个连接读第一条消息）
   const before = await terminalText(page);
   await page.close();
   expect((await detail(id)).status).toBe('running');
   const reopened = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
   await reopened.goto(`/live?open=${id}`);
-  await expect
-    .poll(() => terminalText(reopened), { timeout: 30_000 })
-    .toContain('/lfg 做一个计算器');
-  expect(before).toContain('Claude Code');
+  await expect.poll(() => terminalText(reopened), { timeout: 30_000 }).toContain('⏺');
+  expect(before).toContain('⏺');
+  const replay = await reopened.evaluate(
+    (liveId) =>
+      new Promise<string>((resolve) => {
+        const socket = new WebSocket(`ws://${window.location.host}/api/live/${liveId}/pty`);
+        socket.addEventListener('message', (event: MessageEvent<string>) => {
+          socket.close();
+          resolve(event.data);
+        });
+      }),
+    id,
+  );
+  expect(replay).toContain('/lfg 做一个计算器');
+  expect(replay).toContain('Claude Code');
+
+  // 终端旁边展开这个 session 的阶段条与请求明细
+  await reopened.getByTestId('toggle-side').click();
+  const side = reopened.getByTestId('live-side');
+  await expect(side).toBeVisible({ timeout: 30_000 });
+  await expect(side.getByText('第 1 轮 · /lfg 做一个计算器')).toBeVisible();
+  await expect(side.getByText('请求明细')).toBeVisible();
 
   await reopened.getByTestId('live-panel').getByRole('button', { name: '结束进程' }).click();
   await expect(reopened.getByTestId('live-panel').getByTestId('live-status')).toHaveAttribute(
