@@ -64,11 +64,20 @@ async function acceptTrustIfAsked(
   });
 }
 
-// 进程的环境变量与工作目录（ps eww 与 lsof 读取真实进程）
+// 进程的环境变量与工作目录（ps eww 与 lsof 读取真实进程）。node-pty 先启动 spawn-helper，它切换目录后 exec claude；
+// 读取前等进程已经是 claude
+async function execed(pid: number) {
+  await until('进程 exec 为 claude', 30_000, async () => {
+    const { stdout } = await execa('ps', ['-o', 'command=', '-p', String(pid)]);
+    return stdout.startsWith('claude ') ? true : null;
+  });
+}
 async function processEnv(pid: number): Promise<string> {
+  await execed(pid);
   return (await execa('ps', ['eww', '-o', 'command=', '-p', String(pid)])).stdout;
 }
 async function processCwd(pid: number): Promise<string> {
+  await execed(pid);
   const { stdout } = await execa('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn']);
   const line = stdout.split('\n').find((l) => l.startsWith('n'));
   if (line === undefined) throw new Error(`读不到进程 ${String(pid)} 的工作目录`);
