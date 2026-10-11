@@ -26,7 +26,7 @@ describe('judge 确定验收标准', { timeout: 5 * 60_000 }, () => {
 
   it('没有验收标准一节：TXE-3777 正文的 Background 与 Goals 两节，从中整理出条目，每个 quote 都在正文中', async () => {
     const issue = await readIssueForImport('TXE-3777');
-    // 只取前两节（真实正文的一部分），条目少、回答短，不超过 gateway 调用的 120 秒时限
+    // 只取前两节（真实正文的一部分）：没有验收标准一节的正文
     const body = issue.description.split('\n## Scope')[0] ?? '';
     expect(body).toContain('## Goals');
     expect(body).not.toMatch(/acceptance criteria|验收标准/i);
