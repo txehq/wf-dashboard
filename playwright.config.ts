@@ -20,6 +20,9 @@ const environmentDataDir = '.work/e2e/environment-data';
 const dbDir = path.resolve(import.meta.dirname, '.work/e2e-db');
 // Sessions 的来源目录：每次由种子脚本删除重建，放入真实 run 的 session
 const projectsDir = path.resolve(import.meta.dirname, '.work/e2e/projects');
+// chromium 项目服务端的数据目录（variants.spec 在这里构建 variant）：保留在多次运行之间，wf runtime 只编译一次。
+// 仓库根目录的 data/ 是用户实例的数据目录，e2e 不写进去
+const chromiumDataDir = path.resolve(import.meta.dirname, '.work/e2e/chromium-data');
 
 // 两个开发服务器继承本进程的 WFD_PORT、WFD_WEB_PORT；
 // compare 项目另起一对服务，服务端读取种子脚本写入的专用数据目录
@@ -80,7 +83,11 @@ export default defineConfig({
     {
       command: `rm -rf ${dbDir} && pnpm --filter @wf-dashboard/server prepare:sessions-e2e && pnpm --filter @wf-dashboard/server dev`,
       url: `http://127.0.0.1:${String(serverPort)}/api/health`,
-      env: { WFD_DB_PATH: path.join(dbDir, 'db.sqlite'), WFD_CLAUDE_PROJECTS: projectsDir },
+      env: {
+        WFD_DATA_DIR: chromiumDataDir,
+        WFD_DB_PATH: path.join(dbDir, 'db.sqlite'),
+        WFD_CLAUDE_PROJECTS: projectsDir,
+      },
       reuseExistingServer: false,
     },
     {

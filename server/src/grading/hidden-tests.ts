@@ -13,7 +13,7 @@ import type { IcTask } from '../tasks/schema.js';
 export const HIDDEN_TESTS_DEST = 'test/hidden';
 
 // Playwright 浏览器的共享目录：dashboard 在 sandbox 之外安装，评分时只读使用
-export const playwrightBrowsersDir = path.join(config.dataDir, 'playwright-browsers');
+export const playwrightBrowsersDir = config.playwrightBrowsersDir;
 
 export interface Outcome {
   file: string;

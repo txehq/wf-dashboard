@@ -4,5 +4,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: ['test/**/*.external.test.ts'],
+    setupFiles: ['test/setup/data-dir.ts'],
+    globalSetup: ['test/setup/data-guard.ts'],
   },
 });

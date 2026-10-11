@@ -18,6 +18,9 @@ const external = 'test/**/*.external.test.ts';
 
 export default defineConfig({
   test: {
+    // 测试进程的数据目录在 .work/test-data/<进程号>/；运行前后检查仓库根目录的 data/ 没有新增
+    setupFiles: ['test/setup/data-dir.ts'],
+    globalSetup: ['test/setup/data-guard.ts'],
     projects: [
       {
         extends: true,

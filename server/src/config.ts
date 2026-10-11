@@ -18,6 +18,10 @@ export const config = {
   dbPath: process.env.WFD_DB_PATH ?? path.join(dataDir, 'db.sqlite'),
   variantsDir: path.join(dataDir, 'variants'),
   runsDir: path.join(dataDir, 'runs'),
+  // Playwright 浏览器的共享目录；测试的各进程用不同的数据目录，用 WFD_PLAYWRIGHT_BROWSERS_DIR 共用一份
+  playwrightBrowsersDir: path.resolve(
+    process.env.WFD_PLAYWRIGHT_BROWSERS_DIR ?? path.join(dataDir, 'playwright-browsers'),
+  ),
   tasksDir: path.join(repoRoot, 'tasks'),
   // Sessions 页面的来源目录所在处；e2e 用 WFD_CLAUDE_PROJECTS 指向由真实 session 组成的目录
   claudeProjectsDir: path.resolve(
