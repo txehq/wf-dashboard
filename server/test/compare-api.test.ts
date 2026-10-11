@@ -160,6 +160,7 @@ describe('compare 页面的只读接口', () => {
         cancelled: false,
         humanIntervened: false,
         crossRunRefs: [crossRef],
+        sourceRefs: [],
         createdAt: '2026-10-09T08:00:00.000Z',
       },
       {
@@ -169,6 +170,7 @@ describe('compare 页面的只读接口', () => {
         cancelled: false,
         humanIntervened: true,
         crossRunRefs: [],
+        sourceRefs: [],
         createdAt: '2026-10-09T09:00:00.000Z',
       },
       {
@@ -178,6 +180,7 @@ describe('compare 页面的只读接口', () => {
         cancelled: true,
         humanIntervened: false,
         crossRunRefs: [],
+        sourceRefs: [],
         createdAt: '2026-10-09T10:00:00.000Z',
       },
     ]);

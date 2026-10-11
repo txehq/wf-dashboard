@@ -297,6 +297,7 @@ describe('GET / PUT /api/settings', () => {
       maxUserTurns: 40,
       defaultRepeats: 2,
       models: { ...defaults.models, judge: `${defaults.models.simulatedUser}-x` },
+      copyRunnerLabels: ['arc-linux-dind', 'linux-large'],
     };
     const saved = await app.inject({ method: 'PUT', url: '/api/settings', payload: next });
     expect(saved.statusCode).toBe(200);
