@@ -3,6 +3,7 @@ import type { AskQuestion } from '../db/schema.js';
 import { EVAL_PROJECT, EVAL_TEAM } from '../external/linear.js';
 import { ORG } from '../external/github.js';
 import { models, parseStructured } from '../llm/client.js';
+import { isFiller } from '../llm/filler.js';
 import type { Task } from '../tasks/schema.js';
 
 // dispatch gate 的固定回答（Spikes/Stage Markers 1.5）
@@ -59,17 +60,6 @@ function questionOutput(questions: AskQuestion[]) {
     ),
     done: z.boolean(),
   });
-}
-
-// 模型偶尔仍会把整个字段填成占位内容（r-20261010-1iqzja 的 Confirm goal 回答为 placeholder；
-// 复现中还有空白、": "、"x"）。只判定整个字段：task 的需求里可能正常出现 placeholder、todo 这些词
-const FILLER = /^(placeholder|lorem ipsum|todo|tbd|n\/?a|none|null|undefined|x+)$/i;
-// 不含任何字母、数字或汉字（空白、纯标点）
-const NO_CONTENT = /^[^\p{L}\p{N}]*$/u;
-
-function isFiller(text: string): boolean {
-  const words = text.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
-  return NO_CONTENT.test(text) || FILLER.test(words);
 }
 
 // reply 或任一回答是占位内容时抛错，run 因此失败
