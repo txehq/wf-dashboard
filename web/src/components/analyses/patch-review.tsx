@@ -98,6 +98,29 @@ function HunkItem({
   );
 }
 
+// 挂载时已有的编辑作为编辑器的初始内容；之后编辑期间 hunk 的选择被锁定，fromHunks 不变
+function FileEditor({
+  file,
+  fromHunks,
+  edited,
+  onChange,
+}: {
+  file: FileProposal;
+  fromHunks: string;
+  edited: string | null;
+  onChange: (value: string) => void;
+}) {
+  const [initial] = useState(edited);
+  return (
+    <EditableDiffEditor
+      path={file.path}
+      original={file.original}
+      modified={initial ?? fromHunks}
+      onChange={onChange}
+    />
+  );
+}
+
 // Contracts 15.3：每个文件一个 diff 视图，按 hunk 逐处接受或拒绝，接受后的结果可以继续编辑；另存为草稿 variant
 export function PatchReview({
   analysisId,
@@ -113,6 +136,8 @@ export function PatchReview({
   const client = useQueryClient();
   const navigate = useNavigate();
   const [states, setStates] = useState<Record<string, FileState>>({});
+  // 每个文件的编辑器重建次数：撤销编辑时加一
+  const [revisions, setRevisions] = useState<Record<string, number>>({});
   const [current, setCurrent] = useState(files[0]?.path ?? '');
   const [name, setName] = useState(`来自分析 ${analysisId}`);
   const stateOf = (path: string): FileState => states[path] ?? { decisions: {}, edited: null };
@@ -189,11 +214,13 @@ export function PatchReview({
       ))}
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="h-[36rem] min-w-0 rounded-md border" data-testid="patch-editor">
-          <EditableDiffEditor
-            key={file.path}
-            path={file.path}
-            original={file.original}
-            modified={state.edited ?? fromHunks}
+          {/* 编辑器自己保存输入：传入的内容只随接受与拒绝变化，不把每次编辑的内容再传回去（快速输入时旧的值会覆盖新的输入）。
+              切换文件后回来时以挂载时已有的编辑为准；撤销编辑时换 key 重建编辑器 */}
+          <FileEditor
+            key={`${file.path}:${String(revisions[file.path] ?? 0)}`}
+            file={file}
+            fromHunks={fromHunks}
+            edited={state.edited}
             onChange={edit}
           />
         </div>
@@ -207,6 +234,7 @@ export function PatchReview({
                 className="ml-auto"
                 onClick={() => {
                   update({ ...state, edited: null });
+                  setRevisions({ ...revisions, [file.path]: (revisions[file.path] ?? 0) + 1 });
                 }}
               >
                 撤销编辑

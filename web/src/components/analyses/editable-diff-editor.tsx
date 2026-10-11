@@ -55,6 +55,10 @@ export function EditableDiffEditor({
       options={{
         readOnly: false,
         originalEditable: false,
+        // 编辑 skill 的 markdown 时不弹出按单词补全，输入什么就是什么
+        quickSuggestions: false,
+        suggestOnTriggerCharacters: false,
+        acceptSuggestionOnEnter: 'off',
         renderSideBySide: true,
         useInlineViewWhenSpaceIsLimited: false,
         minimap: { enabled: false },

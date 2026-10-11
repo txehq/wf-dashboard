@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { parse } from '@decimalturn/toml-patch';
-import { asc, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { config } from '../config.js';
 import type { Db } from '../db/index.js';
@@ -19,9 +19,11 @@ import {
   analysisStepKeys,
   runs,
   sessions,
+  userMessages,
   type VariantBinding,
   variants as variantsTable,
 } from '../db/schema.js';
+import { sessionTitle } from '../api/user-text.js';
 import { events } from '../events.js';
 import { claudeSettingsEnv, models } from '../llm/client.js';
 import { writeCodexHome } from '../variants/codex-home.js';
@@ -213,7 +215,6 @@ export function createInsights({
     const rows = db
       .select({
         id: sessions.id,
-        title: sessions.title,
         startedAt: sessions.startedAt,
         runId: sessions.runId,
         variantId: sessions.variantId,
@@ -222,12 +223,32 @@ export function createInsights({
       .from(sessions)
       .where(inArray(sessions.id, sessionIds))
       .all();
+    // 标题与 Sessions 列表相同：主 session 首条用户消息（slash 命令显示为命令名加参数）
+    const titles = new Map(
+      db
+        .select({
+          sessionId: userMessages.sessionId,
+          text: userMessages.text,
+          first: sql<number>`min(${userMessages.timestamp})`,
+        })
+        .from(userMessages)
+        .where(
+          and(
+            inArray(userMessages.sessionId, sessionIds),
+            isNull(userMessages.agentId),
+            eq(userMessages.kind, 'user'),
+          ),
+        )
+        .groupBy(userMessages.sessionId)
+        .all()
+        .map((m) => [m.sessionId, sessionTitle(m.text)]),
+    );
     return sessionIds.map((id) => {
       const r = rows.find((s) => s.id === id);
       if (r === undefined) throw new HttpError(404, `session 不存在：${id}`);
       return {
         id: r.id,
-        title: r.title,
+        title: titles.get(r.id) ?? null,
         startedAt: r.startedAt.toISOString(),
         runId: r.runId,
         variant: r.variantId === null ? null : { id: r.variantId, name: variantName(r.variantId) },

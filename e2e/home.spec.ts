@@ -9,12 +9,12 @@ test('服务端健康检查返回 ok', async ({ request }) => {
   expect(await response.json()).toEqual({ status: 'ok' });
 });
 
-test('首页显示五个导航页面并经代理连上服务端', async ({ page }) => {
+test('首页显示导航页面并经代理连上服务端', async ({ page }) => {
   await page.goto('/');
   await expect(page).toHaveURL(/\/sessions$/);
 
   const nav = page.getByRole('navigation', { name: '主导航' });
-  await expect(nav.getByRole('link')).toHaveText(pages);
+  await expect(nav.getByRole('link')).toHaveText([...pages, '分析']);
   await expect(page.getByTestId('server-status')).toHaveText('服务端：ok');
   await page.screenshot({
     path: '.work/screenshots/home.png',
@@ -32,4 +32,7 @@ test('首页显示五个导航页面并经代理连上服务端', async ({ page 
       animations: 'disabled',
     });
   }
+  await nav.getByRole('link', { name: '分析' }).click();
+  await expect(page).toHaveURL(/\/analyses$/);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('分析');
 });

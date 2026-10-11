@@ -45,7 +45,7 @@ const scope = async (query: string) =>
   (await app.inject({ method: 'GET', url: `/api/analyses/scope?${query}` })).json<{
     variant: { id: string; name: string } | null;
     problem: string | null;
-    sessions: { id: string }[];
+    sessions: { id: string; title: string | null }[];
   }>();
 
 describe('绑定与分析的 HTTP 接口', { timeout: 120_000 }, () => {
@@ -84,6 +84,8 @@ describe('绑定与分析的 HTTP 接口', { timeout: 120_000 }, () => {
     });
     const together = await scope(`sessions=${IC.sessionId},${LFG.sessionId}`);
     expect(together).toMatchObject({ variant: { id: base.id }, problem: null });
+    // 标题与 Sessions 列表相同：slash 命令显示为命令名加参数
+    expect(together.sessions.map((x) => x.title)).toEqual(['/ic TXE-3767', '/lfg 做一个计算器']);
 
     const other = variants.derive(base.id, { name: 'w31-api-other' });
     const put = (payload: { variantId: string | null } | { auto: true }) =>

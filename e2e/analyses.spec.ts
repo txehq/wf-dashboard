@@ -55,6 +55,7 @@ test('新建分析、报告、证据链接、按 hunk 接受与拒绝、编辑�
   const form = page.getByRole('form', { name: '新建分析' });
   await expect(form.getByTestId('scope-variant')).toHaveText(baseline);
   await expect(form.getByTestId('scope-sessions').getByRole('listitem')).toHaveCount(1);
+  await expect(form.getByTestId('scope-sessions')).toContainText('/ic TXE-3767');
   await expect(form.getByRole('radio', { name: /Claude Code/ })).toBeChecked();
   await expect(form.getByRole('textbox', { name: '模型' })).not.toHaveValue('');
   await page.screenshot({ path: `${shots}/w31-new-analysis.png`, animations: 'disabled' });
