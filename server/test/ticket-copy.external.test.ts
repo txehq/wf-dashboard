@@ -24,7 +24,7 @@ describe('从 Linear 导入的 task 的工单副本', () => {
       hiddenRequirements: 'h',
       source: {
         linear: { identifier: CALC_TICKET, url: source.url },
-        github: { repo: sourceRepo },
+        github: { repo: sourceRepo, prs: [] },
       },
       ticket: { title: source.title, body: source.description, acceptanceCriteria: ['a'] },
       repo: { path: 'repo.bundle', commit: 'a'.repeat(40) },

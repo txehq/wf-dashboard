@@ -102,21 +102,68 @@ describe('读取来源的记录（Contracts 第 13 节）：真实 session', () 
     expect(own[0]?.excerpt.startsWith('command: ')).toBe(true);
   });
 
-  test('Linear 工具的结果中出现来源工单编号也记为 ticket（副本工单的旧正文末尾带 source: TXE-3635）', () => {
-    const fromResult = refs.filter((r) => r.kind === 'ticket' && r.excerpt.startsWith('result: '));
-    expect(fromResult.length).toBeGreaterThan(0);
-    for (const r of fromResult) expect(r.excerpt).toContain('TXE-363');
-  });
-
-  test('按主 session seq 排序；每个 (调用, kind) 一条', () => {
+  test('只记访问来源的动作：W28 的 session 中只有上面三处；读副本工单、在 PR 正文与文件中引用正文里的仓库名都不记', () => {
+    expect(refs.map((r) => r.kind)).toEqual(['ticket', 'ticket', 'pr']);
     const seqs = refs.map((r) => r.requestSeq);
     expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
-    const keys = refs.map((r) => `${r.toolCallId}\0${r.kind}`);
-    expect(new Set(keys).size).toBe(keys.length);
-    expect(new Set(refs.map((r) => r.kind))).toEqual(new Set(['ticket', 'pr', 'repo']));
   });
 
   test('没有读来源的 run：空数组', () => {
     expect(scanSourceRefs(db, cleanRunId)).toEqual([]);
+  });
+
+  test('构造的调用：引用不记，访问记；pr 只匹配工单关联的编号', () => {
+    const row = db
+      .select()
+      .from(requests)
+      .where(and(eq(requests.sessionId, cleanSessionId), isNull(requests.agentId)))
+      .all()[3];
+    if (row === undefined) throw new Error('对照 session 的请求不足 4 条');
+    const call = (id: string, name: string, input: unknown) => ({
+      id,
+      name,
+      input,
+      result: 'ok',
+      resultChars: 2,
+      isError: false,
+      spillPath: null,
+      subagentId: null,
+    });
+    const constructed = [
+      // 引用：PR 正文、提交信息、写进文件的内容、回复给 Linear 的评论正文里的仓库名
+      call('toolu_quote_body', 'Bash', {
+        command:
+          'gh pr create --title "fix release label" --body "Same fix as txehq/tokun-cn PR 638: allow @ and +"',
+      }),
+      call('toolu_quote_commit', 'Bash', {
+        command: 'git commit -m "fix: accept release labels like txehq/tokun-cn/pull/638 did"',
+      }),
+      call('toolu_quote_write', 'Write', {
+        file_path: 'NOTES.md',
+        content: 'One PR in txehq/tokun-cn validator-site/frontend.',
+      }),
+      // 访问
+      call('toolu_fetch_pr', 'WebFetch', {
+        url: 'https://github.com/txehq/tokun-cn/pull/638/files',
+        prompt: 'diff',
+      }),
+      call('toolu_api_repo', 'Bash', {
+        command: 'gh api repos/txehq/tokun-cn/contents/README.md --jq .content | base64 -d',
+      }),
+      // 638 以外的 PR 编号不是来源 PR：记为 repo
+      call('toolu_other_pr', 'Bash', { command: 'gh pr view 999 --repo txehq/tokun-cn' }),
+    ];
+    db.update(requests)
+      .set({ toolCalls: [...row.toolCalls, ...constructed] })
+      .where(eq(requests.id, row.id))
+      .run();
+    const found = scanSourceRefs(db, cleanRunId);
+    db.update(requests).set({ toolCalls: row.toolCalls }).where(eq(requests.id, row.id)).run();
+    expect(found.map((r) => [r.toolCallId, r.kind, r.requestSeq])).toEqual([
+      ['toolu_fetch_pr', 'pr', row.seq],
+      ['toolu_api_repo', 'repo', row.seq],
+      ['toolu_other_pr', 'repo', row.seq],
+    ]);
+    expect(found[0]?.excerpt).toBe('url: https://github.com/txehq/tokun-cn/pull/638/files');
   });
 });

@@ -100,7 +100,7 @@ test('粘贴工单地址导入：预览完整正文、验收标准、仓库与 c
       identifier: CALC_TICKET,
       url: expect.stringContaining(`https://linear.app/capso/issue/${CALC_TICKET}`) as unknown,
     },
-    github: { repo: calc.repo },
+    github: { repo: calc.repo, prs: [] },
   });
   expect(record.task.requiredChecks).toEqual(['ci', 'self-hosted-echo']);
   expect(record.task.repo.commit).toBe(calc.workflowsCommit);

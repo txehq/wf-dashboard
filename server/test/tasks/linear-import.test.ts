@@ -51,7 +51,8 @@ describe('从 Linear 导入 ic task', { timeout: 5 * 60_000 }, () => {
     expect(preview.issue.description).toBe(raw.description);
     expect(preview.task.source).toEqual({
       linear: { identifier: CALC_TICKET, url: preview.issue.url },
-      github: { repo: calc.repo },
+      // TXE-3777 没有关联 PR
+      github: { repo: calc.repo, prs: [] },
     });
     // 工单没有关联 PR：默认 commit 为默认分支的最新 commit
     expect(preview.issue.linkedPrs).toEqual([]);

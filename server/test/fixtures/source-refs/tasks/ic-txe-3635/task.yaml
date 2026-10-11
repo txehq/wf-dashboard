@@ -9,6 +9,8 @@ source:
     url: https://linear.app/capso/issue/TXE-3635/cc3-sfdcda9-validator-site-browser-drops-the-release-label-because-it
   github:
     repo: txehq/tokun-cn
+    prs:
+      - 638
 ticket:
   title: "[CC3-sfdcda9] Validator Site browser drops the release label because it contains '@'"
   body: |-

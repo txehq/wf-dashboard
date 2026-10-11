@@ -78,6 +78,8 @@ export const IcTaskSource = z.strictObject({
   }),
   github: z.strictObject({
     repo: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, '仓库写作 owner/name'),
+    // 来源工单的 GitHub 附件中属于该仓库的 PR 编号；读取来源的记录只匹配这些编号
+    prs: z.array(z.int().positive()).default([]),
   }),
 });
 export type IcTaskSource = z.infer<typeof IcTaskSource>;

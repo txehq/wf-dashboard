@@ -111,7 +111,14 @@ export async function previewLinearImport(
     title: issue.title,
     persona: persona(issue),
     hiddenRequirements: HIDDEN_REQUIREMENTS,
-    source: { linear: { identifier: issue.identifier, url: issue.url }, github: { repo } },
+    source: {
+      linear: { identifier: issue.identifier, url: issue.url },
+      // 来源工单关联的、属于这个仓库的 PR；读取来源的记录只匹配这些编号
+      github: {
+        repo,
+        prs: issue.linkedPrs.filter((p) => p.repo === repo).map((p) => p.number),
+      },
+    },
     ticket: {
       title: issue.title,
       // 正文原样保存；正文为空的工单由用户在表单中填写

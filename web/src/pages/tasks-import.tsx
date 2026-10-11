@@ -383,7 +383,14 @@ export function SourceRepoFields({
             label="GitHub 仓库"
             value={source.github.repo}
             onChange={(repo) => {
-              onChange({ ...form, source: { ...source, github: { repo } } });
+              // 换了仓库：原工单关联的 PR 属于原来的仓库，不再匹配
+              onChange({
+                ...form,
+                source: {
+                  ...source,
+                  github: { repo, prs: repo === source.github.repo ? source.github.prs : [] },
+                },
+              });
             }}
           />
           <TextInput

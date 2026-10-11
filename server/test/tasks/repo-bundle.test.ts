@@ -24,7 +24,7 @@ function importedTask(repo: string, commit: string): IcTaskDefinition {
     hiddenRequirements: 'h',
     source: {
       linear: { identifier: 'TXE-3777', url: 'https://linear.app/capso/issue/TXE-3777' },
-      github: { repo },
+      github: { repo, prs: [] },
     },
     ticket: { title: 't', body: 'b', acceptanceCriteria: ['a'] },
     repo: { path: 'repo.bundle', commit },
