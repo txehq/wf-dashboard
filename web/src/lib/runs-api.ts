@@ -86,6 +86,14 @@ export interface CrossRunRef {
   excerpt: string;
 }
 
+// Contracts 第 13 节：从 Linear 导入的 task 的 run 读取了来源
+export interface SourceRef {
+  kind: 'ticket' | 'pr' | 'repo';
+  requestSeq: number;
+  toolCallId: string;
+  excerpt: string;
+}
+
 export interface RunSummary {
   id: string;
   batchId: string;
@@ -101,6 +109,8 @@ export interface RunSummary {
   durationMs: number | null;
   humanIntervened: boolean;
   crossRunRefs: CrossRunRef[];
+  // 读取了来源工单、来源仓库或来源 PR（Contracts 第 13 节）；compare 默认排除
+  sourceRefs: SourceRef[];
   // 标为无效的原因；compare 总是排除这类 run
   invalidReason: string | null;
   // Contracts 7.6：none 不会评分，running 正在评分，done 已评分，failed 评分出错
@@ -157,6 +167,8 @@ export interface Settings {
   maxUserTurns: number;
   defaultRepeats: number;
   models: { simulatedUser: string; judge: string };
+  // 副本仓库可用的自托管 runner 标签（Contracts 第 13 节）
+  copyRunnerLabels: string[];
 }
 
 // 失败时抛出带 URL、状态码与服务端原因的错误

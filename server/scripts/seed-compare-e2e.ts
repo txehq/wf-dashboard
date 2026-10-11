@@ -749,6 +749,30 @@ db.update(runs)
   .where(eq(runs.id, npmCiRun))
   .run();
 
+// 读取了来源工单与来源 PR 的 run（Contracts 第 13 节）：compare 默认排除，includeSourceRef 放回。
+// 记录的形状与 scanSourceRefs 在 W28 的真实 run r-20261011-5vqkvn 上得到的相同
+const sourceRefRun = 'r-20261009-baic05';
+seedIcRun('baseline', 5, sourceRefRun);
+db.update(runs)
+  .set({
+    sourceRefs: [
+      {
+        kind: 'ticket',
+        requestSeq: 4,
+        toolCallId: 'toolu_sourceref000001',
+        excerpt: 'id: TXE-3635',
+      },
+      {
+        kind: 'pr',
+        requestSeq: 5,
+        toolCallId: 'toolu_sourceref000002',
+        excerpt: 'command: gh pr view 638 --repo txehq/tokun-cn --json state,mergedAt',
+      },
+    ],
+  })
+  .where(eq(runs.id, sourceRefRun))
+  .run();
+
 console.log(
   JSON.stringify({
     dataDir: config.dataDir,

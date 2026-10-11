@@ -7,6 +7,7 @@ export interface DotValue {
   value: number;
   intervened: boolean;
   crossRef: boolean;
+  sourceRef: boolean;
   cancelled: boolean;
 }
 
@@ -14,6 +15,7 @@ function marks(v: DotValue): string[] {
   return [
     v.intervened ? '有人工干预' : null,
     v.crossRef ? '参考了其他 run' : null,
+    v.sourceRef ? '读取了来源工单或仓库' : null,
     v.cancelled ? '被取消，按已写出的产物评分' : null,
   ].filter((t) => t !== null);
 }
@@ -81,8 +83,13 @@ export function DotStrip({
           aria-label={[`run ${v.runId}：${percent(v.value, 1)}`, ...marks(v)].join('，')}
           data-testid="run-dot"
           data-cross-ref={v.crossRef}
+          data-source-ref={v.sourceRef}
           data-cancelled={v.cancelled}
-          className="group absolute flex size-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className={cn(
+            'group absolute flex size-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            // 读取了来源：点外加一圈红色
+            v.sourceRef && 'border border-destructive',
+          )}
           style={{ left: x(v.value), top: 12 + row * ROW_PX }}
         >
           {v.cancelled ? (

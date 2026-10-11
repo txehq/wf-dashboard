@@ -132,6 +132,16 @@ function RunRow({ run, now }: { run: RunSummary; now: number }) {
               参考了其他 run
             </span>
           )}
+          {run.sourceRefs.length > 0 && (
+            <span
+              className="inline-flex items-center gap-1 text-xs"
+              data-testid="source-ref"
+              title={`${String(run.sourceRefs.length)} 处`}
+            >
+              <Link2 className="size-3.5" aria-hidden />
+              读取了来源
+            </span>
+          )}
           <RerunButton run={run} className="no-underline" />
         </span>
       </td>

@@ -26,6 +26,7 @@ interface Selection {
   tasks: string[];
   includeIntervened: boolean;
   includeCrossRef: boolean;
+  includeSourceRef: boolean;
   includeCancelled: boolean;
 }
 
@@ -48,6 +49,7 @@ function defaultSelection(variants: Variant[], tasks: TaskRecord[], runs: Compar
     tasks: tasks.filter((t) => runs.some((r) => r.taskId === t.task.id)).map((t) => t.task.id),
     includeIntervened: false,
     includeCrossRef: false,
+    includeSourceRef: false,
     includeCancelled: false,
   };
 }
@@ -107,6 +109,7 @@ function SelectionPanel({
     selection.variants.some((v) => v.id === r.variantId) && selection.tasks.includes(r.taskId);
   const intervenedCount = runs.filter((r) => r.humanIntervened && inScope(r)).length;
   const crossRefCount = runs.filter((r) => r.crossRunRefs.length > 0 && inScope(r)).length;
+  const sourceRefCount = runs.filter((r) => r.sourceRefs.length > 0 && inScope(r)).length;
   const cancelledCount = runs.filter((r) => r.cancelled && inScope(r)).length;
   const full = selection.variants.length >= MAX_VARIANTS;
 
@@ -244,6 +247,19 @@ function SelectionPanel({
         <label className="mt-2 flex items-center gap-2 text-sm">
           <input
             type="checkbox"
+            checked={selection.includeSourceRef}
+            onChange={(event) => {
+              onChange({ ...selection, includeSourceRef: event.target.checked });
+            }}
+          />
+          包含读取了来源工单或仓库的 run
+        </label>
+        <p className="text-xs text-muted-foreground" data-testid="source-ref-count">
+          {sourceRefCount === 0 ? '选中范围内没有' : `选中范围内有 ${String(sourceRefCount)} 次`}
+        </p>
+        <label className="mt-2 flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
             checked={selection.includeCancelled}
             onChange={(event) => {
               onChange({ ...selection, includeCancelled: event.target.checked });
@@ -287,6 +303,7 @@ function CompareBody({
       selectedTasks.map((t) => t.task.id),
       selection.includeIntervened,
       selection.includeCrossRef,
+      selection.includeSourceRef,
       selection.includeCancelled,
     ),
     enabled: ready,
@@ -303,6 +320,7 @@ function CompareBody({
   const shownTasks = selectedTasks.filter((t) => data.tasks.includes(t.task.id));
   const intervened = new Set(runs.filter((r) => r.humanIntervened).map((r) => r.id));
   const crossRef = new Set(runs.filter((r) => r.crossRunRefs.length > 0).map((r) => r.id));
+  const sourceRef = new Set(runs.filter((r) => r.sourceRefs.length > 0).map((r) => r.id));
   const cancelled = new Set(runs.filter((r) => r.cancelled).map((r) => r.id));
   const visibleRuns = runs.filter(
     (r) =>
@@ -310,6 +328,7 @@ function CompareBody({
       shownTasks.some((t) => t.task.id === r.taskId) &&
       (data.includeIntervened || !r.humanIntervened) &&
       (data.includeCrossRef || r.crossRunRefs.length === 0) &&
+      (data.includeSourceRef || r.sourceRefs.length === 0) &&
       (data.includeCancelled || !r.cancelled),
   );
   return (
@@ -325,6 +344,7 @@ function CompareBody({
           tasks={shownTasks}
           intervened={intervened}
           crossRef={crossRef}
+          sourceRef={sourceRef}
           cancelled={cancelled}
         />
       </Section>

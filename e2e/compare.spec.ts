@@ -130,6 +130,44 @@ test('包含与排除参考了其他 run 的 run：菱形点，与人工干预�
   await expect(modCell).toContainText('3 次 run');
 });
 
+test('包含与排除读取了来源的 run：默认排除，开关放回，点上标出', async ({ page }) => {
+  const baseCell = icRow(page).getByTestId('score-cell').first();
+  await expect(baseCell).toContainText('3 次 run');
+  const toggle = page.getByRole('checkbox', { name: '包含读取了来源工单或仓库的 run' });
+  await expect(toggle).not.toBeChecked();
+  await expect(page.getByTestId('source-ref-count')).toHaveText('选中范围内有 1 次');
+
+  await toggle.check();
+  await expect(baseCell).toContainText('4 次 run');
+  const sourceDot = baseCell.locator('[data-testid="run-dot"][data-source-ref="true"]');
+  await expect(sourceDot).toHaveCount(1);
+  await expect(sourceDot).toHaveAttribute('aria-label', /r-20261009-baic05.*读取了来源工单或仓库/);
+  await sourceDot.hover();
+  await page.screenshot({ path: '.work/screenshots/w29-compare.png', animations: 'disabled' });
+
+  await toggle.uncheck();
+  await expect(baseCell).toContainText('3 次 run');
+});
+
+test('运行详情的"读取了来源工单 / 仓库"区块：每处的种类、请求编号与摘录', async ({ page }) => {
+  await page.goto('/runs/r-20261009-baic05');
+  const block = page.getByTestId('source-refs');
+  await expect(block).toContainText('读取了来源工单 / 仓库');
+  await expect(block).toContainText('对比时默认排除；共 2 处');
+  const items = block.getByRole('listitem');
+  await expect(items).toHaveCount(2);
+  await expect(items.nth(0)).toContainText('来源工单');
+  await expect(items.nth(0)).toContainText('请求 #4');
+  await expect(items.nth(0)).toContainText('id: TXE-3635');
+  await expect(items.nth(1)).toContainText('来源 PR');
+  await expect(items.nth(1)).toContainText('gh pr view 638 --repo txehq/tokun-cn');
+  await block.screenshot({ path: '.work/screenshots/w29-source-refs.png', animations: 'disabled' });
+
+  await page.goto('/runs');
+  const row = page.locator('[data-run="r-20261009-baic05"]');
+  await expect(row.getByTestId('source-ref')).toHaveText('读取了来源');
+});
+
 test('包含与排除被取消的 run：三角形点，产物并排可以选它', async ({ page }) => {
   const baseCell = lfgRow(page).getByTestId('score-cell').first();
   await expect(baseCell).toContainText('3 次 run');

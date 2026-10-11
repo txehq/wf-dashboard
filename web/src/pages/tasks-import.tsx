@@ -20,11 +20,11 @@ import type { IcForm } from '@/lib/task-form';
 import { previewImport } from '@/lib/tasks';
 
 // 副本中没有 runner、永远不会运行的 job
-const cannotRun: WorkflowJobStatus[] = ['self-hosted', 'retired', 'blocked'];
+const cannotRun: WorkflowJobStatus[] = ['runner-unavailable', 'retired', 'blocked'];
 
 const statusLabel: Record<WorkflowJobStatus, string> = {
   required: '计入终点',
-  'self-hosted': '自托管 runner',
+  'runner-unavailable': '副本中没有这个 runner',
   retired: '已停用的 runner',
   blocked: '依赖无法运行的 job',
   'not-on-pr': '不由 PR 触发',

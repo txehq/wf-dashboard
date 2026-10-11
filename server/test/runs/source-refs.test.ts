@@ -77,7 +77,12 @@ describe('读取来源的记录（Contracts 第 13 节）：真实 session', () 
     const getIssue = 'toolu_bdrk_01QCeHzuTtWmpLi1UFXNwL1g';
     const comments = 'toolu_bdrk_01LXPZQBcTxeL7sAG8hUjyAU';
     expect(refs.filter((r) => [getIssue, comments].includes(r.toolCallId))).toEqual([
-      { kind: 'ticket', requestSeq: mainSeqOf(getIssue), toolCallId: getIssue, excerpt: 'id: TXE-3635' },
+      {
+        kind: 'ticket',
+        requestSeq: mainSeqOf(getIssue),
+        toolCallId: getIssue,
+        excerpt: 'id: TXE-3635',
+      },
       {
         kind: 'ticket',
         requestSeq: mainSeqOf(comments),
