@@ -6,7 +6,8 @@ import { artifacts, grades, runs } from '../db/schema.js';
 import { readReport } from '../stages/report.js';
 import { IC_STAGES, LFG_STAGES } from '../stages/workflow.js';
 import { loadTask } from '../tasks/loader.js';
-import { type LfgTask, rubricArtifacts } from '../tasks/schema.js';
+import { type IcTask, type LfgTask, rubricArtifacts } from '../tasks/schema.js';
+import { CRITERION_MAX, criterionId } from './ic-criteria.js';
 import { readRunGrades } from './index.js';
 import {
   type CompareCell,
@@ -77,6 +78,53 @@ function icQuality(graded: GradedRun[]): CompareCell['quality'] {
       values: reached,
     },
   };
+}
+
+function criteriaOf(g: GradedRun) {
+  if (g.grades.icCriteria === null) throw new Error(`run ${g.run.id} 没有验收标准评分`);
+  return g.grades.icCriteria;
+}
+
+// 没有隐藏测试的 ic task（Contracts 第 13 节）：验收标准得分率与到达终点的比例
+function criteriaQuality(graded: GradedRun[]): CompareCell['quality'] {
+  const reached = graded.map((g) => ({ runId: g.run.id, reached: criteriaOf(g).reachedEnd }));
+  return {
+    kind: 'ic_criteria',
+    criteriaRate: distribution(
+      graded.map((g) => ({
+        runId: g.run.id,
+        value: criteriaOf(g).score / criteriaOf(g).maxScore,
+      })),
+    ),
+    reachedEnd: {
+      ratio: reached.length > 0 ? reached.filter((r) => r.reached).length / reached.length : null,
+      values: reached,
+    },
+  };
+}
+
+// 每条验收标准的得分：先是 task 当前的验收标准，再是 run 评分时用过、之后被修改的条目（与 rubricItems 相同的键）
+function criteriaItems(task: IcTask, graded: GradedRun[]): CompareCell['criteriaItems'] {
+  const items = new Map<string, Omit<RubricEntry, 'artifact'>>();
+  const keyOf = (e: { itemId: string; criterion: string; maxScore: number }) =>
+    JSON.stringify([e.itemId, e.criterion, e.maxScore]);
+  task.ticket.acceptanceCriteria.forEach((criterion, i) => {
+    const entry = { itemId: criterionId(i), criterion, maxScore: CRITERION_MAX };
+    items.set(keyOf(entry), { ...entry, values: [] });
+  });
+  for (const g of graded) {
+    for (const item of criteriaOf(g).items) {
+      const entry = { itemId: item.itemId, criterion: item.criterion, maxScore: item.maxScore };
+      const key = keyOf(entry);
+      const existing = items.get(key) ?? { ...entry, values: [] };
+      existing.values.push({ runId: g.run.id, value: item.score });
+      items.set(key, existing);
+    }
+  }
+  return [...items.values()].map(({ values, ...rest }) => ({
+    ...rest,
+    score: distribution(values),
+  }));
 }
 
 interface RubricEntry {
@@ -223,7 +271,12 @@ export function compareRuns(db: Db, query: CompareQuery): CompareResult {
         taskId,
         kind: task.kind,
         runIds: rows.map((r) => r.id),
-        quality: task.kind === 'lfg' ? lfgQuality(graded) : icQuality(graded),
+        quality:
+          task.kind === 'lfg'
+            ? lfgQuality(graded)
+            : task.hiddenTests === undefined
+              ? criteriaQuality(graded)
+              : icQuality(graded),
         cost:
           graded.length === 0
             ? null
@@ -236,6 +289,8 @@ export function compareRuns(db: Db, query: CompareQuery): CompareResult {
                 ),
               },
         rubricItems: task.kind === 'lfg' ? rubricItems(task, graded) : [],
+        criteriaItems:
+          task.kind === 'ic' && task.hiddenTests === undefined ? criteriaItems(task, graded) : [],
       };
     }),
   );

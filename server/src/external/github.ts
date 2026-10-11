@@ -4,12 +4,18 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { execa } from 'execa';
 import { z } from 'zod';
 import { config } from '../config.js';
+import type { LinkedPr } from '../tasks/import-schema.js';
 import type { IcTask } from '../tasks/schema.js';
+import {
+  analyzeWorkflows,
+  isWorkflowPath,
+  type RemoteWorkflowRef,
+  type WorkflowFile,
+} from '../tasks/workflow-checks.js';
 
 export const ORG = 'txehq';
-// GitHub Actions app：只有 Actions 报告的 ci 才满足 required check，同名 commit status 无法冒充
+// GitHub Actions app：只有 Actions 报告的 check 才满足 required check，同名 commit status 无法冒充
 const ACTIONS_INTEGRATION_ID = 15368;
-const REQUIRED_CHECK = 'ci';
 const RUN_POLL_MS = 5_000;
 const RUN_TIMEOUT_MS = 600_000;
 const DEFAULT_BRANCH_TIMEOUT_MS = 60_000;
@@ -103,27 +109,108 @@ export async function waitRuns(
   }
 }
 
-const ciRuleset = {
-  name: 'ci-required',
-  target: 'branch',
-  enforcement: 'active',
-  conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: [] } },
-  rules: [
-    {
-      type: 'required_status_checks',
-      parameters: {
-        strict_required_status_checks_policy: false,
-        do_not_enforce_on_create: false,
-        required_status_checks: [
-          { context: REQUIRED_CHECK, integration_id: ACTIONS_INTEGRATION_ID },
-        ],
+// ruleset 的 required checks 只认 GitHub Actions 报告的 check：同名 commit status 无法冒充
+function ciRuleset(requiredChecks: string[]) {
+  return {
+    name: 'ci-required',
+    target: 'branch',
+    enforcement: 'active',
+    conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: [] } },
+    rules: [
+      {
+        type: 'required_status_checks',
+        parameters: {
+          strict_required_status_checks_policy: false,
+          do_not_enforce_on_create: false,
+          required_status_checks: requiredChecks.map((context) => ({
+            context,
+            integration_id: ACTIONS_INTEGRATION_ID,
+          })),
+        },
       },
-    },
-  ],
-};
+    ],
+  };
+}
+
+const CheckRun = z
+  .object({
+    name: z.string(),
+    status: z.string(),
+    conclusion: z.string().nullable(),
+    html_url: z.string(),
+    app: z.object({ id: z.number() }).loose().nullable(),
+  })
+  .loose();
+
+// GitHub 的 required check 接受的结论
+const PASSING_CONCLUSIONS = ['success', 'skipped', 'neutral'];
+
+async function actionsCheckRuns(repo: string, sha: string) {
+  const pages = await ghJson(
+    ['api', `repos/${repo}/commits/${sha}/check-runs?per_page=100`, '--paginate', '--slurp'],
+    z.array(z.object({ check_runs: z.array(CheckRun) }).loose()),
+  );
+  return pages.flatMap((p) => p.check_runs).filter((c) => c.app?.id === ACTIONS_INTEGRATION_ID);
+}
+
+// 推送起始代码后，由 push 触发的 required check 必须全部结束且通过；signal 中止时停止等待
+async function waitPushChecks(repo: string, sha: string, names: string[], signal: AbortSignal) {
+  const deadline = Date.now() + RUN_TIMEOUT_MS;
+  for (;;) {
+    signal.throwIfAborted();
+    const runs = await actionsCheckRuns(repo, sha);
+    const found = names.map((name) => ({ name, run: runs.find((r) => r.name === name) }));
+    const pending = found.filter((f) => f.run?.status !== 'completed').map((f) => f.name);
+    if (pending.length === 0) {
+      const failed = found.filter((f) => !PASSING_CONCLUSIONS.includes(f.run?.conclusion ?? ''));
+      if (failed.length > 0) {
+        throw new Error(
+          `${repo} 起始代码的 required check 未通过：${failed.map((f) => `${f.name} ${f.run?.conclusion ?? ''} ${f.run?.html_url ?? ''}`).join(', ')}`,
+        );
+      }
+      return;
+    }
+    if (Date.now() > deadline) {
+      throw new Error(
+        `${repo}@${sha} 的 check ${pending.join('、')} ${String(RUN_TIMEOUT_MS)}ms 内未结束`,
+      );
+    }
+    await sleep(RUN_POLL_MS, undefined, { signal });
+  }
+}
+
+// bare 仓库中某个 commit 的 workflow 文件；没有 .github/workflows 时为空
+export async function seedWorkflowFiles(seed: string, commit: string): Promise<WorkflowFile[]> {
+  const tree = await execa('git', ['-C', seed, 'cat-file', '-t', `${commit}:.github/workflows`], {
+    reject: false,
+  });
+  if (tree.exitCode !== 0) {
+    await cmd('git', ['-C', seed, 'cat-file', '-e', `${commit}^{commit}`]);
+    return [];
+  }
+  const names = await cmd('git', [
+    '-C',
+    seed,
+    'ls-tree',
+    '--name-only',
+    `${commit}:.github/workflows`,
+  ]);
+  const paths = names
+    .split('\n')
+    .filter((name) => name !== '')
+    .map((name) => `.github/workflows/${name}`)
+    .filter(isWorkflowPath);
+  return Promise.all(
+    paths.map(async (p) => ({
+      path: p,
+      content: await cmd('git', ['-C', seed, 'show', `${commit}:${p}`]),
+    })),
+  );
+}
 
 // /ic 运行的仓库副本。顺序不能调换：ruleset 生效后直接推送 main 会被拒绝（GH013），
-// 所以先推送起始代码、等这次 push 的 CI 结束，最后建 ruleset，agent 只能经 PR 改代码
+// 所以先推送起始代码、等由 push 触发的 required check 结束，最后以 task 的 requiredChecks 建 ruleset（为空时不建），
+// agent 只能经 PR 改代码
 export async function createRunRepo(
   task: IcTask,
   runId: string,
@@ -136,8 +223,14 @@ export async function createRunRepo(
     throw new Error(`task ${task.id} 的起始仓库 bundle 不存在：${bundle}`);
   await cmd('git', ['clone', '--bare', bundle, seed]);
   await cmd('git', ['-C', seed, 'cat-file', '-e', `${task.repo.commit}^{commit}`]);
-  // 没有 workflow 的起始仓库永远等不到 push 的 CI
-  await cmd('git', ['-C', seed, 'cat-file', '-e', `${task.repo.commit}:.github/workflows`]);
+  // 推送后要等待的只有由 push 触发的 required check
+  const analysis = await analyzeWorkflows(
+    await seedWorkflowFiles(seed, task.repo.commit),
+    readRemoteWorkflow,
+  );
+  const pushChecks = task.requiredChecks.filter((name) =>
+    analysis.jobs.some((j) => j.checkName === name && j.onPush),
+  );
 
   await cmd('gh', [
     'repo',
@@ -162,15 +255,14 @@ export async function createRunRepo(
     throw new Error(`${repo} main 在 ${mainSha}，应为 ${task.repo.commit}`);
   }
 
-  const failed = (await waitRuns(repo, mainSha, signal)).filter((r) => r.conclusion !== 'success');
-  if (failed.length > 0) {
-    throw new Error(`${repo} 起始代码的 CI 未通过：${failed.map((r) => r.url).join(', ')}`);
+  if (pushChecks.length > 0) await waitPushChecks(repo, mainSha, pushChecks, signal);
+  if (task.requiredChecks.length > 0) {
+    await ghJson(
+      ['api', '-X', 'POST', `repos/${repo}/rulesets`, '--input', '-'],
+      z.object({ id: z.number() }).loose(),
+      JSON.stringify(ciRuleset(task.requiredChecks)),
+    );
   }
-  await ghJson(
-    ['api', '-X', 'POST', `repos/${repo}/rulesets`, '--input', '-'],
-    z.object({ id: z.number() }).loose(),
-    JSON.stringify(ciRuleset),
-  );
   return { repo, url: view.url, mainSha };
 }
 
@@ -310,24 +402,24 @@ export interface IcEndpoint {
   missingRequired: string[];
 }
 
-// 终点：PR 仍处于 OPEN 并已离开 draft，当前 head 上 check 非空且全部 pass，required contexts 全部在通过的 check 中。
-// /ic 的终点是一个等待人审阅的 PR：已关闭或已合并的 PR 不算
-export async function icEndpoint(repo: string, pr: number): Promise<IcEndpoint> {
+// 终点（Contracts 第 13 节）：PR 仍处于 OPEN 并已离开 draft，task 的 requiredChecks 在当前 head 上全部通过
+// （结论为 success、skipped 或 neutral，与 GitHub 的 required check 相同）；requiredChecks 为空时只要求 PR 不是 draft。
+// 其他 check（例如副本中没有 runner、永远排队的 job）不影响终点。/ic 的终点是一个等待人审阅的 PR：已关闭或已合并的 PR 不算
+export async function icEndpoint(
+  repo: string,
+  pr: number,
+  requiredChecks: string[],
+): Promise<IcEndpoint> {
   const view = await ghJson(
-    ['pr', 'view', String(pr), '--repo', repo, '--json', 'isDraft,headRefOid,baseRefName,state'],
-    z.object({
-      isDraft: z.boolean(),
-      headRefOid: z.string(),
-      baseRefName: z.string(),
-      state: z.string(),
-    }),
+    ['pr', 'view', String(pr), '--repo', repo, '--json', 'isDraft,headRefOid,state'],
+    z.object({ isDraft: z.boolean(), headRefOid: z.string(), state: z.string() }),
   );
   const checks = await prChecks(repo, pr);
-  const required = await requiredContexts(repo, view.baseRefName);
-  const passed = new Set(checks.filter((c) => c.bucket === 'pass').map((c) => c.name));
-  const missingRequired = required.filter((name) => !passed.has(name));
-  const ciGreen =
-    checks.length > 0 && checks.every((c) => c.bucket === 'pass') && missingRequired.length === 0;
+  const passed = new Set(
+    checks.filter((c) => c.bucket === 'pass' || c.bucket === 'skipping').map((c) => c.name),
+  );
+  const missingRequired = requiredChecks.filter((name) => !passed.has(name));
+  const ciGreen = missingRequired.length === 0;
   return {
     reached: view.state === 'OPEN' && !view.isDraft && ciGreen,
     ciGreen,
@@ -354,4 +446,176 @@ export async function clonePr(repo: string, pr: number, dest: string): Promise<{
   await cmd('git', ['-C', dest, 'fetch', '--depth', '1', 'origin', `pull/${String(pr)}/head`]);
   await cmd('git', ['-C', dest, 'checkout', '--quiet', '--detach', 'FETCH_HEAD']);
   return { head: (await cmd('git', ['-C', dest, 'rev-parse', 'HEAD'])).trim() };
+}
+
+// 验收标准 judge 的输入：PR 的完整 diff、标题与正文
+export async function prDiff(repo: string, pr: number): Promise<string> {
+  return cmd('gh', ['pr', 'diff', String(pr), '--repo', repo]);
+}
+
+export async function prDescription(repo: string, pr: number) {
+  return ghJson(
+    ['pr', 'view', String(pr), '--repo', repo, '--json', 'title,body,headRefOid'],
+    z.object({ title: z.string(), body: z.string(), headRefOid: z.string() }),
+  );
+}
+
+// 以下供从 Linear 导入 ic task（Contracts 第 13 节）：只读取源仓库，不向它写任何东西
+
+const PR_URL =
+  /^https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/pull\/(\d+)(?:[/?#].*)?$/;
+
+// Linear 附件中的 GitHub PR 链接；其他链接为 null
+export function parsePrUrl(url: string): { repo: string; number: number } | null {
+  const m = PR_URL.exec(url);
+  if (m?.[1] === undefined || m[2] === undefined) return null;
+  return { repo: m[1], number: Number(m[2]) };
+}
+
+const PrView = z.object({
+  number: z.number(),
+  url: z.string(),
+  title: z.string(),
+  state: z.string(),
+  mergedAt: z.string().nullable(),
+  baseRefOid: z.string(),
+});
+
+// 仓库改名（capsohq → txehq）后旧链接经 GitHub 跳转，仓库名取 PR 的规范 URL
+export async function readLinkedPr(repo: string, pr: number): Promise<LinkedPr> {
+  const view = await ghJson(
+    [
+      'pr',
+      'view',
+      String(pr),
+      '--repo',
+      repo,
+      '--json',
+      'number,url,title,state,mergedAt,baseRefOid',
+    ],
+    PrView,
+  );
+  const canonical = parsePrUrl(view.url);
+  if (canonical === null) throw new Error(`gh 返回的 PR URL 不是 GitHub PR：${view.url}`);
+  const merged = view.state === 'MERGED';
+  return {
+    repo: canonical.repo,
+    number: view.number,
+    url: view.url,
+    title: view.title,
+    state: view.state,
+    mergedAt: merged ? view.mergedAt : null,
+    // 合并时 GitHub 把 base 更新为合并前 base 分支的 head，即这个改动的起点
+    baseCommit: merged ? view.baseRefOid : null,
+  };
+}
+
+const CommitView = z.object({
+  sha: z.string(),
+  commit: z
+    .object({
+      message: z.string(),
+      committer: z.object({ date: z.string() }).loose(),
+    })
+    .loose(),
+});
+
+// ref 为 commit sha 或分支名
+export async function readCommit(repo: string, ref: string) {
+  const view = await ghJson(['api', `repos/${repo}/commits/${ref}`], CommitView);
+  return {
+    sha: view.sha,
+    title: view.commit.message.split('\n')[0] ?? '',
+    date: view.commit.committer.date,
+  };
+}
+
+export async function defaultBranch(repo: string): Promise<string> {
+  const view = await repoView(repo);
+  if (view.defaultBranchRef.name === '') throw new Error(`${repo} 没有默认分支（空仓库）`);
+  return view.defaultBranchRef.name;
+}
+
+const Tree = z.object({
+  truncated: z.boolean(),
+  tree: z.array(z.object({ path: z.string(), type: z.string(), sha: z.string() }).loose()),
+});
+const Blob = z.object({ content: z.string(), encoding: z.literal('base64') });
+
+async function treeEntries(repo: string, sha: string) {
+  const tree = await ghJson(['api', `repos/${repo}/git/trees/${sha}`], Tree);
+  if (tree.truncated) throw new Error(`${repo} 的 tree ${sha} 被 GitHub 截断`);
+  return tree.tree;
+}
+
+const decodeBase64 = (content: string) => Buffer.from(content, 'base64').toString('utf8');
+
+// commit 中 .github/workflows/ 下的 workflow 文件；没有这个目录时为空
+export async function readWorkflowFiles(repo: string, commit: string): Promise<WorkflowFile[]> {
+  let entries = await treeEntries(repo, commit);
+  for (const dir of ['.github', 'workflows']) {
+    const entry = entries.find((e) => e.path === dir && e.type === 'tree');
+    if (entry === undefined) return [];
+    entries = await treeEntries(repo, entry.sha);
+  }
+  const files = entries
+    .filter((e) => e.type === 'blob')
+    .map((e) => ({ path: `.github/workflows/${e.path}`, sha: e.sha }))
+    .filter((f) => isWorkflowPath(f.path));
+  return Promise.all(
+    files.map(async (f) => ({
+      path: f.path,
+      content: decodeBase64(
+        (await ghJson(['api', `repos/${repo}/git/blobs/${f.sha}`], Blob)).content,
+      ),
+    })),
+  );
+}
+
+// 其他仓库的 reusable workflow（uses: owner/repo/.github/workflows/x.yml@ref）
+export async function readRemoteWorkflow(ref: RemoteWorkflowRef): Promise<string> {
+  const file = await ghJson(
+    [
+      'api',
+      `repos/${ref.owner}/${ref.repository}/contents/${ref.path}?ref=${encodeURIComponent(ref.version)}`,
+    ],
+    Blob,
+  );
+  return decodeBase64(file.content);
+}
+
+// 在 commit 处生成起始仓库的 bundle：完整克隆源仓库（bare），main 指向 commit 后打包 main 的全部历史。
+// 先写临时文件，校验后再改名
+export async function createRepoBundle(repo: string, commit: string, bundlePath: string) {
+  const work = path.join(
+    config.dataDir,
+    'task-imports',
+    `${repo.replace('/', '__')}-${commit.slice(0, 12)}-${String(process.pid)}-${String(Date.now())}`,
+  );
+  fs.mkdirSync(path.dirname(work), { recursive: true });
+  await cmd('gh', ['repo', 'clone', repo, work, '--', '--bare', '--quiet']);
+  // 不在任何分支上的 commit（例如只在 PR 的 ref 中）需要单独取
+  const present = await execa('git', ['-C', work, 'cat-file', '-e', `${commit}^{commit}`], {
+    reject: false,
+  });
+  if (present.exitCode !== 0) await cmd('git', ['-C', work, 'fetch', '--quiet', 'origin', commit]);
+  await cmd('git', ['-C', work, 'update-ref', 'refs/heads/main', commit]);
+  const tmp = `${bundlePath}.${String(process.pid)}.tmp`;
+  fs.mkdirSync(path.dirname(bundlePath), { recursive: true });
+  await cmd('git', ['-C', work, 'bundle', 'create', '--quiet', tmp, 'main']);
+  await cmd('git', ['-C', work, 'bundle', 'verify', '--quiet', tmp]);
+  fs.renameSync(tmp, bundlePath);
+  fs.rmSync(work, { recursive: true });
+}
+
+// bundle 中 main 指向的 commit
+export async function bundleHead(bundlePath: string): Promise<string> {
+  const heads = await cmd('git', ['bundle', 'list-heads', bundlePath, 'refs/heads/main'], {
+    cwd: path.dirname(bundlePath),
+  });
+  const sha = heads.split(' ')[0];
+  if (sha === undefined || !/^[0-9a-f]{40}$/.test(sha)) {
+    throw new Error(`${bundlePath} 中没有 refs/heads/main：${heads}`);
+  }
+  return sha;
 }

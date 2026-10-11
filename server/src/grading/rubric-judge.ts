@@ -83,21 +83,22 @@ export function judgeRequest(
   };
 }
 
+// reasoning 是占位内容或没有写完时抛错；验收标准 judge（ic-criteria.ts）共用
+export function checkReasoning(itemId: string, reasoning: string) {
+  if (isFiller(reasoning)) {
+    throw new Error(`judge 给 ${itemId} 的 reasoning 是占位内容：${JSON.stringify(reasoning)}`);
+  }
+  if (!SENTENCE_END.test(reasoning)) {
+    throw new Error(`judge 给 ${itemId} 的 reasoning 没有写完：${JSON.stringify(reasoning)}`);
+  }
+}
+
 // 按编号把 judge 的回答对应回 rubric 条目；缺少条目、reasoning 是占位内容或没有写完、分数越界时抛错
 export function readJudgment(group: ArtifactRubric, judgment: Judgment): GradeItem[] {
   return group.items.map((rubricItem, i): GradeItem => {
     const judged = judgment[itemKey(i)];
     if (judged === undefined) throw new Error(`judge 没有返回条目 ${rubricItem.id}`);
-    if (isFiller(judged.reasoning)) {
-      throw new Error(
-        `judge 给 ${rubricItem.id} 的 reasoning 是占位内容：${JSON.stringify(judged.reasoning)}`,
-      );
-    }
-    if (!SENTENCE_END.test(judged.reasoning)) {
-      throw new Error(
-        `judge 给 ${rubricItem.id} 的 reasoning 没有写完：${JSON.stringify(judged.reasoning)}`,
-      );
-    }
+    checkReasoning(rubricItem.id, judged.reasoning);
     if (judged.score < 0 || judged.score > rubricItem.maxScore) {
       throw new Error(
         `judge 给 ${rubricItem.id} 的分数 ${String(judged.score)} 超出 0..${String(rubricItem.maxScore)}`,

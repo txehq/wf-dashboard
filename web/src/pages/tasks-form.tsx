@@ -1,4 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
+import type { WorkflowAnalysis } from '@wf-dashboard/server/tasks/import-schema';
 import {
   type ArtifactRubric,
   type RubricDraft,
@@ -30,6 +31,7 @@ import {
   type TaskForm,
 } from '@/lib/task-form';
 import { draftRubric } from '@/lib/tasks';
+import { SourceRepoFields } from '@/pages/tasks-import';
 
 function Field({ label, children }: { label: string; children: (id: string) => React.ReactNode }) {
   const id = useId();
@@ -365,10 +367,69 @@ function CriteriaEditor({
   );
 }
 
-function IcFields({ form, onChange }: { form: IcForm; onChange: (form: IcForm) => void }) {
+// requiredChecks 可以为空
+function RequiredChecksEditor({
+  checks,
+  onChange,
+}: {
+  checks: string[];
+  onChange: (checks: string[]) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2" data-testid="required-checks">
+      {checks.length === 0 && (
+        <p className="text-sm text-muted-foreground">没有。终点只要求 PR 不是草稿。</p>
+      )}
+      {checks.map((check, index) => (
+        <div key={index} className="flex items-center gap-2">
+          <Input
+            aria-label={`required check 第 ${String(index + 1)} 个`}
+            value={check}
+            className="font-mono"
+            onChange={(e) => {
+              onChange(checks.map((c, i) => (i === index ? e.target.value : c)));
+            }}
+          />
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={`删除 required check 第 ${String(index + 1)} 个`}
+            onClick={() => {
+              onChange(checks.filter((_, i) => i !== index));
+            }}
+          >
+            <Trash2 />
+          </Button>
+        </div>
+      ))}
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-fit"
+        onClick={() => {
+          onChange([...checks, '']);
+        }}
+      >
+        <Plus />
+        添加 check
+      </Button>
+    </div>
+  );
+}
+
+function IcFields({
+  form,
+  onChange,
+  initialAnalysis,
+}: {
+  form: IcForm;
+  onChange: (form: IcForm) => void;
+  initialAnalysis: WorkflowAnalysis | null;
+}) {
+  const [analysis, onAnalysis] = useState(initialAnalysis);
   const declared = (() => {
     const result = fromForm(form);
-    return result.ok && result.task.kind === 'ic'
+    return result.ok && result.task.kind === 'ic' && result.task.hiddenTests !== undefined
       ? Object.values(result.task.hiddenTests.manifest).flat().length
       : null;
   })();
@@ -389,7 +450,7 @@ function IcFields({ form, onChange }: { form: IcForm; onChange: (form: IcForm) =
           <TextField
             label="工单正文"
             multiline
-            rows={8}
+            rows={form.source === undefined ? 8 : 20}
             value={form.ticket.body}
             onChange={(body) => {
               onChange({ ...form, ticket: { ...form.ticket, body } });
@@ -403,83 +464,129 @@ function IcFields({ form, onChange }: { form: IcForm; onChange: (form: IcForm) =
           />
         </CardContent>
       </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>起始仓库与隐藏测试</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            路径相对 task 目录；清单是评分的分母，键为测试文件相对仓库根目录的路径。
-          </p>
-          {declared !== null && (
-            <CardAction>
-              <Badge variant="secondary">{declared} 个隐藏测试</Badge>
-            </CardAction>
-          )}
-        </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-4">
-          <TextField
-            label="仓库 bundle"
-            value={form.repo.path}
-            onChange={(path) => {
-              onChange({ ...form, repo: { ...form.repo, path } });
-            }}
-          />
-          <TextField
-            label="固定 commit"
-            value={form.repo.commit}
-            onChange={(commit) => {
-              onChange({ ...form, repo: { ...form.repo, commit } });
-            }}
-          />
-          <TextField
-            label="隐藏测试目录"
-            value={form.hiddenTests.dir}
-            onChange={(dir) => {
-              onChange({ ...form, hiddenTests: { ...form.hiddenTests, dir } });
-            }}
-          />
-          <TextField
-            label="测试命令"
-            value={form.hiddenTests.command}
-            onChange={(command) => {
-              onChange({ ...form, hiddenTests: { ...form.hiddenTests, command } });
-            }}
-          />
-          <TextField
-            label="测试配置"
-            value={form.hiddenTests.config}
-            onChange={(config) => {
-              onChange({ ...form, hiddenTests: { ...form.hiddenTests, config } });
-            }}
-          />
-          <Field label="每一步的时限（秒）">
-            {(id) => (
-              <Input
-                id={id}
-                type="number"
-                min={1}
-                step={1}
-                value={form.hiddenTests.timeoutSeconds}
-                onChange={(e) => {
-                  onChange({
-                    ...form,
-                    hiddenTests: { ...form.hiddenTests, timeoutSeconds: e.target.valueAsNumber },
-                  });
-                }}
-              />
-            )}
-          </Field>
-          <div className="col-span-2">
+      {form.source === undefined ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>起始仓库</CardTitle>
+            <p className="text-sm text-muted-foreground">bundle 的路径相对 task 目录。</p>
+          </CardHeader>
+          <CardContent className="grid grid-cols-2 gap-4">
             <TextField
-              label="测试清单（YAML）"
-              multiline
-              rows={10}
-              value={form.hiddenTests.manifestYaml}
-              onChange={(manifestYaml) => {
-                onChange({ ...form, hiddenTests: { ...form.hiddenTests, manifestYaml } });
+              label="仓库 bundle"
+              value={form.repo.path}
+              onChange={(path) => {
+                onChange({ ...form, repo: { ...form.repo, path } });
               }}
             />
-          </div>
+            <TextField
+              label="固定 commit"
+              value={form.repo.commit}
+              onChange={(commit) => {
+                onChange({ ...form, repo: { ...form.repo, commit } });
+              }}
+            />
+          </CardContent>
+        </Card>
+      ) : (
+        <SourceRepoFields
+          form={{ ...form, source: form.source }}
+          analysis={analysis}
+          onChange={onChange}
+          onAnalysis={onAnalysis}
+        />
+      )}
+      <Card>
+        <CardHeader>
+          <CardTitle>终点要求通过的 check</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            副本仓库以这些 check 建 ruleset；终点为 PR 不是草稿且它们全部通过。为空时只要求 PR
+            不是草稿。
+          </p>
+        </CardHeader>
+        <CardContent>
+          <RequiredChecksEditor
+            checks={form.requiredChecks}
+            onChange={(requiredChecks) => {
+              onChange({ ...form, requiredChecks });
+            }}
+          />
         </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>隐藏测试</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            {form.hasHiddenTests
+              ? '清单是评分的分母，键为测试文件相对仓库根目录的路径。'
+              : '没有隐藏测试：judge 对照验收标准逐条评分。'}
+          </p>
+          <CardAction className="flex items-center gap-3">
+            {declared !== null && <Badge variant="secondary">{declared} 个隐藏测试</Badge>}
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={form.hasHiddenTests}
+                onChange={(e) => {
+                  onChange({ ...form, hasHiddenTests: e.target.checked });
+                }}
+              />
+              有隐藏测试
+            </label>
+          </CardAction>
+        </CardHeader>
+        {form.hasHiddenTests && (
+          <CardContent className="grid grid-cols-2 gap-4">
+            <TextField
+              label="隐藏测试目录"
+              value={form.hiddenTests.dir}
+              onChange={(dir) => {
+                onChange({ ...form, hiddenTests: { ...form.hiddenTests, dir } });
+              }}
+            />
+            <TextField
+              label="测试命令"
+              value={form.hiddenTests.command}
+              onChange={(command) => {
+                onChange({ ...form, hiddenTests: { ...form.hiddenTests, command } });
+              }}
+            />
+            <TextField
+              label="测试配置"
+              value={form.hiddenTests.config}
+              onChange={(config) => {
+                onChange({ ...form, hiddenTests: { ...form.hiddenTests, config } });
+              }}
+            />
+            <Field label="每一步的时限（秒）">
+              {(id) => (
+                <Input
+                  id={id}
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={form.hiddenTests.timeoutSeconds}
+                  onChange={(e) => {
+                    onChange({
+                      ...form,
+                      hiddenTests: { ...form.hiddenTests, timeoutSeconds: e.target.valueAsNumber },
+                    });
+                  }}
+                />
+              )}
+            </Field>
+            <div className="col-span-2">
+              <TextField
+                label="测试清单（YAML）"
+                multiline
+                rows={10}
+                value={form.hiddenTests.manifestYaml}
+                onChange={(manifestYaml) => {
+                  onChange({ ...form, hiddenTests: { ...form.hiddenTests, manifestYaml } });
+                }}
+              />
+            </div>
+          </CardContent>
+        )}
       </Card>
     </>
   );
@@ -489,10 +596,13 @@ export function TaskFormFields({
   form,
   onChange,
   idEditable,
+  analysis = null,
 }: {
   form: TaskForm;
   onChange: (form: TaskForm) => void;
   idEditable: boolean;
+  // 从 Linear 导入时预览中的 workflow 分析
+  analysis?: WorkflowAnalysis | null;
 }) {
   return (
     <div className="flex flex-col gap-6">
@@ -550,7 +660,7 @@ export function TaskFormFields({
       {form.kind === 'lfg' ? (
         <RubricEditor form={form} onChange={onChange} />
       ) : (
-        <IcFields form={form} onChange={onChange} />
+        <IcFields form={form} onChange={onChange} initialAnalysis={analysis} />
       )}
     </div>
   );

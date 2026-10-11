@@ -14,6 +14,7 @@ import { sessionsRoutes } from './sessions.js';
 import { settingsRoutes } from './settings.js';
 import { registerStageRoutes } from './stages.js';
 import { taskRoutes } from './tasks.js';
+import { linearImportRoutes } from './linear-import.js';
 import { variantRoutes } from './variants.js';
 import { compareRoutes } from './compare.js';
 import { gradeRoutes } from './grades.js';
@@ -92,6 +93,7 @@ export async function buildApp({ db, sseHeartbeatMs, logger, tasksDir, webDir }:
     workDir: config.environmentDir,
   });
   await app.register(environmentRoutes, { environment });
+  await app.register(linearImportRoutes());
 
   // 页面的路由在浏览器中：未匹配 /api 的路径都返回 index.html
   if (webDir !== undefined) {

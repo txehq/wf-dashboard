@@ -278,12 +278,23 @@ export interface RunTicket {
 const SavedIssue = z.object({ id: z.string(), uuid: z.string(), url: z.string() }).loose();
 
 export function runTicketDescription(task: IcTask, runId: string): string {
+  // 从 Linear 导入的 task：副本正文是 ticket.body 的全部内容（其中已有验收标准一节），末尾注明来源工单（Contracts 第 13 节）
+  if (task.source !== undefined) {
+    return [
+      task.ticket.body,
+      '',
+      `source: ${task.source.linear.identifier}`,
+      '',
+      `run id: \`${runId}\``,
+    ].join('\n');
+  }
   return [
     task.ticket.body.trim(),
     '',
     '## Acceptance criteria',
     '',
-    ...task.ticket.acceptanceCriteria.map((c) => `- [ ] ${c}`),
+    // 多行的验收标准（例如带嵌套列表）续行缩进到清单项之内
+    ...task.ticket.acceptanceCriteria.map((c) => `- [ ] ${c.replaceAll('\n', '\n  ')}`),
     '',
     `run id: \`${runId}\``,
   ].join('\n');
@@ -377,4 +388,51 @@ export async function readIssueContent(identifier: string): Promise<IssueContent
     { id: identifier, fields: ['title', 'description', 'url', 'createdAt'] },
     IssueContent,
   );
+}
+
+// 以下供从 Linear 导入 ic task（Contracts 第 13 节）：只读取，不改动原工单；评论不导入
+
+const IssueForImport = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  url: z.string(),
+  status: z.string(),
+  project: z.string().nullable(),
+  team: z.string(),
+  attachments: z.array(z.object({ title: z.string(), url: z.string() }).loose()),
+});
+
+export interface IssueForImport {
+  identifier: string;
+  title: string;
+  // Linear 返回的 markdown 原文；正文为空时为空字符串
+  description: string;
+  url: string;
+  status: string;
+  project: string | null;
+  team: string;
+  attachmentUrls: string[];
+}
+
+// 导入用的工单：标题、正文原文、状态与附件链接。工单不存在时 get_issue 的原文即错误
+export async function readIssueForImport(identifier: string): Promise<IssueForImport> {
+  const issue = await callLinear(
+    'get_issue',
+    {
+      id: identifier,
+      fields: ['id', 'title', 'description', 'url', 'status', 'project', 'team', 'attachments'],
+    },
+    IssueForImport,
+  );
+  return {
+    identifier: issue.id,
+    title: issue.title,
+    description: issue.description ?? '',
+    url: issue.url,
+    status: issue.status,
+    project: issue.project,
+    team: issue.team,
+    attachmentUrls: issue.attachments.map((a) => a.url),
+  };
 }

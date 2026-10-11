@@ -14,6 +14,7 @@ import type { Db } from '../db/index.js';
 import { tasks } from '../db/schema.js';
 import {
   type IcTask,
+  type IcTaskWithTests,
   type LfgTask,
   type Task,
   TaskDefinition,
@@ -68,6 +69,8 @@ function toRow(definition: TaskDefinition, dir: string, contentHash: string, upd
       acceptanceCriteria: null,
       repoPath: null,
       repoCommit: null,
+      source: null,
+      requiredChecks: null,
       hiddenTestsDir: null,
       hiddenTestsConfig: null,
       testCommand: null,
@@ -75,6 +78,7 @@ function toRow(definition: TaskDefinition, dir: string, contentHash: string, upd
       hiddenTestsManifest: null,
     };
   }
+  const hidden = definition.hiddenTests;
   return {
     ...base,
     input: null,
@@ -84,11 +88,13 @@ function toRow(definition: TaskDefinition, dir: string, contentHash: string, upd
     acceptanceCriteria: definition.ticket.acceptanceCriteria,
     repoPath: definition.repo.path,
     repoCommit: definition.repo.commit,
-    hiddenTestsDir: definition.hiddenTests.dir,
-    hiddenTestsConfig: definition.hiddenTests.config,
-    testCommand: definition.hiddenTests.command,
-    hiddenTestsTimeoutSeconds: definition.hiddenTests.timeoutSeconds,
-    hiddenTestsManifest: definition.hiddenTests.manifest,
+    source: definition.source ?? null,
+    requiredChecks: definition.requiredChecks,
+    hiddenTestsDir: hidden?.dir ?? null,
+    hiddenTestsConfig: hidden?.config ?? null,
+    testCommand: hidden?.command ?? null,
+    hiddenTestsTimeoutSeconds: hidden?.timeoutSeconds ?? null,
+    hiddenTestsManifest: hidden?.manifest ?? null,
   };
 }
 
@@ -105,19 +111,25 @@ function definitionFromRow(row: TaskRow): TaskDefinition {
   return TaskDefinition.parse({
     ...base,
     kind: 'ic',
+    ...(row.source === null ? {} : { source: row.source }),
     ticket: {
       title: row.ticketTitle,
       body: row.ticketBody,
       acceptanceCriteria: row.acceptanceCriteria,
     },
     repo: { path: row.repoPath, commit: row.repoCommit },
-    hiddenTests: {
-      dir: row.hiddenTestsDir,
-      config: row.hiddenTestsConfig,
-      command: row.testCommand,
-      timeoutSeconds: row.hiddenTestsTimeoutSeconds,
-      manifest: row.hiddenTestsManifest,
-    },
+    requiredChecks: row.requiredChecks,
+    ...(row.hiddenTestsDir === null
+      ? {}
+      : {
+          hiddenTests: {
+            dir: row.hiddenTestsDir,
+            config: row.hiddenTestsConfig,
+            command: row.testCommand,
+            timeoutSeconds: row.hiddenTestsTimeoutSeconds,
+            manifest: row.hiddenTestsManifest,
+          },
+        }),
   });
 }
 
@@ -222,4 +234,10 @@ export function loadIcTask(db: Db, id: string): IcTask {
   const task = loadTask(db, id);
   if (task.kind !== 'ic') throw new Error(`task ${id} 不是 ic task`);
   return task;
+}
+
+// 隐藏测试的执行与清单生成只用于带隐藏测试的 task
+export function withHiddenTests(task: IcTask): IcTaskWithTests {
+  if (task.hiddenTests === undefined) throw new Error(`task ${task.id} 没有隐藏测试`);
+  return { ...task, hiddenTests: task.hiddenTests };
 }

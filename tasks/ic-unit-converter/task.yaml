@@ -48,6 +48,8 @@ ticket:
 repo:
   path: repo.bundle
   commit: 8ececdf28d6477c12b00ca24ddf4bd3e027f4d4a
+requiredChecks:
+  - ci
 hiddenTests:
   dir: hidden-tests
   config: hidden-tests/playwright.config.mts

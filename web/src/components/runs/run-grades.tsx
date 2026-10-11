@@ -156,6 +156,68 @@ function IcGrades({ grades }: { grades: NonNullable<RunGrades['ic']> }) {
   );
 }
 
+// 没有隐藏测试的 ic task：judge 对照验收标准逐条评分（0 未满足、1 部分满足、2 满足）
+function CriteriaGrades({ grades }: { grades: NonNullable<RunGrades['icCriteria']> }) {
+  const { detail } = grades;
+  return (
+    <div className="flex flex-col gap-3" data-testid="grade-criteria">
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+        <dt className="text-muted-foreground">验收标准</dt>
+        <dd className="tabular-nums">
+          <span className="text-lg font-semibold">
+            {grades.score} / {grades.maxScore}
+          </span>{' '}
+          <span className="text-xs text-muted-foreground">
+            {grades.judgeModel === null
+              ? '没有 PR，每条记 0 分'
+              : `${grades.judgeModel} · ${formatUsd(grades.costUsd)}`}
+          </span>
+        </dd>
+        <dt className="text-muted-foreground">终点</dt>
+        <dd>{grades.reachedEnd ? '已到达（PR 不是草稿且必需检查通过）' : '未到达'}</dd>
+        {detail.endpoint !== null && detail.endpoint.missingRequired.length > 0 && (
+          <>
+            <dt className="text-muted-foreground">CI</dt>
+            <dd>未通过的必需检查：{detail.endpoint.missingRequired.join('、')}</dd>
+          </>
+        )}
+        <dt className="text-muted-foreground">PR</dt>
+        <dd>
+          {detail.pr === null ? (
+            '没有 PR'
+          ) : (
+            <a
+              href={detail.pr.url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 underline"
+            >
+              #{detail.pr.number} · {detail.pr.branch}
+              <ExternalLink className="size-3.5" aria-hidden />
+            </a>
+          )}
+        </dd>
+      </dl>
+      <table className="w-full table-fixed text-sm">
+        <tbody>
+          {grades.items.map((item) => (
+            <tr key={item.itemId} className="border-b align-top last:border-0">
+              <td className="w-2/5 py-1.5 pr-3">
+                <span className="mr-1 font-mono text-xs text-muted-foreground">{item.itemId}</span>
+                {item.criterion}
+              </td>
+              <td className="w-16 px-3 py-1.5 font-semibold tabular-nums">
+                {item.score} / {item.maxScore}
+              </td>
+              <td className="py-1.5 pl-3 text-muted-foreground">{item.reasoning}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function RunGradesPanel({ runId }: { runId: string }) {
   const grades = useQuery(runGradesQuery(runId));
   return (
@@ -171,6 +233,7 @@ export function RunGradesPanel({ runId }: { runId: string }) {
       {grades.isError && <p className="text-sm text-destructive">{grades.error.message}</p>}
       {grades.data?.lfg != null && <LfgGrades grades={grades.data.lfg} />}
       {grades.data?.ic != null && <IcGrades grades={grades.data.ic} />}
+      {grades.data?.icCriteria != null && <CriteriaGrades grades={grades.data.icCriteria} />}
     </section>
   );
 }

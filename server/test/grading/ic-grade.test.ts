@@ -1,19 +1,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { config } from '../../src/config.js';
 import { gradeRun, readRunGrades } from '../../src/grading/index.js';
 import { saveTask } from '../../src/tasks/loader.js';
 import type { IcTask } from '../../src/tasks/schema.js';
-import { buildFixtureTask, testRunId } from '../helpers/ic-fixture.js';
+import {
+  buildFixtureTask,
+  fixtureDir,
+  testRunId,
+  withoutHiddenTests,
+} from '../helpers/ic-fixture.js';
+import { deleteTestRepos, repoWithoutPr, repoWithReadyPr } from '../helpers/test-repos.js';
 import { openTestDb } from '../stages/db.js';
 import { insertRun, insertVariant } from './seed.js';
-
-// W7 外部测试建出的仓库，只读取：PR #1（feat/subtract）已 ready、CI 通过
-const REPO_WITH_PR = 'txehq/wfe-w7-20261009101537820';
-const PR_HEAD = 'e0075127ff5db648c67316338711da1d7bf171ef';
-// W7 的另一次运行：main 已推送，没有 PR
-const REPO_WITHOUT_PR = 'txehq/wfe-w7-20261009100328966';
 
 const { db, close } = openTestDb();
 insertVariant(db, 'baseline');
@@ -28,9 +28,30 @@ async function fixtureTask(timeoutSeconds = 600): Promise<IcTask> {
   return { ...definition, dir: record.dir };
 }
 
-afterAll(close);
+// 测试运行时现建的仓库（createRunRepo）：一个推了 W7 fixture 的实现分支、PR 已 ready 且 CI 结束；一个没有 PR
+let REPO_WITH_PR = '';
+let PR_HEAD = '';
+let PR_BRANCH = '';
+let REPO_WITHOUT_PR = '';
 
-describe('ic 评分（真实 GitHub 仓库，只读取）', { timeout: 10 * 60_000 }, () => {
+beforeAll(async () => {
+  const task = await buildFixtureTask(testRunId('w9-ic-repo'));
+  const [withPr, withoutPr] = await Promise.all([
+    repoWithReadyPr(task, 'grade-pr', path.join(fixtureDir, 'pr'), 'feat: subtract'),
+    repoWithoutPr(task, 'grade-nopr'),
+  ]);
+  REPO_WITH_PR = withPr.repo;
+  PR_HEAD = withPr.head;
+  PR_BRANCH = withPr.branch;
+  REPO_WITHOUT_PR = withoutPr;
+}, 15 * 60_000);
+
+afterAll(async () => {
+  close();
+  await deleteTestRepos();
+}, 5 * 60_000);
+
+describe('ic 评分（测试现建的 GitHub 仓库）', { timeout: 10 * 60_000 }, () => {
   it('有 PR：隐藏测试 3 / 8 与终点判定写入 grades', async () => {
     const task = await fixtureTask();
     const runId = testRunId('w9-ic');
@@ -46,7 +67,7 @@ describe('ic 评分（真实 GitHub 仓库，只读取）', { timeout: 10 * 60_0
     expect(ic?.detail.pr).toEqual({
       number: 1,
       url: `https://github.com/${REPO_WITH_PR}/pull/1`,
-      branch: 'feat/subtract',
+      branch: PR_BRANCH,
       head: PR_HEAD,
     });
     expect(ic?.detail.endpoint).toEqual({
@@ -106,6 +127,36 @@ describe('ic 评分（真实 GitHub 仓库，只读取）', { timeout: 10 * 60_0
     expect(ic?.detail.error).toBe(message);
     expect(ic?.detail.pr?.head).toBe(PR_HEAD);
     expect(ic?.detail.outcomes.every((o) => o.outcome === 'not-run')).toBe(true);
+  });
+
+  // Contracts 第 13 节：没有隐藏测试时按验收标准评分；没有 PR 时每条记 0 分，不调用 judge
+  it('没有隐藏测试、没有 PR：验收标准每条 0 / 2，终点为否，没有 judge 花费', async () => {
+    const id = testRunId('w28-criteria-nopr');
+    const fixture = await buildFixtureTask(id);
+    const tasksDir = path.join(config.repoRoot, '.work/test-tasks', id, 'tasks');
+    fs.cpSync(fixture.dir, path.join(tasksDir, 'w28-criteria-nopr'), { recursive: true });
+    const record = saveTask(db, tasksDir, withoutHiddenTests(fixture, 'w28-criteria-nopr'));
+    const runId = testRunId('w28-criteria-nopr-run');
+    insertRun(db, {
+      id: runId,
+      taskId: record.task.id,
+      variantId: 'baseline',
+      githubRepo: REPO_WITHOUT_PR,
+    });
+    await gradeRun(db, runId, new AbortController().signal);
+    const grades = readRunGrades(db, runId);
+    expect(grades).toMatchObject({ kind: 'ic', costUsd: 0, ic: null });
+    expect(grades?.icCriteria).toMatchObject({
+      score: 0,
+      maxScore: 4,
+      reachedEnd: false,
+      judgeModel: null,
+      detail: { pr: null, endpoint: null, checks: [], diffChars: 0 },
+    });
+    expect(grades?.icCriteria?.items.map((i) => [i.itemId, i.score, i.reasoning])).toEqual([
+      ['ac1', 0, '该 run 没有建出 PR，该条记 0 分。'],
+      ['ac2', 0, '该 run 没有建出 PR，该条记 0 分。'],
+    ]);
   });
 
   it('没有 GitHub 仓库的 run 评分抛错，不写 grades', async () => {

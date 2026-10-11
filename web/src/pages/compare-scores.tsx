@@ -20,10 +20,19 @@ function cellOf(result: CompareResult, variantId: string, taskId: string): Compa
   return cell;
 }
 
-// 格子的主指标：lfg 为总得分率，ic 为隐藏测试通过率
+// 格子的主指标：lfg 为总得分率，ic 为隐藏测试通过率，没有隐藏测试的 ic 为验收标准得分率
 function mainOf(cell: CompareCell): Distribution {
-  return cell.quality.kind === 'lfg' ? cell.quality.total : cell.quality.passRate;
+  switch (cell.quality.kind) {
+    case 'lfg':
+      return cell.quality.total;
+    case 'ic':
+      return cell.quality.passRate;
+    case 'ic_criteria':
+      return cell.quality.criteriaRate;
+  }
 }
+
+const mainLabel = { lfg: '总得分率', ic: '隐藏测试通过率', ic_criteria: '验收标准得分率' } as const;
 
 function meanSd(d: Distribution, format: (x: number) => string): string {
   if (d.mean === null) return '—';
@@ -92,7 +101,7 @@ function ScoreCell({
   if (main.n === 0) {
     return <p className="text-sm text-muted-foreground">没有已评分的 run</p>;
   }
-  const label = cell.quality.kind === 'lfg' ? '总得分率' : '隐藏测试通过率';
+  const label = mainLabel[cell.quality.kind];
   return (
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap items-baseline gap-x-2">
@@ -100,7 +109,7 @@ function ScoreCell({
           {meanSd(main, (x) => percent(x))}
         </span>
         <span className="text-xs text-muted-foreground">
-          {cell.quality.kind === 'ic' && cell.quality.reachedEnd.ratio !== null
+          {cell.quality.kind !== 'lfg' && cell.quality.reachedEnd.ratio !== null
             ? `到达终点 ${String(cell.quality.reachedEnd.values.filter((v) => v.reached).length)}/${String(main.n)} · `
             : ''}
           {main.n} 次 run
@@ -245,14 +254,14 @@ function IcDetail({ cells, variants }: { cells: CompareCell[]; variants: Selecte
             各次 run
           </th>
           {cells.map((cell) => {
-            if (cell.quality.kind !== 'ic') throw new Error('ic 行中出现 lfg 格子');
+            if (cell.quality.kind === 'lfg') throw new Error('ic 行中出现 lfg 格子');
             const reached = new Map(
               cell.quality.reachedEnd.values.map((v) => [v.runId, v.reached]),
             );
             return (
               <td key={cell.variantId} className="px-3 py-1.5 align-top">
                 <ul className="flex flex-col gap-0.5">
-                  {cell.quality.passRate.values.map((v) => (
+                  {mainOf(cell).values.map((v) => (
                     <li key={v.runId} className="tabular-nums">
                       <Link to={`/runs/${v.runId}`} className="font-mono text-xs underline">
                         {v.runId}
@@ -268,7 +277,7 @@ function IcDetail({ cells, variants }: { cells: CompareCell[]; variants: Selecte
         </tr>
         <tr>
           <th scope="row" className="py-1.5 pr-3 text-left font-medium">
-            通过率范围
+            {cells[0]?.quality.kind === 'ic_criteria' ? '得分率范围' : '通过率范围'}
           </th>
           {cells.map((cell) => {
             const d = mainOf(cell);
@@ -279,6 +288,31 @@ function IcDetail({ cells, variants }: { cells: CompareCell[]; variants: Selecte
             );
           })}
         </tr>
+        {/* 没有隐藏测试的 ic task：每条验收标准的平均得分（满分 2） */}
+        {(cells[0]?.criteriaItems ?? []).map((item) => (
+          <tr
+            key={`${item.itemId}\0${item.criterion}`}
+            className="border-t"
+            data-testid="criterion-row"
+          >
+            <th scope="row" className="py-1.5 pr-3 text-left font-normal">
+              <span className="mr-1 font-mono text-xs text-muted-foreground">{item.itemId}</span>
+              <span className="line-clamp-2">{item.criterion}</span>
+            </th>
+            {cells.map((cell) => {
+              const own = cell.criteriaItems.find(
+                (c) => c.itemId === item.itemId && c.criterion === item.criterion,
+              );
+              return (
+                <td key={cell.variantId} className="px-3 py-1.5 tabular-nums">
+                  {own?.score.mean == null
+                    ? '—'
+                    : `${own.score.mean.toFixed(1)} / ${String(own.maxScore)}`}
+                </td>
+              );
+            })}
+          </tr>
+        ))}
       </tbody>
     </table>
   );
@@ -376,7 +410,12 @@ export function ScoreTable({
     {
       kind: 'ic',
       title: '/ic · 隐藏测试通过率',
-      records: tasks.filter((t) => t.task.kind === 'ic'),
+      records: tasks.filter((t) => t.task.kind === 'ic' && t.task.hiddenTests !== undefined),
+    },
+    {
+      kind: 'ic_criteria',
+      title: '/ic · 验收标准得分率（没有隐藏测试）',
+      records: tasks.filter((t) => t.task.kind === 'ic' && t.task.hiddenTests === undefined),
     },
   ].filter((g) => g.records.length > 0);
   return (
