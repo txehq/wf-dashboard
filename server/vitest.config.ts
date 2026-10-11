@@ -8,6 +8,7 @@ export const gatewayTests = [
   'test/llm.test.ts',
   'test/tasks-api.test.ts',
   'test/variants.test.ts',
+  'test/variants-import.test.ts',
   'test/grading/lfg-judge.test.ts',
   'test/runs/live-stages.test.ts',
   'test/runs/simulated-user.test.ts',
