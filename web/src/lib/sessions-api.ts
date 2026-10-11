@@ -38,6 +38,8 @@ export interface SessionSummary {
   costUsd: number;
   workflows: Workflow[];
   runId: string | null;
+  // 交互产生或被交互 resume 的 session
+  liveId: string | null;
 }
 
 export interface SubagentInfo {

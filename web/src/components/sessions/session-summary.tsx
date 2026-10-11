@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { WorkflowBadges } from '@/components/sessions/workflow-badges';
+import { ResumeButton } from '@/components/live/resume-dialog';
+import { LiveBadge, WorkflowBadges } from '@/components/sessions/workflow-badges';
 import {
   durationBetween,
   formatCount,
@@ -87,6 +88,10 @@ export function SessionSummaryPanel({
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-semibold">{session.title ?? '（没有用户消息）'}</h1>
           <WorkflowBadges workflows={session.workflows} />
+          {session.liveId !== null && <LiveBadge liveId={session.liveId} />}
+          <span className="ml-auto">
+            <ResumeButton sessionId={session.id} />
+          </span>
         </div>
         <p className="font-mono text-xs text-muted-foreground">
           {session.cwd ?? '—'} · {session.id}

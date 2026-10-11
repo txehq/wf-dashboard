@@ -20,10 +20,7 @@ const task: LfgTask = { ...definition, dir: path.dirname(file) };
 const runId = 'r-20261009-simusr';
 const ctx: SimulatedUserContext = {
   task,
-  runId,
-  repo: `txehq/wfe-${runId}`,
-  ticket: null,
-  product: 'Magi Eval',
+  eval: { runId, repo: `txehq/wfe-${runId}`, ticket: null, product: 'Magi Eval' },
 };
 
 const initial: TranscriptEntry = {
@@ -170,11 +167,13 @@ describe('模拟用户回答 /ic 的长问题（真实 gateway）', { timeout: T
   if (icDefinition.kind !== 'ic') throw new Error('ic-money-format 应为 ic task');
   const icRunId = 'r-20261009-jzo9c4';
   const icCtx: SimulatedUserContext = {
-    task: { ...icDefinition, dir: path.dirname(icFile) },
-    runId: icRunId,
-    repo: `txehq/wfe-${icRunId}`,
-    ticket: 'TXE-3820',
-    product: 'Magi Eval',
+    task: icDefinition,
+    eval: {
+      runId: icRunId,
+      repo: `txehq/wfe-${icRunId}`,
+      ticket: 'TXE-3820',
+      product: 'Magi Eval',
+    },
   };
   const goal =
     "TXE-3820: make `formatMoney` in `src/format.js` take each currency's decimals from `src/currencies.js` (JPY/KRW with no fraction, KWD with three digits), put the minus sign before the symbol, show amounts up to Number.MAX_SAFE_INTEGER exactly, and throw RangeError (unsupported currency) / TypeError (amount not a safe integer). The checklist holds 8 requirements. /readiness will check node >=22.12.0 with npm. Authority ceiling: code and tests in this repo, a draft PR on txehq/wfe-r-20261009-jzo9c4, and Linear updates on this ticket, with no merge and no other external side effects. Is that the work?";
@@ -291,11 +290,13 @@ describe('r-20261010-1iqzja 的 Confirm goal（真实 gateway）', () => {
   if (unitDefinition.kind !== 'ic') throw new Error('ic-unit-converter 应为 ic task');
   const unitRunId = 'r-20261010-1iqzja';
   const unitCtx: SimulatedUserContext = {
-    task: { ...unitDefinition, dir: path.dirname(unitFile) },
-    runId: unitRunId,
-    repo: `txehq/wfe-${unitRunId}`,
-    ticket: 'TXE-3893',
-    product: 'Magi Eval',
+    task: unitDefinition,
+    eval: {
+      runId: unitRunId,
+      repo: `txehq/wfe-${unitRunId}`,
+      ticket: 'TXE-3893',
+      product: 'Magi Eval',
+    },
   };
 
   // simulateUser 遇到占位内容会抛错；prompt 允许没有合适选项时写自己的回答（例如要求先看清单）

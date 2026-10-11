@@ -14,6 +14,8 @@
     "@tanstack/react-query": "5.104.1",
     "@tanstack/react-virtual": "3.14.13",
     "@wf-dashboard/server": "workspace:*",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
     "@xyflow/react": "12.12.0",
     "class-variance-authority": "0.7.1",
     "cn": "0.4.0",

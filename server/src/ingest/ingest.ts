@@ -8,9 +8,10 @@ import {
   readSync,
 } from 'node:fs';
 import path from 'node:path';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
 import {
+  liveSessions,
   type ParseState,
   requests,
   runs,
@@ -346,6 +347,29 @@ function runIdFor(db: Db, sessionId: string): string | null {
   );
 }
 
+// 交互启动的 session（Contracts 14.1）
+function liveIdFor(db: Db, sessionId: string): string | null {
+  return (
+    db
+      .select({ id: liveSessions.id })
+      .from(liveSessions)
+      .where(eq(liveSessions.claudeSessionId, sessionId))
+      .orderBy(desc(liveSessions.createdAt))
+      .get()?.id ?? null
+  );
+}
+
+// resume 时 session 复制进了另一个配置目录，之后导入那一份（Contracts 14.5）；原文件不再导入
+function resumedElsewhere(db: Db, sessionId: string): boolean {
+  return (
+    db
+      .select({ id: liveSessions.id })
+      .from(liveSessions)
+      .where(eq(liveSessions.resumedFrom, sessionId))
+      .get() !== undefined
+  );
+}
+
 function titleOf(text: string): string {
   return Array.from(text.replace(/\s+/g, ' ').trim()).slice(0, titleLength).join('');
 }
@@ -434,10 +458,12 @@ export function ingestFile(db: Db, file: string): IngestResult {
       stageChanges: [],
     };
     const existing = db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
-    if (existing !== undefined && existing.filePath !== absolute)
+    if (existing !== undefined && existing.filePath !== absolute) {
+      if (resumedElsewhere(db, sessionId)) return unchanged;
       throw new Error(
         `session ${sessionId} 已从 ${existing.filePath} 导入，不能再从 ${absolute} 导入`,
       );
+    }
     const offset = existing?.parseOffset ?? 0;
     const state = existing?.parseState ?? initialParseState();
     const { lines, end } = readCompleteLines(absolute, offset);
@@ -467,6 +493,7 @@ export function ingestFile(db: Db, file: string): IngestResult {
         hasLfg: (existing?.hasLfg ?? false) || flags.lfg,
         hasIc: (existing?.hasIc ?? false) || flags.ic,
         runId: existing?.runId ?? runIdFor(db, sessionId),
+        liveId: existing?.liveId ?? liveIdFor(db, sessionId),
         parseOffset: end,
         parseState: state,
       };

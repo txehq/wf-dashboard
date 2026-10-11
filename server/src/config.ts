@@ -18,6 +18,8 @@ export const config = {
   dbPath: process.env.WFD_DB_PATH ?? path.join(dataDir, 'db.sqlite'),
   variantsDir: path.join(dataDir, 'variants'),
   runsDir: path.join(dataDir, 'runs'),
+  // 交互 session 的目录（hooks.json、pty.log、isolated 的 workspace）
+  liveDir: path.join(dataDir, 'live'),
   // Playwright 浏览器的共享目录；测试的各进程用不同的数据目录，用 WFD_PLAYWRIGHT_BROWSERS_DIR 共用一份
   playwrightBrowsersDir: path.resolve(
     process.env.WFD_PLAYWRIGHT_BROWSERS_DIR ?? path.join(dataDir, 'playwright-browsers'),

@@ -252,8 +252,15 @@ function ImportPreviewView({ preview }: { preview: ImportPreview }) {
 }
 
 // 新建 ic task 时粘贴工单地址或编号导入；仓库与 commit 省略时按默认值
-export function LinearImportPanel({ onAdopt }: { onAdopt: (preview: ImportPreview) => void }) {
-  const [issue, setIssue] = useState('');
+export function LinearImportPanel({
+  onAdopt,
+  initialIssue = '',
+}: {
+  onAdopt: (preview: ImportPreview) => void;
+  // 交互区"另存为 task"带来的工单地址
+  initialIssue?: string;
+}) {
+  const [issue, setIssue] = useState(initialIssue);
   const [repo, setRepo] = useState('');
   const [commit, setCommit] = useState('');
   const reading = useMutation({

@@ -30,7 +30,9 @@ export type AppEvent =
       status: StageStatus;
     }
   | { type: 'run.artifact'; runId: string; artifact: ArtifactView }
-  | { type: 'run.cost'; runId: string; costUsd: number };
+  | { type: 'run.cost'; runId: string; costUsd: number }
+  // 交互 session 的状态、驾驶者、等待的输入或 hook 有变化（Contracts 14），页面重新读取详情
+  | { type: 'live.updated'; liveId: string };
 
 const emitter = new EventEmitter();
 // 每个 SSE 连接一个监听者

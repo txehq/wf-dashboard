@@ -43,6 +43,13 @@
       "when": 1791714416696,
       "tag": "0005_task_source_and_criteria_grades",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1791738735869,
+      "tag": "0006_live_sessions",
+      "breakpoints": true
     }
   ]
 }

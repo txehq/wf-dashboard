@@ -5,7 +5,8 @@
   "exports": {
     "./tasks/schema": "./src/tasks/schema.ts",
     "./tasks/import-schema": "./src/tasks/import-schema.ts",
-    "./grading/schema": "./src/grading/schema.ts"
+    "./grading/schema": "./src/grading/schema.ts",
+    "./live/views": "./src/live/views.ts"
   },
   "scripts": {
     "dev": "tsx watch src/main.ts",
@@ -27,7 +28,9 @@
     "@fastify/sse": "0.6.1",
     "@fastify/static": "10.1.5",
     "@fastify/swagger": "9.9.1",
+    "@fastify/websocket": "11.3.4",
     "@modelcontextprotocol/sdk": "1.32.1",
+    "@xterm/headless": "6.0.0",
     "better-sqlite3": "13.0.3",
     "diff": "9.0.0",
     "drizzle-orm": "0.45.4",
@@ -38,6 +41,7 @@
     "junit2json": "4.0.0",
     "mdast-util-from-markdown": "2.1.0",
     "mdast-util-to-string": "4.0.0",
+    "node-pty": "1.2.0-beta.15",
     "openapi-types": "12.1.3",
     "picomatch": "4.0.7",
     "shell-quote": "1.12.0",
@@ -54,6 +58,7 @@
     "@types/node": "26.6.4",
     "@types/picomatch": "4.0.3",
     "@types/shell-quote": "1.7.5",
+    "@types/ws": "8.18.2",
     "drizzle-kit": "0.31.11",
     "tsx": "4.23.15",
     "typescript": "6.0.3",

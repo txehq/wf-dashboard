@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate } from 'react-router';
 import { Layout } from '@/app/layout';
 import { ComparePage } from '@/pages/compare';
+import { LivePage } from '@/pages/live';
 import { RunsPage } from '@/pages/runs';
 import { RunDetailPage } from '@/pages/runs-detail';
 import { SessionsPage } from '@/pages/sessions';
@@ -21,6 +22,7 @@ export const router = createBrowserRouter([
       { path: 'sessions/:id', element: <SessionDetailPage /> },
       { path: 'runs', element: <RunsPage /> },
       { path: 'runs/:id', element: <RunDetailPage /> },
+      { path: 'live', element: <LivePage /> },
       { path: 'variants', element: <VariantsPage /> },
       { path: 'variants/:id', element: <VariantDetailPage /> },
       { path: 'tasks', element: <TasksPage /> },

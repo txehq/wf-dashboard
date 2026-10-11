@@ -1,5 +1,5 @@
 import { Link } from 'react-router';
-import { WorkflowBadges } from '@/components/sessions/workflow-badges';
+import { LiveBadge, WorkflowBadges } from '@/components/sessions/workflow-badges';
 import {
   durationBetween,
   formatCount,
@@ -43,7 +43,10 @@ function Row({ session }: { session: SessionSummary }) {
       </td>
       <td className="py-2.5 pr-4 text-right text-sm tabular-nums">{formatUsd(session.costUsd)}</td>
       <td className="py-2.5 pr-4">
-        <WorkflowBadges workflows={session.workflows} />
+        <span className="flex flex-wrap items-center gap-1">
+          <WorkflowBadges workflows={session.workflows} />
+          {session.liveId !== null && <LiveBadge liveId={session.liveId} />}
+        </span>
       </td>
       <td className="py-2.5 pr-3 font-mono text-xs">{session.runId ?? '—'}</td>
     </tr>

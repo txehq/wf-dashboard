@@ -1,23 +1,40 @@
 import { z } from 'zod';
-import type { AskQuestion } from '../db/schema.js';
+import type { AskQuestion, Workflow } from '../db/schema.js';
 import { EVAL_PROJECT, EVAL_TEAM } from '../external/linear.js';
 import { ORG } from '../external/github.js';
 import { models, parseStructured } from '../llm/client.js';
 import { isFiller } from '../llm/filler.js';
-import type { Task } from '../tasks/schema.js';
 
 // dispatch gate 的固定回答（Spikes/Stage Markers 1.5）
 export const DISPATCH_GATE_REPLY = '不派发，到此结束。';
 const GO = /\bgo\b/i;
 
-export interface SimulatedUserContext {
-  task: Task;
+// 模拟用户扮演的人：run 与选了 task 的交互取 task 的字段（Task 本身满足这个形状）
+export interface SimulatedPersona {
+  // 对话所在的 workflow；resume 的 session 没有 workflow 时为空
+  kind: Workflow | null;
+  persona: string;
+  // 只在被问到时透露的需求；为空字符串时没有这一节
+  hiddenRequirements: string;
+}
+
+// 评估环境（run 与 isolated 交互）的公共事实
+export interface EvalFacts {
+  // run id 或交互 id，也是 feature slug
   runId: string;
-  // txehq/wfe-<runId>
+  // txehq/wfe-<id>
   repo: string;
   // ic 的工单 identifier
   ticket: string | null;
   product: string;
+}
+
+export interface SimulatedUserContext {
+  task: SimulatedPersona;
+  // real 环境的交互为空：agent 在用户真实的目录、仓库与工单上工作
+  eval: EvalFacts | null;
+  // 交互中驾驶者变为人时取消生成
+  signal?: AbortSignal | undefined;
 }
 
 // 对话记录中的一条：agent 的话，或扮演的用户（模拟用户与人）发出的话
@@ -33,6 +50,8 @@ export interface SimulatedReply {
   reply: string;
   // 回答 AskUserQuestion 时给出：键为问题原文，值为选项 label
   answers?: Record<string, string>;
+  // 同一回答按问题顺序的选项编号与"其他"的文字；交互中换成终端按键
+  selections?: QuestionAnswer[];
   done: boolean;
   costUsd: number;
   model: string;
@@ -75,12 +94,12 @@ export function rejectFiller(reply: string, answers: Record<string, string> = {}
   }
 }
 
-function facts(ctx: SimulatedUserContext): string[] {
+function facts(kind: Workflow | null, ctx: EvalFacts): string[] {
   const common = [
     `- 工单系统：Linear 的 ${EVAL_TEAM} team，"${EVAL_PROJECT}" project。`,
     `- 代码托管：GitHub 组织 ${ORG}；本次运行的仓库是 ${ctx.repo}。`,
   ];
-  if (ctx.task.kind === 'lfg') {
+  if (kind === 'lfg') {
     return [
       ...common,
       `- 文档写进 Obsidian vault，product 是 "${ctx.product}"，feature slug 是 ${ctx.runId}。`,
@@ -89,10 +108,14 @@ function facts(ctx: SimulatedUserContext): string[] {
   return [...common, `- 要做的工单是 ${ctx.ticket ?? '（未建）'}。`];
 }
 
-function doneRule(task: Task): string {
-  return task.kind === 'lfg'
-    ? '这是 /lfg 运行。done 为 true 的条件（满足其一）：你在之前的对话中已经回答过 dispatch gate（不派发），并且 agent 最新一轮报告了结束状态；或 agent 明确报告无法继续。其他情况一律为 false。'
-    : '这是 /ic 运行。done 为 true 的条件（满足其一）：agent 最新一轮报告 PR 已经标记为 ready for review（工单已移到 review 状态）；或 agent 明确报告无法继续。其他情况一律为 false。';
+function doneRule(kind: Workflow | null): string {
+  if (kind === 'lfg') {
+    return '这是 /lfg 运行。done 为 true 的条件（满足其一）：你在之前的对话中已经回答过 dispatch gate（不派发），并且 agent 最新一轮报告了结束状态；或 agent 明确报告无法继续。其他情况一律为 false。';
+  }
+  if (kind === 'ic') {
+    return '这是 /ic 运行。done 为 true 的条件（满足其一）：agent 最新一轮报告 PR 已经标记为 ready for review（工单已移到 review 状态）；或 agent 明确报告无法继续。其他情况一律为 false。';
+  }
+  return 'done 为 true 的条件（满足其一）：agent 最新一轮报告你交给它的工作已经全部完成；或 agent 明确报告无法继续。其他情况一律为 false。';
 }
 
 // agent 停下来等一个外部条件（额度恢复、服务可用、别人操作）而不是向用户提问时，对话不会再推进
@@ -102,24 +125,36 @@ const WAITING_RULE =
 export function systemPrompt(ctx: SimulatedUserContext): string {
   const { task } = ctx;
   const lines = [
-    '你在一次 Magi workflow 的评估运行中扮演用户，与一个编程 agent（Claude Code）对话。',
+    ctx.eval === null
+      ? '你在一次 Magi workflow 的真实使用中扮演用户，与一个编程 agent（Claude Code）对话。'
+      : '你在一次 Magi workflow 的评估运行中扮演用户，与一个编程 agent（Claude Code）对话。',
     '',
     '## 你扮演的人',
     task.persona.trim(),
-    '',
-    '## 你心里的完整需求（只在被问到时透露）',
-    task.hiddenRequirements.trim(),
+  ];
+  if (task.hiddenRequirements.trim() !== '') {
+    lines.push('', '## 你心里的完整需求（只在被问到时透露）', task.hiddenRequirements.trim());
+  }
+  lines.push(
     '',
     '## 规则',
     '- 只回答 agent 问到的内容。被问到哪一部分就透露哪一部分需求，不要一次把全部需求倒出来，也不要主动补充没被问到的细节。',
     '- 始终保持这个人的身份、知识水平和说话方式。',
     '- 不要求 agent 跳过、合并或简化 workflow 的任何步骤；agent 请你确认、选择或审阅时，按这个人的立场作答。',
     '- 你不能打开链接、运行命令、操作任何外部系统，也不能替 agent 做调研；agent 请你做这些事时，如实说明你做不到。',
-    '- 授权范围：agent 可以在上述 Linear project 中建工单，在 GitHub 组织 txehq 中建仓库与 PR，写 vault 的 Project Magi Eval/。被问到是否授权这些操作时回答可以；超出范围的操作不授权。',
-    '',
-    '## 评估环境的公共事实（agent 问到时如实回答）',
-    ...facts(ctx),
-  ];
+  );
+  if (ctx.eval === null) {
+    lines.push(
+      '- 授权范围：agent 在用户真实的目录、仓库与工单上工作。被问到是否授权时，只授权完成你交给它的工作所必需的操作。',
+    );
+  } else {
+    lines.push(
+      '- 授权范围：agent 可以在上述 Linear project 中建工单，在 GitHub 组织 txehq 中建仓库与 PR，写 vault 的 Project Magi Eval/。被问到是否授权这些操作时回答可以；超出范围的操作不授权。',
+      '',
+      '## 评估环境的公共事实（agent 问到时如实回答）',
+      ...facts(task.kind, ctx.eval),
+    );
+  }
   if (task.kind === 'lfg') {
     lines.push(
       '',
@@ -130,7 +165,7 @@ export function systemPrompt(ctx: SimulatedUserContext): string {
   lines.push(
     '',
     '## 何时结束（done）',
-    doneRule(task),
+    doneRule(task.kind),
     WAITING_RULE,
     'done 为 true 时，reply 写一句简短的结束语，它不会发给 agent。',
     '',
@@ -214,19 +249,27 @@ export async function simulateUser(
     system: systemPrompt(ctx),
     user: userPrompt(transcript, prompt),
     maxTokens: 4096,
+    ...(ctx.signal === undefined ? {} : { signal: ctx.signal }),
   };
   let reply: string;
   let done: boolean;
   let answers: Record<string, string> | undefined;
+  let selections: QuestionAnswer[] | undefined;
   let cost: { costUsd: number; model: string };
   if (prompt.kind === 'questions') {
     const result = await parseStructured({ ...call, schema: questionOutput(prompt.questions) });
     ({ reply, done } = result.value);
     cost = result;
     const given = result.value.answers;
+    selections = prompt.questions.map((_, i) => {
+      const answer = given[questionKey(i)];
+      if (answer === undefined) throw new Error(`模拟用户没有回答问题 ${String(i + 1)}`);
+      return answer;
+    });
+    const chosen = selections;
     answers = Object.fromEntries(
       prompt.questions.map((question, i): [string, string] => {
-        const answer = given[questionKey(i)];
+        const answer = chosen[i];
         if (answer === undefined) throw new Error(`模拟用户没有回答问题 ${String(i + 1)}`);
         return [question.question, answerText(`问题 ${String(i + 1)}`, question, answer)];
       }),
@@ -246,6 +289,7 @@ export async function simulateUser(
   return {
     reply,
     ...(answers === undefined ? {} : { answers }),
+    ...(selections === undefined ? {} : { selections }),
     done,
     costUsd: cost.costUsd,
     model: cost.model,

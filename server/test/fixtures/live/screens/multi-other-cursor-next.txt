@@ -1,0 +1,39 @@
+
+ ▐▛███▛█   Claude Code v2.1.295
+▝▜██████▀  Opus 5.5 (1M context) with high effort · API Usage Billing
+ ▝▝   ▝▝   ~/orca/workspaces/wf-dashboard/wfd-w30/.work/w30/exp/ask5-out/cwd
+
+
+❯ 调用一次 AskUserQuestion，同时问两个问题：问题一「选几种水果」，header「水果」，选项                                  
+  苹果、香蕉、橙子，多选（multiSelect true）；问题二「选几种蔬菜」，header「蔬菜」，选项 白菜、萝卜，多选（multiSelect  
+  true）。回答后输出 ANSWERS: 水果=… 蔬菜=…                                                                             
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☒ 水果  ☐ 蔬菜  ✔ Submit  →
+
+选几种水果
+
+  1. [✔] 苹果
+         苹果
+  2. [ ] 香蕉
+         香蕉
+  3. [ ] 橙子
+         橙子
+  4. [✔] 还有西瓜
+❯    Next
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · Tab/Arrow keys to navigate · ctrl+g to edit in Vim · Esc to cancel
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -49,6 +49,8 @@ const SessionSummary = z.object({
   costUsd: z.number(),
   workflows: z.array(z.enum(workflows)),
   runId: z.string().nullable(),
+  // 交互产生或被交互 resume 的 session（Contracts 14.1），列表中标为"交互"
+  liveId: z.string().nullable(),
 });
 type SessionSummary = z.infer<typeof SessionSummary>;
 
@@ -121,6 +123,7 @@ const summaryColumns = {
   hasLfg: sessions.hasLfg,
   hasIc: sessions.hasIc,
   runId: sessions.runId,
+  liveId: sessions.liveId,
 };
 
 interface SummaryRow {
@@ -133,6 +136,7 @@ interface SummaryRow {
   hasLfg: boolean;
   hasIc: boolean;
   runId: string | null;
+  liveId: string | null;
 }
 
 function summaries(db: Db, rows: SummaryRow[]): SessionSummary[] {
@@ -194,6 +198,7 @@ function summaries(db: Db, rows: SummaryRow[]): SessionSummary[] {
       costUsd: t?.costUsd ?? 0,
       workflows: workflows.filter((w) => (w === 'lfg' ? r.hasLfg : r.hasIc)),
       runId: r.runId,
+      liveId: r.liveId,
     };
   });
 }

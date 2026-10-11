@@ -298,10 +298,12 @@ export class RunDriver {
     if (run.githubRepo === null) throw new Error(`run ${this.runId} 没有仓库`);
     return {
       task: this.task,
-      runId: this.runId,
-      repo: run.githubRepo,
-      ticket: run.linearIssueIdentifier,
-      product: this.deps.product,
+      eval: {
+        runId: this.runId,
+        repo: run.githubRepo,
+        ticket: run.linearIssueIdentifier,
+        product: this.deps.product,
+      },
     };
   }
 
