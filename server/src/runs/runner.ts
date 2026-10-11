@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { FSWatcher } from 'chokidar';
 import { eq } from 'drizzle-orm';
 import { execa } from 'execa';
 import type { Db } from '../db/index.js';
@@ -10,7 +9,7 @@ import { createEmptyRunRepo, createRunRepo, readPr } from '../external/github.js
 import { createRunTicket } from '../external/linear.js';
 import { gradeRun } from '../grading/index.js';
 import { ingestFile } from '../ingest/ingest.js';
-import { watchSession } from '../ingest/watch.js';
+import { type SessionWatcher, watchSession } from '../ingest/watch.js';
 import { featureDir } from '../stages/lfg.js';
 import { loadTask } from '../tasks/loader.js';
 import type { Task } from '../tasks/schema.js';
@@ -90,7 +89,7 @@ export class RunDriver {
   private task!: Task;
   private proc: ClaudeProcess | null = null;
   private stages: LiveStages | null = null;
-  private sessionWatcher: FSWatcher | null = null;
+  private sessionWatcher: SessionWatcher | null = null;
   private unsubscribe: (() => void) | null = null;
   private prTimer: NodeJS.Timeout | null = null;
   private prPolling = false;
@@ -306,7 +305,7 @@ export class RunDriver {
       `${run.sessionId}.jsonl`,
     );
     this.jsonl = jsonl;
-    this.sessionWatcher = await watchSession(this.db, jsonl, this.fail);
+    this.sessionWatcher = watchSession(this.db, jsonl, this.fail);
 
     const stageOptions = {
       db: this.db,

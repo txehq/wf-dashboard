@@ -9,7 +9,7 @@ import { sessions } from '../../src/db/schema.js';
 import { watchSession } from '../../src/ingest/watch.js';
 import { openTestDb } from '../stages/db.js';
 
-// runner 在 claude 启动前开始监听 jsonl；文件出现后由 add 事件导入
+// runner 在 claude 启动前开始监听 jsonl；文件出现后由下一次增量导入读入
 const sessionId = '40f6915a-cd31-4312-866c-dcb377515c42';
 const fixture = path.join(import.meta.dirname, '../fixtures/runs', `${sessionId}.jsonl`);
 const work = path.join(config.repoRoot, '.work', 'test-watch', randomUUID());
@@ -46,7 +46,7 @@ describe('watchSession 用于实时运行', () => {
     const dir = path.join(work, 'projects', 'r-20261009-watch1');
     fs.mkdirSync(dir, { recursive: true });
     const errors: Error[] = [];
-    const watcher = await watchSession(db, path.join(dir, `${id}.jsonl`), (e) => errors.push(e));
+    const watcher = watchSession(db, path.join(dir, `${id}.jsonl`), (e) => errors.push(e));
     fs.writeFileSync(path.join(dir, `${id}.jsonl`), source);
     expect(await waitFor(() => sessionRow(id) !== undefined || errors.length > 0, 10_000)).toBe(
       true,
@@ -62,7 +62,7 @@ describe('watchSession 用于实时运行', () => {
     const dir = path.join(work, 'projects', 'r-20261009-watch2');
     const file = path.join(dir, `${id}.jsonl`);
     const errors: Error[] = [];
-    const watcher = await watchSession(db, file, (e) => errors.push(e));
+    const watcher = watchSession(db, file, (e) => errors.push(e));
     const writer = spawn('bash', [
       '-c',
       'mkdir -p "$1" && head -n 5 "$2" > "$3" && sleep 1 && tail -n +6 "$2" >> "$3"',
@@ -79,6 +79,35 @@ describe('watchSession 用于实时运行', () => {
     await watcher.close();
   }, 20_000);
 
+  // 另一个进程在别的目录中不停地建、写、删文件（e2e 构建、其他 run 写 jsonl 时的情形）：
+  // macOS 的 FSEvents 在这种负载下会丢弃事件，导入不能依赖文件系统事件
+  test('大量文件写入的同时出现的 jsonl：照常导入', async () => {
+    const id = randomUUID();
+    const source = copyFixture(id);
+    const dir = path.join(work, 'projects', 'r-20261009-watch4');
+    const flood = path.join(work, 'flood');
+    fs.mkdirSync(flood, { recursive: true });
+    const writers = Array.from({ length: 8 }, (_, k) =>
+      spawn('bash', [
+        '-c',
+        'mkdir -p "$1" && while true; do for j in $(seq 1 200); do echo x > "$1/$j"; done; rm -f "$1"/*; done',
+        'flood',
+        path.join(flood, String(k)),
+      ]),
+    );
+    const errors: Error[] = [];
+    const file = path.join(dir, `${id}.jsonl`);
+    const watcher = watchSession(db, file, (e) => errors.push(e));
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(file, source);
+    const done = () => sessionRow(id)?.parseOffset === Buffer.byteLength(source);
+    const imported = await waitFor(() => done() || errors.length > 0, 10_000);
+    for (const w of writers) w.kill();
+    expect(imported).toBe(true);
+    expect(errors).toEqual([]);
+    await watcher.close();
+  }, 20_000);
+
   // W15 H1：事件回调中的导入错误以前成为 uncaught exception，整个服务退出；现在交给 onError，之后不再导入
   test('增量导入出错时交给 onError，进程不退出，之后的写入不再导入', async () => {
     const id = randomUUID();
@@ -89,7 +118,7 @@ describe('watchSession 用于实时运行', () => {
     const head = source.split('\n').slice(0, 12).join('\n');
     fs.writeFileSync(file, `${head}\n`);
     const errors: Error[] = [];
-    const watcher = await watchSession(db, file, (e) => errors.push(e));
+    const watcher = watchSession(db, file, (e) => errors.push(e));
     const imported = sessionRow(id)?.parseOffset;
     expect(imported).toBe(Buffer.byteLength(`${head}\n`));
     // 一条找不到 tool_use 的 tool_result（W15 的 watch-crash 复现）

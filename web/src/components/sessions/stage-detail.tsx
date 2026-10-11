@@ -72,7 +72,7 @@ function Evidence({ workflow, view }: { workflow: Workflow; view: StageView }) {
         ? '跳过时的行为'
         : '进入行为';
   return (
-    <dl className="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-1 text-xs" data-testid="stage-evidence">
+    <dl className="grid grid-cols-[8rem_1fr] gap-x-3 gap-y-1 text-xs" data-testid="stage-evidence">
       <Row label={label}>
         <span className="whitespace-pre-wrap">{summary}</span>
       </Row>

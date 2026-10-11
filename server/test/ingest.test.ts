@@ -166,7 +166,7 @@ describe('watchSession', () => {
     const { lines, at } = splitPoint(watched);
     writePrefix(watched, lines, at);
     const errors: Error[] = [];
-    const watcher = await watchSession(db, watched, (error) => errors.push(error));
+    const watcher = watchSession(db, watched, (error) => errors.push(error));
     const before = snapshot(db, sample.id).requests.length;
 
     const updated = new Promise<void>((resolve) => {

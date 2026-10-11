@@ -27,7 +27,9 @@ test('Sessions：来源勾选、列表、详情、阶段判定、Skill 调用的
   for (const source of [icSource, lfgSource]) {
     const checkbox = page.getByRole('checkbox', { name: source, exact: true });
     await expect(checkbox).not.toBeChecked();
-    await checkbox.check();
+    // 导入进行中时全部勾选框不可用；勾选状态在导入完成后才更新
+    await expect(checkbox).toBeEnabled();
+    await checkbox.click();
     await expect(checkbox).toBeChecked();
   }
   await expect(page.getByTestId('import-result')).toContainText('已导入');
