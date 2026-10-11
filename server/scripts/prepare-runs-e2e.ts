@@ -5,7 +5,6 @@ import { config } from '../src/config.js';
 import { openDatabase } from '../src/db/index.js';
 import { runs } from '../src/db/schema.js';
 import { scanCrossRunRefs } from '../src/runs/cross-run-refs.js';
-import { createSettingsStore } from '../src/runs/settings.js';
 import { syncTasks } from '../src/tasks/loader.js';
 import { importRun, isImported, repairImportedVariants } from './import-run-lib.js';
 
@@ -43,10 +42,9 @@ if (!fs.existsSync(runtimes)) {
 
 const db = openDatabase(config.dbPath, config.migrationsDir);
 syncTasks(db, config.tasksDir);
-const stageCheck = createSettingsStore(db).get().models.stageCheck;
 for (const { runId, ...from } of sources) {
   if (isImported(db, runId)) continue;
-  console.log(JSON.stringify(await importRun(db, from, runId, stageCheck, config.dataDir)));
+  console.log(JSON.stringify(importRun(db, from, runId, config.dataDir)));
 }
 // 全部导入后按 runs 模块在 run 结束时的做法重新扫描运行之间的参考（Contracts 7.11）
 for (const { runId } of sources) {

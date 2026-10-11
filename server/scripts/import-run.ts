@@ -1,6 +1,5 @@
 import { config } from '../src/config.js';
 import { openDatabase } from '../src/db/index.js';
-import { createSettingsStore } from '../src/runs/settings.js';
 import { syncTasks } from '../src/tasks/loader.js';
 import { importRun } from './import-run-lib.js';
 
@@ -13,11 +12,10 @@ if (dataDir === undefined || runId === undefined) {
 }
 const db = openDatabase(config.dbPath, config.migrationsDir);
 syncTasks(db, config.tasksDir);
-const result = await importRun(
+const result = importRun(
   db,
   { dataDir, ...(dbPath === undefined ? {} : { dbPath }) },
   runId,
-  createSettingsStore(db).get().models.stageCheck,
   config.dataDir,
 );
 console.log(JSON.stringify(result));

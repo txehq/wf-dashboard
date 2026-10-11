@@ -112,16 +112,14 @@ async function versionCheck(
 const roleLabels: Record<keyof Models, string> = {
   simulatedUser: '模拟用户',
   judge: '评分（judge）',
-  stageCheck: '阶段判定',
 };
 
 const roleIds: Record<keyof Models, string> = {
   simulatedUser: 'model-simulated-user',
   judge: 'model-judge',
-  stageCheck: 'model-stage-check',
 };
 
-// 与模拟用户、judge、阶段判定完全相同形状的请求（strict tool respond，Contracts 4）：
+// 与模拟用户、judge 完全相同形状的请求（strict tool respond，Contracts 4）：
 // gateway 把模型路由到不接受 strict tool 的渠道（例如 Bedrock 的 tools.0.custom.strict）时这一项同样失败
 const PingResult = z.object({ reply: z.string().min(1) });
 
@@ -143,9 +141,7 @@ async function modelCheck(role: keyof Models, model: string): Promise<Environmen
     ),
   );
   const ms = Math.round(performance.now() - started);
-  const env =
-    role === 'stageCheck' ? '；或启动服务前用 WFD_STAGE_CHECK_MODEL 指定阶段判定的模型' : '';
-  const fix = `在 Runs 页面的「设置」里为「${roleLabels[role]}」换一个模型并保存${env}；401 时检查 ~/.claude/settings.json 中 env 的 ANTHROPIC_AUTH_TOKEN 与 ANTHROPIC_BASE_URL`;
+  const fix = `在 Runs 页面的「设置」里为「${roleLabels[role]}」换一个模型并保存；401 时检查 ~/.claude/settings.json 中 env 的 ANTHROPIC_AUTH_TOKEN 与 ANTHROPIC_BASE_URL`;
   return {
     id: roleIds[role],
     label: `gateway：${roleLabels[role]}模型 ${model}`,
@@ -358,7 +354,6 @@ export async function runEnvironmentChecks(
     ),
     modelCheck('simulatedUser', models.simulatedUser),
     modelCheck('judge', models.judge),
-    modelCheck('stageCheck', models.stageCheck),
     githubCheck(),
     linearCheck(),
     codexCheck(options),

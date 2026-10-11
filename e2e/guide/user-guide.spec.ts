@@ -53,13 +53,13 @@ test('02 离线分析：来源目录、session 列表、阶段图与请求明细
   await expect(page.getByTestId('session-row').first()).toBeVisible();
   await shot(page, '02-sessions');
 
-  // 导入的历史 session 在点开后才判定
+  // 导入的历史 session 在导入时就划分好阶段：f0aca373 有一轮 /lfg 与三轮 /ic
   await page.getByRole('searchbox', { name: '搜索 session' }).fill('f0aca373');
-  const unanalyzed = page.getByTestId('session-row').filter({ hasText: 'f0aca373' });
+  const imported = page.getByTestId('session-row').filter({ hasText: 'f0aca373' });
   await expect(page.getByTestId('session-row')).toHaveCount(1);
-  await unanalyzed.getByRole('link').click();
-  await expect(page.getByRole('button', { name: '分析阶段' })).toBeVisible();
-  await shot(page, '03-session-unanalyzed');
+  await imported.getByRole('link').click();
+  await expect(page.getByTestId('cycles-ic').getByRole('tab')).toHaveCount(3);
+  await shot(page, '03-session-stages');
 
   // dashboard 发起的运行边运行边判定：W4 的 lfg run
   const run = (await (await request.get(`/api/runs/${gradedRun}`)).json()) as { sessionId: string };

@@ -1,8 +1,8 @@
 import { type APIRequestContext, expect, type Page, test } from '@playwright/test';
 import { runsServerPort } from '../ports.js';
 
-// 数据目录与 runs.spec.ts 相同：W4 端到端导入的真实 run，它们的 session 已有实时判定的阶段；
-// 另外勾选本机 txe-workflow 的来源目录，用其中 f0aca373 的对话区（含 AskUserQuestion，不需要判定阶段）
+// 数据目录与 runs.spec.ts 相同：W4 端到端导入的真实 run，它们的 session 在导入时已划分阶段；
+// 另外勾选本机 txe-workflow 的来源目录，用其中 f0aca373 的对话区（含 AskUserQuestion）
 const api = `http://127.0.0.1:${String(runsServerPort)}/api`;
 const source = '/Users/linhaoz/.claude/projects/-Users-linhaoz-Project-txe-txe-workflow';
 const f0 = 'f0aca373-863f-4d62-babd-f48055092328';
@@ -55,7 +55,8 @@ async function checkWidth(page: Page, url: string) {
   await expect.poll(() => noPageScroll(page), { message: `${url} 点开阶段后` }).toBe(true);
   const tools = page.getByTestId('tool-call').locator('> button');
   const n = Math.min(await tools.count(), 8);
-  for (let i = 0; i < n; i++) await tools.nth(i).click();
+  // 从下往上展开：展开的内容只把下面的行推出虚拟滚动的渲染范围，不影响上面还没展开的行
+  for (let i = n - 1; i >= 0; i--) await tools.nth(i).click();
   await expect.poll(() => noPageScroll(page), { message: `${url} 展开 tool 调用后` }).toBe(true);
 }
 

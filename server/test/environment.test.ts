@@ -7,7 +7,7 @@ import { config } from '../src/config.js';
 import { openDatabase } from '../src/db/index.js';
 import { type EnvironmentOptions, runEnvironmentChecks } from '../src/environment.js';
 import { closeLinearClient } from '../src/external/linear.js';
-import { models } from '../src/llm/client.js';
+import { claudeSettingsEnv, models, stripContextTag } from '../src/llm/client.js';
 
 // 全部检查都真实执行：真实的 claude、gateway、gh、Linear MCP、codex exec 与本机路径
 const work = path.join(config.repoRoot, '.work', 'test-environment', randomUUID());
@@ -28,7 +28,6 @@ const ids = [
   'claude',
   'model-simulated-user',
   'model-judge',
-  'model-stage-check',
   'gh',
   'linear',
   'codex',
@@ -46,7 +45,7 @@ afterAll(async () => {
 
 describe('runEnvironmentChecks', () => {
   test(
-    '本机：十二项按 Contracts 第 8 节的顺序返回，本机工具与路径通过',
+    '本机：十一项按 Contracts 第 8 节的顺序返回，本机工具与路径通过',
     { timeout: 240_000 },
     async () => {
       const report = await runEnvironmentChecks(machine);
@@ -67,7 +66,7 @@ describe('runEnvironmentChecks', () => {
         expect(check.fix).not.toBe('');
       }
       // 角色模型的检查发的是与 parseStructured 相同的 strict tool 请求，通过时 detail 为 respond 的内容
-      for (const id of ['model-simulated-user', 'model-judge', 'model-stage-check']) {
+      for (const id of ['model-simulated-user', 'model-judge']) {
         const check = byId.get(id);
         expect(check?.detail, id).toMatch(check?.ok === true ? /respond：\S/ : /\S/);
       }
@@ -81,8 +80,8 @@ describe('runEnvironmentChecks', () => {
     fs.mkdirSync(missingVault);
     const report = await runEnvironmentChecks({
       ...machine,
-      // W4 中阶段判定实际用到的、gateway 上没有渠道的模型名
-      models: () => ({ ...models, stageCheck: 'claude-haiku-4-5-20251001-cc' }),
+      // W4 中实际用到过的、gateway 上没有渠道的模型名
+      models: () => ({ ...models, judge: 'claude-haiku-4-5-20251001-cc' }),
       vaultDir: missingVault,
       txeWorkflowRepo: path.join(work, 'no-such-repo'),
       ctxBin: path.join(work, 'no-such-ctx'),
@@ -91,12 +90,12 @@ describe('runEnvironmentChecks', () => {
     });
     const byId = new Map(report.checks.map((c) => [c.id, c]));
 
-    const stage = byId.get('model-stage-check');
-    expect(stage?.ok).toBe(false);
-    expect(stage?.label).toContain('claude-haiku-4-5-20251001-cc');
-    expect(stage?.detail).toMatch(/No available channel/);
-    expect(stage?.fix).toContain('为「阶段判定」换一个模型');
-    expect(stage?.fix).toContain('WFD_STAGE_CHECK_MODEL');
+    expect(byId.has('model-stage-check')).toBe(false);
+    const judge = byId.get('model-judge');
+    expect(judge?.ok).toBe(false);
+    expect(judge?.label).toContain('claude-haiku-4-5-20251001-cc');
+    expect(judge?.detail).toMatch(/No available channel/);
+    expect(judge?.fix).toContain('为「评分（judge）」换一个模型');
 
     const vault = byId.get('vault');
     expect(vault?.ok).toBe(false);
@@ -161,12 +160,12 @@ describe('GET /api/environment', () => {
     const settings = (await app.inject({ method: 'GET', url: '/api/settings' })).json<{
       models: Record<string, string>;
     }>();
-    // 换成 judge 的模型（与默认的阶段判定模型不同）
-    const next = settings.models.judge;
+    // 模拟用户换成 sonnet 的别名（与默认的 opus 不同）
+    const next = stripContextTag(claudeSettingsEnv().ANTHROPIC_DEFAULT_SONNET_MODEL);
     const saved = await app.inject({
       method: 'PUT',
       url: '/api/settings',
-      payload: { ...settings, models: { ...settings.models, stageCheck: next } },
+      payload: { ...settings, models: { ...settings.models, simulatedUser: next } },
     });
     expect(saved.statusCode).toBe(200);
     const after = (await app.inject({ method: 'GET', url: '/api/environment' })).json<{
@@ -174,8 +173,8 @@ describe('GET /api/environment', () => {
       checks: { id: string; label: string }[];
     }>();
     expect(after.checkedAt).toBeGreaterThan(before.checkedAt);
-    expect(after.checks.find((c) => c.id === 'model-stage-check')?.label).toBe(
-      `gateway：阶段判定模型 ${String(next)}`,
+    expect(after.checks.find((c) => c.id === 'model-simulated-user')?.label).toBe(
+      `gateway：模拟用户模型 ${next}`,
     );
   });
 });

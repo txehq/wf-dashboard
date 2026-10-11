@@ -4,10 +4,8 @@ import path from 'node:path';
 import matter from 'gray-matter';
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { toString } from 'mdast-util-to-string';
-import { z } from 'zod';
-import { inputString, type RequestRow } from './rows.js';
-import { commandsOf, type ObsidianArgs, obsidianArgs } from './shell.js';
-import type { LfgStage } from './workflow.js';
+
+// lfg 的产物记录（Contracts 7.2）：feature 目录中的 Brief、Research、Tickets 与 plan 锁定后的快照，不参与阶段划分
 
 // feature 目录中的固定文件名与 wf obsidian 写入的 frontmatter kind
 export const LFG_DOCS = {
@@ -88,13 +86,15 @@ export function lfgSnapshot(dir: string, feature: string): Record<DocKey, LfgDoc
   };
 }
 
-export interface LfgLiveProgress {
-  stages: Record<LfgStage, LfgDoc | null>;
-  // Tickets.md 已出现而 Plan 一节没有锁定标记
-  planLockMissing: boolean;
+export interface LfgArtifactDocs {
+  brief: LfgDoc | null;
+  research: LfgDoc | null;
+  // 锁定了 Plan 一节的 Research.md 或 System Design.md
+  plan: LfgDoc | null;
+  tickets: LfgDoc | null;
 }
 
-// 实时运行的 lfg 判定：每次 feature 目录变化后调用 observe()。
+// 实时运行中 feature 目录的产物：每次 observe() 读一次目录。
 // plan 锁定要求锁定标记出现在文件首次出现之后的某次改写中，因此记住每个主文档首次被看到时的 hash。
 export class LfgTracker {
   private readonly firstHash = new Map<string, string>();
@@ -104,7 +104,7 @@ export class LfgTracker {
     readonly feature: string,
   ) {}
 
-  observe(): LfgLiveProgress {
+  observe(): LfgArtifactDocs {
     const docs = lfgSnapshot(this.dir, this.feature);
     let plan: LfgDoc | null = null;
     for (const doc of [docs.research, docs.design]) {
@@ -114,104 +114,10 @@ export class LfgTracker {
       else if (!plan && doc.planLockLine !== null && doc.hash !== first) plan = doc;
     }
     return {
-      stages: {
-        interview: docs.brief,
-        research: docs.research ?? docs.design,
-        plan,
-        ticketing: docs.tickets,
-      },
-      planLockMissing: docs.tickets !== null && plan === null,
+      brief: docs.brief,
+      research: docs.research ?? docs.design,
+      plan,
+      tickets: docs.tickets,
     };
   }
-}
-
-// 离线 session：写出产物的那次 wf obsidian 调用即阶段边界
-export interface LfgBoundary {
-  stage: LfgStage;
-  seq: number;
-  toolCallId: string;
-  command: string;
-  path: string;
-  planLockLine: string | null;
-}
-
-// wf obsidian 写出的文件：<vault>/Project <P>/Features/<slug>/<固定文件名>
-const WRITTEN_PATH =
-  /^.*Project [^/\n]+\/Features\/[^/\n]+\/(?:Brief|Research|System Design|Tickets)\.md$/;
-
-// --kind → 写出的固定文件名
-const LFG_FILE_OF_KIND: Record<string, string> = Object.fromEntries(
-  Object.values(LFG_DOCS).map((d) => [d.kind, d.file]),
-);
-
-function boundaryStage(args: ObsidianArgs): LfgStage | 'plan-candidate' | null {
-  const inPlanDir = /(?:^|\/)\.plan\//.test(args.file ?? '');
-  if (args.kind === 'brief') return 'interview';
-  if (args.kind === 'tickets') return 'ticketing';
-  if (args.kind === 'research' || args.kind === 'design') {
-    if (!inPlanDir) return 'research';
-    if (args.replace) return 'plan-candidate';
-  }
-  return null;
-}
-
-// wf --json 的输出信封（txe-workflow crates/wf-core/src/envelope.rs）
-const ObsidianEnvelope = z.object({
-  ok: z.boolean(),
-  command: z.literal('obsidian'),
-  result: z.object({ path: z.string().min(1), dry_run: z.boolean() }),
-});
-
-// 这次调用写出的文件路径：--json 时读信封的 result.path，否则为输出中打印的那一行
-function writtenPath(args: ObsidianArgs, result: string): string | null {
-  if (args.json) {
-    const envelope = ObsidianEnvelope.parse(JSON.parse(result));
-    return envelope.ok && !envelope.result.dry_run ? envelope.result.path : null;
-  }
-  const file = LFG_FILE_OF_KIND[args.kind ?? ''];
-  return (
-    result
-      .split('\n')
-      .map((l) => l.trim())
-      .find((l) => WRITTEN_PATH.test(l) && (file === undefined || l.endsWith(`/${file}`))) ?? null
-  );
-}
-
-export function lfgOfflineBoundaries(main: RequestRow[], cwd: string | null): LfgBoundary[] {
-  const out: LfgBoundary[] = [];
-  for (const row of main) {
-    for (const call of row.toolCalls) {
-      if (call.name !== 'Bash' || call.isError || call.result === null) continue;
-      const command = inputString(call.input, 'command');
-      if (!command?.includes('obsidian')) continue;
-      for (const argv of commandsOf(command)) {
-        const args = obsidianArgs(argv);
-        if (args === null || args.dryRun || args.help) continue;
-        const stage = boundaryStage(args);
-        if (stage === null) continue;
-        const printed = writtenPath(args, call.result);
-        if (printed === null) continue;
-        // 打印的路径相对于 agent 传入的 vault，相对路径按 session 的 cwd 解析
-        if (!path.isAbsolute(printed) && cwd === null) {
-          throw new Error(`wf obsidian 打印了相对路径 ${printed}，而 session 没有 cwd`);
-        }
-        const file = cwd === null ? printed : path.resolve(cwd, printed);
-        if (!fs.existsSync(file)) continue;
-        let planLockLine: string | null = null;
-        if (stage === 'plan-candidate') {
-          planLockLine = planLockedLine(matter(fs.readFileSync(file, 'utf8')).content);
-          if (planLockLine === null) continue;
-        }
-        out.push({
-          stage: stage === 'plan-candidate' ? 'plan' : stage,
-          seq: row.seq,
-          toolCallId: call.id,
-          command,
-          path: file,
-          planLockLine,
-        });
-      }
-    }
-  }
-  return out;
 }

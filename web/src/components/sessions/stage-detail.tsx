@@ -4,13 +4,7 @@ import { ToolBars } from '@/components/sessions/session-summary';
 import { StatusLabel } from '@/components/sessions/status-label';
 import { formatCount, formatDuration, formatInteger, formatUsd } from '@/lib/format';
 import type { StageView, SubagentInfo, Workflow, WorkflowCycle } from '@/lib/sessions-api';
-import { cycleName, methodLabel } from '@/lib/stage-status';
-
-function field(evidence: unknown, key: string): string | number | null {
-  if (typeof evidence !== 'object' || evidence === null) return null;
-  const value = (evidence as Record<string, unknown>)[key];
-  return typeof value === 'string' || typeof value === 'number' ? value : null;
-}
+import { cycleName, entriesText, evidenceKindLabel } from '@/lib/stage-status';
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -21,64 +15,23 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-// lfg 证据：写出产物的 wf obsidian 调用；ic 证据：判定进入该阶段的那一条行为
-function Evidence({ workflow, view }: { workflow: Workflow; view: StageView }) {
+// 证据：进入这个阶段的那次 Skill 调用或用户输入的 slash 命令
+function Evidence({ view }: { view: StageView }) {
   const e = view.evidence;
-  const note = field(e, 'note');
-  const seq = field(e, 'seq');
-  const toolCallId = field(e, 'toolCallId');
-  if (workflow === 'lfg') {
-    const path = field(e, 'path');
-    if (path === null)
-      return (
-        <p className="text-sm text-muted-foreground">
-          {note ??
-            (view.status === 'active' || view.status === 'interrupted'
-              ? '还没有写出这个阶段的产物。'
-              : '没有判定证据。')}
-        </p>
-      );
-    const lock = field(e, 'planLockLine');
-    return (
-      <dl className="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-1 text-xs">
-        <Row label="产物">{path}</Row>
-        {lock !== null && <Row label="锁定标记">{lock}</Row>}
-        <Row label="触发调用">
-          #{seq} · {toolCallId}
-        </Row>
-        <Row label="命令">
-          <span className="whitespace-pre-wrap">{field(e, 'command')}</span>
-        </Row>
-      </dl>
-    );
-  }
-  const summary = field(e, 'summary');
-  if (summary === null)
+  if (e === null)
     return (
       <p className="text-sm text-muted-foreground">
         {view.status === 'skipped'
-          ? '这一轮从后面的阶段开始，这个阶段被跳过。'
-          : view.status === 'not-reached'
-            ? '这一轮没有进入这个阶段。'
-            : '没有判定证据。'}
+          ? '这一轮中这个阶段没有被调用，直接进入了后面的阶段。'
+          : '这一轮没有进入这个阶段。'}
       </p>
     );
-  const label =
-    view.method === 'skill'
-      ? view.status === 'skipped'
-        ? '越过它的 Skill 调用'
-        : 'Skill 调用'
-      : view.status === 'skipped'
-        ? '跳过时的行为'
-        : '进入行为';
   return (
     <dl className="grid grid-cols-[8rem_1fr] gap-x-3 gap-y-1 text-xs" data-testid="stage-evidence">
-      <Row label={label}>
-        <span className="whitespace-pre-wrap">{summary}</span>
+      <Row label={evidenceKindLabel[e.kind]}>
+        <span className="whitespace-pre-wrap">{e.text}</span>
       </Row>
-      <Row label="所在请求">
-        #{seq} · {toolCallId}
-      </Row>
+      <Row label="所在请求">#{e.seq}</Row>
     </dl>
   );
 }
@@ -115,24 +68,24 @@ export function StageDetail({
           /{workflow} · {view.stage}
         </h2>
         <StatusLabel status={view.status} />
-        {view.status === 'interrupted' && cycle?.endSeq !== null && cycle !== undefined && (
-          <span className="text-xs" data-testid="stage-interrupted">
-            后来开始了另一轮流程，这一轮在请求 #{cycle.endSeq} 结束
-          </span>
-        )}
         {cycle !== undefined && (
           <span className="rounded border px-1.5 py-0.5 text-xs" data-testid="stage-cycle">
             {cycleName(cycle)}
           </span>
         )}
         <span className="text-xs text-muted-foreground">
-          <span data-testid="stage-method">{methodLabel[view.method]}</span> · {rangeText(view)}
+          {entriesText(view) !== null && (
+            <>
+              <span data-testid="stage-entries">{entriesText(view)}</span> ·{' '}
+            </>
+          )}
+          {rangeText(view)}
         </span>
       </header>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="flex flex-col gap-2 rounded-lg border px-4 py-3">
-          <h3 className="text-sm font-medium">判定证据</h3>
-          <Evidence workflow={workflow} view={view} />
+          <h3 className="text-sm font-medium">进入这个阶段的调用</h3>
+          <Evidence view={view} />
         </div>
         <div className="flex flex-col gap-2 rounded-lg border px-4 py-3">
           <h3 className="text-sm font-medium">阶段统计</h3>
@@ -172,9 +125,7 @@ export function StageDetail({
             ? '这个阶段被跳过，没有请求。'
             : view.status === 'active'
               ? '已进入这个阶段，但之后还没有请求。'
-              : view.status === 'interrupted'
-                ? '这一轮在进入这个阶段时被中断：后来开始了另一轮流程。'
-                : '没有进入这个阶段。'}
+              : '没有进入这个阶段。'}
         </p>
       )}
     </section>

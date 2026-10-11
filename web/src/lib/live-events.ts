@@ -12,9 +12,6 @@ export type LiveStatus = 'connecting' | 'open' | 'lost';
 const EVENT_TYPES = [
   'session.updated',
   'stage.changed',
-  'stage.progress',
-  'stage.analyzed',
-  'stage.failed',
   'run.status',
   'run.message',
   'run.pending',

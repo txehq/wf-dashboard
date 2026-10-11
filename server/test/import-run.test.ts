@@ -38,9 +38,8 @@ describe('导入 run 时带上 variant 的内容', () => {
   test(
     '导入后 files 与 diff 可用，只复制 skills、variant.json 与基线导出',
     { timeout: 300_000 },
-    async () => {
-      // lfg 的阶段按产物判定，不调用模型
-      await importRun(db, { dataDir: w4Data }, runId, 'claude-sonnet-5', dataDir);
+    () => {
+      importRun(db, { dataDir: w4Data }, runId, dataDir);
 
       const row = variants.get(variantId);
       expect(row.installDir).toBeNull();

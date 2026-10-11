@@ -15,20 +15,19 @@ import { StatusLabel } from '@/components/sessions/status-label';
 import { formatCount, formatDuration, formatInteger, formatUsd } from '@/lib/format';
 import type { StageStatus, StageView, Workflow } from '@/lib/sessions-api';
 
-// 跳过：虚线边框加斜纹；未到达：点线边框、淡色文字；中断：橙色粗虚线边框（与进行中的蓝色实线区分）
+// 跳过：虚线边框加斜纹；未到达：点线边框、淡色文字
 const statusBox: Record<StageStatus, string> = {
   done: 'border-foreground/25 bg-card border-l-4 border-l-[var(--viz-status-good)]',
   active: 'border-2 border-[var(--viz-series-1)] bg-card',
   skipped:
     'border-dashed border-foreground/40 bg-[repeating-linear-gradient(135deg,transparent_0_6px,var(--muted)_6px_12px)]',
   'not-reached': 'border-dotted border-foreground/25 bg-muted/30 text-muted-foreground',
-  interrupted: 'border-2 border-dashed border-[var(--viz-status-serious)] bg-card',
 };
 
 const NODE_WIDTH = 158;
 const NODE_GAP = 26;
 const NODE_Y = 44;
-// 阶段框最高时（中断说明加子代理行）约 190px
+// 阶段框最高时（调用次数加子代理行）约 190px
 const NODE_HEIGHT = 200;
 // 一行的高度：上方留出 fix-pr 自环的位置
 const ROW_HEIGHT = NODE_Y + NODE_HEIGHT;
@@ -69,11 +68,7 @@ interface StageNodeData extends Record<string, unknown> {
   live: boolean;
   onSelect: (stage: string) => void;
 }
-interface GateNodeData extends Record<string, unknown> {
-  reached: boolean;
-}
 type StageNode = Node<StageNodeData, 'stage'>;
-type GateNode = Node<GateNodeData, 'gate'>;
 
 const hiddenHandle = '!size-1 !min-w-0 !min-h-0 !border-0 !bg-transparent';
 
@@ -159,6 +154,10 @@ function StageNodeView({ data }: NodeProps<StageNode>) {
           </span>
         ) : (
           <dl className="grid grid-cols-[auto_1fr] gap-x-2 text-xs">
+            <dt className="text-muted-foreground">{view.stage === 'fix-pr' ? '修复' : '调用'}</dt>
+            <dd className="text-right tabular-nums" data-testid="stage-entries">
+              {formatInteger(view.entries)} {view.stage === 'fix-pr' ? '轮' : '次'}
+            </dd>
             <Stat label="请求" value={formatInteger(s.requests)} />
             {s.subagents > 0 && <Stat label="子代理" value={formatInteger(s.subagents)} />}
             <Stat
@@ -175,25 +174,7 @@ function StageNodeView({ data }: NodeProps<StageNode>) {
             <Stat label="耗时" value={formatDuration(s.durationMs)} />
           </dl>
         )}
-        {view.status === 'interrupted' && (
-          <span className="text-xs text-muted-foreground">后来开始了另一轮流程</span>
-        )}
       </button>
-    </div>
-  );
-}
-
-function GateNodeView({ data }: NodeProps<GateNode>) {
-  return (
-    <div
-      style={{ width: NODE_WIDTH - 40 }}
-      data-testid="stage-dispatch-gate"
-      className={`flex flex-col items-center gap-1 rounded-md border-2 border-double px-3 py-3 text-center ${data.reached ? 'border-foreground/50 bg-card' : 'border-foreground/25 text-muted-foreground'}`}
-    >
-      <Handle type="target" position={Position.Left} id="in" className={hiddenHandle} />
-      <Handle type="target" position={Position.Top} id="up" className={hiddenHandle} />
-      <span className="font-mono text-sm font-semibold">dispatch gate</span>
-      <span className="text-xs">{data.reached ? '已停在这里' : '未到达'}</span>
     </div>
   );
 }
@@ -207,7 +188,7 @@ function LoopEdge({ sourceX, sourceY, targetX, targetY, markerEnd, style }: Edge
   );
 }
 
-const nodeTypes = { stage: StageNodeView, gate: GateNodeView };
+const nodeTypes = { stage: StageNodeView };
 const edgeTypes = { loop: LoopEdge };
 
 function edgeStyle(reached: boolean) {
@@ -233,13 +214,10 @@ export function StageGraph({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const containerWidth = useWidth(containerRef);
-  const last = views[views.length - 1];
-  const withGate = workflow === 'lfg' && last !== undefined;
-  const columns = views.length + (withGate ? 1 : 0);
-  const { perRow, rows } = gridOf(columns, containerWidth ?? 0);
-  const position = (i: number, dy = 0) => ({
+  const { perRow, rows } = gridOf(views.length, containerWidth ?? 0);
+  const position = (i: number) => ({
     x: (i % perRow) * (NODE_WIDTH + NODE_GAP),
-    y: Math.floor(i / perRow) * ROW_HEIGHT + NODE_Y + dy,
+    y: Math.floor(i / perRow) * ROW_HEIGHT + NODE_Y,
   });
   // 同一行内从右侧指向下一个框的左侧；换行处从行末框的底部指向下一行行首框的顶部
   const link = (i: number) =>
@@ -247,7 +225,7 @@ export function StageGraph({
       ? { type: 'smoothstep', sourceHandle: 'down', targetHandle: 'up' }
       : { sourceHandle: 'out', targetHandle: 'in' };
 
-  const nodes: (StageNode | GateNode)[] = views.map((view, i) => ({
+  const nodes: StageNode[] = views.map((view, i) => ({
     id: view.stage,
     type: 'stage',
     position: position(i),
@@ -280,24 +258,6 @@ export function StageGraph({
       target: 'fix-pr',
       targetHandle: 'loop-in',
       ...edgeStyle(fixPr.status !== 'not-reached'),
-    });
-  }
-  if (withGate) {
-    const reached = last.status === 'done';
-    nodes.push({
-      id: 'dispatch-gate',
-      type: 'gate',
-      position: position(views.length, 36),
-      data: { reached },
-      draggable: false,
-      selectable: false,
-    });
-    edges.push({
-      id: `${last.stage}->dispatch-gate`,
-      source: last.stage,
-      target: 'dispatch-gate',
-      ...link(views.length),
-      ...edgeStyle(reached),
     });
   }
   const width = perRow * (NODE_WIDTH + NODE_GAP) - NODE_GAP + VIEWPORT_X * 2;

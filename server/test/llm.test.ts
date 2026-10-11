@@ -100,7 +100,7 @@ describe('gateway 结构化输出', () => {
     expect(anthropic().timeout).toBe(120_000);
     await expect(
       client.messages.create({
-        model: models.stageCheck,
+        model: models.judge,
         max_tokens: 16,
         messages: [{ role: 'user', content: 'hi' }],
       }),
@@ -108,9 +108,9 @@ describe('gateway 结构化输出', () => {
     expect(hits).toBe(1);
     await server.close();
   });
-  it('Haiku 返回符合 schema 的 JSON 并记账', async () => {
+  it('judge 模型返回符合 schema 的 JSON 并记账', async () => {
     const result = await parseStructured({
-      model: models.stageCheck,
+      model: models.judge,
       system: '只输出 JSON。',
       user: '2 加 3 等于多少？',
       schema: z.object({ answer: z.number() }).strict(),

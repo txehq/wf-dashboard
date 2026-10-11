@@ -53,7 +53,7 @@ const emptyStats = {
   subagents: 0,
 };
 
-// 还没有阶段判定结果时，按 workflow 的阶段列表显示为未到达
+// session 还没有导入或还没有进入任何阶段时，按 workflow 的阶段列表显示为未到达
 function stageViews(run: RunDetail): StageView[] {
   const cycle = run.stages?.[run.taskKind][0];
   if (cycle !== undefined) return cycle.stages;
@@ -62,7 +62,7 @@ function stageViews(run: RunDetail): StageView[] {
     status: 'not-reached',
     startSeq: null,
     endSeq: null,
-    method: run.taskKind === 'lfg' ? 'artifact' : 'llm',
+    entries: 0,
     evidence: null,
     stats: emptyStats,
   }));
@@ -106,7 +106,6 @@ function ExternalLinks({ links }: { links: RunDetail['links'] }) {
 const costParts = [
   { key: 'agent', label: 'agent' },
   { key: 'simulatedUser', label: '模拟用户' },
-  { key: 'stageCheck', label: '阶段判定' },
   { key: 'grading', label: '评分' },
 ] as const;
 

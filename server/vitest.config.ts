@@ -10,12 +10,7 @@ export const gatewayTests = [
   'test/variants.test.ts',
   'test/variants-import.test.ts',
   'test/grading/lfg-judge.test.ts',
-  'test/runs/live-stages.test.ts',
   'test/runs/simulated-user.test.ts',
-  'test/stages/analysis.test.ts',
-  'test/stages/ic.test.ts',
-  'test/stages/report.test.ts',
-  'test/stages/stale.test.ts',
 ];
 
 // *.external.test.ts 会在 Linear 与 txehq 中创建对象，只由 test:external 运行

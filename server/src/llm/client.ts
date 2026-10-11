@@ -37,19 +37,15 @@ export const stripContextTag = (model: string) => model.replace(/\[[^\]]*\]$/, '
 export interface Models {
   simulatedUser: string;
   judge: string;
-  stageCheck: string;
 }
 
-// 默认值：模拟用户与 judge 都取 settings env 中 opus 的别名（sonnet 对 done 的判断不可靠，见 Reports/W21）；
-// 阶段判定取环境变量 WFD_STAGE_CHECK_MODEL，未设置时取 haiku 别名。数据库中的设置优先于这些默认值
+// 默认值：模拟用户与 judge 都取 settings env 中 opus 的别名（sonnet 对 done 的判断不可靠，见 Reports/W21）。
+// 数据库中的设置优先于这些默认值
 export function defaultModels(): Models {
   const current = claudeSettingsEnv();
   return {
     simulatedUser: stripContextTag(current.ANTHROPIC_DEFAULT_OPUS_MODEL),
     judge: stripContextTag(current.ANTHROPIC_DEFAULT_OPUS_MODEL),
-    stageCheck: stripContextTag(
-      process.env.WFD_STAGE_CHECK_MODEL ?? current.ANTHROPIC_DEFAULT_HAIKU_MODEL,
-    ),
   };
 }
 

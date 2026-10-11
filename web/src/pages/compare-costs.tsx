@@ -37,7 +37,6 @@ type MetricId = (typeof metrics)[number]['id'];
 const breakdownParts = [
   { key: 'agent', label: 'agent' },
   { key: 'simulatedUser', label: '模拟用户' },
-  { key: 'stageCheck', label: '阶段判定' },
   { key: 'grading', label: '评分' },
 ] as const;
 

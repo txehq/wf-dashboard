@@ -126,7 +126,7 @@ function rubricItems(task: LfgTask, graded: GradedRun[]): CompareCell['rubricIte
   }));
 }
 
-// 没有进入任何阶段的 run（没有判定结果，或判定中没有这个 workflow 的轮次，例如 agent 一开始就报告无法继续）：
+// 没有进入任何阶段的 run（session 没有导入，或其中没有这个 workflow 的轮次，例如 agent 一开始就报告无法继续）：
 // 全部阶段记为未到达，成本按 0 计入均值
 function stageCosts(db: Db, graded: GradedRun[], kind: 'lfg' | 'ic'): StageCost[] {
   const stages = kind === 'lfg' ? LFG_STAGES : IC_STAGES;
@@ -157,7 +157,6 @@ function meanBreakdown(breakdowns: CostBreakdown[]): CostBreakdown {
   return {
     agent: mean(breakdowns.map((b) => b.agent)),
     simulatedUser: mean(breakdowns.map((b) => b.simulatedUser)),
-    stageCheck: mean(breakdowns.map((b) => b.stageCheck)),
     grading: mean(breakdowns.map((b) => b.grading)),
     total: mean(breakdowns.map((b) => b.total)),
   };

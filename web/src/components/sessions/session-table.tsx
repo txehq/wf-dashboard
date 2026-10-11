@@ -1,4 +1,3 @@
-import { Check, Minus } from 'lucide-react';
 import { Link } from 'react-router';
 import { WorkflowBadges } from '@/components/sessions/workflow-badges';
 import {
@@ -46,19 +45,6 @@ function Row({ session }: { session: SessionSummary }) {
       <td className="py-2.5 pr-4">
         <WorkflowBadges workflows={session.workflows} />
       </td>
-      <td className="py-2.5 pr-4 text-sm">
-        {session.analyzed ? (
-          <span className="inline-flex items-center gap-1">
-            <Check className="size-3.5" aria-hidden />
-            已分析
-          </span>
-        ) : (
-          <span className="inline-flex items-center gap-1 text-muted-foreground">
-            <Minus className="size-3.5" aria-hidden />
-            未分析
-          </span>
-        )}
-      </td>
       <td className="py-2.5 pr-3 font-mono text-xs">{session.runId ?? '—'}</td>
     </tr>
   );
@@ -76,7 +62,6 @@ export function SessionTable({ sessions }: { sessions: SessionSummary[] }) {
             <th className="py-2 pr-4 text-right font-medium">token</th>
             <th className="py-2 pr-4 text-right font-medium">花费</th>
             <th className="py-2 pr-4 font-medium">workflow</th>
-            <th className="py-2 pr-4 font-medium">阶段</th>
             <th className="py-2 pr-3 font-medium">run</th>
           </tr>
         </thead>

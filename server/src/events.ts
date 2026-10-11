@@ -12,17 +12,6 @@ export type AppEvent =
       stage: string;
       status: StageStatus;
     }
-  // 离线判定的进度（Contracts 第 9 节）
-  | {
-      type: 'stage.progress';
-      sessionId: string;
-      workflow: Workflow;
-      batchesDone: number;
-      batchesTotal: number;
-      costUsd: number;
-    }
-  | { type: 'stage.analyzed'; sessionId: string }
-  | { type: 'stage.failed'; sessionId: string; error: string }
   // step 为正在执行的构建步骤；构建开始、完成与失败时为 null
   | {
       type: 'variant.build';

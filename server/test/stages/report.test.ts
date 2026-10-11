@@ -1,15 +1,24 @@
-import { count, eq } from 'drizzle-orm';
+import fs from 'node:fs';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { buildApp } from '../../src/api/app.js';
 import { config } from '../../src/config.js';
-import { stageAnalyses, stageChecks } from '../../src/db/schema.js';
-import { BATCH_SIZE, behavioursOf } from '../../src/stages/ic.js';
-import { analyzeSession, StageReport, workflowMarks } from '../../src/stages/report.js';
-import { watchAnalysis } from './analysis-events.js';
-import { openTestDb } from './db.js';
-import { ingestSample, SAMPLES, type Sample, seqOfToolLine, TEST_STAGE_MODEL } from './samples.js';
+import type { Db } from '../../src/db/index.js';
+import { batches, runs } from '../../src/db/schema.js';
+import { ingestFile } from '../../src/ingest/ingest.js';
+import { readReport, StageReport, stageReport, updateStages } from '../../src/stages/report.js';
+import { loadSessionRows, type RequestRow } from '../../src/stages/rows.js';
+import { syncTasks } from '../../src/tasks/loader.js';
+import { insertVariant } from '../grading/seed.js';
+import { unpackRunFixture } from '../helpers/run-fixture.js';
+import { insertSession, openTestDb } from './db.js';
+import { SAMPLES } from './samples.js';
 
+const work = path.join(config.repoRoot, '.work', 'test-stage-report', randomUUID());
 const { db, close } = openTestDb();
+syncTasks(db, config.tasksDir);
+insertVariant(db, 'stage-report-v');
 const app = await buildApp({
   db,
   sseHeartbeatMs: config.sseHeartbeatMs,
@@ -23,21 +32,8 @@ beforeAll(async () => {
 afterAll(async () => {
   await app.close();
   close();
+  fs.rmSync(work, { recursive: true, force: true });
 });
-
-// POST analyze：已判定过直接返回结果；否则后台判定，等 stage.analyzed 后读 stages
-async function analyze(id: string) {
-  const watch = watchAnalysis(id);
-  const res = await app.inject({ method: 'POST', url: `/api/sessions/${id}/analyze` });
-  expect(res.statusCode).toBe(200);
-  const body = res.json<{ status?: string }>();
-  if (body.status !== 'running') {
-    watch.stop();
-    return StageReport.parse(body);
-  }
-  await watch.done;
-  return stages(id);
-}
 
 async function stages(id: string) {
   const res = await app.inject({ method: 'GET', url: `/api/sessions/${id}/stages` });
@@ -45,261 +41,310 @@ async function stages(id: string) {
   return StageReport.parse(res.json());
 }
 
-const checks = (id: string) =>
-  db.select().from(stageChecks).where(eq(stageChecks.sessionId, id)).all();
-
-const checkCount = (id: string) =>
-  db.select({ n: count() }).from(stageChecks).where(eq(stageChecks.sessionId, id)).get()?.n;
-
-const lastMainSeq = (s: Sample) => s.main[s.main.length - 1]?.seq;
-
-// 一组主 session 请求加上其中 Agent 调用对应的子代理请求
-function withSubagents(s: Sample, main: Sample['main']) {
-  const ids = new Set(main.flatMap((r) => r.toolCalls.map((c) => c.subagentId)));
-  return [...main, ...s.subagent.filter((r) => ids.has(r.agentId))];
+// 已到终态的 run：导入 session 时 sessions.run_id 指向它
+function finishedRun(runId: string, sessionId: string, taskId: string) {
+  db.insert(batches)
+    .values({ id: `b-${runId}`, repeats: 1 })
+    .run();
+  db.insert(runs)
+    .values({
+      id: runId,
+      batchId: `b-${runId}`,
+      taskId,
+      variantId: 'stage-report-v',
+      repeatIndex: 0,
+      status: 'succeeded',
+      sessionId,
+      workspacePath: path.join(work, runId),
+    })
+    .run();
 }
 
-// 不变量：每个主 session 请求最多属于一轮；各轮请求数 + 流程外 = 主 agent 请求总数（统计含子代理时同样成立）
-function expectExclusive(s: Sample, report: StageReport) {
-  const lastSeq = s.main[s.main.length - 1]?.seq ?? -1;
-  const cycles = [...report.lfg, ...report.ic];
-  const inCycles = s.main.filter((r) =>
-    cycles.some((c) => r.seq >= c.startSeq && r.seq <= (c.endSeq ?? lastSeq)),
-  );
-  for (const r of s.main) {
-    const owners = cycles.filter((c) => r.seq >= c.startSeq && r.seq <= (c.endSeq ?? lastSeq));
+type Expected = [
+  stage: string,
+  status: string,
+  startSeq: number | null,
+  endSeq: number | null,
+  entries: number,
+  evidence: { seq: number; kind: string; text: string } | null,
+];
+
+const views = (c: StageReport['ic'][number] | undefined): Expected[] =>
+  (c?.stages ?? []).map((v) => [v.stage, v.status, v.startSeq, v.endSeq, v.entries, v.evidence]);
+
+const skill = (seq: number, text: string) => ({ seq, kind: 'skill', text });
+const command = (seq: number, text: string) => ({ seq, kind: 'command', text });
+
+// 守恒：各阶段与 outside 的 mainRequests 之和等于主请求数；各阶段区间互不重叠
+function expectConservation(sessionId: string, report: StageReport) {
+  const rows = loadSessionRows(db, sessionId);
+  const spans = [...report.lfg, ...report.ic].flatMap((c) => c.stages);
+  const main = spans.reduce((n, v) => n + v.stats.mainRequests, 0);
+  expect(main + report.outside.mainRequests).toBe(rows.main.length);
+  for (const r of rows.main) {
+    const owners = spans.filter(
+      (v) => v.startSeq !== null && v.endSeq !== null && r.seq >= v.startSeq && r.seq <= v.endSeq,
+    );
     expect(owners.length).toBeLessThanOrEqual(1);
   }
-  const outsideMain = s.main.length - inCycles.length;
-  const outsideAll = report.outside.requests;
-  expect(inCycles.length + outsideMain).toBe(s.main.length);
-  // 主 session 请求数守恒：各阶段与流程外的 mainRequests 之和等于主 agent 请求总数
-  const stageMain = cycles.reduce(
-    (n, c) => n + c.stages.reduce((m, v) => m + v.stats.mainRequests, 0),
-    0,
-  );
-  expect(stageMain + report.outside.mainRequests).toBe(s.main.length);
-  expect(report.outside.mainRequests).toBe(outsideMain);
-  // 阶段统计与流程外统计合起来恰好覆盖全部请求
-  const stageRequests = cycles.reduce(
-    (n, c) => n + c.stages.reduce((m, v) => m + v.stats.requests, 0),
-    0,
-  );
-  expect(stageRequests + outsideAll).toBe(withSubagents(s, s.main).length);
-  // 流程外的主 session 请求数与区间计算一致
-  expect(
-    withSubagents(
-      s,
-      s.main.filter((r) => !inCycles.includes(r)),
-    ).length,
-  ).toBe(outsideAll);
+  const all = spans.reduce((n, v) => n + v.stats.requests, 0) + report.outside.requests;
+  expect(all).toBe(rows.main.length + rows.subagent.length);
 }
 
-// 端到端：ingest 导入真实样本 → POST analyze → GET stages
-describe('端到端：导入真实样本后判定', () => {
-  test('未知 session 的 analyze 与未判定 session 的 stages 返回 404', async () => {
-    const unknown = await app.inject({ method: 'POST', url: '/api/sessions/nope/analyze' });
-    expect(unknown.statusCode).toBe(404);
-    const s = ingestSample(db, SAMPLES.research);
-    const res = await app.inject({ method: 'GET', url: `/api/sessions/${s.sessionId}/stages` });
-    expect(res.statusCode).toBe(404);
-  });
-
-  test('f0aca373：三轮 ic（PR #72、#77、#78），边界与 Stage Markers 2.6 一致', async () => {
-    const s = ingestSample(db, SAMPLES.icPrs);
-    // 判定用测试模型；之后的 analyze 路由直接返回已有结果
-    const report = StageReport.parse(await analyzeSession(db, s.sessionId, TEST_STAGE_MODEL));
-    const cost = checks(s.sessionId);
+describe('真实样本的阶段划分', () => {
+  test('f0aca373：/interview 一轮 lfg，Skill open-pr 549、792、1143 各开一轮 ic', async () => {
+    const started = performance.now();
+    const { sessionId } = ingestFile(db, SAMPLES.icPrs);
+    const ingestMs = performance.now() - started;
+    const report = await stages(sessionId);
     console.log(
-      'f0aca373 判定',
+      'f0aca373 导入耗时',
       JSON.stringify({
-        model: TEST_STAGE_MODEL,
-        calls: cost.length,
-        byQuestion: Object.fromEntries(
-          ['enter', 'outside'].map((q) => [q, cost.filter((c) => c.nextStage === q).length]),
-        ),
-        inputTokens: report.checks.inputTokens,
-        outputTokens: report.checks.outputTokens,
-        costUsd: report.checks.costUsd,
+        ingestMs: Math.round(ingestMs),
+        stagesMs: Math.round(performance.now() - started - ingestMs),
       }),
     );
-    console.log(
-      'f0aca373 ic',
-      JSON.stringify(
-        report.ic.map((c) => ({
-          label: c.label,
-          startSeq: c.startSeq,
-          endSeq: c.endSeq,
-          stages: c.stages.map((v) => [v.stage, v.status, v.startSeq, v.endSeq, v.stats.requests]),
-        })),
-      ),
-    );
-    console.log('f0aca373 outside', JSON.stringify(report.outside));
 
-    // 每轮 open-pr、fix-pr、ready-for-review 的起点（jsonl 行号，Stage Markers 2.6）与判定方式：
-    // open-pr 都是 Skill 调用；fix-pr 在 #72、#78 是 Skill 调用，#77 没有 fix-pr Skill，由模型判定 watcher 启动的那一条。
-    // rfr 第一项是 gh pr ready 那一条；PR #77 中 Sonnet 也会把 ready-for-review 判在第 9100 行（停掉 watcher 并查看 PR 状态）
-    const expected = [
-      { label: 'PR #72', openPr: 5811, fixPr: 5883, fixPrMethod: 'skill', rfr: [6153] },
-      { label: 'PR #77', openPr: 8397, fixPr: 8430, fixPrMethod: 'llm', rfr: [9121, 9100] },
-      { label: 'PR #78', openPr: 12802, fixPr: 12921, fixPrMethod: 'skill', rfr: [13678] },
-    ];
-    expect(report.ic.map((c) => [c.index, c.label])).toEqual(
-      expected.map((e, i) => [i + 1, e.label]),
-    );
-    // 判定从 ic 的第一个标志起按 BATCH_SIZE 条行为一批。Skill 调用给出的边界由确定性规则决定，精确等于
-    // Stage Markers 的行；没有 Skill 调用的批次由模型判定，同一提问不同次的回答可能差几条请求，
-    // 这类边界只要求与 Stage Markers 的那一条在同一批
-    const icStart = workflowMarks(s).ic[0];
-    if (icStart === undefined) throw new Error('样本中没有 ic 标志');
-    const behaviours = behavioursOf(s.main.filter((r) => r.seq >= icStart));
-    const batchOf = (seq: number) => {
-      const index = behaviours.findIndex((b) => b.seq === seq);
-      if (index === -1) throw new Error(`请求 #${String(seq)} 没有行为`);
-      return Math.floor(index / BATCH_SIZE);
-    };
-    const expectBoundary = (
-      v: { startSeq: number | null; method: string } | undefined,
-      lines: number[],
-    ) => {
-      const seqs = lines.map((line) => seqOfToolLine(s, line));
-      const start = v?.startSeq ?? -1;
-      if (v?.method === 'skill') expect(seqs).toContain(start);
-      else expect(seqs.map(batchOf)).toContain(batchOf(start));
-    };
-    for (const [i, e] of expected.entries()) {
-      const cycle = report.ic[i];
-      if (cycle === undefined) throw new Error(`缺少第 ${String(i + 1)} 轮`);
-      const view = (stage: string) => cycle.stages.find((v) => v.stage === stage);
-      const [prReadyLine] = e.rfr;
-      if (prReadyLine === undefined) throw new Error('缺少 gh pr ready 的行号');
-      const prReady = seqOfToolLine(s, prReadyLine);
-      expect(cycle.stages.map((v) => v.stage)).toEqual([
-        'claim',
-        'readiness',
-        'implement',
-        'acceptance',
-        'open-pr',
-        'fix-pr',
-        'ready-for-review',
-      ]);
-      const openPr = view('open-pr');
-      const fixPr = view('fix-pr');
-      const ready = view('ready-for-review');
-      expectBoundary(openPr, [e.openPr]);
-      expectBoundary(fixPr, [e.fixPr]);
-      expectBoundary(ready, e.rfr);
-      // PR #77 没有 fix-pr Skill，fix-pr 只能由模型判定；ready-for-review 都由模型判定
-      if (e.fixPrMethod === 'llm') expect(fixPr?.method).toBe('llm');
-      expect(ready?.method).toBe('llm');
-      const fixStart = fixPr?.startSeq ?? -1;
-      const rfr = ready?.startSeq ?? -1;
-      expect(openPr).toMatchObject({ status: 'done', endSeq: fixStart - 1 });
-      expect(fixPr).toMatchObject({ status: 'done', endSeq: rfr - 1 });
-      // ready-for-review 在 gh pr ready 之后不久结束，这一轮随之结束
-      expect(ready).toMatchObject({ status: 'done' });
-      expect(ready?.endSeq).toBe(cycle.endSeq);
-      expect(cycle.endSeq).not.toBeNull();
-      expect((cycle.endSeq ?? 0) - prReady).toBeLessThanOrEqual(5);
-      // 这些 PR 没有认领工单，claim 不含任何请求；acceptance 没有运行，被越过而跳过
-      expect(view('claim')).toMatchObject({ status: 'skipped', stats: { requests: 0 } });
-      expect(view('acceptance')).toMatchObject({
-        status: 'skipped',
-        startSeq: openPr?.startSeq,
-        stats: { requests: 0 },
-      });
-      // 轮次之间不重叠
-      const next = report.ic[i + 1];
-      if (next !== undefined) expect(cycle.endSeq ?? 0).toBeLessThan(next.startSeq);
-    }
-    // open-pr 阶段含 /review-pr 的 Skill 调用
-    expect(report.ic[0]?.stages[4]?.stats.toolCalls.Skill).toBeGreaterThanOrEqual(1);
-
-    // /interview 以 <command-name> 启动（第 1390 行），session 中没有 wf obsidian 写入：一轮 lfg 停在 interview，
-    // ic 第 1 轮开始时这一轮在它之前结束，interview 为 interrupted
-    expect(report.lfg).toHaveLength(1);
-    const icFirst = report.ic[0]?.startSeq ?? -1;
-    expect(report.lfg[0]?.endSeq).toBe(icFirst - 1);
-    expect(report.lfg[0]?.stages.map((v) => [v.stage, v.status, v.endSeq])).toEqual([
-      ['interview', 'interrupted', icFirst - 1],
-      ['research', 'not-reached', null],
-      ['plan', 'not-reached', null],
-      ['ticketing', 'not-reached', null],
+    expect(report.lfg.map((c) => [c.index, c.label, c.startSeq, c.endSeq])).toEqual([
+      [1, '/interview', 138, 548],
     ]);
-    expectExclusive(s, report);
-
-    expect(report.checks.count).toBe(checkCount(s.sessionId));
-    expect(report.checks.costUsd).toBeGreaterThan(0);
-    const calls = checkCount(s.sessionId);
-    expect(await analyze(s.sessionId)).toEqual(report);
-    expect(checkCount(s.sessionId)).toBe(calls);
-    expect(await stages(s.sessionId)).toEqual(report);
-  }, 900_000);
-
-  test('9f4adf2d：调研 session 没有任何轮次，全部计入流程外，不调用模型', async () => {
-    const s = ingestSample(db, SAMPLES.research);
-    const report = await analyze(s.sessionId);
-    expect(report.lfg).toEqual([]);
-    expect(report.ic).toEqual([]);
-    expectExclusive(s, report);
-    expect(report.checks).toEqual({ count: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 });
-    const all = withSubagents(s, s.main);
-    expect(report.outside.requests).toBe(all.length);
-    expect(report.outside.costUsd).toBeCloseTo(all.reduce((n, r) => n + r.costUsd, 0));
-    expect(await stages(s.sessionId)).toEqual(report);
-    const list = await app.inject({ method: 'GET', url: `/api/sessions/${s.sessionId}` });
-    expect(list.json()).toMatchObject({ analyzed: true, workflows: [] });
-  });
-
-  test('旧版本的判定结果视为未分析，analyze 重新判定', async () => {
-    const s = ingestSample(db, SAMPLES.research);
-    await analyze(s.sessionId);
-    db.update(stageAnalyses)
-      .set({ version: 1 })
-      .where(eq(stageAnalyses.sessionId, s.sessionId))
-      .run();
-    const res = await app.inject({ method: 'GET', url: `/api/sessions/${s.sessionId}/stages` });
-    expect(res.statusCode).toBe(404);
-    const list = await app.inject({ method: 'GET', url: `/api/sessions/${s.sessionId}` });
-    expect(list.json()).toMatchObject({ analyzed: false });
-    const report = await analyze(s.sessionId);
-    expect(report.ic).toEqual([]);
-    expect(await stages(s.sessionId)).toEqual(report);
-  });
-
-  test('d93c4511：lfg 停在 interview，子代理请求计入父调用所在阶段', async () => {
-    const s = ingestSample(db, SAMPLES.interview);
-    const report = await analyze(s.sessionId);
-    expect(report.ic).toEqual([]);
-    expect(report.checks.count).toBe(0);
-    const interview = report.lfg[0]?.stages[0];
-    const skillSeq = seqOfToolLine(s, 28);
-    expect(report.lfg[0]).toMatchObject({ index: 1, label: '第 1 轮', startSeq: skillSeq });
-    expect(interview).toMatchObject({
-      stage: 'interview',
-      status: 'active',
-      startSeq: skillSeq,
-      endSeq: lastMainSeq(s),
-    });
-
-    const inSpan = s.main.filter((r) => r.seq >= skillSeq);
-    const all = withSubagents(s, inSpan);
-    const subRows = all.filter((r) => r.agentId !== null);
-    expect(subRows.length).toBeGreaterThan(0);
-    expect(interview?.stats.requests).toBe(all.length);
-    expect(interview?.stats.subagents).toBe(new Set(subRows.map((r) => r.agentId)).size);
-    expect(interview?.stats.outputTokens).toBe(all.reduce((n, r) => n + r.outputTokens, 0));
-    expect(interview?.stats.cacheReadTokens).toBe(all.reduce((n, r) => n + r.cacheReadTokens, 0));
-    expect(interview?.stats.costUsd).toBeCloseTo(all.reduce((n, r) => n + r.costUsd, 0));
-    expect(interview?.stats.durationMs).toBeGreaterThan(0);
-    // Skill interview 之前的请求在流程外
-    expect(report.outside.requests).toBe(
-      withSubagents(
+    expect(views(report.lfg[0])).toEqual([
+      ['interview', 'done', 138, 548, 1, command(138, '/interview')],
+      ['research', 'not-reached', null, null, 0, null],
+      ['plan', 'not-reached', null, null, 0, null],
+      ['ticketing', 'not-reached', null, null, 0, null],
+    ]);
+    expect(report.ic.map((c) => [c.index, c.label, c.startSeq, c.endSeq])).toEqual([
+      [1, '第 1 轮', 549, 791],
+      [2, '第 2 轮', 792, 1142],
+      [3, '第 3 轮', 1143, 1230],
+    ]);
+    const rows = loadSessionRows(db, sessionId);
+    const skillText = (seq: number, name: string) => {
+      const call = rows.main
+        .find((r) => r.seq === seq)
+        ?.toolCalls.find(
+          (c) => c.name === 'Skill' && (c.input as { skill: string }).skill === name,
+        );
+      const args = (call?.input as { args: string } | undefined)?.args;
+      if (args === undefined) throw new Error(`#${String(seq)} 没有 Skill ${name}`);
+      return `Skill: ${name} ${args}`;
+    };
+    const skippedBefore = (s: number): Expected[] =>
+      ['claim', 'readiness', 'implement', 'acceptance'].map((stage) => [
+        stage,
+        'skipped',
         s,
-        s.main.filter((r) => r.seq < skillSeq),
-      ).length,
-    );
-    // 没有其他轮次打断，session 结束时仍在进行的这一轮保持 active
-    expectExclusive(s, report);
+        s - 1,
+        0,
+        null,
+      ]);
+    // PR #72：Skill fix-pr 557
+    expect(views(report.ic[0])).toEqual([
+      ...skippedBefore(549),
+      ['open-pr', 'done', 549, 556, 1, skill(549, skillText(549, 'open-pr'))],
+      ['fix-pr', 'done', 557, 791, 1, skill(557, skillText(557, 'fix-pr'))],
+      ['ready-for-review', 'not-reached', null, null, 0, null],
+    ]);
+    // PR #77：没有调用 fix-pr，fix-pr 未到达
+    expect(views(report.ic[1])).toEqual([
+      ...skippedBefore(792),
+      ['open-pr', 'done', 792, 1142, 1, skill(792, skillText(792, 'open-pr'))],
+      ['fix-pr', 'not-reached', null, null, 0, null],
+      ['ready-for-review', 'not-reached', null, null, 0, null],
+    ]);
+    // PR #78：离线 session 的最后一个阶段为 active
+    expect(views(report.ic[2])).toEqual([
+      ...skippedBefore(1143),
+      ['open-pr', 'done', 1143, 1153, 1, skill(1143, skillText(1143, 'open-pr'))],
+      ['fix-pr', 'active', 1154, 1230, 1, skill(1154, skillText(1154, 'fix-pr'))],
+      ['ready-for-review', 'not-reached', null, null, 0, null],
+    ]);
+    // 第一个标记之前的 138 条请求
+    expect(report.outside.mainRequests).toBe(138);
+    expectConservation(sessionId, report);
+    expect(report).toEqual(stageReport(rows, false));
+  }, 300_000);
+
+  test('lfg run dqva52：/lfg 开启的一轮，interview、research、plan、ticketing 依次 done', async () => {
+    const runId = 'r-20261009-dqva52';
+    const sessionId = '0188c133-3e7b-4592-a963-fc717cf283de';
+    finishedRun(runId, sessionId, 'lfg-calculator');
+    ingestFile(db, unpackRunFixture(runId, sessionId, path.join(work, runId)));
+    const report = await stages(sessionId);
+    const lfg = report.lfg[0];
+    expect(report.lfg.map((c) => [c.index, c.label, c.startSeq, c.endSeq])).toEqual([
+      [1, '/lfg 做一个计算器', 0, 172],
+    ]);
+    expect(report.ic).toEqual([]);
+    expect(
+      views(lfg).map(([stage, status, s, e, n, ev]) => [stage, status, s, e, n, ev?.seq]),
+    ).toEqual([
+      ['interview', 'done', 3, 13, 1, 3],
+      ['research', 'done', 14, 86, 1, 14],
+      ['plan', 'done', 87, 142, 1, 87],
+      ['ticketing', 'done', 143, 172, 1, 143],
+    ]);
+    expect(lfg?.stages[0]?.evidence?.text.startsWith('Skill: interview 做一个计算器')).toBe(true);
+    // /lfg 输入之后到 Skill interview 之前的 #0–#2
+    expect(report.outside.mainRequests).toBe(3);
+    expectConservation(sessionId, report);
+  }, 120_000);
+
+  test('ic run 27yz3d：claim、readiness、implement、open-pr，acceptance skipped', async () => {
+    const runId = 'r-20261009-27yz3d';
+    const sessionId = '70e7a9b6-fdad-44c3-9b65-015ee2a0499c';
+    finishedRun(runId, sessionId, 'ic-money-format');
+    ingestFile(db, unpackRunFixture(runId, sessionId, path.join(work, runId)));
+    const report = await stages(sessionId);
+    expect(report.ic.map((c) => [c.index, c.label, c.startSeq, c.endSeq])).toEqual([
+      [1, '/ic TXE-3767', 0, 33],
+    ]);
+    expect(views(report.ic[0])).toEqual([
+      ['claim', 'done', 1, 6, 1, skill(1, 'Skill: claim TXE-3767')],
+      [
+        'readiness',
+        'done',
+        7,
+        8,
+        1,
+        skill(7, 'Skill: readiness TXE-3767 --need node>=22.12.0 --need npm'),
+      ],
+      ['implement', 'done', 9, 22, 1, skill(9, 'Skill: implement TXE-3767')],
+      ['acceptance', 'skipped', 23, 22, 0, null],
+      // 终态的 run：最后一个阶段为 done；review-pr 不是标记
+      ['open-pr', 'done', 23, 33, 1, skill(23, 'Skill: open-pr TXE-3767')],
+      ['fix-pr', 'not-reached', null, null, 0, null],
+      ['ready-for-review', 'not-reached', null, null, 0, null],
+    ]);
+    expect(report.outside.mainRequests).toBe(1);
+    expectConservation(sessionId, report);
+  }, 120_000);
+});
+
+// 把 jsonl 按行分成若干段依次写出，每写一段导入一次（同一 message 的多条记录可能分在两段）
+function ingestInChunks(target: Db, source: string, dest: string, chunks: number): string {
+  const sessionDir = source.replace(/\.jsonl$/, '');
+  const file = path.join(dest, path.basename(source));
+  fs.mkdirSync(dest, { recursive: true });
+  if (fs.existsSync(sessionDir)) {
+    fs.cpSync(sessionDir, file.replace(/\.jsonl$/, ''), { recursive: true });
+  }
+  const lines = fs
+    .readFileSync(source, 'utf8')
+    .split('\n')
+    .filter((l) => l !== '');
+  fs.writeFileSync(file, '');
+  const size = Math.ceil(lines.length / chunks);
+  let sessionId = '';
+  for (let i = 0; i < lines.length; i += size) {
+    fs.appendFileSync(file, `${lines.slice(i, i + size).join('\n')}\n`);
+    sessionId = ingestFile(target, file).sessionId;
+  }
+  return sessionId;
+}
+
+describe('增量导入', () => {
+  // 同一 session 不能从两个路径导入：分段导入用另一个测试数据库，与一次导入（第一组测试）比较
+  test.each([
+    ['f0aca373', SAMPLES.icPrs, 37],
+    [
+      'dqva52',
+      path.join(work, 'r-20261009-dqva52', '0188c133-3e7b-4592-a963-fc717cf283de.jsonl'),
+      173,
+    ],
+  ])(
+    '%s 分 %i 段导入与一次导入的结果相同',
+    (_name, source, chunks) => {
+      const other = openTestDb();
+      const sessionId = ingestInChunks(other.db, source, path.join(work, 'chunks', _name), chunks);
+      const incremental = readReport(other.db, sessionId);
+      const pure = stageReport(loadSessionRows(other.db, sessionId), false);
+      other.close();
+      const once = readReport(db, sessionId);
+      if (once === null || incremental === null) throw new Error('session 没有导入');
+      // 分段导入的数据库中没有 run 行：最后一个阶段为 active，其余与一次导入相同
+      expect(incremental).toEqual(pure);
+      const lastDone = (r: StageReport) =>
+        JSON.stringify(r).replaceAll('"status":"active"', '"status":"done"');
+      expect(lastDone(incremental)).toBe(lastDone(once));
+    },
+    300_000,
+  );
+});
+
+// 由真实请求行拼出的 session：在 27yz3d 的请求之后接上复制的 Skill 调用
+describe('fix-pr 与更前面的阶段', () => {
+  const runSession = '70e7a9b6-fdad-44c3-9b65-015ee2a0499c';
+  const compose = (skills: string[]): string => {
+    const base = loadSessionRows(db, runSession).main;
+    const template = base.find((r) => r.toolCalls.some((c) => c.name === 'Skill'));
+    const last = base.at(-1);
+    if (template === undefined || last === undefined) throw new Error('27yz3d 没有 Skill 调用');
+    const extra = skills.flatMap((name, i): RequestRow[] => {
+      const at = last.timestamp.getTime() + (i + 1) * 60_000;
+      const call = template.toolCalls.find((c) => c.name === 'Skill');
+      if (call === undefined) throw new Error('模板没有 Skill 调用');
+      return [
+        {
+          ...template,
+          messageId: `${template.messageId}-${String(i)}-skill`,
+          seq: last.seq + 1 + i * 2,
+          timestamp: new Date(at),
+          toolCalls: [{ ...call, id: `${call.id}-${String(i)}`, input: { skill: name } }],
+        },
+        {
+          ...last,
+          messageId: `${last.messageId}-${String(i)}-work`,
+          seq: last.seq + 2 + i * 2,
+          timestamp: new Date(at + 1000),
+        },
+      ];
+    });
+    const sessionId = randomUUID();
+    insertSession(db, sessionId, [...base, ...extra], null);
+    updateStages(db, sessionId);
+    return sessionId;
+  };
+
+  test('fix-pr 多次调用：entries 计数，不切新阶段；fix-pr 中的 acceptance 留在 fix-pr', async () => {
+    const id = compose(['fix-pr', 'fix-pr', 'acceptance', 'fix-pr']);
+    const report = await stages(id);
+    expect(report.ic).toHaveLength(1);
+    const fix = report.ic[0]?.stages.find((v) => v.stage === 'fix-pr');
+    // 34 + 8 条请求：fix-pr 从 #34 到最后一条
+    expect(fix).toMatchObject({ status: 'active', startSeq: 34, endSeq: 41, entries: 3 });
+    expect(fix?.evidence).toEqual({ seq: 34, kind: 'skill', text: 'Skill: fix-pr' });
+    expect(report.ic[0]?.stages.find((v) => v.stage === 'open-pr')).toMatchObject({
+      status: 'done',
+      startSeq: 23,
+      endSeq: 33,
+    });
+    expectConservation(id, report);
+  });
+
+  test('排在当前阶段之前的阶段开始新一轮，之前的阶段 skipped', async () => {
+    const id = compose(['fix-pr', 'implement', 'open-pr']);
+    const report = await stages(id);
+    // 拼出的 session 没有用户消息：第 1 轮由 Skill claim（#1）开启
+    expect(report.ic.map((c) => [c.label, c.startSeq, c.endSeq])).toEqual([
+      ['第 1 轮', 1, 35],
+      ['第 2 轮', 36, 39],
+    ]);
+    expect(views(report.ic[1]).map(([stage, status, s, e]) => [stage, status, s, e])).toEqual([
+      ['claim', 'skipped', 36, 35],
+      ['readiness', 'skipped', 36, 35],
+      ['implement', 'done', 36, 37],
+      ['acceptance', 'skipped', 38, 37],
+      ['open-pr', 'active', 38, 39],
+      ['fix-pr', 'not-reached', null, null],
+      ['ready-for-review', 'not-reached', null, null],
+    ]);
+    expect(report.ic[0]?.stages.find((v) => v.stage === 'fix-pr')).toMatchObject({
+      status: 'done',
+      startSeq: 34,
+      endSeq: 35,
+    });
+    expectConservation(id, report);
   });
 });

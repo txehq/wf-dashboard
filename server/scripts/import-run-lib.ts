@@ -3,7 +3,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import type { Db } from '../src/db/index.js';
 import { ingestFile } from '../src/ingest/ingest.js';
-import { analyzeSession } from '../src/stages/report.js';
+import { readReport } from '../src/stages/report.js';
 import { dataLayout } from '../src/variants/layout.js';
 
 // 把另一个数据目录（例如 W4 worktree 的 data/）中一个已结束的 run 导入 db：
@@ -76,11 +76,10 @@ export function isImported(db: Db, runId: string): boolean {
   return db.$client.prepare('select 1 from runs where id = ?').get(runId) !== undefined;
 }
 
-export async function importRun(
+export function importRun(
   db: Db,
   from: ImportSource,
   runId: string,
-  stageCheckModel: string,
   // 目标数据目录（当前的 config.dataDir）
   targetDataDir: string,
 ) {
@@ -181,7 +180,8 @@ export async function importRun(
       `${sessionId}.jsonl`,
     ),
   );
-  const report = await analyzeSession(db, sessionId, stageCheckModel);
+  const report = readReport(db, sessionId);
+  if (report === null) throw new Error(`session ${sessionId} 没有导入`);
   return {
     runId,
     sessionId,

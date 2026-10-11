@@ -4,7 +4,7 @@ import {
   useQueryClient,
   type QueryClient,
 } from '@tanstack/react-query';
-import { readBody, requestJson } from '@/lib/http';
+import { requestJson } from '@/lib/http';
 import { invalidateThrottled, throttled, useLiveEvent } from '@/lib/live-events';
 
 // 与 Contracts.md 第 2、5 节的 Sessions API 对应
@@ -37,7 +37,6 @@ export interface SessionSummary {
   tokens: Tokens;
   costUsd: number;
   workflows: Workflow[];
-  analyzed: boolean;
   runId: string | null;
 }
 
@@ -91,8 +90,7 @@ export interface MessageItem {
 
 export type TimelineItem = RequestItem | MessageItem;
 
-// interrupted：后来开始了另一轮流程，这一轮在那之前结束时正在进行的阶段
-export type StageStatus = 'done' | 'active' | 'skipped' | 'not-reached' | 'interrupted';
+export type StageStatus = 'done' | 'active' | 'skipped' | 'not-reached';
 
 export interface StageStats {
   // 含子代理的请求
@@ -109,23 +107,30 @@ export interface StageStats {
   subagents: number;
 }
 
+// 进入阶段的那次调用：主 agent 的 Skill 调用或用户输入的 slash 命令
+export interface StageEvidence {
+  seq: number;
+  kind: 'skill' | 'command';
+  text: string;
+}
+
 export interface StageView {
   stage: string;
   status: StageStatus;
   startSeq: number | null;
   endSeq: number | null;
-  // artifact：按产物文件；skill：Skill 调用直接定的边界；llm：模型判定
-  method: 'artifact' | 'llm' | 'skill';
-  evidence: unknown;
+  // 这个阶段被调用的次数（fix-pr 的修复轮数）
+  entries: number;
+  evidence: StageEvidence | null;
   stats: StageStats;
 }
 
 export interface WorkflowCycle {
   index: number;
-  // 工单编号、PR 编号或"第 N 轮"
+  // 开启这一轮的输入（例如 "/ic TXE-3767"），由 Skill 调用开启时为"第 N 轮"
   label: string;
   startSeq: number;
-  endSeq: number | null;
+  endSeq: number;
   stages: StageView[];
 }
 
@@ -133,9 +138,8 @@ export interface StageReport {
   sessionId: string;
   lfg: WorkflowCycle[];
   ic: WorkflowCycle[];
-  // 不属于任何一轮流程的请求
+  // 不属于任何阶段的请求
   outside: StageStats;
-  checks: { count: number; inputTokens: number; outputTokens: number; costUsd: number };
 }
 
 const getJson = (url: string) => requestJson('GET', url);
@@ -188,46 +192,12 @@ export function sessionQuery(id: string) {
   });
 }
 
-// 未判定的 session 返回 404，这里表示为 null
+// 阶段在导入时划分，已导入的 session 总是有结果
 export function stagesQuery(id: string) {
   return queryOptions({
     queryKey: ['stages', id],
-    queryFn: async () => {
-      const url = `/api/sessions/${id}/stages`;
-      const response = await fetch(url);
-      if (response.status === 404) return null;
-      return (await readBody(response, url)) as StageReport;
-    },
+    queryFn: async () => (await getJson(`/api/sessions/${id}/stages`)) as StageReport,
   });
-}
-
-export interface AnalysisProgress {
-  workflow: Workflow;
-  batchesDone: number;
-  batchesTotal: number;
-  costUsd: number;
-}
-
-// 离线判定的状态（Contracts 第 9 节）；failed 保留最近一次失败的原文
-export interface AnalysisState {
-  status: 'idle' | 'running' | 'failed' | 'done';
-  progress: AnalysisProgress | null;
-  error: string | null;
-}
-
-export function analysisQuery(id: string) {
-  return queryOptions({
-    queryKey: ['analysis', id],
-    queryFn: async () => (await getJson(`/api/sessions/${id}/analysis`)) as AnalysisState,
-  });
-}
-
-// 已判定过返回 StageReport；否则后台开始判定，返回当前进度
-export async function analyzeSession(
-  id: string,
-): Promise<StageReport | { status: 'running'; progress: AnalysisProgress | null }> {
-  return (await sendJson('POST', `/api/sessions/${id}/analyze`)) as
-    StageReport | { status: 'running'; progress: AnalysisProgress | null };
 }
 
 export interface RequestRange {
@@ -323,7 +293,7 @@ export function conversationQuery(id: string) {
   });
 }
 
-// session 有新请求写入或阶段变化时刷新相关查询；判定进度直接写入 analysis 查询，判定完成后刷新阶段结果
+// session 有新请求写入或阶段变化时刷新相关查询
 export function useSessionEvents() {
   const client = useQueryClient();
   useLiveEvent((type, data) => {
@@ -332,31 +302,6 @@ export function useSessionEvents() {
       case 'stage.changed':
         invalidateSession(client, (data as { sessionId: string }).sessionId);
         return;
-      case 'stage.progress': {
-        const { sessionId, workflow, batchesDone, batchesTotal, costUsd } =
-          data as AnalysisProgress & { sessionId: string };
-        client.setQueryData<AnalysisState>(analysisQuery(sessionId).queryKey, {
-          status: 'running',
-          progress: { workflow, batchesDone, batchesTotal, costUsd },
-          error: null,
-        });
-        return;
-      }
-      case 'stage.failed': {
-        const { sessionId, error } = data as { sessionId: string; error: string };
-        client.setQueryData<AnalysisState>(analysisQuery(sessionId).queryKey, (prev) => ({
-          status: 'failed',
-          progress: prev?.progress ?? null,
-          error,
-        }));
-        return;
-      }
-      case 'stage.analyzed': {
-        const { sessionId } = data as { sessionId: string };
-        void client.invalidateQueries({ queryKey: ['analysis', sessionId] });
-        invalidateSession(client, sessionId);
-        return;
-      }
       default:
     }
   });

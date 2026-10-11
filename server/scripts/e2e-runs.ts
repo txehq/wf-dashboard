@@ -39,7 +39,7 @@ const Run = z.looseObject({
   pending: Pending.nullable(),
   costUsd: z.number(),
   durationMs: z.number().nullable(),
-  costs: z.record(z.enum(['agent', 'simulatedUser', 'stageCheck', 'grading', 'total']), z.number()),
+  costs: z.record(z.enum(['agent', 'simulatedUser', 'grading', 'total']), z.number()),
   messages: z.array(z.looseObject({ seq: z.number(), role: z.string(), content: z.string() })),
   artifacts: z.array(
     z.looseObject({ kind: z.string(), location: z.string(), snapshot: z.string().nullable() }),
@@ -159,10 +159,9 @@ async function lfg() {
     roles.includes('agent') && roles.includes('simulated_user'),
     `run_messages 有问答：agent ${String(roles.filter((r) => r === 'agent').length)} 条，simulated_user ${String(roles.filter((r) => r === 'simulated_user').length)} 条`,
   );
-  const { agent, simulatedUser, stageCheck, grading } = run.costs;
+  const { agent, simulatedUser, grading } = run.costs;
   console.log(`  成本：${JSON.stringify(run.costs)}`);
   check(agent > 0 && simulatedUser > 0 && grading > 0, '成本 agent / 模拟用户 / 评分都有值');
-  check(stageCheck >= 0, 'lfg 阶段判定只看产物，成本为 0');
   console.log(`耗时 ${String(run.durationMs)}ms，花费 $${run.costs.total.toFixed(2)}`);
 }
 

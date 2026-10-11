@@ -5,11 +5,11 @@ import { HttpError, isNotFound, readBody, requestJson } from './http';
 // 真实 Fastify 服务的各种响应
 const app = Fastify();
 // W15 H12：路由中抛出的错误，原文在 Fastify 响应的 message
-app.post('/api/sessions/:id/analyze', () => {
+app.post('/api/tasks/rubric-draft', () => {
   throw new Error('gateway 返回 529 overloaded');
 });
 app.get('/api/sessions/:id/stages', async (_request, reply) =>
-  reply.code(404).send({ error: 'session x 尚未判定' }),
+  reply.code(404).send({ error: 'session x 不存在' }),
 );
 // W15 Medium 20：服务端停止时 Vite 代理返回空正文的 502；以前先读 JSON，页面显示 "Unexpected end of JSON input"
 app.get('/api/runs', async (_request, reply) => reply.code(502).type('text/plain').send(''));
@@ -24,7 +24,7 @@ afterAll(async () => {
 });
 
 test('路由中抛出的错误显示 Fastify 响应 message 中的原文', async () => {
-  const url = `${base}/api/sessions/x/analyze`;
+  const url = `${base}/api/tasks/rubric-draft`;
   const response = await fetch(url, { method: 'POST' });
   expect(await response.clone().json()).toMatchObject({ error: 'Internal Server Error' });
   await expect(readBody(response, url)).rejects.toThrow(
@@ -39,7 +39,7 @@ test('路由自己返回的 { error } 照常显示，404 可以识别', async ()
     (e: unknown) => e,
   );
   expect(error).toBeInstanceOf(HttpError);
-  expect((error as HttpError).message).toBe(`${url} 返回 404：session x 尚未判定`);
+  expect((error as HttpError).message).toBe(`${url} 返回 404：session x 不存在`);
   expect(isNotFound(error)).toBe(true);
 });
 

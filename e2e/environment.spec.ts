@@ -3,21 +3,32 @@ import os from 'node:os';
 import path from 'node:path';
 import { expect, type Page, test } from '@playwright/test';
 
-// 服务端由 pnpm start 的方式启动（构建后一个端口提供页面与 API），阶段判定模型是 gateway 上没有渠道的
-// claude-haiku-4-5-20251001-cc：环境清单中这一项真实未通过，其余各项按本机的真实状态
+// 服务端由 pnpm start 的方式启动（构建后一个端口提供页面与 API）。开始前在设置中把 judge 换成 gateway 上
+// 没有渠道的 claude-haiku-4-5-20251001-cc：环境清单中这一项真实未通过，其余各项按本机的真实状态
 test.describe.configure({ mode: 'serial' });
-// 第一次检查真实执行全部 12 项，Codex 与 Linear 偶尔要一两分钟
+// 第一次检查真实执行全部 11 项，Codex 与 Linear 偶尔要一两分钟
 test.setTimeout(600_000);
 
 const pages = ['Sessions', 'Runs', 'Variants', 'Tasks', 'Compare'];
+const BROKEN_MODEL = 'claude-haiku-4-5-20251001-cc';
 
-// 修复时换上的阶段判定模型：服务端默认值所取的 haiku 别名（~/.claude/settings.json 的 env）
+// 修复时换上的 judge 模型：服务端默认值所取的 opus 别名（~/.claude/settings.json 的 env）
 const settingsEnv = (
   JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude/settings.json'), 'utf8')) as {
-    env: { ANTHROPIC_DEFAULT_HAIKU_MODEL: string };
+    env: { ANTHROPIC_DEFAULT_OPUS_MODEL: string };
   }
 ).env;
-const STAGE_MODEL = settingsEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL.replace(/\[[^\]]*\]$/, '');
+const JUDGE_MODEL = settingsEnv.ANTHROPIC_DEFAULT_OPUS_MODEL.replace(/\[[^\]]*\]$/, '');
+
+test.beforeAll(async ({ request }) => {
+  const settings = (await (await request.get('/api/settings')).json()) as {
+    models: Record<string, string>;
+  };
+  const saved = await request.put('/api/settings', {
+    data: { ...settings, models: { ...settings.models, judge: BROKEN_MODEL } },
+  });
+  expect(saved.status()).toBe(200);
+});
 
 const shot = (page: Page, name: string) =>
   page.screenshot({ path: `.work/screenshots/w14-${name}.png`, animations: 'disabled' });
@@ -39,25 +50,26 @@ test('一个端口提供全部页面与 API', async ({ page, baseURL }) => {
 test('导航底部的环境状态与检查清单：展开与修复方法', async ({ page }) => {
   await page.goto('/sessions');
   const status = page.getByTestId('environment-status');
-  // 第一次检查真实执行全部 12 项（含 codex exec 与 Linear MCP）
+  // 第一次检查真实执行全部 11 项（含 codex exec 与 Linear MCP）
   await expect(status).toHaveText(/环境：有 \d+ 项未通过/, { timeout: 180_000 });
   await shot(page, 'nav-status');
 
   await status.click();
   const dialog = page.getByTestId('environment-dialog');
   await expect(dialog.getByRole('heading', { name: '运行环境' })).toBeVisible();
-  await expect(dialog.getByTestId('environment-checks').getByRole('listitem')).toHaveCount(12);
+  await expect(dialog.getByTestId('environment-checks').getByRole('listitem')).toHaveCount(11);
+  await expect(dialog.getByTestId('env-check-model-stage-check')).toHaveCount(0);
 
   // 未通过的项排在最前并默认展开：真实的 503 输出与修复方法
-  const stage = dialog.getByTestId('env-check-model-stage-check');
+  const stage = dialog.getByTestId('env-check-model-judge');
   await expect(dialog.getByRole('listitem').first()).toHaveAttribute(
     'data-testid',
-    'env-check-model-stage-check',
+    'env-check-model-judge',
   );
   await expect(stage.getByRole('button')).toHaveAttribute('aria-expanded', 'true');
-  await expect(stage).toContainText('claude-haiku-4-5-20251001-cc');
+  await expect(stage).toContainText(BROKEN_MODEL);
   await expect(stage.getByTestId('env-detail')).toContainText('No available channel');
-  await expect(stage.getByTestId('env-fix')).toContainText('为「阶段判定」换一个模型');
+  await expect(stage.getByTestId('env-fix')).toContainText('为「评分（judge）」换一个模型');
   await shot(page, 'checklist');
 
   // 通过的项默认收起，点开看到检查到的版本，不显示修复方法
@@ -90,7 +102,7 @@ test('导航底部的环境状态与检查清单：展开与修复方法', async
 test('发起 batch 处列出未通过的项，改好设置后提示消失', async ({ page }) => {
   await page.goto('/runs');
   const warning = page.getByTestId('environment-warning');
-  await expect(warning).toContainText('gateway：阶段判定模型 claude-haiku-4-5-20251001-cc', {
+  await expect(warning).toContainText(`gateway：评分（judge）模型 ${BROKEN_MODEL}`, {
     timeout: 180_000,
   });
   await page.getByTestId('launch-batch').screenshot({
@@ -99,24 +111,22 @@ test('发起 batch 处列出未通过的项，改好设置后提示消失', asyn
   });
   await warning.getByRole('button', { name: '查看原因与修复方法' }).click();
   const dialog = page.getByTestId('environment-dialog');
-  await expect(
-    dialog.getByTestId('env-check-model-stage-check').getByTestId('env-fix'),
-  ).toBeVisible();
+  await expect(dialog.getByTestId('env-check-model-judge').getByTestId('env-fix')).toBeVisible();
   await dialog.getByRole('button', { name: '关闭' }).click();
 
-  // 按 fix 的做法在设置中为阶段判定换一个模型（默认的 haiku 别名）：角色模型变了，服务端重新检查
+  // 按 fix 的做法在设置中为 judge 换一个模型（默认的 opus 别名）：角色模型变了，服务端重新检查
   await page.getByTestId('run-settings').locator('summary').click();
-  await page.getByLabel('阶段判定的模型').fill(STAGE_MODEL);
+  await page.getByLabel('评分（judge）的模型').fill(JUDGE_MODEL);
   await page.getByRole('button', { name: '保存设置' }).click();
   const status = page.getByTestId('environment-status');
   await expect(status).toHaveText('环境检查中…');
   await expect(status).not.toHaveText('环境检查中…', { timeout: 180_000 });
-  // 本机其余 11 项都通过
+  // 本机其余 10 项都通过
   await expect(status).toHaveText('环境：全部通过');
   await expect(warning).toHaveCount(0);
   await status.click();
   await expect(
-    page.getByTestId('env-check-model-stage-check').locator('[aria-label="通过"]'),
+    page.getByTestId('env-check-model-judge').locator('[aria-label="通过"]'),
   ).toBeVisible();
-  await expect(page.getByTestId('env-check-model-stage-check')).toContainText(STAGE_MODEL);
+  await expect(page.getByTestId('env-check-model-judge')).toContainText(JUDGE_MODEL);
 });

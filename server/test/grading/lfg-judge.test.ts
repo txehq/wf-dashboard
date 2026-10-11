@@ -132,7 +132,6 @@ describe('lfg rubric judge（真实 vault 文档、真实 judge 调用）', { ti
       expect(runCostBreakdown(db, id)).toEqual({
         agent: 0,
         simulatedUser: 0,
-        stageCheck: 0,
         grading: expect.closeTo(grades.costUsd, 10) as number,
         total: expect.closeTo(grades.costUsd, 10) as number,
       });

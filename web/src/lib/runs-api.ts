@@ -114,7 +114,6 @@ export interface RunSummary {
 export interface CostBreakdown {
   agent: number;
   simulatedUser: number;
-  stageCheck: number;
   grading: number;
   total: number;
 }
@@ -157,7 +156,7 @@ export interface Settings {
   runConcurrency: number;
   maxUserTurns: number;
   defaultRepeats: number;
-  models: { simulatedUser: string; judge: string; stageCheck: string };
+  models: { simulatedUser: string; judge: string };
 }
 
 // 失败时抛出带 URL、状态码与服务端原因的错误

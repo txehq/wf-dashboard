@@ -1,5 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, LoaderCircle, Sparkles } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { ArrowLeft } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { SessionConversation } from '@/components/runs/conversation';
@@ -8,144 +8,16 @@ import { StageBars } from '@/components/sessions/stage-bars';
 import { StageGraph } from '@/components/sessions/stage-graph';
 import { StageRequests } from '@/components/sessions/stage-requests';
 import { SessionSummaryPanel } from '@/components/sessions/session-summary';
-import { Button } from '@/components/ui/button';
-import { formatInteger, formatUsd } from '@/lib/format';
 import {
-  analysisQuery,
-  analyzeSession,
   sessionQuery,
   stagesQuery,
   useSessionEvents,
-  type AnalysisProgress,
-  type AnalysisState,
   type SessionDetail,
   type StageReport,
   type Workflow,
   type WorkflowCycle,
 } from '@/lib/sessions-api';
 import { cycleName } from '@/lib/stage-status';
-
-function AnalyzeProgress({ progress }: { progress: AnalysisProgress | null }) {
-  const ratio =
-    progress === null || progress.batchesTotal === 0
-      ? 0
-      : progress.batchesDone / progress.batchesTotal;
-  return (
-    <div
-      role="status"
-      className="flex flex-col gap-2 rounded-lg border px-4 py-4"
-      data-testid="analyze-progress"
-      data-batches-done={progress?.batchesDone ?? ''}
-    >
-      <p className="flex flex-wrap items-center gap-2 text-sm">
-        <LoaderCircle className="size-4 animate-spin" />
-        正在判定阶段…
-        {progress !== null && (
-          <span className="tabular-nums" data-testid="analyze-batches">
-            /{progress.workflow} 已判定 {formatInteger(progress.batchesDone)} /{' '}
-            {formatInteger(progress.batchesTotal)} 批 · 已花费 {formatUsd(progress.costUsd)}
-          </span>
-        )}
-      </p>
-      <div
-        className="h-1 overflow-hidden rounded bg-muted"
-        role="progressbar"
-        aria-label="判定进度"
-        aria-valuemin={0}
-        aria-valuemax={progress?.batchesTotal ?? 0}
-        aria-valuenow={progress?.batchesDone ?? 0}
-      >
-        {/* 还没有批次信息时（读取 session、lfg 判定）为不确定进度条 */}
-        {progress === null ? (
-          <div className="h-full w-1/3 animate-[progress_1.4s_ease-in-out_infinite] rounded bg-[var(--viz-series-1)]" />
-        ) : (
-          <div
-            className="h-full rounded bg-[var(--viz-series-1)] transition-[width]"
-            style={{ width: `${String(Math.round(ratio * 100))}%` }}
-          />
-        )}
-      </div>
-      <p className="text-xs text-muted-foreground">
-        /ic 每 20 条行为一批，逐批调用模型判定；离开这个页面不会中断判定。
-      </p>
-    </div>
-  );
-}
-
-function AnalyzePanel({ session }: { session: SessionDetail }) {
-  const client = useQueryClient();
-  const analysis = useQuery(analysisQuery(session.id));
-  const analyze = useMutation({
-    mutationFn: () => analyzeSession(session.id),
-    onSuccess: (result) => {
-      if ('sessionId' in result) {
-        client.setQueryData(stagesQuery(session.id).queryKey, result);
-        return;
-      }
-      // 进度事件可能先于响应到达：只在还没有更新的进度时写入
-      client.setQueryData<AnalysisState>(analysisQuery(session.id).queryKey, (prev) =>
-        prev?.status === 'running' && prev.progress !== null
-          ? prev
-          : { status: 'running', progress: result.progress, error: null },
-      );
-    },
-  });
-  if (analysis.isPending) return <p className="text-sm text-muted-foreground">正在读取判定状态…</p>;
-  if (analysis.isError)
-    return (
-      <p role="alert" className="text-sm text-destructive">
-        读取判定状态失败：{analysis.error.message}
-      </p>
-    );
-  const state = analysis.data;
-  if (state.status === 'running' || state.status === 'done' || analyze.isPending)
-    return <AnalyzeProgress progress={state.progress} />;
-  return (
-    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed px-4 py-4">
-      <p className="text-sm">
-        {state.status === 'failed' ? '上一次判定失败。' : '还没有判定阶段。'}
-      </p>
-      <Button
-        onClick={() => {
-          analyze.mutate();
-        }}
-      >
-        <Sparkles />
-        {state.status === 'failed' ? '重新判定' : '分析阶段'}
-      </Button>
-      <p className="text-xs text-muted-foreground">
-        /lfg 按产物文件判定；/ic 调用模型判定，会产生少量花费。
-      </p>
-      {state.status === 'failed' && (
-        <p
-          role="alert"
-          className="w-full text-sm break-words whitespace-pre-wrap text-destructive"
-          data-testid="analyze-error"
-        >
-          判定失败：{state.error}
-          {state.progress !== null &&
-            `（失败时已判定 ${String(state.progress.batchesDone)} / ${String(state.progress.batchesTotal)} 批，已花费 ${formatUsd(state.progress.costUsd)}）`}
-        </p>
-      )}
-      {analyze.isError && (
-        <p role="alert" className="w-full text-sm text-destructive">
-          请求判定失败：{analyze.error.message}
-        </p>
-      )}
-    </div>
-  );
-}
-
-function ChecksCost({ checks }: { checks: StageReport['checks'] }) {
-  return (
-    <p className="text-xs text-muted-foreground tabular-nums" data-testid="checks-cost">
-      判定花费：
-      {checks.count === 0
-        ? '没有调用模型'
-        : `${formatInteger(checks.count)} 次模型调用 · input ${formatInteger(checks.inputTokens)} · output ${formatInteger(checks.outputTokens)} · ${formatUsd(checks.costUsd)}`}
-    </p>
-  );
-}
 
 const workflowTitle: Record<Workflow, string> = {
   lfg: '/lfg 阶段',
@@ -160,10 +32,10 @@ function parseSelection(value: string | null): { workflow: Workflow; stage: stri
 }
 
 function cycleRange(c: WorkflowCycle): string {
-  return `#${String(c.startSeq)} – ${c.endSeq === null ? '未结束' : `#${String(c.endSeq)}`}`;
+  return `#${String(c.startSeq)} – #${String(c.endSeq)}`;
 }
 
-// 一个 workflow 的轮次切换：标签取工单编号或 PR 编号
+// 一个 workflow 的轮次切换：标签为开启这一轮的输入
 function CycleTabs({
   workflow,
   cycles,
@@ -265,7 +137,6 @@ function StagesSection({
 
   return (
     <>
-      <ChecksCost checks={report.checks} />
       {graphs.length === 0 && (
         <p className="rounded-lg border border-dashed px-4 py-4 text-sm text-muted-foreground">
           这个 session 不含 /lfg 或 /ic 的任何一轮，下面列出全部请求。
@@ -373,22 +244,16 @@ function SessionView({ session }: { session: SessionDetail }) {
     <div className="flex min-w-0 flex-col gap-6">
       <SessionSummaryPanel session={session} outside={stages.data?.outside ?? null} />
       {stages.isPending ? (
-        <p className="text-sm text-muted-foreground">正在读取阶段判定…</p>
+        <p className="text-sm text-muted-foreground">正在读取阶段…</p>
       ) : stages.data === undefined ? (
         <p role="alert" className="text-sm text-destructive">
-          读取阶段判定失败：{stages.error.message}
+          读取阶段失败：{stages.error.message}
         </p>
-      ) : stages.data === null ? (
-        <>
-          <AnalyzePanel session={session} />
-          <SessionConversation sessionId={session.id} onJump={jump} />
-          <AllRequests session={session} hint={false} focus={focus} />
-        </>
       ) : (
         <>
           {stages.isError && (
             <p role="alert" className="text-sm text-destructive">
-              刷新阶段判定失败：{stages.error.message}
+              刷新阶段失败：{stages.error.message}
             </p>
           )}
           <StagesSection session={session} report={stages.data} focus={focus} onJump={jump} />

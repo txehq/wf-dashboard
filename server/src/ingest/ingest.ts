@@ -23,6 +23,7 @@ import {
 import { events } from '../events.js';
 import { costUsd, fromApiUsage } from '../llm/pricing.js';
 import { config } from '../config.js';
+import { publishStageChanges, type StageChange, updateStages } from '../stages/report.js';
 import { AnyRecord, AssistantRecord, SubagentMeta, UserRecord } from './records.js';
 import { detectFromToolCall, detectFromUserText, type WorkflowFlags } from './workflows.js';
 
@@ -427,7 +428,11 @@ export function ingestFile(db: Db, file: string): IngestResult {
   const sessionDir = path.join(path.dirname(absolute), sessionId);
   const spillDir = path.join(sessionDir, 'tool-results');
 
-  const changed = db.$client.transaction(() => {
+  const { changed, stageChanges } = db.$client.transaction(() => {
+    const unchanged: { changed: boolean; stageChanges: StageChange[] } = {
+      changed: false,
+      stageChanges: [],
+    };
     const existing = db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
     if (existing !== undefined && existing.filePath !== absolute)
       throw new Error(
@@ -449,7 +454,7 @@ export function ingestFile(db: Db, file: string): IngestResult {
       };
       const out = parseLines(ctx, lines);
       // 还没有任何带时间的记录时不建 session，下次从头再读
-      if (existing === undefined && out.firstAt === null) return false;
+      if (existing === undefined && out.firstAt === null) return unchanged;
       const startedAt = existing?.startedAt.getTime() ?? out.firstAt;
       const endedAt = out.lastAt ?? existing?.endedAt.getTime();
       if (startedAt == null || endedAt === undefined) throw new Error(`${absolute} 缺少记录时间`);
@@ -479,14 +484,16 @@ export function ingestFile(db: Db, file: string): IngestResult {
       writeRows(db, out.rows.values());
       writeUserMessages(db, out.userMessages);
       changed = out.rows.size > 0 || out.userMessages.length > 0;
-    } else if (existing === undefined) return false;
+    } else if (existing === undefined) return unchanged;
 
     if (registerSubagents(db, sessionId, path.join(sessionDir, 'subagents'))) changed = true;
     if (ingestSubagents(db, sessionId, spillDir)) changed = true;
-    return changed;
+    // 阶段划分随导入增量更新（Contracts 第 5 节）
+    return { changed, stageChanges: changed ? updateStages(db, sessionId) : [] };
   })();
 
   if (changed) events.publish({ type: 'session.updated', sessionId });
+  publishStageChanges(sessionId, stageChanges);
   return { sessionId, changed };
 }
 

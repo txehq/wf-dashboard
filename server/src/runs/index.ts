@@ -12,11 +12,12 @@ import {
   runs,
   stageSpans,
   tasks,
+  terminalRunStatuses,
   variants as variantsTable,
 } from '../db/schema.js';
 import { events } from '../events.js';
 import { featureDir } from '../stages/lfg.js';
-import { readReport } from '../stages/report.js';
+import { publishStageChanges, readReport, updateStages } from '../stages/report.js';
 import { IC_STAGES, LFG_STAGES } from '../stages/workflow.js';
 import { HttpError } from '../variants/errors.js';
 import { artifactView, listMessages, messageView } from './records.js';
@@ -36,7 +37,7 @@ export function newId(prefix: 'r' | 'b', now = new Date()): string {
 
 export const RUN_ID = /^r-\d{8}-[a-z0-9]{6}$/;
 
-const terminalStatuses = new Set<RunStatus>(['succeeded', 'failed', 'cancelled']);
+const terminalStatuses = new Set<RunStatus>(terminalRunStatuses);
 
 // 对话由谁回答：最后一次接管或交还的系统事件；run 结束或服务重启后同样适用（runner 切换模式时写这两条事件）
 function modeOf(messages: ReturnType<typeof listMessages>): RunMode {
@@ -127,6 +128,8 @@ export function createRuns(deps: RunnerDeps) {
   function currentStages(sessionIds: string[]) {
     const out = new Map<string, RunSummary['currentStage']>();
     if (sessionIds.length === 0) return out;
+    // 服务重启时改为 failed 的 run：最后一个阶段在这里改为 done
+    for (const id of sessionIds) publishStageChanges(id, updateStages(db, id));
     const spans = db
       .select()
       .from(stageSpans)

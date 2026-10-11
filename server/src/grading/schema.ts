@@ -90,7 +90,6 @@ export type Distribution = z.infer<typeof Distribution>;
 export const CostBreakdown = z.object({
   agent: z.number(),
   simulatedUser: z.number(),
-  stageCheck: z.number(),
   grading: z.number(),
   total: z.number(),
 });

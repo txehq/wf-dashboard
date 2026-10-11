@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import type { SQLiteColumn } from 'drizzle-orm/sqlite-core';
 import {
   type FastifyPluginCallbackZod,
@@ -7,16 +7,7 @@ import {
 } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
-import {
-  requests,
-  sessions,
-  sources,
-  STAGE_ANALYSIS_VERSION,
-  stageAnalyses,
-  subagents,
-  userMessages,
-  workflows,
-} from '../db/schema.js';
+import { requests, sessions, sources, subagents, userMessages, workflows } from '../db/schema.js';
 import {
   homeSourceDirs,
   importCheckedSources,
@@ -57,7 +48,6 @@ const SessionSummary = z.object({
   tokens: Tokens,
   costUsd: z.number(),
   workflows: z.array(z.enum(workflows)),
-  analyzed: z.boolean(),
   runId: z.string().nullable(),
 });
 type SessionSummary = z.infer<typeof SessionSummary>;
@@ -165,7 +155,6 @@ function summaries(db: Db, rows: SummaryRow[]): SessionSummary[] {
       .all()
       .map((t) => [t.sessionId, t]),
   );
-  // 判定完成时 stages 模块写 stage_analyses，不含 lfg 与 ic 的 session 也有一行
   // 标题取主 session 的首条用户消息（SQLite 中与 min() 同行的裸列取自最小值所在的行）
   const titles = new Map(
     db
@@ -186,21 +175,6 @@ function summaries(db: Db, rows: SummaryRow[]): SessionSummary[] {
       .all()
       .map((m) => [m.sessionId, sessionTitle(m.text)]),
   );
-  // 与 readReport 相同：run 的 session 不受判定版本号限制
-  const analyzed = new Set(
-    db
-      .select({ id: stageAnalyses.sessionId })
-      .from(stageAnalyses)
-      .innerJoin(sessions, eq(sessions.id, stageAnalyses.sessionId))
-      .where(
-        and(
-          inArray(stageAnalyses.sessionId, ids),
-          or(eq(stageAnalyses.version, STAGE_ANALYSIS_VERSION), isNotNull(sessions.runId)),
-        ),
-      )
-      .all()
-      .map((r) => r.id),
-  );
   return rows.map((r) => {
     const t = totals.get(r.id);
     return {
@@ -219,7 +193,6 @@ function summaries(db: Db, rows: SummaryRow[]): SessionSummary[] {
       },
       costUsd: t?.costUsd ?? 0,
       workflows: workflows.filter((w) => (w === 'lfg' ? r.hasLfg : r.hasIc)),
-      analyzed: analyzed.has(r.id),
       runId: r.runId,
     };
   });

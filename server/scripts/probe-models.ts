@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { models, parseStructured } from '../src/llm/client.js';
 
-// 检查 gateway 上三个默认模型当前是否可用：tsx scripts/probe-models.ts
-for (const role of ['simulatedUser', 'judge', 'stageCheck'] as const) {
+// 检查 gateway 上两个角色的默认模型当前是否可用：tsx scripts/probe-models.ts
+for (const role of ['simulatedUser', 'judge'] as const) {
   const model = models[role];
   const started = performance.now();
   const result = await parseStructured({

@@ -16,11 +16,6 @@ import {
   runMessages,
   runs,
   sessions,
-  STAGE_ANALYSIS_VERSION,
-  stageAnalyses,
-  stageChecks,
-  stageCycles,
-  stageSpans,
   type ToolCall,
   variants as variantsTable,
 } from '../src/db/schema.js';
@@ -28,7 +23,8 @@ import type { IcDetail } from '../src/grading/schema.js';
 import { initialParseState } from '../src/ingest/ingest.js';
 import { costUsd } from '../src/llm/pricing.js';
 import { scanCrossRunRefs } from '../src/runs/cross-run-refs.js';
-import { IC_STAGES, LFG_STAGES } from '../src/stages/workflow.js';
+import { updateStages } from '../src/stages/report.js';
+import { LFG_STAGES } from '../src/stages/workflow.js';
 import { loadIcTask, loadLfgTask, syncTasks } from '../src/tasks/loader.js';
 import type { RubricArtifact } from '../src/tasks/schema.js';
 import { createVariants } from '../src/variants/index.js';
@@ -47,7 +43,6 @@ const fixtures = path.join(config.repoRoot, 'server/scripts/fixtures/compare');
 const vault = config.vaultDir;
 const agentModel = 'claude-opus-5-5';
 const judgeModel = 'claude-opus-5-5';
-const stageCheckModel = 'claude-haiku-4-5';
 const simulatedUserModel = 'claude-sonnet-4-6';
 
 fs.rmSync(config.dataDir, { recursive: true, force: true });
@@ -181,8 +176,6 @@ interface SessionPlan {
   sessionId: string;
   workflow: 'lfg' | 'ic';
   stages: StagePlan[];
-  // 最后一个阶段之后的阶段为 not-reached；最后一个阶段为 active 或 done
-  lastStatus: 'done' | 'active';
   startedAt: number;
   r: () => number;
 }
@@ -224,20 +217,19 @@ function requestCost(u: ReturnType<typeof usage>, model: string) {
 }
 
 function seedSession(plan: SessionPlan): number {
-  const { sessionId, workflow, r } = plan;
+  const { sessionId, r } = plan;
   let at = plan.startedAt;
   let seq = 0;
   let context = 18;
   let subagentCount = 0;
-  const spans: { stage: string; startSeq: number; endSeq: number }[] = [];
   for (const stage of plan.stages) {
-    const startSeq = seq;
     let subagentsLeft = stage.subagents;
     for (let i = 0; i < stage.requests; i++) {
       const name = stage.tools[i % stage.tools.length] ?? 'Read';
       const calls: ToolCall[] = [];
       let agentId: string | null = null;
-      if (i === 0) calls.push(toolCall('Skill', r));
+      // 每个阶段的第一条请求调用该阶段的 Skill：阶段划分由 stages 模块按 Skill 调用切块
+      if (i === 0) calls.push({ ...toolCall('Skill', r), input: { skill: stage.stage } });
       else if (subagentsLeft > 0 && i % 3 === 1) {
         agentId = `a${(subagentCount++).toString(16).padStart(16, '0')}`;
         calls.push(toolCall('Agent', r, agentId));
@@ -294,93 +286,9 @@ function seedSession(plan: SessionPlan): number {
       context = Math.min(context + between(r, 1, 4), 160);
       seq++;
     }
-    spans.push({ stage: stage.stage, startSeq, endSeq: seq - 1 });
   }
-  const order = workflow === 'lfg' ? LFG_STAGES : IC_STAGES;
-  // dashboard 发起的运行只有一轮
-  db.insert(stageCycles)
-    .values({
-      sessionId,
-      workflow,
-      cycle: 1,
-      label: '第 1 轮',
-      startSeq: 0,
-      endSeq: plan.lastStatus === 'active' ? null : seq - 1,
-    })
-    .run();
-  order.forEach((stage, i) => {
-    const span = spans.find((s) => s.stage === stage);
-    const last = i === spans.length - 1;
-    db.insert(stageSpans)
-      .values({
-        sessionId,
-        workflow,
-        cycle: 1,
-        stage,
-        status:
-          span === undefined
-            ? 'not-reached'
-            : last && plan.lastStatus === 'active'
-              ? 'active'
-              : 'done',
-        startSeq: span?.startSeq ?? null,
-        endSeq: span?.endSeq ?? null,
-        method: workflow === 'lfg' ? 'artifact' : 'llm',
-        evidence:
-          workflow === 'lfg' && span !== undefined
-            ? { path: `Project Magi Eval/Features/${sessionId}/${stage}.md` }
-            : null,
-      })
-      .run();
-  });
-  db.insert(stageAnalyses)
-    .values({
-      sessionId,
-      version: STAGE_ANALYSIS_VERSION,
-      hasLfg: workflow === 'lfg',
-      hasIc: workflow === 'ic',
-    })
-    .run();
-  // ic 每 20 条行为判定一次；lfg 只看产物文件，没有 LLM 判定
-  if (workflow === 'ic') {
-    for (let from = 0; from < seq; from += 20) {
-      const to = Math.min(from + 19, seq - 1);
-      const current = spans.find((s) => s.startSeq <= from && from <= s.endSeq) ?? spans[0];
-      if (current === undefined) throw new Error('ic session 没有阶段');
-      const next = IC_STAGES[IC_STAGES.findIndex((s) => s === current.stage) + 1];
-      if (next === undefined) break;
-      const enteredAt = spans.find((s) => s.stage === next && s.startSeq <= to)?.startSeq ?? null;
-      const inputTokens = between(r, 2200, 5200);
-      const outputTokens = between(r, 30, 90);
-      db.insert(stageChecks)
-        .values({
-          sessionId,
-          workflow,
-          currentStage: current.stage,
-          nextStage: next,
-          fromSeq: from,
-          toSeq: to,
-          inputChars: inputTokens * 3,
-          entered: enteredAt !== null,
-          enteredAtSeq: enteredAt,
-          answer: JSON.stringify({ entered: enteredAt !== null, first_index: enteredAt }),
-          model: stageCheckModel,
-          inputTokens,
-          outputTokens,
-          costUsd: costUsd(
-            {
-              inputTokens,
-              outputTokens,
-              cacheReadTokens: 0,
-              cacheWrite5mTokens: 0,
-              cacheWrite1hTokens: 0,
-            },
-            stageCheckModel,
-          ),
-        })
-        .run();
-    }
-  }
+  // run 行已是终态，最后一个阶段为 done
+  updateStages(db, sessionId);
   return at;
 }
 
@@ -577,7 +485,6 @@ function seedLfgRun(
         subagents,
       };
     }),
-    lastStatus: 'done',
     startedAt,
     r,
   });
@@ -726,7 +633,6 @@ function seedIcRun(variant: VariantKey, index: number, id: string) {
       tools: icTools[stage] ?? [],
       subagents,
     })),
-    lastStatus: result.reached ? 'done' : 'active',
     startedAt,
     r,
   });

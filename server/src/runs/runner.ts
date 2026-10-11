@@ -3,7 +3,13 @@ import path from 'node:path';
 import { eq } from 'drizzle-orm';
 import { execa } from 'execa';
 import type { Db } from '../db/index.js';
-import { type AskQuestion, type GradingStatus, type RunStatus, runs } from '../db/schema.js';
+import {
+  type AskQuestion,
+  type GradingStatus,
+  type RunStatus,
+  runs,
+  terminalRunStatuses,
+} from '../db/schema.js';
 import { events } from '../events.js';
 import { createEmptyRunRepo, createRunRepo, readPr } from '../external/github.js';
 import { createRunTicket } from '../external/linear.js';
@@ -11,6 +17,7 @@ import { gradeRun } from '../grading/index.js';
 import { ingestFile } from '../ingest/ingest.js';
 import { type SessionWatcher, watchSession } from '../ingest/watch.js';
 import { featureDir } from '../stages/lfg.js';
+import { publishStageChanges, type StageChange, updateStages } from '../stages/report.js';
 import { loadTask } from '../tasks/loader.js';
 import type { Task } from '../tasks/schema.js';
 import { HttpError } from '../variants/errors.js';
@@ -20,7 +27,7 @@ import { ClaudeProcess } from './claude-process.js';
 import { refreshRunCost, watchRunCost } from './cost-refresh.js';
 import { scanCrossRunRefs } from './cross-run-refs.js';
 import { recordFriction } from './friction.js';
-import { IcLiveStages, LfgLiveStages, type LiveStages } from './live-stages.js';
+import { LfgArtifacts } from './lfg-artifacts.js';
 import { addMessage, listMessages, upsertArtifact } from './records.js';
 import type { SettingsStore } from './settings.js';
 import {
@@ -88,7 +95,7 @@ export class RunDriver {
   private readonly db: Db;
   private task!: Task;
   private proc: ClaudeProcess | null = null;
-  private stages: LiveStages | null = null;
+  private lfgArtifacts: LfgArtifacts | null = null;
   private sessionWatcher: SessionWatcher | null = null;
   private unsubscribe: (() => void) | null = null;
   private prTimer: NodeJS.Timeout | null = null;
@@ -133,7 +140,7 @@ export class RunDriver {
     );
   }
 
-  // 回调中的错误（stdout 解析、模拟用户、阶段判定）都让 run 失败
+  // 回调中的错误（stdout 解析、模拟用户）都让 run 失败
   fail = (error: Error) => {
     this.failure?.(error);
   };
@@ -157,6 +164,17 @@ export class RunDriver {
   private setStatus(status: RunStatus, values: Partial<RunRow> = {}) {
     this.update({ ...values, status });
     events.publish({ type: 'run.status', runId: this.runId, status });
+    // 终态的 run 的 session 中最后一个阶段为 done（Contracts 第 5 节）
+    if (terminalRunStatuses.includes(status)) {
+      const { sessionId } = this.row();
+      const changes = updateStages(this.db, sessionId);
+      publishStageChanges(sessionId, changes);
+      for (const change of changes) this.publishStage(change);
+    }
+  }
+
+  private publishStage(change: StageChange) {
+    events.publish({ type: 'run.stage', runId: this.runId, ...change });
   }
 
   private setPending(pending: Pending | null) {
@@ -181,7 +199,7 @@ export class RunDriver {
     this.task = loadTask(this.db, run.taskId);
     this.setStatus('preparing', { startedAt: new Date() });
     const initial = await this.prepare(run);
-    await this.start(run, initial);
+    this.start(run, initial);
     const proc = this.proc;
     if (proc === null) throw new Error('claude 进程没有启动');
     const exit = await Promise.race([proc.exited, this.failed]);
@@ -287,7 +305,7 @@ export class RunDriver {
     };
   }
 
-  private async start(run: RunRow, initial: string) {
+  private start(run: RunRow, initial: string) {
     if (this.shuttingDown) throw new Error('服务关闭，运行中断');
     this.deps.variants.refreshAuthEnv(run.variantId);
     const runtime = this.deps.variants.runtimeEnv(run.variantId);
@@ -307,34 +325,25 @@ export class RunDriver {
     this.jsonl = jsonl;
     this.sessionWatcher = watchSession(this.db, jsonl, this.fail);
 
-    const stageOptions = {
-      db: this.db,
-      runId: this.runId,
-      sessionId: run.sessionId,
-      workflow: this.task.kind,
-      ingest: () => {
-        if (fs.existsSync(jsonl)) ingestFile(this.db, jsonl);
-      },
-      onError: this.fail,
-    };
     if (this.task.kind === 'lfg') {
-      const stages = new LfgLiveStages(
-        stageOptions,
+      this.lfgArtifacts = new LfgArtifacts(
+        this.db,
+        this.runId,
         featureDir(this.deps.vaultDir, this.deps.product, this.runId),
       );
-      await stages.start();
-      this.stages = stages;
+      this.lfgArtifacts.record();
     } else {
-      const ticket = this.row().linearIssueIdentifier;
-      if (ticket === null) throw new Error(`ic run ${this.runId} 没有工单`);
-      this.stages = new IcLiveStages(stageOptions, ticket);
       this.prTimer = setInterval(() => {
         this.guard(this.pollPr());
       }, PR_POLL_MS);
     }
+    // 阶段在导入 session 时划分（stages/report 的 updateStages），这里只转发为 run.stage
     const stopSession = events.subscribe((event) => {
       if (event.type === 'session.updated' && event.sessionId === run.sessionId) {
-        this.stages?.onSessionUpdated();
+        this.lfgArtifacts?.record();
+      }
+      if (event.type === 'stage.changed' && event.sessionId === run.sessionId) {
+        this.publishStage({ workflow: event.workflow, stage: event.stage, status: event.status });
       }
     });
     const stopCost = watchRunCost(this.db, this.runId, run.sessionId, this.fail);
@@ -398,7 +407,7 @@ export class RunDriver {
   }
 
   private async afterTurn() {
-    await this.stages?.onTurnEnd();
+    this.lfgArtifacts?.record();
     this.updateCost();
     this.update({ crossRunRefs: scanCrossRunRefs(this.db, this.runId) });
     await recordFriction(this.db, this.runId, this.row().sessionId);
@@ -703,14 +712,15 @@ export class RunDriver {
     refreshRunCost(this.db, this.runId);
   }
 
-  // 进程退出后：最后一次读入 jsonl 与阶段判定，停止监听
+  // 进程退出后：最后一次读入 jsonl 与产物，停止监听
   private async teardown() {
     if (this.prTimer !== null) clearInterval(this.prTimer);
     this.prTimer = null;
+    // 最后一次导入的阶段变化仍经监听转发为 run.stage
+    if (this.jsonl !== null && fs.existsSync(this.jsonl)) ingestFile(this.db, this.jsonl);
+    this.lfgArtifacts?.record();
     this.unsubscribe?.();
     this.unsubscribe = null;
-    if (this.jsonl !== null && fs.existsSync(this.jsonl)) ingestFile(this.db, this.jsonl);
-    await Promise.race([this.stages?.close(), this.failed]);
     await this.sessionWatcher?.close();
     this.sessionWatcher = null;
     this.update({ crossRunRefs: scanCrossRunRefs(this.db, this.runId) });
@@ -722,12 +732,11 @@ export class RunDriver {
     this.updateCost();
   }
 
-  // 失败时结束子进程与监听；不再做阶段判定
+  // 失败时结束子进程与监听
   private async abort() {
     if (this.prTimer !== null) clearInterval(this.prTimer);
     this.unsubscribe?.();
     await this.sessionWatcher?.close();
-    await this.stages?.stop();
     const proc = this.proc;
     if (proc !== null) {
       this.ending ??= 'cancel';

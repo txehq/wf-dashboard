@@ -174,7 +174,7 @@ describe('服务重启时的状态修正', () => {
       pending: null,
       stages: null,
       messages: [],
-      costs: { agent: 0, simulatedUser: 0, stageCheck: 0, grading: 0, total: 0 },
+      costs: { agent: 0, simulatedUser: 0, grading: 0, total: 0 },
     });
   });
 
@@ -291,17 +291,17 @@ describe('GET / PUT /api/settings', () => {
     const defaults = defaultSettings();
     const initial = await app.inject({ method: 'GET', url: '/api/settings' });
     expect(initial.json()).toEqual(defaults);
-    expect(defaults.models.stageCheck).not.toMatch(/\[/);
+    expect(defaults.models.judge).not.toMatch(/\[/);
     const next = {
       runConcurrency: 1,
       maxUserTurns: 40,
       defaultRepeats: 2,
-      models: { ...defaults.models, stageCheck: defaults.models.simulatedUser },
+      models: { ...defaults.models, judge: `${defaults.models.simulatedUser}-x` },
     };
     const saved = await app.inject({ method: 'PUT', url: '/api/settings', payload: next });
     expect(saved.statusCode).toBe(200);
     expect(saved.json()).toEqual(next);
-    expect(models.stageCheck).toBe(defaults.models.simulatedUser);
+    expect(models.judge).toBe(`${defaults.models.simulatedUser}-x`);
     expect((await app.inject({ method: 'GET', url: '/api/settings' })).json()).toEqual(next);
     // 重新打开（服务重启）读回数据库中的设置
     expect(createSettingsStore(db).get()).toEqual(next);

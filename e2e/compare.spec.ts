@@ -231,7 +231,7 @@ test('产物并排：lfg 的 rubric 得分、理由与 markdown；ic 的 PR、�
   await shot(section, 'artifacts-ic');
 });
 
-test('各阶段成本：分组条形图、指标切换、表格与四项成本', async ({ page }) => {
+test('各阶段成本：分组条形图、指标切换、表格与三项成本', async ({ page }) => {
   const section = sectionOf(page, '各阶段成本');
   const chart = section.getByTestId('stage-cost-chart');
   // lfg 4 个阶段 × 3 个 variant
@@ -240,9 +240,10 @@ test('各阶段成本：分组条形图、指标切换、表格与四项成本',
   await expect(chart).toContainText('ticketing');
   await expect(section.getByRole('list', { name: '图例' })).toContainText('interview 追问边界');
   const breakdown = section.getByTestId('cost-breakdown');
-  for (const part of ['agent', '模拟用户', '阶段判定', '评分', '合计']) {
+  for (const part of ['agent', '模拟用户', '评分', '合计']) {
     await expect(breakdown.locator('figcaption', { hasText: part })).toBeVisible();
   }
+  await expect(breakdown.locator('figcaption', { hasText: '阶段判定' })).toHaveCount(0);
   await shot(section, 'costs');
 
   await chart.locator('.recharts-bar-rectangle').first().hover();

@@ -13,17 +13,13 @@ import {
   requests,
   runMessages,
   runs,
-  STAGE_ANALYSIS_VERSION,
-  stageAnalyses,
-  stageChecks,
-  stageCycles,
-  stageSpans,
   type ToolCall,
 } from '../../src/db/schema.js';
 import { eq } from 'drizzle-orm';
 import { compareRuns } from '../../src/grading/compare.js';
 import { CompareResult, type CrossRunRef } from '../../src/grading/schema.js';
 import { upsertFriction } from '../../src/runs/records.js';
+import { updateStages } from '../../src/stages/report.js';
 import { IC_STAGES, LFG_STAGES } from '../../src/stages/workflow.js';
 import { loadIcTask, loadLfgTask, syncTasks } from '../../src/tasks/loader.js';
 import type { RubricArtifact } from '../../src/tasks/schema.js';
@@ -87,8 +83,8 @@ function request(sessionId: string, seq: number, costUsd: number, at: number, ca
   };
 }
 
-// 主 session 4 条请求，花费按 factor 放大：第一阶段 seq 0–1，第二阶段 seq 2–3（进行中），其余未到达。
-// withSubagent 时 seq 2 的 Agent 调用带一个子代理，子代理有一条花费 1 美元的请求
+// 主 session 4 条请求，花费按 factor 放大：seq 0 调用第一阶段的 Skill（阶段 seq 0–1），seq 2 调用第二阶段的
+// Skill（阶段 seq 2–3），其余未到达。withSubagent 时 seq 2 的 Agent 调用带一个子代理，子代理有一条花费 1 美元的请求
 function seedSession(
   db: Db,
   sessionId: string,
@@ -97,66 +93,23 @@ function seedSession(
   withSubagent: boolean,
 ) {
   const agentId = withSubagent ? `agent-${sessionId}` : null;
+  const stages = workflow === 'lfg' ? LFG_STAGES : IC_STAGES;
+  const skill = (stage: string) => ({ ...call('Skill'), input: { skill: stage } });
   const rows = [
-    request(sessionId, 0, 0.1 * factor, t0, [call('Skill')]),
+    request(sessionId, 0, 0.1 * factor, t0, [skill(stages[0])]),
     request(sessionId, 1, 0.2 * factor, t0 + 1000, []),
-    request(sessionId, 2, 0.3 * factor, t0 + 3000, [call('Read'), call('Agent', agentId)]),
+    request(sessionId, 2, 0.3 * factor, t0 + 3000, [
+      skill(stages[1]),
+      call('Read'),
+      call('Agent', agentId),
+    ]),
     request(sessionId, 3, 0.4 * factor, t0 + 6000, []),
   ];
   if (agentId !== null) {
     rows.push({ ...request(sessionId, 0, 1, t0 + 4000, [call('Bash')]), agentId });
   }
   for (const r of rows) db.insert(requests).values(r).run();
-  const stages = workflow === 'lfg' ? LFG_STAGES : IC_STAGES;
-  // dashboard 发起的运行只有一轮
-  db.insert(stageCycles)
-    .values({ sessionId, workflow, cycle: 1, label: '第 1 轮', startSeq: 0, endSeq: null })
-    .run();
-  stages.forEach((stage, i) => {
-    const span =
-      i === 0
-        ? { status: 'done' as const, startSeq: 0, endSeq: 1 }
-        : i === 1
-          ? { status: 'active' as const, startSeq: 2, endSeq: 3 }
-          : { status: 'not-reached' as const, startSeq: null, endSeq: null };
-    db.insert(stageSpans)
-      .values({
-        sessionId,
-        workflow,
-        cycle: 1,
-        stage,
-        method: workflow === 'lfg' ? 'artifact' : 'llm',
-        evidence: null,
-        ...span,
-      })
-      .run();
-  });
-  db.insert(stageAnalyses)
-    .values({
-      sessionId,
-      version: STAGE_ANALYSIS_VERSION,
-      hasLfg: workflow === 'lfg',
-      hasIc: workflow === 'ic',
-    })
-    .run();
-  db.insert(stageChecks)
-    .values({
-      sessionId,
-      workflow,
-      currentStage: stages[0],
-      nextStage: stages[1],
-      fromSeq: 0,
-      toSeq: 3,
-      inputChars: 100,
-      entered: true,
-      enteredAtSeq: 2,
-      answer: '{}',
-      model: 'claude-haiku-4-5',
-      inputTokens: 50,
-      outputTokens: 5,
-      costUsd: 0.01,
-    })
-    .run();
+  updateStages(db, sessionId);
 }
 
 function seedRunMessage(db: Db, runId: string) {
@@ -384,7 +337,7 @@ describe('compare', () => {
     expect(modified.quality.total).toMatchObject({ n: 1, mean: 1, stdDev: null, min: 1, max: 1 });
   });
 
-  it('成本：每个阶段的均值（子代理计入所在阶段，未到达按 0）与四项总成本的均值', () => {
+  it('成本：每个阶段的均值（子代理计入所在阶段，未到达按 0）与三项总成本的均值', () => {
     const c = cell(compareRuns(db, query), 'baseline', lfgTask.id);
     const stages = c.cost?.stages ?? [];
     expect(stages.map((s) => [s.stage, s.reached])).toEqual([
@@ -402,24 +355,23 @@ describe('compare', () => {
     expect(interview?.toolCalls).toBe(1);
     // research：0.7 × factor，l1 另有子代理的 1 美元与一次 Bash 调用
     expect(research?.costUsd).toBeCloseTo((1.7 + 1.4 + 2.1) / 3, 12);
-    expect(research?.toolCalls).toBeCloseTo(7 / 3, 12);
+    // Skill research、Read、Agent 各一次，l1 另有子代理的一次 Bash 调用
+    expect(research?.toolCalls).toBeCloseTo(10 / 3, 12);
     expect(research?.durationMs).toBe(600 + 700);
     expect(research?.inputTokens).toBeCloseTo(700 / 3, 12);
     expect(plan).toMatchObject({ costUsd: 0, toolCalls: 0, durationMs: 0 });
 
-    // agent：1 + 1（子代理）、2、3；模拟用户 0.05；阶段判定 0.01；评分 4 × 0.02
+    // agent：1 + 1（子代理）、2、3；模拟用户 0.05；评分 4 × 0.02
     expect(runCostBreakdown(db, 'l1')).toEqual({
       agent: expect.closeTo(2, 12) as number,
       simulatedUser: 0.05,
-      stageCheck: 0.01,
       grading: expect.closeTo(0.08, 12) as number,
-      total: expect.closeTo(2.14, 12) as number,
+      total: expect.closeTo(2.13, 12) as number,
     });
     expect(c.cost?.total.agent).toBeCloseTo(7 / 3, 12);
     expect(c.cost?.total.simulatedUser).toBeCloseTo(0.05, 12);
-    expect(c.cost?.total.stageCheck).toBeCloseTo(0.01, 12);
     expect(c.cost?.total.grading).toBeCloseTo(0.08, 12);
-    expect(c.cost?.total.total).toBeCloseTo(7 / 3 + 0.14, 12);
+    expect(c.cost?.total.total).toBeCloseTo(7 / 3 + 0.13, 12);
   });
 
   it('friction：每次 run 的平均 issue 数量与 issue 列表，只算参与对比的 run（Contracts 7.10）', () => {

@@ -4,14 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { config } from '../../src/config.js';
-import {
-  gradeItems,
-  grades,
-  STAGE_ANALYSIS_VERSION,
-  stageAnalyses,
-  stageCycles,
-  stageSpans,
-} from '../../src/db/schema.js';
+import { gradeItems, grades, requests, type ToolCall } from '../../src/db/schema.js';
 import { compareRuns } from '../../src/grading/compare.js';
 import { readReport } from '../../src/stages/report.js';
 import { IC_STAGES } from '../../src/stages/workflow.js';
@@ -60,35 +53,41 @@ function icRun(id: string) {
   return sessionId;
 }
 
-// agent 一开始就报告无法继续：实时判定写了判定记录，但没有任何轮次
+// agent 一开始就报告无法继续：session 有请求，但没有任何阶段标记
 const noCycle = icRun('r-ic');
-db.insert(stageAnalyses)
-  .values({ sessionId: noCycle, version: STAGE_ANALYSIS_VERSION, hasLfg: false, hasIc: true })
-  .run();
-// 实时判定写于旧版本：版本号提高后仍然可读
-const old = icRun('r-old');
-db.insert(stageAnalyses)
-  .values({ sessionId: old, version: STAGE_ANALYSIS_VERSION - 1, hasLfg: false, hasIc: true })
-  .run();
-db.insert(stageCycles)
-  .values({ sessionId: old, workflow: 'ic', cycle: 1, label: 'x', startSeq: 0, endSeq: null })
-  .run();
-for (const [i, stage] of IC_STAGES.entries()) {
-  db.insert(stageSpans)
+const request = (sessionId: string, seq: number, toolCalls: ToolCall[]) =>
+  db
+    .insert(requests)
     .values({
-      sessionId: old,
-      workflow: 'ic',
-      cycle: 1,
-      stage,
-      method: 'llm',
-      evidence: null,
-      status: i === 0 ? 'active' : 'not-reached',
-      startSeq: null,
-      endSeq: null,
+      sessionId,
+      messageId: `msg-${sessionId}-${String(seq)}`,
+      seq,
+      agentId: null,
+      timestamp: new Date(Date.parse('2026-10-09T08:00:00Z') + seq * 1000),
+      model: 'claude-opus-5-5',
+      toolCalls,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      costUsd: 0,
     })
     .run();
-}
-// 没有任何判定记录
+request(noCycle, 0, []);
+// 只进入了 claim 就结束的 run
+const claimed = icRun('r-claim');
+const skill: ToolCall = {
+  id: 'toolu_claim',
+  name: 'Skill',
+  input: { skill: 'claim', args: 'TXE-1' },
+  result: 'Launching skill: claim',
+  resultChars: 22,
+  isError: false,
+  spillPath: null,
+  subagentId: null,
+};
+request(claimed, 0, [skill]);
+// 没有任何请求
 icRun('r-none');
 
 // 两个 lfg run 都拿满分；b1 的满分在第二个 run 时被改成 1（task 的 rubric 被修改过）
@@ -122,11 +121,16 @@ lfgRun('r-b', 1);
 const query = { includeIntervened: false, includeCrossRef: false, includeCancelled: false };
 
 describe('compare 的边界情况', () => {
-  it('H8：没有阶段轮次、没有判定记录的 run 不让 compare 报错，阶段记为未到达、成本按 0；旧版本的实时判定照常读取', () => {
-    expect(readReport(db, old)?.ic[0]?.stages[0]?.status).toBe('active');
+  it('H8：没有阶段轮次、没有请求的 run 不让 compare 报错，阶段记为未到达、成本按 0；终态 run 的最后一个阶段为 done', () => {
+    expect(readReport(db, claimed)?.ic[0]?.stages[0]).toMatchObject({
+      status: 'done',
+      entries: 1,
+      evidence: { seq: 0, kind: 'skill', text: 'Skill: claim TXE-1' },
+    });
+    expect(readReport(db, noCycle)?.ic).toEqual([]);
     const c = compareRuns(db, { ...query, variants: ['ic-v'], tasks: ['ic-money-format'] })
       .cells[0];
-    expect(c?.runIds).toEqual(['r-ic', 'r-old', 'r-none']);
+    expect(c?.runIds).toEqual(['r-ic', 'r-claim', 'r-none']);
     expect(c?.cost?.stages.map((s) => [s.stage, s.reached])).toEqual(
       IC_STAGES.map((s, i) => [s, i === 0 ? 1 : 0]),
     );

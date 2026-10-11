@@ -184,6 +184,7 @@ export const runStatuses = [
   'cancelled',
 ] as const;
 export type RunStatus = (typeof runStatuses)[number];
+export const terminalRunStatuses: readonly RunStatus[] = ['succeeded', 'failed', 'cancelled'];
 
 // 评分流程的状态（Contracts 7.6）：none 不会评分，running 正在评分，done 已评分，failed 评分出错
 export const gradingStatuses = ['none', 'running', 'done', 'failed'] as const;
@@ -352,26 +353,26 @@ export const userMessages = sqliteTable(
   ],
 );
 
-// interrupted：另一轮流程开始时，被结束的那一轮中正在进行的阶段
-export const stageStatuses = ['done', 'active', 'skipped', 'not-reached', 'interrupted'] as const;
+export const stageStatuses = ['done', 'active', 'skipped', 'not-reached'] as const;
 export type StageStatus = (typeof stageStatuses)[number];
 
-// 阶段的判定方式：lfg 按产物文件；ic 由 Skill 调用直接定边界，其余由模型判定
-export const stageMethods = ['artifact', 'llm', 'skill'] as const;
-export type StageMethod = (typeof stageMethods)[number];
+// 进入阶段的那次调用：Skill 调用或用户输入的 slash 命令
+export interface StageEvidence {
+  seq: number;
+  kind: 'skill' | 'command';
+  text: string;
+}
 
-// 判定模型的版本；stage_analyses.version 与它不同的结果视为未分析
-export const STAGE_ANALYSIS_VERSION = 4;
-
-// 一个 session 完成离线阶段判定的记录；不含 lfg 与 ic 的 session 也有一行
-export const stageAnalyses = sqliteTable('stage_analyses', {
+// 阶段划分的折叠状态（stages/partition 的 StageState）：已折叠到 folded_seq 为止的主请求
+export const stageStates = sqliteTable('stage_states', {
   sessionId: text('session_id')
     .primaryKey()
     .references(() => sessions.id, { onDelete: 'cascade' }),
-  version: integer('version').notNull(),
-  hasLfg: integer('has_lfg', { mode: 'boolean' }).notNull(),
-  hasIc: integer('has_ic', { mode: 'boolean' }).notNull(),
-  createdAt: createdAt(),
+  state: text('state', { mode: 'json' }).notNull(),
+  foldedSeq: integer('folded_seq').notNull(),
+  // folded_seq 那条请求的时间：之后的用户消息还没有折叠
+  foldedAt: integer('folded_at', { mode: 'timestamp_ms' }),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 });
 
 // 一轮流程：同一 session 可以有多轮 /lfg 与 /ic
@@ -387,8 +388,8 @@ export const stageCycles = sqliteTable(
     cycle: integer('cycle').notNull(),
     label: text('label').notNull(),
     startSeq: integer('start_seq').notNull(),
-    // 流程还没结束时为空
-    endSeq: integer('end_seq'),
+    // 下一轮开始之前，或 session 的最后一条请求
+    endSeq: integer('end_seq').notNull(),
     createdAt: createdAt(),
   },
   (t) => [
@@ -411,8 +412,9 @@ export const stageSpans = sqliteTable(
     // 主 session 的 seq，含端点；skipped 为 [s, s-1]，not-reached 为空
     startSeq: integer('start_seq'),
     endSeq: integer('end_seq'),
-    method: text('method', { enum: stageMethods }).notNull(),
-    evidence: text('evidence', { mode: 'json' }),
+    // 这个阶段被调用的次数（fix-pr 的修复轮数）；skipped 与 not-reached 为 0
+    entries: integer('entries').notNull().default(0),
+    evidence: text('evidence', { mode: 'json' }).$type<StageEvidence | null>(),
     createdAt: createdAt(),
   },
   (t) => [
@@ -423,38 +425,6 @@ export const stageSpans = sqliteTable(
       t.stage,
     ),
   ],
-);
-
-// 每次 LLM 阶段判定的记录
-export const stageChecks = sqliteTable(
-  'stage_checks',
-  {
-    id: integer('id').primaryKey({ autoIncrement: true }),
-    sessionId: text('session_id')
-      .notNull()
-      .references(() => sessions.id, { onDelete: 'cascade' }),
-    workflow: text('workflow', { enum: workflows }).notNull(),
-    // 判定时的 STAGE_ANALYSIS_VERSION；StageReport 的 checks 只统计当前版本
-    version: integer('version').notNull().default(STAGE_ANALYSIS_VERSION),
-    // 判定时的状态：阶段名，或流程外 outside
-    currentStage: text('current_stage').notNull(),
-    // 问题所问的去向：下一阶段、进入流程 enter、离开流程 outside
-    nextStage: text('next_stage').notNull(),
-    // 这批新增行为的 seq 范围
-    fromSeq: integer('from_seq').notNull(),
-    toSeq: integer('to_seq').notNull(),
-    inputChars: integer('input_chars').notNull(),
-    entered: integer('entered', { mode: 'boolean' }).notNull(),
-    // 回答"是"时模型指出的第一条行为
-    enteredAtSeq: integer('entered_at_seq'),
-    answer: text('answer').notNull(),
-    model: text('model').notNull(),
-    inputTokens: integer('input_tokens').notNull(),
-    outputTokens: integer('output_tokens').notNull(),
-    costUsd: real('cost_usd').notNull(),
-    createdAt: createdAt(),
-  },
-  (t) => [index('stage_checks_session_idx').on(t.sessionId, t.workflow)],
 );
 
 export const runMessageRoles = ['agent', 'simulated_user', 'human', 'system'] as const;

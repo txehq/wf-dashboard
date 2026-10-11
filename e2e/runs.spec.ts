@@ -86,7 +86,10 @@ test('已评分的 ic run 与失败的 run', async ({ page }) => {
   await expect(grades.getByTestId('grade-tests').locator('tbody tr')).toHaveCount(19);
   const stages = page.getByTestId('run-stages');
   await expect(stages.getByTestId('stage-acceptance')).toHaveAttribute('data-status', 'skipped');
-  await expect(stages.getByTestId('stage-fix-pr')).toHaveAttribute('data-status', 'active');
+  // 终态的 run：最后一个阶段 fix-pr 为 done，修复 1 轮（Skill fix-pr 调用一次）
+  await expect(stages.getByTestId('stage-fix-pr')).toHaveAttribute('data-status', 'done');
+  await expect(stages.getByTestId('stage-fix-pr').getByTestId('stage-entries')).toHaveText('1 轮');
+  await stages.screenshot({ path: '.work/screenshots/w25-run-stages.png', animations: 'disabled' });
   await expect(
     page.getByTestId('run-links').getByRole('link', { name: /Linear 工单/ }),
   ).toBeVisible();

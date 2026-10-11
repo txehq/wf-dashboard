@@ -12,7 +12,7 @@ export const Settings = z.strictObject({
   maxUserTurns: z.int().min(1).max(1000),
   defaultRepeats: z.int().min(1).max(50),
   // gateway 上的模型名
-  models: z.strictObject({ simulatedUser: ModelName, judge: ModelName, stageCheck: ModelName }),
+  models: z.strictObject({ simulatedUser: ModelName, judge: ModelName }),
 });
 export type Settings = z.infer<typeof Settings>;
 

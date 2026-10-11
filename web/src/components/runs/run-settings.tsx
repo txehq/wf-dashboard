@@ -14,7 +14,6 @@ const numberFields = [
 const modelFields = [
   { key: 'simulatedUser', label: '模拟用户' },
   { key: 'judge', label: '评分（judge）' },
-  { key: 'stageCheck', label: '阶段判定' },
 ] as const;
 
 function SettingsForm({ initial }: { initial: Settings }) {
@@ -96,7 +95,7 @@ export function RunSettings() {
         {settings.data !== undefined && (
           <span className="font-normal text-muted-foreground">
             同时 {settings.data.runConcurrency} 个 · 模拟用户 {settings.data.models.simulatedUser} ·
-            评分 {settings.data.models.judge} · 阶段判定 {settings.data.models.stageCheck}
+            评分 {settings.data.models.judge}
           </span>
         )}
       </summary>
