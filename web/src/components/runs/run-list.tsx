@@ -227,6 +227,13 @@ export function RunList() {
                   </span>
                 </>
               )}
+              <Link
+                to={`/analyses/new?batch=${group.batchId}`}
+                className={`text-xs underline ${batch === undefined ? 'ml-auto' : ''}`}
+                data-testid="analyze-batch"
+              >
+                分析这些 session
+              </Link>
             </div>
             <table className="w-full table-fixed text-sm">
               <colgroup>

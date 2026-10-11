@@ -66,7 +66,16 @@ export type Pending =
   | { kind: 'questions'; requestId: string; questions: AskQuestion[]; since: number };
 
 export type ArtifactKind =
-  'brief' | 'research' | 'plan' | 'tickets' | 'pr' | 'repo' | 'ticket' | 'friction' | 'acceptance';
+  | 'brief'
+  | 'research'
+  | 'plan'
+  | 'tickets'
+  | 'pr'
+  | 'repo'
+  | 'ticket'
+  | 'friction'
+  | 'acceptance'
+  | 'pr_snapshot';
 
 export interface Artifact {
   kind: ArtifactKind;

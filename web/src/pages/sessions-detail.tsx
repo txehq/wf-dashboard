@@ -8,6 +8,7 @@ import { StageBars } from '@/components/sessions/stage-bars';
 import { StageGraph } from '@/components/sessions/stage-graph';
 import { StageRequests } from '@/components/sessions/stage-requests';
 import { SessionSummaryPanel } from '@/components/sessions/session-summary';
+import { SessionBinding } from '@/components/sessions/session-binding';
 import {
   sessionQuery,
   stagesQuery,
@@ -226,8 +227,12 @@ function AllRequests({
 
 function SessionView({ session }: { session: SessionDetail }) {
   const stages = useQuery(stagesQuery(session.id));
-  const [, setParams] = useSearchParams();
-  const [focus, setFocus] = useState<TimelineFocus | null>(null);
+  const [params, setParams] = useSearchParams();
+  // ?seq=N（分析报告中证据的链接）：打开时定位到这条请求
+  const linked = params.get('seq');
+  const [focus, setFocus] = useState<TimelineFocus | null>(
+    linked === null ? null : { seq: Number(linked), toolCallId: null, nonce: 0 },
+  );
   // 对话条目跳到请求明细：先恢复全部请求，再定位到那一条（请求明细负责把它滚到视野中）
   const jump = (seq: number, toolCallId: string | null) => {
     setParams(
@@ -243,6 +248,7 @@ function SessionView({ session }: { session: SessionDetail }) {
   return (
     <div className="flex min-w-0 flex-col gap-6">
       <SessionSummaryPanel session={session} outside={stages.data?.outside ?? null} />
+      <SessionBinding sessionId={session.id} title={session.title} />
       {stages.isPending ? (
         <p className="text-sm text-muted-foreground">正在读取阶段…</p>
       ) : stages.data === undefined ? (

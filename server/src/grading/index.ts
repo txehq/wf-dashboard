@@ -9,6 +9,7 @@ import type { ArtifactRubric, IcTask, LfgTask } from '../tasks/schema.js';
 import { gradeIc } from './ic.js';
 import { gradeIcCriteria } from './ic-criteria.js';
 import { judgeArtifact, missingArtifactItems } from './rubric-judge.js';
+import { recordPrSnapshot } from './pr-snapshot.js';
 import { type ArtifactGrade, type GradeItem, RunGrades } from './schema.js';
 
 type Run = typeof runs.$inferSelect;
@@ -198,6 +199,8 @@ export async function gradeRun(db: Db, runId: string, signal: AbortSignal): Prom
     throw new Error(`run ${runId} 已经评分过`);
   }
   const task = loadTask(db, run.taskId);
+  await recordPrSnapshot(db, run);
+  signal.throwIfAborted();
   if (task.kind === 'lfg') await gradeLfg(db, run, task, signal);
   else await gradeIcRun(db, run, task, signal);
 }

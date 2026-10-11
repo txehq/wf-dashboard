@@ -19,6 +19,9 @@ export interface Variant {
   builtAt: string | null;
   createdAt: string;
   frozenAt: string | null;
+  // 由分析的"另存为 variant"建出时的分析 id；按 session 的 skill 新建时的来源 session
+  analysisId: string | null;
+  sourceSessionId: string | null;
 }
 
 export interface VariantOptions {

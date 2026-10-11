@@ -24,3 +24,7 @@ export const runsWebPort = webPort + 2000;
 // 使用手册的截图另起一个同样的服务，端口加 4000
 export const environmentServerPort = serverPort + 3000;
 export const guideServerPort = serverPort + 4000;
+
+// 分析页面的 e2e：专用数据目录与来源目录，另起一对服务，端口加 5000
+export const analysesServerPort = serverPort + 5000;
+export const analysesWebPort = webPort + 5000;

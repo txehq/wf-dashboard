@@ -123,6 +123,9 @@ describe('database', () => {
       .pluck()
       .all();
     expect(tables).toEqual([
+      'analyses',
+      'analysis_findings',
+      'analysis_patches',
       'artifacts',
       'batch_tasks',
       'batch_variants',
@@ -132,6 +135,8 @@ describe('database', () => {
       'requests',
       'run_messages',
       'runs',
+      'session_skill_scans',
+      'session_skills',
       'sessions',
       'settings',
       'sources',

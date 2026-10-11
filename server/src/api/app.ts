@@ -21,6 +21,11 @@ import { gradeRoutes } from './grades.js';
 import { createEnvironment } from '../environment.js';
 import { models } from '../llm/client.js';
 import { environmentRoutes } from './environment.js';
+import { backfillSkillLoads } from '../ingest/ingest.js';
+import { bindRunSessions, rebindAll } from '../bindings/index.js';
+import { createInsights } from '../insights/index.js';
+import { bindingRoutes } from './bindings.js';
+import { analysisRoutes } from './analyses.js';
 
 export interface AppOptions {
   db: Db;
@@ -59,6 +64,9 @@ export async function buildApp({ db, sseHeartbeatMs, logger, tasksDir, webDir }:
     dataDir: config.dataDir,
     repo: config.txeWorkflowRepo,
     ctxBin: config.ctxBin,
+    onSkillsChanged: () => {
+      rebindAll(db, config.dataDir);
+    },
   });
   await app.register(variantRoutes, { variants });
 
@@ -94,6 +102,17 @@ export async function buildApp({ db, sseHeartbeatMs, logger, tasksDir, webDir }:
   });
   await app.register(environmentRoutes, { environment });
   await app.register(linearImportRoutes());
+
+  // session 绑定 variant 与 skill 分析（Contracts 第 15 节）：本功能之前导入的 session 补提取 skill 正文与 run 的绑定
+  backfillSkillLoads(db);
+  bindRunSessions(db);
+  rebindAll(db, config.dataDir);
+  await app.register(bindingRoutes, { db, variants, dataDir: config.dataDir });
+  const insights = createInsights({ db, variants, dataDir: config.dataDir });
+  await app.register(analysisRoutes, { insights });
+  app.addHook('onClose', async () => {
+    await insights.shutdown();
+  });
 
   // 页面的路由在浏览器中：未匹配 /api 的路径都返回 index.html
   if (webDir !== undefined) {

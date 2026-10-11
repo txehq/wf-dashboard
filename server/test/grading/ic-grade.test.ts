@@ -1,8 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { and, eq } from 'drizzle-orm';
+import { execa } from 'execa';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { config } from '../../src/config.js';
+import { artifacts, runs } from '../../src/db/schema.js';
 import { gradeRun, readRunGrades } from '../../src/grading/index.js';
+import { recordPrSnapshot, StoredPrSnapshot } from '../../src/grading/pr-snapshot.js';
+import { exportRun } from '../../src/insights/export.js';
 import { saveTask } from '../../src/tasks/loader.js';
 import type { IcTask } from '../../src/tasks/schema.js';
 import {
@@ -93,6 +98,91 @@ describe('ic 评分（测试现建的 GitHub 仓库）', { timeout: 10 * 60_000 
     for (const dir of ['checkout', 'home', 'tmp']) {
       expect(fs.existsSync(path.join(config.runsDir, runId, 'grading', dir)), dir).toBe(false);
     }
+    // Contracts 15.2：进入 grading 时存下 PR 的快照
+    const stored = db
+      .select()
+      .from(artifacts)
+      .where(and(eq(artifacts.runId, runId), eq(artifacts.kind, 'pr_snapshot')))
+      .get();
+    expect(stored?.location).toBe(`https://github.com/${REPO_WITH_PR}`);
+    const snapshot = StoredPrSnapshot.parse(JSON.parse(stored?.snapshot ?? 'null'));
+    expect(snapshot.pr).toMatchObject({ number: 1, head: PR_HEAD, isDraft: false, state: 'OPEN' });
+    expect(snapshot.pr?.checks.map((c) => [c.name, c.bucket])).toEqual([['ci', 'pass']]);
+  });
+
+  it('PR 快照包含 review、review thread 与对话区评论；run.json 优先取快照，仓库不存在时记为不可用', async () => {
+    const gh = async (args: string[], input?: string) =>
+      (await execa('gh', args, input === undefined ? {} : { input })).stdout;
+    await gh(['pr', 'comment', '1', '--repo', REPO_WITH_PR, '--body', 'W31 快照：对话区评论']);
+    await gh([
+      'pr',
+      'review',
+      '1',
+      '--repo',
+      REPO_WITH_PR,
+      '--comment',
+      '--body',
+      'W31 快照：review',
+    ]);
+    await gh(
+      ['api', `repos/${REPO_WITH_PR}/pulls/1/comments`, '--input', '-'],
+      JSON.stringify({
+        body: 'W31 快照：文件评论',
+        commit_id: PR_HEAD,
+        path: 'src/math.js',
+        subject_type: 'file',
+      }),
+    );
+    const task = await fixtureTask();
+    const runId = testRunId('w31-snapshot');
+    insertRun(db, { id: runId, taskId: task.id, variantId: 'baseline', githubRepo: REPO_WITH_PR });
+    const run = db.select().from(runs).where(eq(runs.id, runId)).get();
+    if (run === undefined) throw new Error('run 不存在');
+    await recordPrSnapshot(db, run);
+    const exported = (await exportRun(db, runId)) as {
+      task: Record<string, unknown>;
+      pr: { source: string } & StoredPrSnapshot;
+    };
+    expect(exported.pr.source).toBe('snapshot');
+    const pr = exported.pr.pr;
+    expect(pr?.comments.map((c) => c.body)).toEqual(['W31 快照：对话区评论']);
+    expect(pr?.reviews.map((r) => [r.state, r.body])).toContainEqual([
+      'COMMENTED',
+      'W31 快照：review',
+    ]);
+    expect(pr?.reviewThreads).toEqual([
+      expect.objectContaining({
+        path: 'src/math.js',
+        isResolved: false,
+        comments: [expect.objectContaining({ body: 'W31 快照：文件评论' })],
+      }),
+    ]);
+    // task 中没有隐藏需求、rubric 与隐藏测试
+    expect(Object.keys(exported.task).sort()).toEqual(
+      ['id', 'kind', 'persona', 'requiredChecks', 'ticket', 'title'].sort(),
+    );
+
+    // 没有快照的旧 run：仓库存在时现读，仓库不存在时记为不可用
+    const live = testRunId('w31-live');
+    insertRun(db, {
+      id: live,
+      taskId: task.id,
+      variantId: 'baseline',
+      githubRepo: REPO_WITHOUT_PR,
+    });
+    expect(((await exportRun(db, live)) as { pr: unknown }).pr).toEqual({
+      source: 'github',
+      pr: null,
+    });
+    const gone = testRunId('w31-gone');
+    insertRun(db, {
+      id: gone,
+      taskId: task.id,
+      variantId: 'baseline',
+      githubRepo: `txehq/wfe-test-w31-missing-${gone}`,
+    });
+    const unavailable = ((await exportRun(db, gone)) as { pr: { unavailable: string } }).pr;
+    expect(unavailable.unavailable).toContain('HTTP 404');
   });
 
   it('没有 PR：测试记 0 / 声明数，终点为否', async () => {

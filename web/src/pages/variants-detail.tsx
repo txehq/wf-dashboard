@@ -540,6 +540,23 @@ function Header({
           {parent.data !== undefined && isImported(parent.data) && '（导入的 variant）'}
         </p>
       )}
+      {variant.analysisId !== null && (
+        <p className="text-sm text-muted-foreground" data-testid="variant-analysis">
+          来自分析{' '}
+          <Link className="font-mono underline" to={`/analyses/${variant.analysisId}`}>
+            {variant.analysisId}
+          </Link>
+        </p>
+      )}
+      {variant.sourceSessionId !== null && (
+        <p className="text-sm text-muted-foreground" data-testid="variant-source-session">
+          按 session{' '}
+          <Link className="font-mono underline" to={`/sessions/${variant.sourceSessionId}`}>
+            {variant.sourceSessionId.slice(0, 8)}
+          </Link>{' '}
+          的 skill 新建
+        </p>
+      )}
       {frozen && !imported && (
         <p className="text-sm text-muted-foreground">
           已被运行使用，内容只读。修改请另存为新 variant。

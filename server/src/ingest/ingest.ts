@@ -15,6 +15,8 @@ import {
   requests,
   runs,
   sessions,
+  sessionSkills,
+  sessionSkillScans,
   sources,
   subagents,
   type ToolCall,
@@ -23,12 +25,16 @@ import {
 import { events } from '../events.js';
 import { costUsd, fromApiUsage } from '../llm/pricing.js';
 import { config } from '../config.js';
+import { commandArgs } from '../api/user-text.js';
+import { rebindSession, SKILL_PREFIX } from '../bindings/index.js';
 import { publishStageChanges, type StageChange, updateStages } from '../stages/report.js';
+import { inputString } from '../stages/rows.js';
 import { AnyRecord, AssistantRecord, SubagentMeta, UserRecord } from './records.js';
 import { detectFromToolCall, detectFromUserText, type WorkflowFlags } from './workflows.js';
 
 type RequestRow = typeof requests.$inferInsert;
 type UserMessageRow = typeof userMessages.$inferInsert;
+type SkillLoadRow = typeof sessionSkills.$inferInsert;
 
 const resultLimit = 20_000;
 
@@ -71,7 +77,7 @@ function readCompleteLines(file: string, offset: number): { lines: string[]; end
   return { lines, end: offset + lastNewline + 1 };
 }
 
-function resultText(content: UserRecordToolResult['content']): string {
+export function resultText(content: UserRecordToolResult['content']): string {
   if (content === undefined) return '';
   if (typeof content === 'string') return content;
   return content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n');
@@ -94,6 +100,7 @@ interface ParseContext {
 interface ParseOutput {
   rows: Map<string, RequestRow>;
   userMessages: UserMessageRow[];
+  skillLoads: SkillLoadRow[];
   firstAt: number | null;
   lastAt: number | null;
   cwd: string | null;
@@ -144,6 +151,7 @@ function parseLines(ctx: ParseContext, lines: string[]): ParseOutput {
   const out: ParseOutput = {
     rows: new Map(),
     userMessages: [],
+    skillLoads: [],
     firstAt: null,
     lastAt: null,
     cwd: null,
@@ -258,9 +266,87 @@ function parseLines(ctx: ParseContext, lines: string[]): ParseOutput {
         });
         state.lastUserAt = at;
       }
+      if (record.isMeta === true && !isPeer(record)) {
+        const loads = texts.filter((t) => SKILL_PREFIX.test(t));
+        if (loads.length > 1) throw new Error(`记录 ${record.uuid} 中有多段 skill 正文`);
+        const [load] = loads;
+        if (load !== undefined) out.skillLoads.push(skillLoad(ctx, out, record, load, at));
+      }
     }
   }
   return out;
+}
+
+// 加载 skill 的 isMeta 记录（Contracts 15.1）：参数来自 sourceToolUseID 指向的 Skill 调用的 input.args，
+// 或 parentUuid 指向的 slash 命令消息中的 <command-args>
+function skillLoad(
+  ctx: ParseContext,
+  out: ParseOutput,
+  record: UserRecord,
+  text: string,
+  at: number,
+): SkillLoadRow {
+  const match = SKILL_PREFIX.exec(text);
+  if (match?.[1] === undefined) throw new Error(`记录 ${record.uuid} 不是 skill 正文`);
+  const baseDir = match[1];
+  const name = path.basename(baseDir);
+  let args: string;
+  if (record.sourceToolUseID !== undefined) {
+    const call = findToolCall(ctx, out, record.sourceToolUseID);
+    if (call === undefined) {
+      throw new Error(
+        `skill ${name} 的正文（记录 ${record.uuid}）指向的 tool 调用 ${record.sourceToolUseID} 不存在`,
+      );
+    }
+    const raw = inputString(call.input, 'args');
+    args = raw ?? '';
+  } else {
+    const parent = record.parentUuid ?? null;
+    const command =
+      parent === null
+        ? undefined
+        : (out.userMessages.find((m) => m.uuid === parent) ??
+          ctx.db
+            .select({ text: userMessages.text })
+            .from(userMessages)
+            .where(and(eq(userMessages.sessionId, ctx.sessionId), eq(userMessages.uuid, parent)))
+            .get());
+    const parsed = command === undefined ? null : commandArgs(command.text);
+    if (parsed === null) {
+      throw new Error(
+        `skill ${name} 的正文（记录 ${record.uuid}）既没有指向 Skill 调用，上一条记录 ${String(parent)} 也不是 slash 命令`,
+      );
+    }
+    args = parsed;
+  }
+  return {
+    sessionId: ctx.sessionId,
+    agentId: ctx.agentId,
+    uuid: record.uuid,
+    name,
+    baseDir,
+    text: text.slice(match[0].length),
+    args,
+    timestamp: new Date(at),
+  };
+}
+
+function findToolCall(ctx: ParseContext, out: ParseOutput, id: string): ToolCall | undefined {
+  for (const row of out.rows.values()) {
+    const call = row.toolCalls.find((c) => c.id === id);
+    if (call !== undefined) return call;
+  }
+  const found = ctx.db.$client
+    .prepare<[string, string], { value: string }>(
+      `select j.value as value from requests r, json_each(r.tool_calls) j
+       where r.session_id = ? and json_extract(j.value, '$.id') = ?`,
+    )
+    .get(ctx.sessionId, id);
+  return found === undefined ? undefined : (JSON.parse(found.value) as ToolCall);
+}
+
+function writeSkillLoads(db: Db, rows: SkillLoadRow[]) {
+  for (const row of rows) db.insert(sessionSkills).values(row).onConflictDoNothing().run();
 }
 
 function attachResult(
@@ -428,10 +514,11 @@ export function ingestFile(db: Db, file: string): IngestResult {
   const sessionDir = path.join(path.dirname(absolute), sessionId);
   const spillDir = path.join(sessionDir, 'tool-results');
 
-  const { changed, stageChanges } = db.$client.transaction(() => {
-    const unchanged: { changed: boolean; stageChanges: StageChange[] } = {
+  const { changed, stageChanges, skillsAdded } = db.$client.transaction(() => {
+    const unchanged: { changed: boolean; stageChanges: StageChange[]; skillsAdded: boolean } = {
       changed: false,
       stageChanges: [],
+      skillsAdded: false,
     };
     const existing = db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
     if (existing !== undefined && existing.filePath !== absolute)
@@ -442,6 +529,7 @@ export function ingestFile(db: Db, file: string): IngestResult {
     const state = existing?.parseState ?? initialParseState();
     const { lines, end } = readCompleteLines(absolute, offset);
     let changed = false;
+    let skillsAdded = false;
 
     if (lines.length > 0) {
       const ctx: ParseContext = {
@@ -460,17 +548,22 @@ export function ingestFile(db: Db, file: string): IngestResult {
       if (startedAt == null || endedAt === undefined) throw new Error(`${absolute} 缺少记录时间`);
       const flags = flagsOf(out.rows.values(), out.userMessages);
       const firstUser = out.userMessages.find((m) => m.kind === 'user');
+      const runId = existing?.runId ?? runIdFor(db, sessionId);
       const values = {
         cwd: existing?.cwd ?? out.cwd,
         title: existing?.title ?? (firstUser === undefined ? null : titleOf(firstUser.text)),
         endedAt: new Date(endedAt),
         hasLfg: (existing?.hasLfg ?? false) || flags.lfg,
         hasIc: (existing?.hasIc ?? false) || flags.ic,
-        runId: existing?.runId ?? runIdFor(db, sessionId),
+        runId,
         parseOffset: end,
         parseState: state,
+        // run 的 session 绑定 run 所用的 variant（Contracts 15.1）
+        ...(runId !== null && existing?.variantBinding !== 'run'
+          ? { variantId: runVariantId(db, runId), variantBinding: 'run' as const }
+          : {}),
       };
-      if (existing === undefined)
+      if (existing === undefined) {
         db.insert(sessions)
           .values({
             id: sessionId,
@@ -480,27 +573,128 @@ export function ingestFile(db: Db, file: string): IngestResult {
             ...values,
           })
           .run();
-      else db.update(sessions).set(values).where(eq(sessions.id, sessionId)).run();
+        db.insert(sessionSkillScans).values({ sessionId }).run();
+      } else db.update(sessions).set(values).where(eq(sessions.id, sessionId)).run();
       writeRows(db, out.rows.values());
       writeUserMessages(db, out.userMessages);
+      writeSkillLoads(db, out.skillLoads);
       changed = out.rows.size > 0 || out.userMessages.length > 0;
+      skillsAdded = out.skillLoads.length > 0;
     } else if (existing === undefined) return unchanged;
 
     if (registerSubagents(db, sessionId, path.join(sessionDir, 'subagents'))) changed = true;
-    if (ingestSubagents(db, sessionId, spillDir)) changed = true;
+    const sub = ingestSubagents(db, sessionId, spillDir);
+    if (sub.changed) changed = true;
+    if (sub.skillsAdded) skillsAdded = true;
     // 阶段划分随导入增量更新（Contracts 第 5 节）
-    return { changed, stageChanges: changed ? updateStages(db, sessionId) : [] };
+    return {
+      changed,
+      stageChanges: changed ? updateStages(db, sessionId) : [],
+      skillsAdded,
+    };
   })();
 
+  // 新加载的 skill 可能改变自动绑定
+  if (skillsAdded) rebindSession(db, config.dataDir, sessionId);
   if (changed) events.publish({ type: 'session.updated', sessionId });
   publishStageChanges(sessionId, stageChanges);
   return { sessionId, changed };
 }
 
-function ingestSubagents(db: Db, sessionId: string, spillDir: string): boolean {
+function runVariantId(db: Db, runId: string): string {
+  const run = db.select({ variantId: runs.variantId }).from(runs).where(eq(runs.id, runId)).get();
+  if (run === undefined) throw new Error(`run ${runId} 不存在`);
+  return run.variantId;
+}
+
+// 已导入、但还没有提取过 skill 正文的 session（本功能之前导入的）：读主 jsonl 与子代理到已解析的偏移量，只提取 skill 加载；
+// 返回补提取了的 session
+export function backfillSkillLoads(db: Db): string[] {
+  const pending = db
+    .select({ id: sessions.id, filePath: sessions.filePath, parseOffset: sessions.parseOffset })
+    .from(sessions)
+    .where(
+      sql`not exists (select 1 from ${sessionSkillScans} s where s.session_id = ${sessions.id})`,
+    )
+    .all();
+  const filled: string[] = [];
+  for (const session of pending) {
+    const files = [
+      { agentId: null, filePath: session.filePath, offset: session.parseOffset },
+      ...db
+        .select()
+        .from(subagents)
+        .where(eq(subagents.sessionId, session.id))
+        .all()
+        .map((s) => ({ agentId: s.agentId, filePath: s.filePath, offset: s.parseOffset })),
+    ];
+    db.$client.transaction(() => {
+      let added = false;
+      // 已被删除的 jsonl（例如 Claude Code 按 cleanupPeriodDays 清理的旧 session）没有可以提取的内容
+      for (const file of files.filter((f) => existsSync(f.filePath))) {
+        const loads = scanSkillLoads(db, session.id, file.agentId, file.filePath, file.offset);
+        writeSkillLoads(db, loads);
+        if (loads.length > 0) added = true;
+      }
+      db.insert(sessionSkillScans).values({ sessionId: session.id }).run();
+      if (added) filled.push(session.id);
+    })();
+  }
+  return filled;
+}
+
+function scanSkillLoads(
+  db: Db,
+  sessionId: string,
+  agentId: string | null,
+  file: string,
+  offset: number,
+): SkillLoadRow[] {
+  const out: ParseOutput = {
+    rows: new Map(),
+    userMessages: [],
+    skillLoads: [],
+    firstAt: null,
+    lastAt: null,
+    cwd: null,
+  };
+  const ctx: ParseContext = {
+    db,
+    sessionId,
+    agentId,
+    spillDir: '',
+    subagentByToolUse: new Map(),
+    state: initialParseState(),
+  };
+  const content = readFileSync(file).subarray(0, offset).toString('utf8');
+  for (const line of content.split('\n')) {
+    if (!line.includes('Base directory for this skill: ')) continue;
+    const raw: unknown = JSON.parse(line);
+    if (AnyRecord.parse(raw).type !== 'user') continue;
+    const record = UserRecord.parse(raw);
+    if (record.isMeta !== true || isPeer(record)) continue;
+    const { content: c } = record.message;
+    const texts =
+      typeof c === 'string' ? [c] : c.flatMap((b) => (b.type === 'text' ? [b.text] : []));
+    const loads = texts.filter((t) => SKILL_PREFIX.test(t));
+    if (loads.length > 1) throw new Error(`记录 ${record.uuid} 中有多段 skill 正文`);
+    const [load] = loads;
+    if (load !== undefined) {
+      out.skillLoads.push(skillLoad(ctx, out, record, load, Date.parse(record.timestamp)));
+    }
+  }
+  return out.skillLoads;
+}
+
+function ingestSubagents(
+  db: Db,
+  sessionId: string,
+  spillDir: string,
+): { changed: boolean; skillsAdded: boolean } {
   const all = db.select().from(subagents).where(eq(subagents.sessionId, sessionId)).all();
   const byToolUse = new Map(all.map((s) => [s.parentToolUseId, s.agentId]));
   let changed = false;
+  let skillsAdded = false;
   for (const sub of all) {
     const { lines, end } = readCompleteLines(sub.filePath, sub.parseOffset);
     if (lines.length === 0) continue;
@@ -515,6 +709,8 @@ function ingestSubagents(db: Db, sessionId: string, spillDir: string): boolean {
     const out = parseLines(ctx, lines);
     writeRows(db, out.rows.values());
     writeUserMessages(db, out.userMessages);
+    writeSkillLoads(db, out.skillLoads);
+    if (out.skillLoads.length > 0) skillsAdded = true;
     if (out.lastAt !== null)
       db.update(sessions)
         .set({ endedAt: sql`max(${sessions.endedAt}, ${out.lastAt})` })
@@ -526,5 +722,5 @@ function ingestSubagents(db: Db, sessionId: string, spillDir: string): boolean {
       .run();
     if (out.rows.size > 0 || out.userMessages.length > 0) changed = true;
   }
-  return changed;
+  return { changed, skillsAdded };
 }
