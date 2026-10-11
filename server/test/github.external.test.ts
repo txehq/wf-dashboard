@@ -14,11 +14,12 @@ import {
 } from '../src/external/github.js';
 import type { IcTaskWithTests } from '../src/tasks/schema.js';
 import { runHiddenTests } from '../src/grading/hidden-tests.js';
-import { DEFAULT_COPY_RUNNER_LABELS } from '../src/runs/settings.js';
 import { buildFixtureTask, fixtureDir, git, testRunId } from './helpers/ic-fixture.js';
 
 const gh = async (args: string[], cwd?: string) =>
   (await execa('gh', args, cwd === undefined ? {} : { cwd })).stdout.trim();
+
+const ghJsonOf = async <T>(args: string[]) => JSON.parse(await gh(args)) as T;
 
 async function openPr(repo: string, work: string, branch: string, flags: string[], body: string) {
   await git(work, ['push', '-u', 'origin', branch]);
@@ -41,24 +42,23 @@ describe('GitHub /ic 运行仓库', { timeout: 15 * 60_000 }, () => {
   let pr: number;
   let prHead: string;
 
-  it('createRunRepo：推送 bundle 的固定 commit，push CI 通过，ruleset 生效', async () => {
+  it('createRunRepo：起始 commit 之上加一个只保留 pull_request 的 commit，没有 push 的 run，ruleset 生效', async () => {
     task = await buildFixtureTask(runId);
-    const created = await createRunRepo(
-      task,
-      runId,
-      DEFAULT_COPY_RUNNER_LABELS,
-      new AbortController().signal,
-    );
+    const created = await createRunRepo(task, runId, new AbortController().signal);
     repo = created.repo;
     console.log(`GitHub 仓库 ${created.url}`);
     expect(repo).toBe(`txehq/wfe-${runId}`);
-    expect(created.mainSha).toBe(task.repo.commit);
     expect(created.url).toBe(`https://github.com/${repo}`);
-    // W15 Medium 18：推送之后删除本地的 seed.git
-    expect(fs.existsSync(path.join(config.runsDir, runId, 'seed.git'))).toBe(false);
-    const runs = await waitRuns(repo, created.mainSha, new AbortController().signal);
-    expect(runs.map((r) => [r.event, r.conclusion])).toEqual([['push', 'success']]);
-    console.log(`push CI ${runs.map((r) => r.url).join(', ')}`);
+    // fixture 的 ci.yml 有 push 触发：main 是 wf-dashboard 加在起始 commit 之上的 commit
+    const head = await ghJsonOf<{ parents: { sha: string }[]; commit: { message: string } }>([
+      'api',
+      `repos/${repo}/commits/${created.mainSha}`,
+    ]);
+    expect(head.parents.map((p) => p.sha)).toEqual([task.repo.commit]);
+    expect(head.commit.message.split('\n')[0]).toBe('eval copy: keep only pull_request workflows');
+    // 推送之后删除本地的 seed
+    expect(fs.existsSync(path.join(config.runsDir, runId, 'seed'))).toBe(false);
+    expect(await gh(['api', `repos/${repo}/actions/runs`, '--jq', '.total_count'])).toBe('0');
     expect(await requiredContexts(repo, 'main')).toEqual(['ci']);
     expect(await readPr(repo)).toBeNull();
   });

@@ -279,12 +279,7 @@ export class RunDriver {
         `Repository: ${repo}`,
       ].join('\n');
     } else {
-      const created = await createRunRepo(
-        task,
-        this.runId,
-        this.deps.settings.get().copyRunnerLabels,
-        this.stopping.signal,
-      );
+      const created = await createRunRepo(task, this.runId, this.stopping.signal);
       repo = created.repo;
       this.update({ githubRepo: repo });
       upsertArtifact(this.db, this.runId, 'repo', created.url, null);

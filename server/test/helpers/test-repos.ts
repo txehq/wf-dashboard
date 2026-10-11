@@ -3,7 +3,6 @@ import path from 'node:path';
 import { execa } from 'execa';
 import { config } from '../../src/config.js';
 import { createRunRepo, runRepoName, waitRuns } from '../../src/external/github.js';
-import { DEFAULT_COPY_RUNNER_LABELS } from '../../src/runs/settings.js';
 import type { IcTask } from '../../src/tasks/schema.js';
 import { git, testRunId } from './ic-fixture.js';
 
@@ -17,12 +16,7 @@ const gh = async (args: string[], cwd?: string) =>
 export async function repoWithoutPr(task: IcTask, purpose: string): Promise<string> {
   const runId = testRunId(`test-${purpose}`);
   console.log(`测试仓库 ${runRepoName(runId)}`);
-  const repo = await createRunRepo(
-    task,
-    runId,
-    DEFAULT_COPY_RUNNER_LABELS,
-    new AbortController().signal,
-  );
+  const repo = await createRunRepo(task, runId, new AbortController().signal);
   return repo.repo;
 }
 
@@ -34,6 +28,15 @@ export async function repoWithReadyPr(
   message: string,
 ): Promise<{ repo: string; pr: number; url: string; branch: string; head: string }> {
   const repo = await repoWithoutPr(task, purpose);
+  return { repo, ...(await openReadyPr(repo, changes, message)) };
+}
+
+// 已有的副本仓库上开一个 ready 的 PR 并等它的 CI 结束
+export async function openReadyPr(
+  repo: string,
+  changes: string,
+  message: string,
+): Promise<{ pr: number; url: string; branch: string; head: string }> {
   const work = path.join(config.repoRoot, '.work/test-tasks', repo.replace('/', '__'), 'agent');
   fs.rmSync(work, { recursive: true, force: true });
   await gh(['repo', 'clone', repo, work]);
@@ -51,5 +54,5 @@ export async function repoWithReadyPr(
   await gh(['pr', 'ready', String(pr), '--repo', repo]);
   const head = (await git(work, ['rev-parse', 'HEAD'])).stdout.trim();
   await waitRuns(repo, head, new AbortController().signal);
-  return { repo, pr, url, branch, head };
+  return { pr, url, branch, head };
 }
