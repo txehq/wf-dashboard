@@ -836,7 +836,10 @@ db.update(grades)
   .where(eq(grades.id, npmCiGrade.id))
   .run();
 db.update(runs)
-  .set({ invalidReason: '只用于运行详情的 e2e：隐藏测试的错误显示' })
+  .set({
+    gradingStatus: 'done',
+    invalidReason: '只用于运行详情的 e2e：隐藏测试的错误显示',
+  })
   .where(eq(runs.id, npmCiRun))
   .run();
 

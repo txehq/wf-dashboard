@@ -288,8 +288,9 @@ test.describe('真实运行', () => {
     await expect(page.getByRole('button', { name: '跳到最新' })).toBeVisible();
     await page.getByRole('button', { name: '跳到最新' }).click();
     await expect(timeline).toHaveAttribute('data-following', 'true');
+    // agent 写出新的请求后（每秒最多一次）刷新请求明细
+    await expect.poll(() => requestUrls.length, { timeout: 600_000 }).toBeGreaterThan(0);
     console.log(`请求明细的刷新请求 ${String(requestUrls.length)} 次`, requestUrls.slice(-3));
-    expect(requestUrls.length).toBeGreaterThan(0);
     expect(requestUrls.filter((u) => !u.includes('fromSeq='))).toEqual([]);
     // 增量拼接的结果与整份拉取的条数一致
     const sessionId = (
