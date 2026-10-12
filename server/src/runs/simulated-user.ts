@@ -65,8 +65,10 @@ export interface SimulatedReply {
 // 结构化输出不支持任意键的对象：answers 按提问生成固定的键 question_1、question_2…，再转成以问题原文为键的 Record
 // （/ic 的 Goal 确认问题长达数百字，模型逐字抄写会抄错或留空）。
 // 选项也用编号：gateway 上 strict tool 的自由文本字段会被填成 placeholder、空串或乱码（opus 与 sonnet 都会），
-// 要抄写 label 的字段最常出错，见 Reports/W21
-const TextOutput = z.object({ reply: z.string().min(1), done: z.boolean() });
+// 要抄写 label 的字段最常出错，见 Reports/W21。
+// 有 dispatch gate 的大阶段多一个 answeringDispatchGate，排在 done 之前：模型先判断这一轮是否在回答 gate，
+// 再判断 done（sonnet 一步判断 done 时在 gate 这一轮给出 true，见 Reports/W40）
+const GateField = z.object({ answeringDispatchGate: z.boolean() });
 const QuestionAnswer = z.object({
   optionNumbers: z.array(z.number().int()),
   otherAnswer: z.string(),
@@ -75,14 +77,25 @@ type QuestionAnswer = z.infer<typeof QuestionAnswer>;
 
 const questionKey = (index: number) => `question_${String(index + 1)}`;
 
-function questionOutput(questions: AskQuestion[]) {
-  return z.object({
+// 有 dispatch gate 时在最前面加 answeringDispatchGate；没有时不出现这个字段
+type WithGate<T> = T & { answeringDispatchGate?: boolean };
+
+const TextAnswer = z.object({ reply: z.string().min(1), done: z.boolean() });
+export const textOutput = (gate: boolean): z.ZodType<WithGate<z.infer<typeof TextAnswer>>> =>
+  gate ? GateField.extend(TextAnswer.shape) : TextAnswer;
+
+export function questionOutput(questions: AskQuestion[], gate: boolean) {
+  const fields = z.object({
     reply: z.string().min(1),
     answers: z.object(
       Object.fromEntries(questions.map((_, i) => [questionKey(i), QuestionAnswer])),
     ),
     done: z.boolean(),
   });
+  const schema: z.ZodType<WithGate<z.infer<typeof fields>>> = gate
+    ? GateField.extend(fields.shape)
+    : fields;
+  return schema;
 }
 
 // reply 或任一回答是占位内容时抛错，run 因此失败
@@ -114,18 +127,34 @@ function facts(stage: PersonaStage | null, ctx: EvalFacts): string[] {
 }
 
 const SENTENCE_END = /[。！？.!?]$/u;
-
-function doneRule(stage: PersonaStage | null): string {
-  if (stage !== null) {
-    const done = stage.done.trim();
-    return `这是 /${stage.id} 运行。done 为 true 的条件（满足其一）：${done}${SENTENCE_END.test(done) ? '' : '。'}其他情况一律为 false。`;
-  }
-  return 'done 为 true 的条件（满足其一）：agent 最新一轮报告你交给它的工作已经全部完成；或 agent 明确报告无法继续。其他情况一律为 false。';
-}
+const sentence = (text: string) => `${text}${SENTENCE_END.test(text) ? '' : '。'}`;
 
 // agent 停下来等一个外部条件（额度恢复、服务可用、别人操作）而不是向用户提问时，对话不会再推进
 const WAITING_RULE =
-  'agent 最新一轮没有向你提问，而是说明它在等待某个外部条件（例如额度恢复、某个服务恢复、别人完成某个操作）才能继续时，视为 agent 无法继续：done 为 true。';
+  'agent 最新一轮没有向你提问，而是说明它在等待某个外部条件（例如额度恢复、某个服务恢复、别人完成某个操作）才能继续 → 视为 agent 无法继续，done 为 true。';
+
+// Contracts 7.4：按顺序逐条核对，命中一条就停。有 dispatch gate 时第一条是"这一轮在回答 gate → done 为 false"
+function doneRule(stage: PersonaStage | null): string[] {
+  const reached =
+    stage === null
+      ? 'agent 最新一轮报告你交给它的工作已经全部完成；或 agent 明确报告无法继续。'
+      : sentence(stage.done.trim());
+  const steps = [
+    ...(stage?.dispatchGate === true
+      ? [
+          'answeringDispatchGate 为 true（你这一轮正在回答 dispatch gate）→ done 必须为 false。你的回答要发给 agent，agent 收到后才会报告结束状态，那之后的一轮才可能结束。',
+        ]
+      : []),
+    `满足这一条 → done 为 true：${reached}`,
+    WAITING_RULE,
+    '以上都不满足 → done 为 false。',
+  ];
+  return [
+    ...(stage === null ? [] : [`这是 /${stage.id} 运行。`]),
+    '按顺序逐条核对，命中一条就停，不再看后面的：',
+    ...steps.map((s, i) => `${String(i + 1)}. ${s}`),
+  ];
+}
 
 export function systemPrompt(ctx: SimulatedUserContext): string {
   const { task } = ctx;
@@ -165,13 +194,13 @@ export function systemPrompt(ctx: SimulatedUserContext): string {
       '',
       '## dispatch gate',
       `agent 建完工单、展示执行计划并问是否派发（例如回复 go 或 go wave N 派发实现）时，回答固定为"${DISPATCH_GATE_REPLY}"。回答中绝不能出现 go 这个词。agent 用选项提问时，选择表示不派发的那个选项。`,
+      'answeringDispatchGate：agent 最新一轮正是这样问你是否派发时为 true，你这一轮的回答就是对 dispatch gate 的回答；其他任何一轮（包括你回答 gate 之后 agent 报告结束状态的那一轮）为 false。先确定它，再判断 done。',
     );
   }
   lines.push(
     '',
     '## 何时结束（done）',
-    doneRule(task.stage),
-    WAITING_RULE,
+    ...doneRule(task.stage),
     'done 为 true 时，reply 写一句简短的结束语，它不会发给 agent。',
     '',
     '## 输出',
@@ -243,6 +272,35 @@ export function userPrompt(transcript: TranscriptEntry[], prompt: AgentPrompt): 
   ].join('\n');
 }
 
+// 有 dispatch gate 的大阶段（Contracts 7.4）：回答中不能出现 go；回答 gate 的这一轮 done 必须为 false，
+// 文字提问的回答必须是固定的那一句。不满足时以原文失败
+export function checkDispatchGate(
+  stage: PersonaStage,
+  prompt: AgentPrompt,
+  output: {
+    reply: string;
+    answers?: Record<string, string>;
+    done: boolean;
+    answeringDispatchGate: boolean;
+  },
+): void {
+  const said = [output.reply, ...Object.values(output.answers ?? {})];
+  if (said.some((s) => GO.test(s))) {
+    throw new Error(`/${stage.id} 运行中模拟用户的回答出现了 go：${JSON.stringify(said)}`);
+  }
+  if (!output.answeringDispatchGate) return;
+  if (output.done) {
+    throw new Error(
+      `/${stage.id} 运行中模拟用户在回答 dispatch gate 的这一轮给出 done: true（回答 gate 之后才能结束）：${JSON.stringify(output)}`,
+    );
+  }
+  if (prompt.kind === 'text' && output.reply !== DISPATCH_GATE_REPLY) {
+    throw new Error(
+      `/${stage.id} 运行中模拟用户对 dispatch gate 的回答不是"${DISPATCH_GATE_REPLY}"：${JSON.stringify(output.reply)}`,
+    );
+  }
+}
+
 // agent 一轮结束（文字）或 AskUserQuestion 时调用；回答不满足约束直接抛错
 export async function simulateUser(
   ctx: SimulatedUserContext,
@@ -256,14 +314,20 @@ export async function simulateUser(
     maxTokens: 4096,
     ...(ctx.signal === undefined ? {} : { signal: ctx.signal }),
   };
+  const stage = ctx.task.stage;
+  const gate = stage?.dispatchGate === true;
   let reply: string;
   let done: boolean;
+  let answeringDispatchGate: boolean | undefined;
   let answers: Record<string, string> | undefined;
   let selections: QuestionAnswer[] | undefined;
   let cost: { costUsd: number; model: string };
   if (prompt.kind === 'questions') {
-    const result = await parseStructured({ ...call, schema: questionOutput(prompt.questions) });
-    ({ reply, done } = result.value);
+    const result = await parseStructured({
+      ...call,
+      schema: questionOutput(prompt.questions, gate),
+    });
+    ({ reply, done, answeringDispatchGate } = result.value);
     cost = result;
     const given = result.value.answers;
     selections = prompt.questions.map((_, i) => {
@@ -280,18 +344,20 @@ export async function simulateUser(
       }),
     );
   } else {
-    const result = await parseStructured({ ...call, schema: TextOutput });
-    ({ reply, done } = result.value);
+    const result = await parseStructured({ ...call, schema: textOutput(gate) });
+    ({ reply, done, answeringDispatchGate } = result.value);
     cost = result;
   }
   rejectFiller(reply, answers);
-  if (ctx.task.stage?.dispatchGate === true) {
-    const said = [reply, ...Object.values(answers ?? {})];
-    if (said.some((s) => GO.test(s))) {
-      throw new Error(
-        `/${ctx.task.stage.id} 运行中模拟用户的回答出现了 go：${JSON.stringify(said)}`,
-      );
-    }
+  if (gate) {
+    if (answeringDispatchGate === undefined)
+      throw new Error('模拟用户的回答缺少 answeringDispatchGate');
+    checkDispatchGate(stage, prompt, {
+      reply,
+      ...(answers === undefined ? {} : { answers }),
+      done,
+      answeringDispatchGate,
+    });
   }
   return {
     reply,
