@@ -16,7 +16,7 @@ export function AnalysesPage() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold">分析</h1>
+        <h1 className="text-2xl font-semibold">Analyses</h1>
         <p className="text-sm text-muted-foreground">
           用 Claude Code 或 Codex 分析 session，按发现修改 skill，另存为新的 variant。在 Sessions
           中选择 session，或在 Runs 的 batch 上开始分析。
