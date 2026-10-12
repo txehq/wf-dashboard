@@ -6,6 +6,7 @@ import { execa } from 'execa';
 import { afterAll, describe, expect, test } from 'vitest';
 import { config } from '../../src/config.js';
 import { claudeSandboxProfile } from '../../src/variants/sandbox.js';
+import { git } from '../helpers/ic-fixture.js';
 
 // 真实 sandbox-exec：一个 run 能读写自己的目录，读不到其他 run 的 workspace、session 与 vault 目录（Contracts 7.3）
 const root = path.join(config.repoRoot, '.work', 'test-sandbox', randomUUID());
@@ -139,5 +140,33 @@ describe('claude 进程的 sandbox', () => {
     const ctx = await sh(`${q(config.ctxBin)} --version`);
     expect(ctx.code, ctx.err).toBe(0);
     expect((await sh(`ls ${q(path.join(os.homedir(), '.mcp-auth'))}`)).code).toBe(0);
+  });
+
+  // 本地仓库模式（Contracts 7.2）：workspace 的 origin 是 .work/ 下的 bare 仓库
+  test('本地仓库模式：自己的 bare 仓库可以 fetch 与 push，其他 run 的仓库读不到', async () => {
+    const reposDir = path.join(root, 'repos');
+    const own = path.join(reposDir, `wfe-${runId}.git`);
+    const other = path.join(reposDir, `wfe-${otherRun}.git`);
+    const workspace = path.join(roots.runsDir, runId, 'workspace-local');
+    for (const bare of [own, other]) {
+      await execa('git', ['init', '--quiet', '--bare', '--initial-branch', 'main', bare]);
+    }
+    await execa('git', ['init', '--quiet', '--initial-branch', 'main', workspace]);
+    await git(workspace, ['commit', '--quiet', '--allow-empty', '-m', 'x']);
+    const localProfile = claudeSandboxProfile(runId, variantId, roots, own);
+    const run = (command: string) =>
+      execa('sandbox-exec', ['-p', localProfile, '/bin/sh', '-c', command], {
+        reject: false,
+        stdin: 'ignore',
+        cwd: workspace,
+      });
+    const push = await run(`git push --quiet ${q(own)} main && git fetch --quiet ${q(own)} main`);
+    expect(push.exitCode, push.stderr).toBe(0);
+    const denied = await run(`git ls-remote ${q(other)}`);
+    expect(denied.exitCode).not.toBe(0);
+    expect(denied.stderr).toMatch(/Operation not permitted|not appear to be a git repository/);
+    // 不带 localRepo 的 profile 中，.work/ 下的仓库照常读不到
+    const plain = await sh(`git ls-remote ${q(own)}`);
+    expect(plain.code).not.toBe(0);
   });
 });

@@ -1,0 +1,14 @@
+{
+  "args": [
+    "pr",
+    "view",
+    "1",
+    "--repo",
+    "txehq/wfe-test-grade-pr-20261012014905144",
+    "--json",
+    "isDraft,headRefOid,state"
+  ],
+  "exitCode": 0,
+  "stdout": "{\"headRefOid\":\"c47fec0d5aec772afae43f4038748040489c3011\",\"isDraft\":false,\"state\":\"OPEN\"}",
+  "stderr": ""
+}

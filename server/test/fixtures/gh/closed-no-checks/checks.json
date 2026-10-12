@@ -1,0 +1,14 @@
+{
+  "args": [
+    "pr",
+    "checks",
+    "2",
+    "--repo",
+    "txehq/take-home-question",
+    "--json",
+    "name,bucket,state"
+  ],
+  "exitCode": 1,
+  "stdout": "",
+  "stderr": "no checks reported on the 'master' branch"
+}

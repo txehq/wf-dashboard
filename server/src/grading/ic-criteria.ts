@@ -1,10 +1,12 @@
 import { z } from 'zod';
 import {
+  type IcEndpoint,
   icEndpoint,
   prBranch,
   prChecks,
   prDescription,
   prDiff,
+  type PrInfo,
   readPr,
 } from '../external/github.js';
 import { models, parseStructured, type StructuredRequest } from '../llm/client.js';
@@ -142,12 +144,31 @@ export async function gradeIcCriteria(
   const diff = await prDiff(repo, pr.number);
   const checks = await prChecks(repo, pr.number);
   const endpoint = await icEndpoint(repo, pr.number, task.requiredChecks);
+  signal.throwIfAborted();
+  return judgeIcCriteria(task, { pr, branch, description, diff, checks, endpoint }, signal);
+}
+
+// 评分读到的 PR 材料（Contracts 第 13 节：diff、PR 正文、CI 各 check 的结果）
+export interface PrMaterial {
+  pr: PrInfo;
+  branch: string;
+  description: { title: string; body: string; headRefOid: string };
+  diff: string;
+  checks: IcCriteriaDetail['checks'];
+  endpoint: IcEndpoint;
+}
+
+export async function judgeIcCriteria(
+  task: IcTask,
+  material: PrMaterial,
+  signal: AbortSignal,
+): Promise<IcCriteriaResult> {
+  const { pr, branch, description, diff, checks, endpoint } = material;
   if (endpoint.head !== description.headRefOid) {
     throw new Error(
-      `${repo}#${String(pr.number)} 的 head 在评分期间变化：${description.headRefOid} → ${endpoint.head}`,
+      `${pr.url} 的 head 在评分期间变化：${description.headRefOid} → ${endpoint.head}`,
     );
   }
-  signal.throwIfAborted();
   const result = await parseStructured({
     ...criteriaRequest(
       {

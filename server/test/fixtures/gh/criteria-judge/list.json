@@ -1,0 +1,17 @@
+{
+  "args": [
+    "pr",
+    "list",
+    "--repo",
+    "txehq/wfe-test-criteria-judge-20261011221337891",
+    "--state",
+    "all",
+    "--limit",
+    "100",
+    "--json",
+    "number,url,isDraft,headRefOid,state,createdAt"
+  ],
+  "exitCode": 0,
+  "stdout": "[{\"createdAt\":\"2026-10-11T22:13:54Z\",\"headRefOid\":\"e67177250ebf8d03acd6729ea7a68492bc74be5c\",\"isDraft\":false,\"number\":1,\"state\":\"OPEN\",\"url\":\"https://github.com/txehq/wfe-test-criteria-judge-20261011221337891/pull/1\"}]",
+  "stderr": ""
+}

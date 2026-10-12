@@ -1,0 +1,17 @@
+{
+  "args": [
+    "pr",
+    "list",
+    "--repo",
+    "txehq/take-home-question",
+    "--state",
+    "all",
+    "--limit",
+    "100",
+    "--json",
+    "number,url,isDraft,headRefOid,state,createdAt"
+  ],
+  "exitCode": 0,
+  "stdout": "[{\"createdAt\":\"2024-05-30T08:10:56Z\",\"headRefOid\":\"c1421b95fc2f5137b970b015fba80237204c2ba3\",\"isDraft\":false,\"number\":2,\"state\":\"CLOSED\",\"url\":\"https://github.com/txehq/take-home-question/pull/2\"},{\"createdAt\":\"2024-05-28T08:13:45Z\",\"headRefOid\":\"ee77305021f3fb4b755b1d65dd82eb7bedc5ad4a\",\"isDraft\":false,\"number\":1,\"state\":\"CLOSED\",\"url\":\"https://github.com/txehq/take-home-question/pull/1\"}]",
+  "stderr": ""
+}

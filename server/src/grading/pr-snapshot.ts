@@ -17,16 +17,17 @@ export const repoUrl = (repo: string) => `https://github.com/${repo}`;
 // run 进入 grading 时：PR 的 reviews、review thread、评论与 checks 存进 artifacts（kind pr_snapshot，Contracts 15.2）
 export async function recordPrSnapshot(db: Db, run: Run): Promise<void> {
   if (run.githubRepo === null) return;
-  const stored: StoredPrSnapshot = {
-    capturedAt: new Date().toISOString(),
-    pr: await readPrSnapshot(run.githubRepo),
-  };
+  storePrSnapshot(db, run.id, run.githubRepo, await readPrSnapshot(run.githubRepo));
+}
+
+export function storePrSnapshot(db: Db, runId: string, repo: string, pr: PrSnapshot | null) {
+  const stored: StoredPrSnapshot = { capturedAt: new Date().toISOString(), pr };
   const now = new Date();
   db.insert(artifacts)
     .values({
-      runId: run.id,
+      runId,
       kind: 'pr_snapshot',
-      location: repoUrl(run.githubRepo),
+      location: repoUrl(repo),
       snapshot: JSON.stringify(stored),
       updatedAt: now,
     })

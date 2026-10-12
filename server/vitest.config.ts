@@ -20,14 +20,15 @@ export const gatewayTests = [
   'test/bindings-build.test.ts',
 ];
 
-// *.external.test.ts 会在 Linear 与 txehq 中创建对象，只由 test:external 运行
+// *.external.test.ts 会在 Linear 中建工单，只由 test:external 运行
 const external = 'test/**/*.external.test.ts';
 
 export default defineConfig({
   test: {
-    // 测试进程的数据目录在 .work/test-data/<进程号>/；运行前后检查仓库根目录的 data/ 没有新增
+    // 测试进程的数据目录在 .work/test-data/<进程号>/；运行前后检查仓库根目录的 data/ 没有新增。
+    // github-guard：gh 在 GitHub 上创建或修改对象的命令一律报错（测试只读取 GitHub）
     setupFiles: ['test/setup/data-dir.ts'],
-    globalSetup: ['test/setup/data-guard.ts'],
+    globalSetup: ['test/setup/data-guard.ts', 'test/setup/github-guard.ts'],
     projects: [
       {
         extends: true,

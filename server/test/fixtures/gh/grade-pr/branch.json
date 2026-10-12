@@ -1,0 +1,14 @@
+{
+  "args": [
+    "pr",
+    "view",
+    "1",
+    "--repo",
+    "txehq/wfe-test-grade-pr-20261012014905144",
+    "--json",
+    "headRefName"
+  ],
+  "exitCode": 0,
+  "stdout": "{\"headRefName\":\"feat/test-change\"}",
+  "stderr": ""
+}

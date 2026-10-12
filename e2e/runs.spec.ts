@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import { expect, type Locator, type Page, test } from '@playwright/test';
 import { runsServerPort } from '../ports.js';
+import { e2eLocalReposDir } from './local-repos.js';
 
 // 数据目录由 server/scripts/prepare-runs-e2e.ts 准备：导入 W4 端到端的四个已结束 run。
-// 实时一项是真实运行：构建基线 variant，发起 lfg-calculator 的 1 个 run（在 txehq 建仓库、写 vault），
+// 实时一项是真实运行：构建基线 variant，发起 lfg-calculator 的 1 个 run（仓库建在本地 bare 仓库、写 vault），
 // 在 interview 阶段接管并回答一次，交还模拟用户，再取消
 const api = `http://127.0.0.1:${String(runsServerPort)}/api`;
 const marker = randomUUID().slice(0, 8);
@@ -212,9 +215,17 @@ test.describe('真实运行', () => {
     await expect(page).toHaveURL(new RegExp(`/runs/${runId}$`));
     await expect(page.getByTestId('run-mode')).toHaveText('模拟用户回答中');
     await expect(page.getByTestId('message-initial')).toContainText('/lfg 做一个计算器');
+    // 本地仓库模式：仓库是 e2e 目录下的 bare 仓库，初始消息的 Repository 行写它的路径
+    const localRepo = path.join(e2eLocalReposDir, `wfe-${runId}.git`);
+    await expect(page.getByTestId('message-initial')).toContainText(`Repository: ${localRepo}`);
     await expect(
       page.getByTestId('run-links').getByRole('link', { name: /GitHub 仓库/ }),
-    ).toBeVisible();
+    ).toHaveAttribute('href', `file://${localRepo}`);
+    expect(
+      ((await (await request.get(`${api}/runs/${runId}`)).json()) as { githubRepo: string })
+        .githubRepo,
+    ).toBe(localRepo);
+    expect(existsSync(path.join(localRepo, 'HEAD'))).toBe(true);
 
     // 在第一个提问之前接管，interview 的提问由页面回答
     await page.getByRole('button', { name: '接管' }).click();

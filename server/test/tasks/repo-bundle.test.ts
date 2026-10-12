@@ -1,19 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execa } from 'execa';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { config } from '../../src/config.js';
 import { bundleHead, readCommit } from '../../src/external/github.js';
 import { ensureImportedBundle } from '../../src/tasks/linear-import.js';
 import type { IcTaskDefinition } from '../../src/tasks/schema.js';
-import { type CalcRepo, createCalcStartRepo } from '../helpers/calc-repo.js';
 import { testRunId } from '../helpers/ic-fixture.js';
-
-// 测试新建的起始仓库（两个 commit：README，再加测试 workflow），不删除
-let calc: CalcRepo;
-beforeAll(async () => {
-  calc = await createCalcStartRepo();
-}, 5 * 60_000);
+import { IMPORT_SOURCE } from '../helpers/import-source.js';
 
 function importedTask(repo: string, commit: string): IcTaskDefinition {
   return {
@@ -32,34 +26,33 @@ function importedTask(repo: string, commit: string): IcTaskDefinition {
   };
 }
 
-describe('从源仓库生成 repo.bundle（真实 GitHub）', { timeout: 5 * 60_000 }, () => {
+// 源仓库是已存在的 txehq/txe-workflow，只克隆读取
+describe('从源仓库生成 repo.bundle（真实 GitHub，只读）', { timeout: 5 * 60_000 }, () => {
   it('在所选 commit 生成 bundle，main 指向它；换 commit 后重新生成，相同 commit 不重做', async () => {
     const tasksDir = path.join(config.repoRoot, '.work/test-tasks', testRunId('w28-bundle'));
     const bundle = path.join(tasksDir, 'ic-bundle-probe', 'repo.bundle');
-    const first = calc.readmeCommit;
-    const second = calc.workflowsCommit;
+    const { repo, parent: first, commit: second } = IMPORT_SOURCE;
 
-    await ensureImportedBundle(importedTask(calc.repo, first), tasksDir);
+    await ensureImportedBundle(importedTask(repo, first), tasksDir);
     expect(await bundleHead(bundle)).toBe(first);
     const cloneFirst = path.join(tasksDir, 'clone-first');
     await execa('git', ['clone', '--quiet', bundle, cloneFirst]);
     expect((await execa('git', ['-C', cloneFirst, 'rev-list', '--count', 'HEAD'])).stdout).toBe(
-      '1',
+      String(IMPORT_SOURCE.commits - 1),
     );
-    expect(fs.readdirSync(cloneFirst).sort()).toEqual(['.git', 'README.md']);
 
     const before = fs.statSync(bundle).mtimeMs;
-    await ensureImportedBundle(importedTask(calc.repo, first), tasksDir);
+    await ensureImportedBundle(importedTask(repo, first), tasksDir);
     expect(fs.statSync(bundle).mtimeMs).toBe(before);
 
-    await ensureImportedBundle(importedTask(calc.repo, second), tasksDir);
+    await ensureImportedBundle(importedTask(repo, second), tasksDir);
     expect(await bundleHead(bundle)).toBe(second);
     const cloneSecond = path.join(tasksDir, 'clone-second');
     await execa('git', ['clone', '--quiet', bundle, cloneSecond]);
     expect(
-      (await execa('git', ['-C', cloneSecond, 'log', '--format=%H'])).stdout.split('\n'),
+      (await execa('git', ['-C', cloneSecond, 'log', '-2', '--format=%H'])).stdout.split('\n'),
     ).toEqual([second, first]);
-    expect((await readCommit(calc.repo, second)).title).toBe('ci: test workflows');
+    expect((await readCommit(repo, second)).title).toMatch(/^fix\(fix-pr\): what the third review/);
     // 临时克隆目录已删除，bundle 旁没有其他文件
     expect(fs.readdirSync(path.dirname(bundle))).toEqual(['repo.bundle']);
   });
@@ -69,13 +62,13 @@ describe('从源仓库生成 repo.bundle（真实 GitHub）', { timeout: 5 * 60_
     const taskDir = path.join(tasksDir, 'ic-bundle-probe');
     const missingRepo = `txehq/wfe-test-missing-${testRunId('x').slice(2)}`;
     await expect(
-      ensureImportedBundle(importedTask(missingRepo, calc.readmeCommit), tasksDir),
+      ensureImportedBundle(importedTask(missingRepo, IMPORT_SOURCE.commit), tasksDir),
     ).rejects.toThrow(/gh repo clone .*Could not resolve to a Repository/s);
     expect(fs.readdirSync(taskDir)).toEqual([]);
 
     const missingCommit = 'f'.repeat(40);
     await expect(
-      ensureImportedBundle(importedTask(calc.repo, missingCommit), tasksDir),
+      ensureImportedBundle(importedTask(IMPORT_SOURCE.repo, missingCommit), tasksDir),
     ).rejects.toThrow(new RegExp(`git -C .* fetch --quiet origin ${missingCommit}`));
     expect(fs.readdirSync(taskDir)).toEqual([]);
   });

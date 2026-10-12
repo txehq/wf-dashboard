@@ -1,7 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
-import { clonePr, icEndpoint, prBranch, readPr } from '../external/github.js';
+import {
+  clonePr,
+  type IcEndpoint,
+  icEndpoint,
+  prBranch,
+  type PrInfo,
+  readPr,
+} from '../external/github.js';
 import type { IcTaskWithTests } from '../tasks/schema.js';
 import { runHiddenTests } from './hidden-tests.js';
 import type { IcDetail } from './schema.js';
@@ -26,27 +33,55 @@ export async function gradeIc(
 ): Promise<IcGrade> {
   const pr = await readPr(repo);
   signal.throwIfAborted();
-  if (pr === null) {
-    const outcomes = Object.entries(task.hiddenTests.manifest).flatMap(([file, names]) =>
-      names.map((name) => ({ file, name, outcome: 'not-run' as const })),
-    );
-    return {
-      testsPassed: 0,
-      testsDeclared: outcomes.length,
-      reachedEnd: false,
-      detail: { pr: null, outcomes, fileErrors: [], endpoint: null, error: null },
-    };
-  }
+  if (pr === null) return noPrIcGrade(task);
   const branch = await prBranch(repo, pr.number);
+  return gradeIcPr(
+    task,
+    runId,
+    { pr, branch },
+    {
+      checkout: (dest) => clonePr(repo, pr.number, dest),
+      endpoint: () => icEndpoint(repo, pr.number, task.requiredChecks),
+    },
+    signal,
+  );
+}
+
+export function noPrIcGrade(task: IcTaskWithTests): IcGrade {
+  const outcomes = Object.entries(task.hiddenTests.manifest).flatMap(([file, names]) =>
+    names.map((name) => ({ file, name, outcome: 'not-run' as const })),
+  );
+  return {
+    testsPassed: 0,
+    testsDeclared: outcomes.length,
+    reachedEnd: false,
+    detail: { pr: null, outcomes, fileErrors: [], endpoint: null, error: null },
+  };
+}
+
+export interface PrSource {
+  // 把 PR 的 head 取到 dest
+  checkout: (dest: string) => Promise<{ head: string }>;
+  // 隐藏测试之后读的终点判定
+  endpoint: () => Promise<IcEndpoint>;
+}
+
+// 已读到的 PR：checkout 到 data/runs/<runId>/grading/checkout 跑隐藏测试，再判定终点
+export async function gradeIcPr(
+  task: IcTaskWithTests,
+  runId: string,
+  read: { pr: PrInfo; branch: string },
+  source: PrSource,
+  signal: AbortSignal,
+): Promise<IcGrade> {
+  const { pr, branch } = read;
   const checkout = gradingCheckout(runId);
-  const { head } = await clonePr(repo, pr.number, checkout);
+  const { head } = await source.checkout(checkout);
   const tests = await runHiddenTests(checkout, task, signal);
-  const endpoint = await icEndpoint(repo, pr.number, task.requiredChecks);
+  const endpoint = await source.endpoint();
   signal.throwIfAborted();
   if (endpoint.head !== head) {
-    throw new Error(
-      `${repo}#${String(pr.number)} 的 head 在评分期间变化：${head} → ${endpoint.head}`,
-    );
+    throw new Error(`${pr.url} 的 head 在评分期间变化：${head} → ${endpoint.head}`);
   }
   // 评分写出后删除 checkout（含 node_modules）与评分用的 HOME；JUnit、日志与测试配置留在 grading/ 下。
   // 评分出错时保留，供排查

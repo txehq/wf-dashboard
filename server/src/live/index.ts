@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { asc, desc, eq, inArray, sql } from 'drizzle-orm';
-import { execa } from 'execa';
 import type { Db } from '../db/index.js';
 import {
   type LiveDriver,
@@ -15,8 +14,8 @@ import {
   type Workflow,
 } from '../db/schema.js';
 import { events } from '../events.js';
-import { createEmptyRunRepo, createRunRepo } from '../external/github.js';
 import { createRunTicket } from '../external/linear.js';
+import type { RunRepos } from '../external/run-repos.js';
 import { ingestFile } from '../ingest/ingest.js';
 import { newId } from '../runs/index.js';
 import type { SettingsStore } from '../runs/settings.js';
@@ -51,6 +50,8 @@ export interface LiveDeps {
   serverUrl: () => string;
   // "本机配置"的 HOME（claude 读 <home>/.claude）；测试用 .work/ 下的目录
   localHome: string;
+  // isolated 交互的副本仓库建在 GitHub 或本地仓库模式的目录中（Contracts 7.2、14.2）
+  repos: RunRepos;
 }
 
 export const LIVE_ID = /^l-\d{8}-[a-z0-9]{6}$/;
@@ -245,7 +246,12 @@ export function createLive(deps: LiveDeps) {
       env = { ...runtime.env };
       variantArgs = runtime.claudeArgs;
       if (spec.environment === 'isolated') {
-        sandboxProfile = variants.sandboxProfile(spec.variantId, spec.liveId, deps.liveDir);
+        sandboxProfile = variants.sandboxProfile(
+          spec.variantId,
+          spec.liveId,
+          deps.liveDir,
+          deps.repos.localDir === null ? null : (spec.eval?.repo ?? null),
+        );
       }
     }
     env = {
@@ -360,7 +366,7 @@ export function createLive(deps: LiveDeps) {
       if (body.workflow === 'lfg') {
         const input = task?.kind === 'lfg' ? task.input : body.input;
         if (input === null) throw new HttpError(400, '没有输入');
-        const repo = await createEmptyRunRepo(liveId, signal);
+        const repo = await deps.repos.createEmpty(liveId, signal);
         // wf obsidian 要求 product 目录已存在
         fs.mkdirSync(path.join(deps.vaultDir, `Project ${deps.product}`), { recursive: true });
         extraEnv.MAGI_PRODUCT = deps.product;
@@ -381,7 +387,7 @@ export function createLive(deps: LiveDeps) {
             'isolated 环境的 ic 需要选一个 ic task；粘贴的工单先另存为 task',
           );
         }
-        const repo = await createRunRepo(task, liveId, signal);
+        const repo = await deps.repos.createCopy(task, liveId, signal);
         const ticket = await createRunTicket(task, liveId);
         initial = `/ic ${ticket.identifier}`;
         evalFacts = {
@@ -397,7 +403,7 @@ export function createLive(deps: LiveDeps) {
           ticketUrl: ticket.url,
         };
       }
-      await execa('gh', ['repo', 'clone', evalFacts.repo, cwd]);
+      await deps.repos.clone(evalFacts.repo, cwd, signal);
     } else {
       if (body.cwd === null) throw new HttpError(400, 'real 环境需要填写工作目录');
       cwd = path.resolve(body.cwd);

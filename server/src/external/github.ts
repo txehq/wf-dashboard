@@ -110,7 +110,7 @@ export async function waitRuns(
 }
 
 // ruleset 的 required checks 只认 GitHub Actions 报告的 check：同名 commit status 无法冒充
-function ciRuleset(requiredChecks: string[]) {
+export function ciRuleset(requiredChecks: string[]) {
   return {
     name: 'ci-required',
     target: 'branch',
@@ -161,18 +161,23 @@ export async function seedWorkflowFiles(seed: string, commit: string): Promise<W
   );
 }
 
-// /ic 运行的仓库副本（Contracts 第 13 节）。在起始 commit 之上加一个 wf-dashboard 提交的 commit：workflow 的 on 只保留
-// pull_request，没有 pull_request 触发的文件删除；没有要改的文件时不加。推送后 GitHub 中没有可以由 push、定时或手动触发的
-// workflow，不等待默认分支上的 CI。顺序不能调换：ruleset 生效后直接推送 main 会被拒绝（GH013），所以先推送、最后以
-// task 的 requiredChecks 建 ruleset（为空时不建），agent 只能经 PR 改代码
-export async function createRunRepo(
-  task: IcTask,
-  runId: string,
-  signal: AbortSignal,
-): Promise<RunRepo> {
-  const repo = runRepoName(runId);
+// 推送前的本地 clone：data/runs/<runId>/seed，推送之后删除
+export const seedDir = (runId: string) => path.join(config.runsDir, runId, 'seed');
+
+// 建仓库的 gh 参数：ic 的副本带 task id，lfg（task 为 null）只有 run id。导入的 task 的 id 由来源工单编号得出，
+// 副本中不出现来源
+export function repoCreateArgs(task: IcTask | null, runId: string): string[] {
+  const description =
+    task === null || task.source !== undefined
+      ? `wf-dashboard eval run ${runId}`
+      : `wf-dashboard eval run ${runId} (${task.id})`;
+  return ['repo', 'create', runRepoName(runId), '--private', '--description', description];
+}
+
+// /ic 运行的仓库副本的内容（Contracts 第 13 节），写在 seed 中，返回要推送的 HEAD。在起始 commit 之上加一个
+// wf-dashboard 提交的 commit：workflow 的 on 只保留 pull_request 与 workflow_call，两者都没有的文件删除；没有要改的文件时不加
+export async function prepareCopySeed(task: IcTask, seed: string): Promise<string> {
   const bundle = path.join(task.dir, task.repo.path);
-  const seed = path.join(config.runsDir, runId, 'seed');
   if (!fs.existsSync(bundle))
     throw new Error(`task ${task.id} 的起始仓库 bundle 不存在：${bundle}`);
   await cmd('git', ['clone', '--quiet', '--no-checkout', bundle, seed]);
@@ -205,50 +210,12 @@ export async function createRunRepo(
       copyCommitBody(changes),
     ]);
   }
-  const head = (await cmd('git', ['-C', seed, 'rev-parse', 'HEAD'])).trim();
-
-  await cmd('gh', [
-    'repo',
-    'create',
-    repo,
-    '--private',
-    '--description',
-    // 导入的 task 的 id 由来源工单编号得出，副本中不出现来源
-    task.source === undefined
-      ? `wf-dashboard eval run ${runId} (${task.id})`
-      : `wf-dashboard eval run ${runId}`,
-  ]);
-  await cmd('git', [
-    '-C',
-    seed,
-    'push',
-    '--quiet',
-    `https://github.com/${repo}.git`,
-    `HEAD:refs/heads/main`,
-  ]);
-  // 推送之后本地副本不再需要
-  fs.rmSync(seed, { recursive: true });
-  const view = await waitDefaultBranchMain(repo, signal);
-  const mainSha = await branchSha(repo, 'main');
-  if (mainSha !== head) throw new Error(`${repo} main 在 ${mainSha}，应为 ${head}`);
-
-  if (task.requiredChecks.length > 0) {
-    await ghJson(
-      ['api', '-X', 'POST', `repos/${repo}/rulesets`, '--input', '-'],
-      z.object({ id: z.number() }).loose(),
-      JSON.stringify(ciRuleset(task.requiredChecks)),
-    );
-  }
-  return { repo, url: view.url, mainSha };
+  return (await cmd('git', ['-C', seed, 'rev-parse', 'HEAD'])).trim();
 }
 
-export const COPY_COMMIT_TITLE = 'eval copy: keep only pull_request workflows';
-
-// /lfg 运行用：只有一个初始提交，没有 CI 与 ruleset。
-// 初始提交在本地建在 main 上再推送：--add-readme 会用组织的默认分支名（txehq 为 master）
-export async function createEmptyRunRepo(runId: string, signal: AbortSignal): Promise<RunRepo> {
-  const repo = runRepoName(runId);
-  const seed = path.join(config.runsDir, runId, 'seed');
+// /lfg 运行的仓库内容：只有一个初始提交，没有 CI。初始提交在本地建在 main 上再推送
+// （gh repo create --add-readme 会用组织的默认分支名，txehq 为 master）
+export async function prepareEmptySeed(runId: string, seed: string): Promise<string> {
   fs.mkdirSync(seed, { recursive: true });
   fs.writeFileSync(path.join(seed, 'README.md'), `# wfe-${runId}\n`);
   await cmd('git', ['init', '-b', 'main'], { cwd: seed });
@@ -267,17 +234,51 @@ export async function createEmptyRunRepo(runId: string, signal: AbortSignal): Pr
     ],
     { cwd: seed },
   );
-  await cmd('gh', [
-    'repo',
-    'create',
-    repo,
-    '--private',
-    '--description',
-    `wf-dashboard eval run ${runId}`,
-  ]);
-  await cmd('git', ['push', `https://github.com/${repo}.git`, 'main:refs/heads/main'], {
-    cwd: seed,
-  });
+  return (await cmd('git', ['-C', seed, 'rev-parse', 'HEAD'])).trim();
+}
+
+// 把 seed 的 HEAD 推送为 remote 的 main；remote 为 GitHub 地址或本地 bare 仓库的路径
+export async function pushSeed(seed: string, remote: string): Promise<void> {
+  await cmd('git', ['-C', seed, 'push', '--quiet', remote, 'HEAD:refs/heads/main']);
+}
+
+// 推送后 GitHub 中没有可以由 push、定时或手动触发的 workflow，不等待默认分支上的 CI。顺序不能调换：ruleset 生效后
+// 直接推送 main 会被拒绝（GH013），所以先推送、最后以 task 的 requiredChecks 建 ruleset（为空时不建），agent 只能经 PR 改代码
+export async function createRunRepo(
+  task: IcTask,
+  runId: string,
+  signal: AbortSignal,
+): Promise<RunRepo> {
+  const repo = runRepoName(runId);
+  const seed = seedDir(runId);
+  const head = await prepareCopySeed(task, seed);
+  await cmd('gh', repoCreateArgs(task, runId));
+  await pushSeed(seed, `https://github.com/${repo}.git`);
+  // 推送之后本地副本不再需要
+  fs.rmSync(seed, { recursive: true });
+  const view = await waitDefaultBranchMain(repo, signal);
+  const mainSha = await branchSha(repo, 'main');
+  if (mainSha !== head) throw new Error(`${repo} main 在 ${mainSha}，应为 ${head}`);
+
+  if (task.requiredChecks.length > 0) {
+    await ghJson(
+      ['api', '-X', 'POST', `repos/${repo}/rulesets`, '--input', '-'],
+      z.object({ id: z.number() }).loose(),
+      JSON.stringify(ciRuleset(task.requiredChecks)),
+    );
+  }
+  return { repo, url: view.url, mainSha };
+}
+
+export const COPY_COMMIT_TITLE = 'eval copy: keep only pull_request workflows';
+
+// /lfg 运行用：只有一个初始提交，没有 CI 与 ruleset
+export async function createEmptyRunRepo(runId: string, signal: AbortSignal): Promise<RunRepo> {
+  const repo = runRepoName(runId);
+  const seed = seedDir(runId);
+  await prepareEmptySeed(runId, seed);
+  await cmd('gh', repoCreateArgs(null, runId));
+  await pushSeed(seed, `https://github.com/${repo}.git`);
   fs.rmSync(seed, { recursive: true });
   const view = await waitDefaultBranchMain(repo, signal);
   return { repo, url: view.url, mainSha: await branchSha(repo, 'main') };
@@ -287,15 +288,102 @@ const CheckBucket = z.enum(['pass', 'fail', 'pending', 'skipping', 'cancel']);
 const PrCheck = z.object({ name: z.string(), bucket: CheckBucket, state: z.string() });
 export type PrCheck = z.infer<typeof PrCheck>;
 
-export async function prChecks(repo: string, pr: number): Promise<PrCheck[]> {
-  const result = await execa(
-    'gh',
-    ['pr', 'checks', String(pr), '--repo', repo, '--json', 'name,bucket,state'],
-    { reject: false },
-  );
+// 读取 PR 的 gh 命令与它们输出的解析分开：解析函数也用于测试中录下的真实输出（test/fixtures/gh/，
+// 由 scripts/record-gh-fixtures.ts 录制）
+export const prArgs = {
+  list: (repo: string) => [
+    'pr',
+    'list',
+    '--repo',
+    repo,
+    '--state',
+    'all',
+    '--limit',
+    '100',
+    '--json',
+    'number,url,isDraft,headRefOid,state,createdAt',
+  ],
+  checks: (repo: string, pr: number) => [
+    'pr',
+    'checks',
+    String(pr),
+    '--repo',
+    repo,
+    '--json',
+    'name,bucket,state',
+  ],
+  endpoint: (repo: string, pr: number) => [
+    'pr',
+    'view',
+    String(pr),
+    '--repo',
+    repo,
+    '--json',
+    'isDraft,headRefOid,state',
+  ],
+  branch: (repo: string, pr: number) => [
+    'pr',
+    'view',
+    String(pr),
+    '--repo',
+    repo,
+    '--json',
+    'headRefName',
+  ],
+  description: (repo: string, pr: number) => [
+    'pr',
+    'view',
+    String(pr),
+    '--repo',
+    repo,
+    '--json',
+    'title,body,headRefOid',
+  ],
+  diff: (repo: string, pr: number) => ['pr', 'diff', String(pr), '--repo', repo],
+  snapshot: (repo: string, pr: number) => [
+    'pr',
+    'view',
+    String(pr),
+    '--repo',
+    repo,
+    '--json',
+    'number,url,title,body,state,isDraft,headRefOid,reviews,comments',
+  ],
+  reviewThreads: (repo: string, pr: number) => {
+    const [owner, name] = repo.split('/');
+    if (owner === undefined || name === undefined)
+      throw new Error(`仓库名不是 owner/name：${repo}`);
+    return [
+      'api',
+      'graphql',
+      '-f',
+      `query=${REVIEW_THREADS_QUERY}`,
+      '-f',
+      `owner=${owner}`,
+      '-f',
+      `name=${name}`,
+      '-F',
+      `number=${String(pr)}`,
+    ];
+  },
+};
+
+// gh 的一次调用结果；退出码非零时由解析函数决定是否是错误
+export interface GhResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
+export async function ghResult(args: string[]): Promise<GhResult> {
+  const result = await execa('gh', args, { reject: false });
   if (result.exitCode === undefined) {
-    throw new Error(`gh pr checks ${repo}#${String(pr)} 被信号 ${String(result.signal)} 结束`);
+    throw new Error(`gh ${args.join(' ')} 被信号 ${String(result.signal)} 结束`);
   }
+  return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr };
+}
+
+export function checksFrom(repo: string, pr: number, result: GhResult): PrCheck[] {
   // 有 check 未通过时退出码为 1（fail）或 8（pending），JSON 照常输出
   if (result.stdout.trim() !== '' && [0, 1, 8].includes(result.exitCode)) {
     return z.array(PrCheck).parse(JSON.parse(result.stdout));
@@ -305,6 +393,10 @@ export async function prChecks(repo: string, pr: number): Promise<PrCheck[]> {
   throw new Error(
     `gh pr checks ${repo}#${String(pr)} 退出码 ${String(result.exitCode)}：${result.stderr}`,
   );
+}
+
+export async function prChecks(repo: string, pr: number): Promise<PrCheck[]> {
+  return checksFrom(repo, pr, await ghResult(prArgs.checks(repo, pr)));
 }
 
 const PrListItem = z.object({
@@ -325,33 +417,28 @@ export interface PrInfo {
   checks: PrCheck[];
 }
 
-// 运行仓库中最新建的 PR；还没有 PR 时为 null
-export async function readPr(repo: string): Promise<PrInfo | null> {
-  const prs = await ghJson(
-    [
-      'pr',
-      'list',
-      '--repo',
-      repo,
-      '--state',
-      'all',
-      '--limit',
-      '100',
-      '--json',
-      'number,url,isDraft,headRefOid,state,createdAt',
-    ],
-    z.array(PrListItem),
-  );
-  const latest = prs.sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
-  if (latest === undefined) return null;
+// gh pr list 的输出中最新建的 PR；还没有 PR 时为 null
+export function latestPrFrom(stdout: string): z.infer<typeof PrListItem> | null {
+  const prs = z.array(PrListItem).parse(JSON.parse(stdout));
+  return prs.sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
+}
+
+export function prInfoFrom(latest: z.infer<typeof PrListItem>, checks: PrCheck[]): PrInfo {
   return {
     number: latest.number,
     url: latest.url,
     isDraft: latest.isDraft,
     head: latest.headRefOid,
     state: latest.state,
-    checks: await prChecks(repo, latest.number),
+    checks,
   };
+}
+
+// 运行仓库中最新建的 PR；还没有 PR 时为 null
+export async function readPr(repo: string): Promise<PrInfo | null> {
+  const latest = latestPrFrom(await cmd('gh', prArgs.list(repo)));
+  if (latest === null) return null;
+  return prInfoFrom(latest, await prChecks(repo, latest.number));
 }
 
 // PR 的 review、评论与 checks 只在 GitHub 上；run 进入 grading 时存一份快照（Contracts 15.2），仓库被删除后分析仍能读到
@@ -458,41 +545,16 @@ export const PrSnapshot = z.object({
 });
 export type PrSnapshot = z.infer<typeof PrSnapshot>;
 
-// 运行仓库中最新建的 PR 的快照；还没有 PR 时为 null
-export async function readPrSnapshot(repo: string): Promise<PrSnapshot | null> {
-  const latest = await readPr(repo);
-  if (latest === null) return null;
-  const view = await ghJson(
-    [
-      'pr',
-      'view',
-      String(latest.number),
-      '--repo',
-      repo,
-      '--json',
-      'number,url,title,body,state,isDraft,headRefOid,reviews,comments',
-    ],
-    SnapshotView,
-  );
-  const [owner, name] = repo.split('/');
-  if (owner === undefined || name === undefined) throw new Error(`仓库名不是 owner/name：${repo}`);
-  const threads = (
-    await ghJson(
-      [
-        'api',
-        'graphql',
-        '-f',
-        `query=${REVIEW_THREADS_QUERY}`,
-        '-f',
-        `owner=${owner}`,
-        '-f',
-        `name=${name}`,
-        '-F',
-        `number=${String(latest.number)}`,
-      ],
-      ReviewThreads,
-    )
-  ).data.repository.pullRequest.reviewThreads;
+// latest 为 readPr 的结果；view 与 threads 为 prArgs.snapshot、prArgs.reviewThreads 的输出
+export function snapshotFrom(
+  repo: string,
+  latest: PrInfo,
+  viewStdout: string,
+  threadsStdout: string,
+): PrSnapshot {
+  const view = SnapshotView.parse(JSON.parse(viewStdout));
+  const threads = ReviewThreads.parse(JSON.parse(threadsStdout)).data.repository.pullRequest
+    .reviewThreads;
   if (threads.pageInfo.hasNextPage || threads.nodes.some((t) => t.comments.pageInfo.hasNextPage)) {
     throw new Error(
       `${repo}#${String(latest.number)} 的 review thread 或评论超过 100 条，快照不完整`,
@@ -517,6 +579,18 @@ export async function readPrSnapshot(repo: string): Promise<PrSnapshot | null> {
     comments: view.comments.map((c) => ({ ...c, author: login(c.author) })),
     checks: latest.checks,
   };
+}
+
+// 运行仓库中最新建的 PR 的快照；还没有 PR 时为 null
+export async function readPrSnapshot(repo: string): Promise<PrSnapshot | null> {
+  const latest = await readPr(repo);
+  if (latest === null) return null;
+  return snapshotFrom(
+    repo,
+    latest,
+    await cmd('gh', prArgs.snapshot(repo, latest.number)),
+    await cmd('gh', prArgs.reviewThreads(repo, latest.number)),
+  );
 }
 
 const Rule = z.object({ type: z.string() }).loose();
@@ -547,17 +621,16 @@ export interface IcEndpoint {
 
 // 终点（Contracts 第 13 节）：PR 仍处于 OPEN 并已离开 draft，task 的 requiredChecks 在当前 head 上全部通过
 // （结论为 success、skipped 或 neutral，与 GitHub 的 required check 相同）；requiredChecks 为空时只要求 PR 不是 draft。
-// 其他 check（例如副本中没有 runner、永远排队的 job）不影响终点。/ic 的终点是一个等待人审阅的 PR：已关闭或已合并的 PR 不算
-export async function icEndpoint(
-  repo: string,
-  pr: number,
+// 其他 check（例如副本中没有 runner、永远排队的 job）不影响终点。/ic 的终点是一个等待人审阅的 PR：已关闭或已合并的 PR 不算。
+// viewStdout 为 prArgs.endpoint 的输出
+export function endpointFrom(
+  viewStdout: string,
+  checks: PrCheck[],
   requiredChecks: string[],
-): Promise<IcEndpoint> {
-  const view = await ghJson(
-    ['pr', 'view', String(pr), '--repo', repo, '--json', 'isDraft,headRefOid,state'],
-    z.object({ isDraft: z.boolean(), headRefOid: z.string(), state: z.string() }),
-  );
-  const checks = await prChecks(repo, pr);
+): IcEndpoint {
+  const view = z
+    .object({ isDraft: z.boolean(), headRefOid: z.string(), state: z.string() })
+    .parse(JSON.parse(viewStdout));
   const passed = new Set(
     checks.filter((c) => c.bucket === 'pass' || c.bucket === 'skipping').map((c) => c.name),
   );
@@ -572,14 +645,21 @@ export async function icEndpoint(
   };
 }
 
+export async function icEndpoint(
+  repo: string,
+  pr: number,
+  requiredChecks: string[],
+): Promise<IcEndpoint> {
+  const view = await cmd('gh', prArgs.endpoint(repo, pr));
+  return endpointFrom(view, await prChecks(repo, pr), requiredChecks);
+}
+
+export const branchFrom = (stdout: string) =>
+  z.object({ headRefName: z.string().min(1) }).parse(JSON.parse(stdout)).headRefName;
+
 // PR 的 head 分支名，记在评分明细中
 export async function prBranch(repo: string, pr: number): Promise<string> {
-  return (
-    await ghJson(
-      ['pr', 'view', String(pr), '--repo', repo, '--json', 'headRefName'],
-      z.object({ headRefName: z.string().min(1) }),
-    )
-  ).headRefName;
+  return branchFrom(await cmd('gh', prArgs.branch(repo, pr)));
 }
 
 // 隐藏测试用：把 PR 的 head 浅克隆到 dest（data/runs/<runId>/grading/checkout）。按 refs/pull/<n>/head 取，
@@ -593,14 +673,16 @@ export async function clonePr(repo: string, pr: number, dest: string): Promise<{
 
 // 验收标准 judge 的输入：PR 的完整 diff、标题与正文
 export async function prDiff(repo: string, pr: number): Promise<string> {
-  return cmd('gh', ['pr', 'diff', String(pr), '--repo', repo]);
+  return cmd('gh', prArgs.diff(repo, pr));
 }
 
+export const descriptionFrom = (stdout: string) =>
+  z
+    .object({ title: z.string(), body: z.string(), headRefOid: z.string() })
+    .parse(JSON.parse(stdout));
+
 export async function prDescription(repo: string, pr: number) {
-  return ghJson(
-    ['pr', 'view', String(pr), '--repo', repo, '--json', 'title,body,headRefOid'],
-    z.object({ title: z.string(), body: z.string(), headRefOid: z.string() }),
-  );
+  return descriptionFrom(await cmd('gh', prArgs.description(repo, pr)));
 }
 
 // 以下供从 Linear 导入 ic task（Contracts 第 13 节）：只读取源仓库，不向它写任何东西

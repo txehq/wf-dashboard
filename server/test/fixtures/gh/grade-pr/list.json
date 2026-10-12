@@ -1,0 +1,17 @@
+{
+  "args": [
+    "pr",
+    "list",
+    "--repo",
+    "txehq/wfe-test-grade-pr-20261012014905144",
+    "--state",
+    "all",
+    "--limit",
+    "100",
+    "--json",
+    "number,url,isDraft,headRefOid,state,createdAt"
+  ],
+  "exitCode": 0,
+  "stdout": "[{\"createdAt\":\"2026-10-12T01:49:21Z\",\"headRefOid\":\"c47fec0d5aec772afae43f4038748040489c3011\",\"isDraft\":false,\"number\":1,\"state\":\"OPEN\",\"url\":\"https://github.com/txehq/wfe-test-grade-pr-20261012014905144/pull/1\"}]",
+  "stderr": ""
+}

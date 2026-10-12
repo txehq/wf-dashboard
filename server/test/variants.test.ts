@@ -232,7 +232,7 @@ describe('variant 构建与隔离安装', { timeout: 1_800_000 }, () => {
       'sandbox-exec',
       [
         '-p',
-        variants.sandboxProfile(mod.id, runId, path.join(dataDir, 'runs')),
+        variants.sandboxProfile(mod.id, runId, path.join(dataDir, 'runs'), null),
         'claude',
         '-p',
         '列出可用 skill 名称',
