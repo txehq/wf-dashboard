@@ -28,6 +28,10 @@ import { cycleName } from '@/lib/stage-status';
 const environmentLabel = { isolated: 'isolated', real: 'real' } as const;
 const driverLabel = { human: '人', simulated: '模拟用户' } as const;
 
+// 最近一次运行所用的配置；还没有运行过的项（从本机导入）没有
+const variantLabel = (live: LiveSummary) =>
+  live.process === null ? '—' : (live.variantName ?? '本机配置');
+
 function StatusBadge({ live }: { live: LiveSummary }) {
   if (live.status === 'running') {
     return (
@@ -89,8 +93,7 @@ function LiveList({ onOpen, active }: { onOpen: (id: string) => void; active: st
             />
             <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
               <StatusBadge live={live} />
-              <span>{live.variantName ?? '本机配置'}</span>·
-              <span>{environmentLabel[live.environment]}</span>·
+              {variantLabel(live)} · {environmentLabel[live.environment]} ·{' '}
               <span data-testid="live-resume-count">resume {live.resumeCount} 次</span>
             </span>
             <span className="text-xs text-muted-foreground">
@@ -205,7 +208,7 @@ function LivePanel({
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
         <StatusBadge live={data} />
         <span>
-          variant：<span data-testid="live-variant-name">{data.variantName ?? '本机配置'}</span>
+          variant：<span data-testid="live-variant-name">{variantLabel(data)}</span>
         </span>
         <span>环境：{environmentLabel[data.environment]}</span>
         <span className="min-w-0 font-mono text-xs break-all" data-testid="live-cwd">

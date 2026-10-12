@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { expect, type Page, test } from '@playwright/test';
+import { type APIRequestContext, expect, type Page, test } from '@playwright/test';
 import type { LiveDetail, LiveSummary } from '../server/src/live/views.js';
 import { runsServerPort } from '../ports.js';
 
@@ -13,8 +13,25 @@ import { runsServerPort } from '../ports.js';
 const api = `http://127.0.0.1:${String(runsServerPort)}/api`;
 const marker = randomUUID().slice(0, 8);
 const realCwd = path.resolve('.work/w34/e2e-real-cwd');
-// prepare-runs-e2e 导入的最短的 run session（r-20261009-27yz3d）
-const runSession = '70e7a9b6-fdad-44c3-9b65-015ee2a0499c';
+
+// 要导入的 session：还不在交互区、记录的工作目录存在（数据目录在多次运行之间保留，导入过的不能再导入）。
+// prepare-runs-e2e 导入的 run session 是这个池子；用完时删掉 .work/e2e/runs-data/db.sqlite 由它重建
+async function importable(request: APIRequestContext): Promise<string> {
+  const response = await request.get(`${api}/sessions?limit=500`);
+  const { sessions } = (await response.json()) as {
+    sessions: { id: string; cwd: string | null; liveId: string | null; requestCount: number }[];
+  };
+  const candidates = sessions
+    .filter((s) => s.liveId === null && s.cwd !== null && fs.existsSync(s.cwd))
+    .sort((a, b) => a.requestCount - b.requestCount);
+  const first = candidates[0];
+  if (first === undefined) {
+    throw new Error(
+      '没有可以导入的 session：删掉 .work/e2e/runs-data/db.sqlite，由 prepare-runs-e2e 重建',
+    );
+  }
+  return first.id;
+}
 
 const shot = (page: Page, name: string) =>
   page.screenshot({ path: `.work/screenshots/w34-${name}.png`, animations: 'disabled' });
@@ -95,8 +112,9 @@ test('交互：新建、resume 在同一项、改名、Sessions 中的名字、�
   });
 
   // resume：左侧项数不变，仍是这一项的标签页，终端接着显示
+  // 数据目录在多次运行之间保留，其中可能已有同名的项：按 id 找这一项
   const count = await items.count();
-  await expect(items.filter({ hasText: '/lfg 做一个计算器' })).toHaveCount(1);
+  await expect(page.getByTestId('live-list').locator(`[data-live="${id}"]`)).toHaveCount(1);
   await shot(page, 'list-before-resume');
   await panel.getByTestId('resume-open').click();
   const dialog = page.getByTestId('resume-dialog');
@@ -113,6 +131,9 @@ test('交互：新建、resume 在同一项、改名、Sessions 中的名字、�
   // 运行中不能再 resume
   await expect(panel.getByTestId('resume-open')).toHaveCount(0);
   await expect.poll(() => terminalText(page), { timeout: 60_000 }).toContain('resume');
+  // 回放之前进程的输出时 xterm.js 回答其中的查询，这些回答不能作为输入写进新进程（会回显成 ^[[?1;2c）
+  await page.waitForTimeout(3000);
+  expect(await terminalText(page)).not.toContain('?1;2c');
   await shot(page, 'list-after-resume');
   const resumed = await detail(id);
   expect(resumed.processes.map((p) => p.kind)).toEqual(['start', 'resume']);
@@ -161,6 +182,7 @@ test('交互：新建、resume 在同一项、改名、Sessions 中的名字、�
   // 导入本机 session：已在交互区的不可选；导入后左侧多一项、未运行，显示对话与 resume 按钮
   await page.goto('/live');
   const before = await items.count();
+  const runSession = await importable(request);
   await page.getByTestId('import-open').click();
   const picker = page.getByTestId('import-dialog');
   await picker.getByRole('textbox', { name: '搜索 session' }).fill(resumed.claudeSessionId);

@@ -115,6 +115,8 @@ export class LiveController {
       this.generation?.abort.abort(new Error('进程已退出'));
       await this.watcher.close();
       if (fs.existsSync(this.jsonl)) ingestFile(this.db, this.jsonl);
+      // 进程很快结束时，session 第一次导入发生在上面这次：同样绑定到这次所用的 variant
+      this.bindImported();
       const endedAt = new Date();
       this.db
         .update(liveProcesses)
