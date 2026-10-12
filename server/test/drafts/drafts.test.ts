@@ -7,9 +7,11 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 import { codexStandIn, makeSkillSources } from '../helpers/codex-skills.js';
 
-// 基础档（Contracts 第 17 节）：草稿目录的生成（mode workflow 与 variant）、发起时装 skill 与 Codex 会话、
+// 基础档（Contracts 第 17 节）：发起立即返回、后台准备（preparing → open，某一步失败 → failed → 从那一步重试）、
+// 草稿目录的生成（mode workflow 与 variant）、装 skill 与 Codex 会话、
 // 保存的各种校验失败（以原文失败，草稿保留，不建 workflow 与 variant）、Codex 会话的结束、resume 与删除。
-// Codex 用测试中的替身命令，只验证页面与 API；skill 的来源是 .work/ 下的本地 git 仓库（不依赖网络）。
+// Codex 用测试中的替身命令，只验证页面与 API；skill 的来源是 .work/ 下的本地 git 仓库（不依赖网络），
+// 把其中一个仓库暂时移走就是可控的失败。
 // 成功保存要真实构建，在慢档 drafts-save.test.ts。
 // 被导出的 workflow 仓库：只有 skills/lfg/SKILL.md 与 Cargo.toml 的最小本地 git 仓库（与 variants-api 相同）
 const work = path.resolve(import.meta.dirname, '../../../.work/test-drafts', randomUUID());
@@ -50,6 +52,8 @@ interface Draft {
   workflowId: string;
   liveId: string | null;
   status: string;
+  error: string | null;
+  steps: { id: string; status: string; error: string | null }[];
   savedWorkflowId: string | null;
   savedVariants: unknown[];
   skills: { name: string; source: string; computedHash: string; commit: string }[];
@@ -59,10 +63,11 @@ interface Live {
   id: string;
   engine: string;
   draftId: string | null;
-  claudeSessionId: string;
+  claudeSessionId: string | null;
   status: string;
   cwd: string;
   title: string;
+  process: { kind: string } | null;
   processes: { kind: string; status: string; variantId: string | null }[];
   events: { kind: string; payload: Record<string, unknown> }[];
 }
@@ -87,10 +92,45 @@ afterAll(async () => {
   fs.rmSync(work, { recursive: true, force: true });
 });
 
-async function createDraft(payload: Record<string, unknown>) {
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+const getDraft = async (id: string) =>
+  (await app.inject({ method: 'GET', url: `/api/workflow-drafts/${id}` })).json<Draft>();
+const getLive = async (id: string) =>
+  (await app.inject({ method: 'GET', url: `/api/live/${id}` })).json<Live>();
+
+// 后台准备结束：全部步骤完成（Codex 已启动）或某一步失败
+async function settled(id: string): Promise<Draft> {
+  for (;;) {
+    const d = await getDraft(id);
+    if (d.status === 'failed' || d.steps.every((s) => s.status === 'done')) return d;
+    await sleep(100);
+  }
+}
+
+// 发起：请求在 1 秒内返回，草稿为 preparing、交互项还没有进程；不等准备
+async function startDraft(payload: Record<string, unknown>) {
+  const started = performance.now();
   const response = await app.inject({ method: 'POST', url: '/api/workflow-drafts', payload });
+  const elapsed = performance.now() - started;
   expect(response.statusCode, response.body).toBe(201);
-  return response.json<{ draft: Draft; live: Live }>();
+  expect(elapsed).toBeLessThan(1000);
+  const body = response.json<{ draft: Draft; live: Live }>();
+  expect(body.draft.status).toBe('preparing');
+  expect(body.live.status).toBe('idle');
+  expect(body.live.claudeSessionId).toBeNull();
+  return body;
+}
+
+// 发起并等准备完成
+async function createDraft(payload: Record<string, unknown>) {
+  const { draft } = await startDraft(payload);
+  const ready = await settled(draft.id);
+  expect(ready.status, ready.error ?? '').toBe('open');
+  return { draft: ready, live: await getLive(ready.liveId ?? '') };
 }
 
 async function save(id: string) {
@@ -117,6 +157,69 @@ describe('用 Codex 生成 workflow 或 variant（基础档）', { timeout: 60_0
   let workflowDraft: Draft;
   let workflowLive: Live;
   const newId = `hello-${marker}`;
+
+  test('准备在后台进行：某一步失败时 failed 并显示原文，重试从失败的那一步接着做，完成后 open 并启动 Codex', async () => {
+    // 第三个 skill 的来源暂时不存在
+    const last = sources.at(-1);
+    if (last === undefined) throw new Error('没有 skill 来源');
+    const away = `${last.source}.away`;
+    fs.renameSync(last.source, away);
+    const { draft, live } = await startDraft({
+      mode: 'variant',
+      workflowId: 'lfg',
+      requirement: '重试的测试',
+      baseVariantId: base.id,
+    });
+    expect(draft.steps.map((s) => s.id)).toEqual([
+      'copy-src',
+      'write-docs',
+      ...sources.map((s) => `skill:${s.name}`),
+      'start-codex',
+    ]);
+    expect(draft.liveId).toBe(live.id);
+    expect(live.draftId).toBe(draft.id);
+    const failed = await settled(draft.id);
+    expect(failed.status).toBe('failed');
+    const step = failed.steps.find((s) => s.id === `skill:${last.name}`);
+    expect(step?.status).toBe('failed');
+    expect(step?.error).toContain(`git ls-remote ${last.source} HEAD`);
+    expect(failed.error).toContain(`安装 ${last.name}失败`);
+    expect(failed.steps.filter((s) => s.status === 'done').map((s) => s.id)).toEqual([
+      'copy-src',
+      'write-docs',
+      ...sources.slice(0, -1).map((s) => `skill:${s.name}`),
+    ]);
+    expect((await getLive(live.id)).process).toBeNull();
+    // 准备没完成时不能保存
+    expect((await save(draft.id)).statusCode).toBe(409);
+    // 前面的步骤不再重做：记下已装 skill 的文件时间
+    const firstSkill = path.join(draft.dir, '.agents/skills', sources[0]?.name ?? '', 'SKILL.md');
+    const mtime = fs.statSync(firstSkill).mtimeMs;
+
+    fs.renameSync(away, last.source);
+    const retried = await app.inject({
+      method: 'POST',
+      url: `/api/workflow-drafts/${draft.id}/retry`,
+    });
+    expect(retried.statusCode, retried.body).toBe(200);
+    expect(retried.json<Draft>().status).toBe('preparing');
+    const again = await app.inject({
+      method: 'POST',
+      url: `/api/workflow-drafts/${draft.id}/retry`,
+    });
+    expect(again.statusCode).toBe(409);
+    const ready = await settled(draft.id);
+    expect(ready.status, ready.error ?? '').toBe('open');
+    expect(ready.error).toBeNull();
+    expect(ready.steps.every((s) => s.status === 'done' && s.error === null)).toBe(true);
+    expect(ready.skills.map((s) => s.name).sort()).toEqual(sources.map((s) => s.name).sort());
+    expect(fs.statSync(firstSkill).mtimeMs).toBe(mtime);
+    const started = await getLive(live.id);
+    expect(started.status).toBe('running');
+    expect(started.claudeSessionId).not.toBeNull();
+    expect(started.processes.map((p) => p.kind)).toEqual(['start']);
+    await app.inject({ method: 'POST', url: `/api/live/${live.id}/stop` });
+  });
 
   test('mode workflow：草稿目录、装好的 skill、Live 中的 Codex 会话', async () => {
     const { draft, live } = await createDraft({
@@ -192,7 +295,9 @@ describe('用 Codex 生成 workflow 或 variant（基础档）', { timeout: 60_0
     const rollouts = fs.readdirSync(path.join(draft.dir, 'codex-home/sessions'), {
       recursive: true,
     });
-    expect(rollouts.some((f) => String(f).endsWith(`-${live.claudeSessionId}.jsonl`))).toBe(true);
+    const sessionId = live.claudeSessionId ?? '';
+    expect(sessionId).not.toBe('');
+    expect(rollouts.some((f) => String(f).endsWith(`-${sessionId}.jsonl`))).toBe(true);
     // CODEX_HOME 的配置：草稿目录已信任、不检查更新、关掉 bundled skill
     const toml: unknown = parseToml(
       fs.readFileSync(path.join(draft.dir, 'codex-home/config.toml'), 'utf8'),

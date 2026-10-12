@@ -31,14 +31,30 @@ export const DraftSkillView = z.object({
   commit: z.string(),
 });
 
+// 草稿准备的一步（Contracts 17.1）
+export const DraftStepView = z.object({
+  id: z.string(),
+  label: z.string(),
+  status: z.enum(['pending', 'running', 'done', 'failed']),
+  error: z.string().nullable(),
+  startedAt: z.number().nullable(),
+  endedAt: z.number().nullable(),
+});
+export type DraftStepView = z.infer<typeof DraftStepView>;
+
 export const DraftView = z.object({
   id: z.string(),
   mode: z.enum(draftModes),
   workflowId: z.string(),
+  // mode 为 workflow 时新 workflow 的名字
+  name: z.string().nullable(),
   baseVariantId: z.string(),
   requirement: z.string(),
   liveId: z.string().nullable(),
+  // preparing 时后台在准备草稿目录；failed 时 error 为失败那一步的原文，可以重试
   status: z.enum(draftStatuses),
+  error: z.string().nullable(),
+  steps: z.array(DraftStepView),
   savedWorkflowId: z.string().nullable(),
   savedVariantId: z.string().nullable(),
   // 每次保存出的 variant，按保存的先后

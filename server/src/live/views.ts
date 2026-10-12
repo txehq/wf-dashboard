@@ -48,7 +48,8 @@ export type LiveItemStatus = (typeof liveItemStatuses)[number];
 export const LiveSummary = z.object({
   id: z.string(),
   title: z.string(),
-  claudeSessionId: z.string(),
+  // Codex 草稿的项在草稿准备完、Codex 第一次启动之前为空（Contracts 17.1）
+  claudeSessionId: z.string().nullable(),
   // codex：用 Codex 生成 workflow 或 variant 的会话（Contracts 17.3），claudeSessionId 是 Codex 的会话 id
   engine: z.enum(liveEngines),
   // 这个 Codex 会话所属的草稿；其余为空

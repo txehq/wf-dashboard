@@ -6,11 +6,13 @@ import { stringify } from 'yaml';
 import { config } from '../../src/config.js';
 import { openDatabase } from '../../src/db/index.js';
 import { createDrafts } from '../../src/drafts/index.js';
+import type { CreateDraftBody, DraftView } from '../../src/drafts/views.js';
 import { createLive } from '../../src/live/index.js';
 import { createSettingsStore } from '../../src/runs/settings.js';
 import { createVariants, type Variant } from '../../src/variants/index.js';
 import { loadWorkflow, workflowRow } from '../../src/workflows/index.js';
 import { testCodex } from '../helpers/codex.js';
+import { makeSkillSources } from '../helpers/codex-skills.js';
 import { testRepos } from '../helpers/local-repos.js';
 
 // 慢档（Contracts 17.4）：保存时的真实构建。测试代码直接写出 skill 文件（例子 workflow 的 skill）后保存，
@@ -42,19 +44,30 @@ const drafts = createDrafts({
   variants,
   live,
   draftsDir: config.workflowDraftsDir,
-  skillSources: config.codexSkillSources,
+  skillSources: makeSkillSources(path.join(config.dataDir, 'skill-sources')),
 });
 const marker = randomUUID().slice(0, 6);
 const created: Variant[] = [];
 const example = path.join(config.repoRoot, 'server/src/drafts/assets/simple-workflow');
 
-afterAll(() => {
+afterAll(async () => {
+  // 准备的最后一步启动的 Codex 替身
+  await live.shutdown();
   db.$client.close();
   for (const suffix of ['', '-wal', '-shm']) fs.rmSync(dbFile + suffix, { force: true });
   for (const v of created) {
     fs.rmSync(path.join(variantsData, 'variants', v.id), { recursive: true, force: true });
   }
 });
+
+// 发起并等准备完成（skill 来源是本地 git 仓库，Codex 是替身命令）
+async function openReady(body: CreateDraftBody): Promise<DraftView> {
+  const { draft } = drafts.open(body);
+  await drafts.prepare(draft.id);
+  const ready = drafts.get(draft.id);
+  expect(ready.status, ready.error ?? '').toBe('open');
+  return ready;
+}
 
 // 例子 workflow 的四个 skill 写进草稿的 src/skills/，workflow.yaml 换成例子的定义（id 改为 workflowId）
 function writeExample(dir: string, workflowId: string) {
@@ -96,7 +109,7 @@ describe('保存 Codex 草稿：真实构建', { timeout: 1_800_000 }, () => {
   test('mode workflow：建 workflow 与它的第一个 variant「基线」，再次保存建出新 variant', async () => {
     base = await variants.createBaseline({ name: `草稿底子 ${marker}` });
     created.push(base);
-    const draft = drafts.open({
+    const draft = await openReady({
       mode: 'workflow',
       workflowId,
       name: `你好 ${marker}`,
@@ -146,7 +159,7 @@ describe('保存 Codex 草稿：真实构建', { timeout: 1_800_000 }, () => {
   });
 
   test('mode variant：在所属 workflow 下建新 variant，parent 为底子', async () => {
-    const draft = drafts.open({
+    const draft = await openReady({
       mode: 'variant',
       workflowId: 'lfg',
       requirement: '让 interview 先说明目的',
@@ -169,7 +182,7 @@ describe('保存 Codex 草稿：真实构建', { timeout: 1_800_000 }, () => {
 
   test('构建失败：以构建日志的原文失败，这次建出的 workflow 与 variant 删去，草稿保留', async () => {
     const brokenId = `broken-${marker}`;
-    const draft = drafts.open({
+    const draft = await openReady({
       mode: 'workflow',
       workflowId: brokenId,
       name: `坏的 ${marker}`,

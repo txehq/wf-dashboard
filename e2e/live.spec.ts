@@ -136,10 +136,11 @@ test('交互：新建、resume 在同一项、改名、Sessions 中的名字、�
   expect(await terminalText(page)).not.toContain('?1;2c');
   await shot(page, 'list-after-resume');
   const resumed = await detail(id);
+  // Claude Code 的项建出时就有 session id
+  const sessionId = resumed.claudeSessionId;
+  if (sessionId === null) throw new Error(`交互 ${id} 没有 session id`);
   expect(resumed.processes.map((p) => p.kind)).toEqual(['start', 'resume']);
-  expect((await list()).filter((l) => l.claudeSessionId === resumed.claudeSessionId)).toHaveLength(
-    1,
-  );
+  expect((await list()).filter((l) => l.claudeSessionId === sessionId)).toHaveLength(1);
   await panel.getByRole('button', { name: '结束进程' }).click();
   await expect(panel.getByTestId('live-status')).toHaveAttribute('data-status', 'exited', {
     timeout: 60_000,
@@ -169,14 +170,12 @@ test('交互：新建、resume 在同一项、改名、Sessions 中的名字、�
   await page
     .getByRole('region', { name: 'session 列表' })
     .getByPlaceholder('搜索标题、目录或 session id')
-    .fill(resumed.claudeSessionId);
-  const row = page
-    .getByTestId('session-row')
-    .filter({ hasText: resumed.claudeSessionId.slice(0, 8) });
+    .fill(sessionId);
+  const row = page.getByTestId('session-row').filter({ hasText: sessionId.slice(0, 8) });
   await expect(row).toContainText(`W34 计算器 ${marker}`);
   await expect(row.getByTestId('live-badge')).toBeVisible();
   await shot(page, 'sessions-name');
-  await page.goto(`/sessions/${resumed.claudeSessionId}`);
+  await page.goto(`/sessions/${sessionId}`);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(`W34 计算器 ${marker}`);
 
   // 导入本机 session：已在交互区的不可选；导入后左侧多一项、未运行，显示对话与 resume 按钮
@@ -186,8 +185,8 @@ test('交互：新建、resume 在同一项、改名、Sessions 中的名字、�
   await page.getByTestId('import-open').click();
   const picker = page.getByTestId('import-dialog');
   const search = picker.getByPlaceholder('搜索标题、目录或 session id');
-  await search.fill(resumed.claudeSessionId);
-  const taken = picker.locator(`[data-session="${resumed.claudeSessionId}"]`);
+  await search.fill(sessionId);
+  const taken = picker.locator(`[data-session="${sessionId}"]`);
   await expect(taken.getByTestId('import-taken')).toHaveText('已在交互区');
   await expect(taken.getByRole('checkbox')).toBeDisabled();
   await search.fill(runSession);

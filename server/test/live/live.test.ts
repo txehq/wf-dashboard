@@ -58,6 +58,12 @@ function report(name: string, startedAt: number, sessionId: string, costBefore =
   fs.appendFileSync(file, `${JSON.stringify({ name, seconds, costUsd: cost, at: new Date() })}\n`);
 }
 
+// Claude Code 的项建出时就有 session id（只有 Codex 草稿的项会暂时为空）
+function sessionOf(live: LiveDetail): string {
+  if (live.claudeSessionId === null) throw new Error(`交互 ${live.id} 没有 session id`);
+  return live.claudeSessionId;
+}
+
 // variant 启动与 resume 前已把 cwd 记为已信任（Contracts 14.2）：直到 SessionStart 都不出现信任确认。
 // 出现时没有人回答，它会一直停在屏幕上
 async function noTrustPrompt(client: ReturnType<typeof terminalClient>, id: string) {
@@ -175,7 +181,7 @@ describe('交互：新建、退出、在同一项上 resume（真实 claude）',
       const row = server.db
         .select()
         .from(sessions)
-        .where(eq(sessions.id, live.claudeSessionId))
+        .where(eq(sessions.id, sessionOf(live)))
         .get();
       return row?.variantId === undefined || row.variantId === null ? null : row;
     });
@@ -213,7 +219,7 @@ describe('交互：新建、退出、在同一项上 resume（真实 claude）',
     expect(stopped.status).toBe('exited');
     expect(processOf(stopped).exitCode).not.toBeNull();
     expect(stopped.events.at(-1)?.kind).toBe('exit');
-    report('新建 /lfg 并在初始消息提交后结束', t0, live.claudeSessionId);
+    report('新建 /lfg 并在初始消息提交后结束', t0, sessionOf(live));
   });
 
   test('改名：空白与超过 200 字以原文报错；改名后 Sessions 列表与详情显示新名字', async () => {
@@ -240,7 +246,7 @@ describe('交互：新建、退出、在同一项上 resume（真实 claude）',
     ]);
     const detail = await server.api<{ title: string | null; liveId: string | null }>(
       'GET',
-      `/api/sessions/${live.claudeSessionId}`,
+      `/api/sessions/${sessionOf(live)}`,
     );
     expect(detail).toMatchObject({ title: 'W34 计算器', liveId: live.id });
     const list = await server.api<{ sessions: { id: string; title: string | null }[] }>(
@@ -254,10 +260,10 @@ describe('交互：新建、退出、在同一项上 resume（真实 claude）',
 
   test('从交互区 resume：仍是同一项，两个进程，接着回答，运行中再 resume 返回 409，pty.log 两段', async () => {
     const t1 = Date.now();
-    const costBefore = sessionCost(live.claudeSessionId);
+    const costBefore = sessionCost(sessionOf(live));
     const defaults = await server.api<ResumeDefaults>(
       'GET',
-      `/api/live/resume-defaults?sessionId=${live.claudeSessionId}`,
+      `/api/live/resume-defaults?sessionId=${sessionOf(live)}`,
     );
     expect(defaults).toMatchObject({
       liveId: live.id,
@@ -298,7 +304,7 @@ describe('交互：新建、退出、在同一项上 resume（真实 claude）',
       (
         await server.api<ResumeDefaults>(
           'GET',
-          `/api/live/resume-defaults?sessionId=${live.claudeSessionId}`,
+          `/api/live/resume-defaults?sessionId=${sessionOf(live)}`,
         )
       ).running,
     ).toBe(true);
@@ -337,7 +343,7 @@ describe('交互：新建、退出、在同一项上 resume（真实 claude）',
     const [before, after] = log.split(/──── \S+ · resume · .+? ────/u);
     expect(before).toContain('/lfg 做一个计算器');
     expect(after).toContain('计算器');
-    report('交互区 resume 并问一句', t1, live.claudeSessionId, costBefore);
+    report('交互区 resume 并问一句', t1, sessionOf(live), costBefore);
   });
 });
 

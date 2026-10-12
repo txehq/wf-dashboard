@@ -139,6 +139,9 @@ export function splitDevWorkflow(db: Db) {
       .innerJoin(liveSessions, eq(liveSessions.id, liveProcesses.liveId))
       .where(inArray(liveProcesses.variantId, devIds))
       .all()) {
+      // 有 variant 的进程都是 Claude Code 的项，建出时就有 session id
+      if (p.claudeSessionId === null)
+        throw new Error(`交互进程 ${String(p.id)} 的项没有 session id`);
       const imported = tx
         .select({ id: sessions.id })
         .from(sessions)

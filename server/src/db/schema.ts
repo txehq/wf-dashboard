@@ -306,8 +306,9 @@ export const liveSessions = sqliteTable(
   {
     // l-<yyyymmdd>-<6 位>：也是副本仓库、工单副本与 vault 目录的名字
     id: text('id').primaryKey(),
-    // engine 为 codex 时是 Codex 的会话 id（CODEX_HOME/sessions 下 rollout 的 session_meta.payload.id）
-    claudeSessionId: text('claude_session_id').notNull().unique(),
+    // engine 为 codex 时是 Codex 的会话 id（CODEX_HOME/sessions 下 rollout 的 session_meta.payload.id）；Codex 草稿的项
+    // 在草稿准备完、Codex 第一次写出会话记录之前为空（Contracts 17.1）
+    claudeSessionId: text('claude_session_id').unique(),
     engine: text('engine', { enum: liveEngines }).notNull().default('claude'),
     // 用户可改（Contracts 14.3）；默认取输入的前 40 个字，从已有 session 开始的项取该 session 的标题
     title: text('title').notNull(),
@@ -390,7 +391,20 @@ export const liveEvents = sqliteTable(
 
 export const draftModes = ['workflow', 'variant'] as const;
 export type DraftMode = (typeof draftModes)[number];
-export const draftStatuses = ['open', 'saved'] as const;
+// preparing：后台准备草稿目录；open：可以与 Codex 对话、保存；failed：准备的某一步失败，可以从那一步重试（Contracts 17.1）
+export const draftStatuses = ['preparing', 'open', 'saved', 'failed'] as const;
+export type DraftStatus = (typeof draftStatuses)[number];
+
+// 草稿准备的一步：复制 src、写说明与例子、安装每个 skill、启动 Codex
+export interface DraftStep {
+  id: string;
+  label: string;
+  status: 'pending' | 'running' | 'done' | 'failed';
+  // 失败那一步的原文
+  error: string | null;
+  startedAt: number | null;
+  endedAt: number | null;
+}
 
 // 发起时装进草稿目录的一个 skill 的版本（Contracts 17.3）
 export interface DraftSkillVersion {
@@ -409,13 +423,23 @@ export const workflowDrafts = sqliteTable('workflow_drafts', {
   mode: text('mode', { enum: draftModes }).notNull(),
   // mode 为 workflow 时是要新建的 workflow 的 id；为 variant 时是所属 workflow
   workflowId: text('workflow_id').notNull(),
+  // mode 为 workflow 时新 workflow 的名字（准备草稿时写进 workflow.yaml）；mode 为 variant 时为空
+  name: text('name'),
   baseVariantId: text('base_variant_id')
     .notNull()
     .references(() => variants.id, { onDelete: 'restrict' }),
   requirement: text('requirement').notNull(),
   // Live 中的 Codex 会话；删除交互项时置空，草稿保留。不加外键：迁移重建 live_sessions 时不能连带改动这里
   liveId: text('live_id'),
+  // 新建的草稿以 preparing 写入；列的默认值保留 W42 时的 open
   status: text('status', { enum: draftStatuses }).notNull().default('open'),
+  // 准备失败那一步的原文；其余为空
+  error: text('error'),
+  // 准备的各步与进度
+  steps: text('steps', { mode: 'json' })
+    .$type<DraftStep[]>()
+    .notNull()
+    .default(sql`'[]'`),
   savedWorkflowId: text('saved_workflow_id'),
   // 最近一次保存出的 variant；每次保存出的 variant 都以 variants.draft_id 指回草稿
   savedVariantId: text('saved_variant_id'),
