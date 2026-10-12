@@ -66,7 +66,7 @@ export const IcCriteriaGrade = z.object({
 export type IcCriteriaGrade = z.infer<typeof IcCriteriaGrade>;
 
 export const ArtifactGrade = z.object({
-  // rubric 分组 id（大阶段 rubric 积木的产物 id）
+  // rubric 分组 id（评测类型 rubric 积木的产物 id）
   artifact: z.string(),
   // 评分时产物是否存在；不存在时每条记 0 分，没有 judge 调用
   present: z.boolean(),
@@ -81,7 +81,7 @@ export const ArtifactGrade = z.object({
 });
 export type ArtifactGrade = z.infer<typeof ArtifactGrade>;
 
-// 按评分积木分别记录（Contracts 16.2）；为空表示大阶段没有这项评分
+// 按评分积木分别记录（Contracts 16.2）；为空表示评测类型没有这项评分
 export const RunGrades = z.object({
   runId: z.string(),
   // judge 调用的花费合计，计入 run 成本的评分一项
@@ -154,7 +154,7 @@ export const ReachedEnd = z.object({
   values: z.array(z.object({ runId: z.string(), reached: z.boolean() })),
 });
 
-// 质量按大阶段的评分积木分项；为空表示这个 task 没有这项评分
+// 质量按评测类型的评分积木分项；为空表示这个 task 没有这项评分
 export const Quality = z.object({
   rubric: RubricQuality.nullable(),
   // 隐藏测试：通过数 / 声明数

@@ -8,6 +8,7 @@ import { LiveTerminal } from '@/components/live/live-terminal';
 import { LiveTitle } from '@/components/live/live-title';
 import { NewLiveForm } from '@/components/live/new-live-form';
 import { ResumeButton } from '@/components/live/resume-dialog';
+import { OpenInFinder } from '@/components/open-in-finder';
 import { SessionConversation } from '@/components/runs/conversation';
 import { RequestTimeline } from '@/components/sessions/request-timeline';
 import { StageBars } from '@/components/sessions/stage-bars';
@@ -171,18 +172,24 @@ function SessionSide({ sessionId }: { sessionId: string }) {
       </p>
     );
   }
-  const cycles = stages.data.bigStages.flatMap((b) => b.cycles);
+  const workflows = stages.data.workflows.filter((w) => w.cycles.length > 0);
   return (
     <div className="flex min-w-0 flex-col gap-4" data-testid="live-side">
-      {cycles.length === 0 && (
-        <p className="text-sm text-muted-foreground">还没有进入 /lfg 或 /ic 的阶段。</p>
+      {workflows.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          还没有进入 {stages.data.workflows.map((w) => `/${w.workflow}`).join(' 或 ')} 的阶段。
+        </p>
       )}
-      {cycles.map((cycle) => (
-        <section key={`${cycle.label}-${String(cycle.index)}`} className="flex flex-col gap-2">
-          <h3 className="text-sm font-semibold">{cycleName(cycle)}</h3>
-          <StageBars views={cycle.stages} />
-        </section>
-      ))}
+      {workflows.flatMap(({ workflow, cycles }) =>
+        cycles.map((cycle) => (
+          <section key={`${workflow}-${String(cycle.index)}`} className="flex flex-col gap-2">
+            <h3 className="text-sm font-semibold">
+              /{workflow} · {cycleName(cycle)}
+            </h3>
+            <StageBars views={cycle.stages} />
+          </section>
+        )),
+      )}
       <section className="flex flex-col gap-2">
         <h3 className="text-sm font-semibold">请求明细</h3>
         <RequestTimeline
@@ -259,6 +266,11 @@ function LivePanel({
     <div className="flex min-w-0 flex-col gap-3" data-testid="live-panel" data-live={liveId}>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
         <StatusBadge live={data} />
+        {data.workflow !== null && (
+          <span className="font-mono" data-testid="live-workflow-name">
+            /{data.workflow}
+          </span>
+        )}
         <span>
           variant：<span data-testid="live-variant-name">{variantLabel(data)}</span>
         </span>
@@ -268,6 +280,10 @@ function LivePanel({
         </span>
         {data.repo !== null && <span className="font-mono text-xs">{data.repo}</span>}
         {data.ticket !== null && <span className="font-mono text-xs">{data.ticket}</span>}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <OpenInFinder target={{ kind: 'live-cwd', id: liveId }} label="打开工作目录" />
+        <OpenInFinder target={{ kind: 'live-config', id: liveId }} label="打开配置目录" />
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <div

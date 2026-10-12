@@ -140,19 +140,16 @@ export interface WorkflowCycle {
   stages: StageView[];
 }
 
-// 一个大阶段的全部轮次；session 中没有这个大阶段时 cycles 为空
-export interface BigStageCycles {
-  bigStage: string;
-  title: string;
+// 一个 workflow 的全部轮次；session 中没有这个 workflow 时 cycles 为空
+export interface WorkflowCycles {
+  workflow: string;
   cycles: WorkflowCycle[];
 }
 
 export interface StageReport {
   sessionId: string;
-  // 划分所用的 workflow（Contracts 16.6）
-  workflowId: string;
-  // 按定义中大阶段的顺序
-  bigStages: BigStageCycles[];
+  // 划分所用的 workflow，按 lfg、ic、其他的顺序（Contracts 16.6）
+  workflows: WorkflowCycles[];
   // 不属于任何阶段的请求
   outside: StageStats;
 }

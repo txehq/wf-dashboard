@@ -284,9 +284,7 @@ describe('compare', () => {
   const icQuery = { ...query, variants: ['baseline-ic', 'modified-ic'], tasks: [icTask.id] };
 
   it('variant 属于不同 workflow、task 的 kind 与评测类型不同时 400；结果带上 workflow 与评测类型', () => {
-    expect(() =>
-      compareRuns(db, { ...query, variants: ['baseline', 'baseline-ic'] }),
-    ).toThrow(
+    expect(() => compareRuns(db, { ...query, variants: ['baseline', 'baseline-ic'] })).toThrow(
       '只能对比同一个 workflow 的 variant，所选 variant 属于 baseline (lfg)、baseline-ic (ic)：不同 workflow 之间不对比',
     );
     expect(() => compareRuns(db, { ...query, tasks: [lfgTask.id, icTask.id] })).toThrow(

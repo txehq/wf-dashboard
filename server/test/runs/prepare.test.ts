@@ -137,7 +137,9 @@ describe('按评测类型准备与生成初始消息', { timeout: 900_000 }, () 
     const skills = variants.layout(mylfgVariant.id).skills;
     expect(fs.existsSync(path.join(skills, 'mylfg', 'SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(skills, 'lfg'))).toBe(false);
-    expect(fs.readFileSync(path.join(skills, 'mylfg', 'SKILL.md'), 'utf8')).toMatch(/^name: mylfg$/m);
+    expect(fs.readFileSync(path.join(skills, 'mylfg', 'SKILL.md'), 'utf8')).toMatch(
+      /^name: mylfg$/m,
+    );
     await variants.build(mylfgVariant.id);
     const mylfgRun = insertRun('lfg-calculator', mylfgVariant.id, 'w41-mylfg');
     const mylfgStage = evalSpecOf(db, 'mylfg');

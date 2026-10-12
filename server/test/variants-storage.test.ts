@@ -93,8 +93,8 @@ describe('共用目录与复制出自己的一份', () => {
 
   test('skill 目录的新增、重命名与删除；名字不合规定 400、已存在 409、不存在 404', async () => {
     const v = await variants.createBaseline({ name: 'skill 目录' });
-    const call = (method: 'POST' | 'PATCH' | 'DELETE', url: string, payload?: unknown) =>
-      app.inject({ method, url, ...(payload === undefined ? {} : { payload }) });
+    const call = (method: 'POST' | 'PATCH' | 'DELETE', url: string, payload?: object) =>
+      payload === undefined ? app.inject({ method, url }) : app.inject({ method, url, payload });
 
     const added = await call('POST', `/api/variants/${v.id}/skills`, { name: 'scan' });
     expect(added.statusCode).toBe(200);
@@ -109,7 +109,11 @@ describe('共用目录与复制出自己的一份', () => {
     );
 
     // 重命名：frontmatter 的 name 随之改变，其余内容不变
-    variants.writeFile(v.id, 'skills/scan/SKILL.md', '---\nname: scan\n# 注释\ndescription: 扫描\n---\n正文\n');
+    variants.writeFile(
+      v.id,
+      'skills/scan/SKILL.md',
+      '---\nname: scan\n# 注释\ndescription: 扫描\n---\n正文\n',
+    );
     const renamed = await call('PATCH', `/api/variants/${v.id}/skills/scan`, { name: 'review' });
     expect(renamed.statusCode).toBe(200);
     expect(read(v.id, 'skills/review/SKILL.md')).toBe(
@@ -117,7 +121,8 @@ describe('共用目录与复制出自己的一份', () => {
     );
     expect(variants.listFiles(v.id).some((f) => f.path.startsWith('skills/scan/'))).toBe(false);
     expect(
-      (await call('PATCH', `/api/variants/${v.id}/skills/review`, { name: 'interview' })).statusCode,
+      (await call('PATCH', `/api/variants/${v.id}/skills/review`, { name: 'interview' }))
+        .statusCode,
     ).toBe(409);
 
     const removed = await call('DELETE', `/api/variants/${v.id}/skills/review`);
@@ -146,9 +151,9 @@ describe('在访达中打开', () => {
     expect(openTargetDir({ kind: 'variant', id: v.id }, { variants, live })).toBe(
       path.join(dataDir, 'variants', v.id),
     );
-    expect(() => openTargetDir({ kind: 'live-cwd', id: 'l-20261013-nopeno' }, { variants, live })).toThrow(
-      '交互不存在：l-20261013-nopeno',
-    );
+    expect(() =>
+      openTargetDir({ kind: 'live-cwd', id: 'l-20261013-nopeno' }, { variants, live }),
+    ).toThrow('交互不存在：l-20261013-nopeno');
     fs.rmSync(variants.layout(v.id).dir, { recursive: true });
     expect(() => openTargetDir({ kind: 'variant', id: v.id }, { variants, live })).toThrow(
       `目录不存在：${path.join(dataDir, 'variants', v.id)}`,

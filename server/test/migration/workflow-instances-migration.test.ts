@@ -67,7 +67,9 @@ describe('0011 与 0012 迁移：dev-workflow 拆成 lfg 与 ic', () => {
       now,
     );
     run(`insert into batches (id, repeats) values ('b-1', 1)`);
-    run(`insert into batch_variants (batch_id, variant_id) values ('b-1', 'v-base'), ('b-1', 'v-mod')`);
+    run(
+      `insert into batch_variants (batch_id, variant_id) values ('b-1', 'v-base'), ('b-1', 'v-mod')`,
+    );
     run(
       `insert into runs (id, batch_id, task_id, variant_id, repeat_index, status, session_id, workspace_path)
        values ('r-1', 'b-1', 'lfg-calculator', 'v-base', 0, 'succeeded', 's-1', '/w1'),
@@ -132,7 +134,9 @@ describe('0011 与 0012 迁移：dev-workflow 拆成 lfg 与 ic', () => {
     const icBase = icOf('v-base');
     const icMod = icOf('v-mod');
     expect(
-      all('select id, name, workflow_id, storage_id, parent_id from variants order by workflow_id, name'),
+      all(
+        'select id, name, workflow_id, storage_id, parent_id from variants order by workflow_id, name',
+      ),
     ).toEqual([
       { id: icBase, name: '基线', workflow_id: 'ic', storage_id: 'v-base', parent_id: null },
       { id: icMod, name: '改过的', workflow_id: 'ic', storage_id: 'v-mod', parent_id: icBase },
@@ -144,9 +148,9 @@ describe('0011 与 0012 迁移：dev-workflow 拆成 lfg 与 ic', () => {
       { id: 'r-1', variant_id: 'v-base', model: 'opus', effort: 'high' },
       { id: 'r-2', variant_id: icMod, model: 'sonnet', effort: 'max' },
     ]);
-    expect(all(`select variant_id from batch_variants where batch_id = 'b-1' order by variant_id`)).toEqual(
-      [icMod, 'v-base'].sort().map((variant_id) => ({ variant_id })),
-    );
+    expect(
+      all(`select variant_id from batch_variants where batch_id = 'b-1' order by variant_id`),
+    ).toEqual([icMod, 'v-base'].sort().map((variant_id) => ({ variant_id })));
     // session：run 的 session 跟随 run，其余按先出现的标记，绑定方式不变
     expect(all('select id, variant_id, variant_binding from sessions order by id')).toEqual([
       { id: 's-1', variant_id: 'v-base', variant_binding: 'run' },
@@ -171,7 +175,9 @@ describe('0011 与 0012 迁移：dev-workflow 拆成 lfg 与 ic', () => {
     ]);
     expect(all('select count(*) n from stage_cycles')).toEqual([{ n: 0 }]);
     expect(
-      all("select name from pragma_table_info('stage_spans') where name in ('workflow', 'big_stage')"),
+      all(
+        "select name from pragma_table_info('stage_spans') where name in ('workflow', 'big_stage')",
+      ),
     ).toEqual([{ name: 'workflow' }]);
     expect(all('pragma foreign_key_check')).toEqual([]);
     db.$client.close();

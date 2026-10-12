@@ -247,8 +247,7 @@ function RubricEditor({ form, onChange }: { form: LfgForm; onChange: (form: LfgF
     mutationFn: () =>
       draftRubric({
         id: form.id,
-        workflow: form.workflow,
-        bigStage: form.bigStage,
+        kind: form.kind,
         title: form.title,
         persona: form.persona,
         hiddenRequirements: form.hiddenRequirements,

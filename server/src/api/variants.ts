@@ -68,8 +68,13 @@ export const variantRoutes: FastifyPluginCallbackZod<{ variants: Variants }> = (
     () => ({ models: modelChoices(), efforts: [...efforts] }),
   );
 
-  app.get('/api/variants', { schema: { response: { 200: z.array(Variant) } } }, () =>
-    variants.list(),
+  app.get(
+    '/api/variants',
+    { schema: { response: { 200: z.array(Variant.extend({ boundSessions: z.number() })) } } },
+    () => {
+      const bound = variants.boundSessions();
+      return variants.list().map((v) => ({ ...v, boundSessions: bound.get(v.id) ?? 0 }));
+    },
   );
 
   // 从 txe-workflow 的 commit（默认 HEAD）导入基线，属于 workflowId（默认内置的 lfg）
@@ -159,7 +164,11 @@ export const variantRoutes: FastifyPluginCallbackZod<{ variants: Variants }> = (
   app.post(
     '/api/variants/:id/skills',
     {
-      schema: { params: IdParams, body: z.object({ name: z.string() }), response: { 200: Variant } },
+      schema: {
+        params: IdParams,
+        body: z.object({ name: z.string() }),
+        response: { 200: Variant },
+      },
     },
     (request) => variants.addSkill(request.params.id, request.body.name),
   );

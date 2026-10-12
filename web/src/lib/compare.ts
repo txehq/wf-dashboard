@@ -134,7 +134,7 @@ const artifactNames: Record<string, string> = {
   tickets: 'Tickets',
 };
 
-// rubric 分组的显示名：dev-workflow 的四组用固定名字，其他 workflow 的分组显示 id
+// rubric 分组的显示名：lfg 评测类型的四组用固定名字，其他分组显示 id
 export const artifactLabel = (artifact: string) => artifactNames[artifact] ?? artifact;
 
 // 一个 variant 在本页的颜色槽位（0 到 7）选中时分配，取消选择前不变

@@ -622,7 +622,7 @@ export const runMessages = sqliteTable(
   (t) => [uniqueIndex('run_messages_run_seq_idx').on(t.runId, t.seq)],
 );
 
-// rubric 评分的产物以 rubric 分组 id（大阶段定义中 artifacts 的 id，例如 brief、research）为 kind；
+// rubric 评分的产物以 rubric 分组 id（评测类型 rubric 积木中 artifacts 的 id，例如 brief、research）为 kind；
 // 其余为固定的种类：ticket 为 Linear 工单 identifier；friction 为被测 agent 在 txehq/txe-workflow 提的 issue 或评论，
 // 每个 run 可以有多条，其余种类每个 run 一条；acceptance 为发布到 engapp.dev 的验收报告；
 // pr_snapshot 为进入 grading 时 PR 的 reviews、评论与 checks（json，Contracts 15.2），location 为仓库地址
@@ -658,7 +658,7 @@ export const artifacts = sqliteTable(
 
 // rubric：每个 rubric 产物一行（一次 judge 调用，产物不存在时没有调用）；有隐藏测试时为测试结果（kind ic），
 // 按验收标准评分时为 judge 的一次调用（kind ic_criteria，逐条得分在 grade_items）；两者都没有而选了 pr-endpoint 时为
-// 终点判定（kind endpoint）。reached_end 为空表示大阶段没有选 pr-endpoint（Contracts 16.2）
+// 终点判定（kind endpoint）。reached_end 为空表示评测类型没有 pr-endpoint（Contracts 16.2）
 export const gradeKinds = ['rubric', 'ic', 'ic_criteria', 'endpoint'] as const;
 
 export const grades = sqliteTable(

@@ -135,9 +135,10 @@ export function importRun(
     if (!exists('variants', 'id', variantId)) {
       // variant 属于 run 的 task 的评测类型同名的内置 workflow（Contracts 16.4）
       const kind = target.prepare('select kind from tasks where id = ?').get(run.task_id) as
-        | { kind: string }
-        | undefined;
-      if (kind === undefined) throw new Error(`目标库中没有 run ${runId} 的 task ${String(run.task_id)}`);
+        { kind: string } | undefined;
+      if (kind === undefined) {
+        throw new Error(`目标库中没有 run ${runId} 的 task ${String(run.task_id)}`);
+      }
       insert('variants', {
         ...variant,
         name: `${String(variant.name)}（导入 ${variantId.slice(0, 8)}）`,

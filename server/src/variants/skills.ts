@@ -28,7 +28,10 @@ export function renameFrontmatter(text: string, name: string): string {
   if (raw.trim() === '') return text;
   const doc = parseDocument(raw);
   if (doc.errors.length > 0) {
-    throw new HttpError(400, `SKILL.md 的 frontmatter 不是合法的 YAML：${doc.errors.map((e) => e.message).join('；')}`);
+    throw new HttpError(
+      400,
+      `SKILL.md 的 frontmatter 不是合法的 YAML：${doc.errors.map((e) => e.message).join('；')}`,
+    );
   }
   doc.set('name', name);
   const at = text.indexOf(raw);

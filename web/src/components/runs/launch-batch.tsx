@@ -1,4 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { EVAL_KINDS } from '@wf-dashboard/server/workflows/eval-kinds';
+import { evalKinds } from '@wf-dashboard/server/workflows/schema';
 import { Play } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
@@ -8,10 +10,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { createBatch, settingsQuery } from '@/lib/runs-api';
 import { tasksQuery } from '@/lib/tasks';
-import { bigStageIn, workflowsQuery } from '@/lib/workflows-api';
+import { evalKindOf, workflowsQuery } from '@/lib/workflows-api';
 import {
   buildLabel,
   type Variant,
+  variantHref,
   variantLabel,
   variantOptionsQuery,
   variantsQuery,
@@ -54,16 +57,16 @@ export function LaunchBatch() {
   const chosenEffort = effort ?? settings.data?.agentEffort ?? null;
   const total = variantIds.length * taskIds.length * (repeatCount ?? 0);
   const chosenTasks = (tasks.data ?? []).filter((t) => taskIds.includes(t.task.id));
-  const prepares = chosenTasks.flatMap(
-    (t) => bigStageIn(workflows.data, t.task.workflow, t.task.bigStage)?.prepare ?? [],
-  );
-  // task 按 workflow 与大阶段分组
-  const taskGroups = [
-    ...new Set((tasks.data ?? []).map((t) => `${t.task.workflow}/${t.task.bigStage}`)),
-  ].map((key) => ({
-    key,
-    records: (tasks.data ?? []).filter((t) => `${t.task.workflow}/${t.task.bigStage}` === key),
+  const prepares = chosenTasks.flatMap((t) => EVAL_KINDS[t.task.kind].prepare);
+  // task 按评测类型分组（Contracts 16.3）
+  const taskGroups = evalKinds.map((kind) => ({
+    kind,
+    records: (tasks.data ?? []).filter((t) => t.task.kind === kind),
   }));
+  // 只有评测类型的 workflow 的 variant 能发起 run（Contracts 16.1）
+  const evaluable = (variants.data ?? []).filter(
+    (v) => evalKindOf(workflows.data, v.workflowId) !== null,
+  );
 
   return (
     <Card data-testid="launch-batch">
@@ -82,13 +85,14 @@ export function LaunchBatch() {
             {variants.data?.length === 0 && (
               <p className="text-sm text-muted-foreground">
                 还没有 variant。
-                <Link to="/variants" className="underline">
-                  去 Variants 页面导入基线
+                <Link to="/workflows" className="underline">
+                  去 Workflows 页面导入基线
                 </Link>
               </p>
             )}
-            {variants.data?.map((v) => {
+            {evaluable.map((v) => {
               const built = isBuilt(v);
+              const kind = evalKindOf(workflows.data, v.workflowId);
               return (
                 <div key={v.id} className="flex items-center gap-2 text-sm">
                   <label className="flex min-w-0 items-center gap-2">
@@ -103,6 +107,9 @@ export function LaunchBatch() {
                     <span className={built ? 'truncate' : 'truncate text-muted-foreground'}>
                       {variantLabel(v)}
                     </span>
+                    {kind !== v.workflowId && (
+                      <span className="shrink-0 text-xs text-muted-foreground">评测 {kind}</span>
+                    )}
                   </label>
                   {!built && v.installDir === null && (
                     <span className="shrink-0 text-xs text-muted-foreground">
@@ -112,7 +119,7 @@ export function LaunchBatch() {
                   {!built && v.installDir !== null && (
                     <span className="shrink-0 text-xs text-muted-foreground">
                       {buildLabel(v)} ·{' '}
-                      <Link to={`/variants/${v.id}`} className="underline">
+                      <Link to={variantHref(v)} className="underline">
                         去构建
                       </Link>
                     </span>
@@ -125,9 +132,9 @@ export function LaunchBatch() {
             <legend className="mb-1 text-sm font-medium">task</legend>
             {tasks.isPending && <p className="text-sm text-muted-foreground">加载中…</p>}
             {tasks.isError && <p className="text-sm text-destructive">{tasks.error.message}</p>}
-            {taskGroups.map(({ key, records }) => (
-              <div key={key} className="flex flex-col gap-1">
-                <span className="text-xs text-muted-foreground">{key}</span>
+            {taskGroups.map(({ kind, records }) => (
+              <div key={kind} className="flex flex-col gap-1">
+                <span className="text-xs text-muted-foreground">/{kind}</span>
                 {records.map((t) => (
                   <label key={t.task.id} className="flex items-center gap-2 text-sm">
                     <input

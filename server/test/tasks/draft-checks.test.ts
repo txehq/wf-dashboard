@@ -8,7 +8,7 @@ import {
 } from '../../src/tasks/criteria-draft.js';
 import { rubricDraftOutput } from '../../src/tasks/schema.js';
 
-// dev-workflow 的 lfg 的四个 rubric 产物
+// lfg 评测类型的四个 rubric 产物
 const RubricDraftOutput = rubricDraftOutput(['brief', 'research', 'plan', 'tickets']);
 
 // 真实数据：TXE-3777 的正文，以及 W33 实测中 judge 的两次真实回答（TXE-3777 拆成 38 条；rubric 草稿的 id 大写）

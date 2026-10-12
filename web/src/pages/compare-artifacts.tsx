@@ -120,7 +120,7 @@ function LfgSideBySide({
   right: RunGrades;
   runs: [CompareRun, CompareRun];
   variants: SelectedVariant[];
-  // task 的 rubric 分组，即大阶段 rubric 积木的产物
+  // task 的 rubric 分组，即评测类型 rubric 积木的产物
   artifacts: string[];
   artifact: string;
   onArtifact: (a: string) => void;

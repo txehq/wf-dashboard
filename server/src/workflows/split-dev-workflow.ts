@@ -89,7 +89,10 @@ export function splitDevWorkflow(db: Db) {
       .all();
     for (const r of devRuns) {
       if (r.kind === 'ic') {
-        tx.update(runs).set({ variantId: icVariant(r.variantId) }).where(eq(runs.id, r.id)).run();
+        tx.update(runs)
+          .set({ variantId: icVariant(r.variantId) })
+          .where(eq(runs.id, r.id))
+          .run();
       }
     }
     // batch 的 variant 清单按其中 run 实际所用的 variant 重写
@@ -100,7 +103,9 @@ export function splitDevWorkflow(db: Db) {
         .where(eq(runs.batchId, batchId))
         .all();
       tx.delete(batchVariants).where(eq(batchVariants.batchId, batchId)).run();
-      for (const u of used) tx.insert(batchVariants).values({ batchId, variantId: u.variantId }).run();
+      for (const u of used) {
+        tx.insert(batchVariants).values({ batchId, variantId: u.variantId }).run();
+      }
     }
     // session 的绑定：run 的 session 跟随 run，其余按 session 中先出现的标记
     const runVariant = new Map(

@@ -106,7 +106,7 @@ describe('Tasks API', () => {
     expect(await getLfg('lfg-todo-api')).toEqual(edited);
   });
 
-  test('PUT 校验 body：rubric 不合法返回 400，id、workflow 或大阶段不一致返回 400', async () => {
+  test('PUT 校验 body：rubric 不合法返回 400，id 或评测类型不一致返回 400', async () => {
     const task = await getLfg('lfg-calculator');
     const noTickets = { ...task, rubric: task.rubric.slice(0, 3) };
     const missing = await call('PUT', '/api/tasks/lfg-calculator', noTickets);
@@ -115,10 +115,10 @@ describe('Tasks API', () => {
       '的 rubric 必须依次包含 brief、research、plan、tickets 各组',
     );
     expect((await call('PUT', '/api/tasks/lfg-todo-api', task)).status).toBe(400);
-    const moved = await call('PUT', '/api/tasks/lfg-calculator', { ...task, bigStage: 'ic' });
+    const moved = await call('PUT', '/api/tasks/lfg-calculator', { ...task, kind: 'ic' });
     expect(moved.status).toBe(400);
     expect(moved.body).toMatchObject({
-      message: 'task lfg-calculator 的 workflow 与大阶段不能改变',
+      message: 'task lfg-calculator 的评测类型不能改变',
     });
   });
 

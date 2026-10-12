@@ -66,7 +66,7 @@ export interface SimulatedReply {
 // （/ic 的 Goal 确认问题长达数百字，模型逐字抄写会抄错或留空）。
 // 选项也用编号：gateway 上 strict tool 的自由文本字段会被填成 placeholder、空串或乱码（opus 与 sonnet 都会），
 // 要抄写 label 的字段最常出错，见 Reports/W21。
-// 有 dispatch gate 的大阶段多一个 answeringDispatchGate，排在 done 之前：模型先判断这一轮是否在回答 gate，
+// 评测类型有 dispatch gate 时多一个 answeringDispatchGate，排在 done 之前：模型先判断这一轮是否在回答 gate，
 // 再判断 done（sonnet 一步判断 done 时在 gate 这一轮给出 true，见 Reports/W40）
 const GateField = z.object({ answeringDispatchGate: z.boolean() });
 const QuestionAnswer = z.object({
@@ -272,7 +272,7 @@ export function userPrompt(transcript: TranscriptEntry[], prompt: AgentPrompt): 
   ].join('\n');
 }
 
-// 有 dispatch gate 的大阶段（Contracts 7.4）：回答中不能出现 go；回答 gate 的这一轮 done 必须为 false，
+// 评测类型有 dispatch gate 时（Contracts 7.4）：回答中不能出现 go；回答 gate 的这一轮 done 必须为 false，
 // 文字提问的回答必须是固定的那一句。不满足时以原文失败
 export function checkDispatchGate(
   stage: PersonaStage,

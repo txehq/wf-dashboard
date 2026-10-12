@@ -388,7 +388,10 @@ describe('fix-pr 与更前面的阶段', () => {
 describe('myreview 的阶段划分', () => {
   const myreview = parseDefinition(
     parse(
-      fs.readFileSync(path.join(import.meta.dirname, '../fixtures/workflows/myreview.yaml'), 'utf8'),
+      fs.readFileSync(
+        path.join(import.meta.dirname, '../fixtures/workflows/myreview.yaml'),
+        'utf8',
+      ),
     ),
     'myreview.yaml',
   );

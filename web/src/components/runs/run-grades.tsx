@@ -14,7 +14,7 @@ const outcomeLabel = {
 
 type Endpoint = RunGrades['endpoint'];
 
-// pr-endpoint 的结果；大阶段没有选 pr-endpoint 时不显示
+// pr-endpoint 的结果；评测类型没有 pr-endpoint 时不显示
 function EndpointRow({ endpoint, reachedText }: { endpoint: Endpoint; reachedText: string }) {
   if (endpoint === null) return null;
   return (

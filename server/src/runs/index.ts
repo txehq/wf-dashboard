@@ -148,8 +148,7 @@ export function createRuns(deps: RunnerDeps) {
       }
       const partition = sessionPartition(db, id);
       const order = (s: (typeof own)[number]) =>
-        partition.find((w) => w.id === s.workflow)?.stages.findIndex((x) => x.id === s.stage) ??
-        -1;
+        partition.find((w) => w.id === s.workflow)?.stages.findIndex((x) => x.id === s.stage) ?? -1;
       own.sort((a, b) => order(a) - order(b));
       const active = own.find((s) => s.status === 'active');
       const last = [...own].reverse().find((s) => s.status === 'done' || s.status === 'skipped');

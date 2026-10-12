@@ -35,7 +35,7 @@ import {
 } from '@/lib/runs-api';
 import { type StageView, sessionQuery, type WorkflowCycle } from '@/lib/sessions-api';
 import { useNow } from '@/lib/use-now';
-import { bigStageIn, workflowsQuery } from '@/lib/workflows-api';
+import { workflowsQuery } from '@/lib/workflows-api';
 
 const emptyStats = {
   requests: 0,
@@ -50,11 +50,11 @@ const emptyStats = {
   subagents: 0,
 };
 
-// dashboard 发起的运行只有一轮：task 所在大阶段的第一轮
+// dashboard 发起的运行只有一轮：variant 所属 workflow 的第一轮
 const runCycle = (run: RunDetail): WorkflowCycle | undefined =>
-  run.stages?.bigStages.find((b) => b.bigStage === run.bigStage)?.cycles[0];
+  run.stages?.workflows.find((w) => w.workflow === run.workflowId)?.cycles[0];
 
-// session 还没有导入或还没有进入任何阶段时，按大阶段定义的小阶段列表显示为未到达
+// session 还没有导入或还没有进入任何阶段时，按 workflow 定义的小阶段列表显示为未到达
 function stageViews(run: RunDetail, order: string[]): StageView[] {
   const cycle = runCycle(run);
   if (cycle !== undefined) return cycle.stages;
@@ -301,7 +301,7 @@ function Failure({ run, views }: { run: RunDetail; views: StageView[] }) {
         run 失败
         {at === undefined
           ? '，还没有进入任何阶段'
-          : `，发生在 /${run.bigStage} · ${at.stage}${at.status === 'done' ? ' 之后' : ''}`}
+          : `，发生在 /${run.workflowId} · ${at.stage}${at.status === 'done' ? ' 之后' : ''}`}
       </p>
       <pre className="font-mono text-xs whitespace-pre-wrap">{run.error}</pre>
     </div>
@@ -465,7 +465,7 @@ function Requests({
       ) : stage !== null ? (
         <StageRequests
           sessionId={run.sessionId}
-          workflow={run.bigStage}
+          workflow={run.workflowId}
           cycle={runCycle(run)}
           view={stage}
           subagents={session.data.subagents}
@@ -487,7 +487,7 @@ function Requests({
 function RunView({ run }: { run: RunDetail }) {
   const workflows = useQuery(workflowsQuery);
   const order =
-    bigStageIn(workflows.data, run.workflowId, run.bigStage)?.stages.map((s) => s.id) ?? [];
+    workflows.data?.find((w) => w.id === run.workflowId)?.definition.stages.map((s) => s.id) ?? [];
   const views = stageViews(run, order);
   const [selected, setSelected] = useState<string | null>(null);
   const [focus, setFocus] = useState<TimelineFocus | null>(null);
@@ -518,9 +518,9 @@ function RunView({ run }: { run: RunDetail }) {
         aria-label="阶段进度"
         data-testid="run-stages"
       >
-        <h2 className="text-sm font-medium">/{run.bigStage} 阶段</h2>
+        <h2 className="text-sm font-medium">/{run.workflowId} 阶段</h2>
         <StageGraph
-          workflow={run.bigStage}
+          workflow={run.workflowId}
           views={views}
           selected={selected}
           onSelect={(stage) => {

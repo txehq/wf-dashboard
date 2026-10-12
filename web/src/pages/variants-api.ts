@@ -13,6 +13,8 @@ export interface Variant {
   status: 'draft' | 'frozen';
   // 从其他数据目录导入的 variant 没有安装目录
   installDir: string | null;
+  // 与另一个 variant 共用的目录（迁移拆出的 lfg 与 ic，Contracts 16.4）；为空时是自己的目录
+  storageId: string | null;
   buildStatus: 'none' | 'building' | 'built' | 'failed';
   builtHash: string | null;
   buildError: string | null;
@@ -49,9 +51,13 @@ export interface VariantDiff {
 
 export const statusLabel: Record<Variant['status'], string> = { draft: '草稿', frozen: '已冻结' };
 
-// 页面中 variant 的名字：名字 (workflow)，例如 基线 (dev-workflow)
+// 页面中 variant 的名字：名字 (workflow)，例如 基线 (lfg)
 export const variantLabel = (variant: Pick<Variant, 'name' | 'workflowId'>) =>
   `${variant.name} (${variant.workflowId})`;
+
+// variant 在它所属 workflow 的页面中展开（Contracts 16.7）
+export const variantHref = (variant: Pick<Variant, 'id' | 'workflowId'>) =>
+  `/workflows/${variant.workflowId}?variant=${variant.id}`;
 
 export function buildLabel(variant: Variant): string {
   if (variant.buildStatus === 'built' && variant.builtHash !== variant.skillsHash) {
@@ -85,7 +91,8 @@ export const importedLabel = '导入的 variant（只读，派生后可以构建
 
 export const variantsQuery = queryOptions({
   queryKey: ['variants'],
-  queryFn: () => request<Variant[]>('GET', '/api/variants'),
+  // 列表中每个 variant 另带绑定的 session 数
+  queryFn: () => request<(Variant & { boundSessions: number })[]>('GET', '/api/variants'),
   ...manualRetry,
 });
 

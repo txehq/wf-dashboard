@@ -1,30 +1,45 @@
 import { queryOptions } from '@tanstack/react-query';
 import {
-  type BigStageDefinition,
-  WorkflowDefinition,
+  type EvalKind,
+  type NewWorkflowBody,
+  type UpdateWorkflowBody,
   WorkflowView,
 } from '@wf-dashboard/server/workflows/schema';
 import { z } from 'zod';
 import { requestJson } from '@/lib/http';
 
-async function fetchWorkflows() {
-  return z
-    .array(WorkflowView)
-    .parse(await requestJson('GET', '/api/workflows'))
-    .map((w) => ({ ...w, definition: WorkflowDefinition.parse(w.definition) }));
+export type WorkflowRecord = WorkflowView;
+
+async function fetchWorkflows(): Promise<WorkflowRecord[]> {
+  return z.array(WorkflowView).parse(await requestJson('GET', '/api/workflows'));
 }
 
-export type WorkflowRecord = Awaited<ReturnType<typeof fetchWorkflows>>[number];
-
-// Contracts 16.1：workflow 的列表；定义按 WorkflowDefinition 解析
+// Contracts 16.1：workflow 的列表（内置的 lfg、ic 在前）
 export const workflowsQuery = queryOptions({ queryKey: ['workflows'], queryFn: fetchWorkflows });
 
-// task 所在的大阶段；workflow 列表还没有读到时为 null
-export function bigStageIn(
+export const workflowQuery = (id: string) =>
+  queryOptions({
+    queryKey: ['workflows', id],
+    queryFn: async () => WorkflowView.parse(await requestJson('GET', `/api/workflows/${id}`)),
+  });
+
+export async function createWorkflow(body: NewWorkflowBody): Promise<WorkflowRecord> {
+  return WorkflowView.parse(await requestJson('POST', '/api/workflows', body));
+}
+
+export async function updateWorkflow(
+  id: string,
+  body: UpdateWorkflowBody,
+): Promise<WorkflowRecord> {
+  return WorkflowView.parse(await requestJson('PUT', `/api/workflows/${id}`, body));
+}
+
+// workflow 的评测类型；列表还没有读到或 workflow 没有评测类型时为 null
+export function evalKindOf(
   workflows: WorkflowRecord[] | undefined,
   workflowId: string,
-  bigStage: string,
-): BigStageDefinition | null {
-  const workflow = workflows?.find((w) => w.id === workflowId);
-  return workflow?.definition.bigStages.find((s) => s.id === bigStage) ?? null;
+): EvalKind | null {
+  return workflows?.find((w) => w.id === workflowId)?.evalKind ?? null;
 }
+
+export const evalKindLabel = (kind: EvalKind | null) => kind ?? '无（不评测）';

@@ -146,7 +146,7 @@ async function gradeRubric(
   });
 }
 
-// hidden-tests 积木；endpoint 为大阶段是否选了 pr-endpoint
+// hidden-tests 积木；endpoint 为评测类型是否有 pr-endpoint
 async function gradeHiddenTests(
   db: Db,
   run: Run,

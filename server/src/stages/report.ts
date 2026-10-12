@@ -153,7 +153,11 @@ function reportOf(rows: SessionRows, partition: Partition, cycles: Cycle[]): Sta
 }
 
 // 一次算出整个 session 的阶段划分（与导入时增量写入的结果相同）；finished 见 cyclesOf
-export function stageReport(partition: Partition, rows: SessionRows, finished: boolean): StageReport {
+export function stageReport(
+  partition: Partition,
+  rows: SessionRows,
+  finished: boolean,
+): StageReport {
   const lastSeq = rows.main.at(-1)?.seq ?? -1;
   const state = foldStages(
     partition,

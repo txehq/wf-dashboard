@@ -26,7 +26,7 @@ export function StageText({ stage }: { stage: RunSummary['currentStage'] }) {
   if (stage === null) return <span className="text-muted-foreground">—</span>;
   return (
     <span className="font-mono text-xs">
-      /{stage.bigStage} · {stage.stage}
+      /{stage.workflow} · {stage.stage}
       {stage.status === 'active' ? '' : `（${statusMeta[stage.status].label}）`}
     </span>
   );

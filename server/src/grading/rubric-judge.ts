@@ -31,7 +31,7 @@ export const itemKey = (index: number) => `item_${String(index + 1)}`;
 function userPrompt(task: Task, judging: JudgeStage, group: ArtifactRubric, content: string) {
   const spec = judging.artifacts.find((a) => a.id === group.artifact);
   if (spec === undefined) {
-    throw new Error(`大阶段 ${judging.stage.id} 的 rubric 积木没有产物 ${group.artifact}`);
+    throw new Error(`workflow ${judging.stage.id} 的 rubric 积木没有产物 ${group.artifact}`);
   }
   const items = group.items
     .map((i, n) => `- 条目 ${String(n + 1)}（maxScore ${String(i.maxScore)}）：${i.criterion}`)

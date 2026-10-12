@@ -1,8 +1,19 @@
 import { Editor } from '@monaco-editor/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, ChevronRight, FilePlus, FileText, Hammer, Save, Trash2 } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  FilePlus,
+  FileText,
+  FolderPlus,
+  Hammer,
+  Pencil,
+  Save,
+  Trash2,
+} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useNavigate } from 'react-router';
+import { OpenInFinder } from '@/components/open-in-finder';
 import { SkillDiffEditor } from '@/components/skill-diff-editor';
 import { Button } from '@/components/ui/button';
 import { languageOf } from '@/lib/language';
@@ -19,6 +30,7 @@ import {
   type SkillFile,
   statusLabel,
   type Variant,
+  variantHref,
   variantLabel,
   variantQuery,
 } from '@/pages/variants-api';
@@ -50,16 +62,25 @@ function buildTree(files: SkillFile[]): TreeNode[] {
   return root.children;
 }
 
+// skill 目录（skills/ 下第一层）的重命名与删除（Contracts 16.4）
+interface SkillActions {
+  onRename: (name: string) => void;
+  onDelete: (name: string) => void;
+}
+
 function TreeItem({
   node,
   depth,
   selected,
   onSelect,
+  actions,
 }: {
   node: TreeNode;
   depth: number;
   selected: string | null;
   onSelect: (path: string) => void;
+  // 只给 skill 目录（depth 0）且 variant 可以编辑时
+  actions?: SkillActions | undefined;
 }) {
   const [open, setOpen] = useState(selected?.startsWith(`${node.path}/`) === true);
   const indent = { paddingLeft: `${String(depth * 12 + 8)}px` };
@@ -85,18 +106,45 @@ function TreeItem({
   const Icon = open ? ChevronDown : ChevronRight;
   return (
     <div>
-      <button
-        type="button"
-        style={indent}
-        aria-expanded={open}
-        className="flex w-full items-center gap-1 rounded py-0.5 pr-2 text-left hover:bg-accent"
-        onClick={() => {
-          setOpen(!open);
-        }}
-      >
-        <Icon className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="truncate">{node.name}</span>
-      </button>
+      <div className="group flex items-center" style={indent}>
+        <button
+          type="button"
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center gap-1 rounded py-0.5 pr-2 text-left hover:bg-accent"
+          onClick={() => {
+            setOpen(!open);
+          }}
+        >
+          <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="truncate">{node.name}</span>
+        </button>
+        {actions !== undefined && (
+          <span className="flex shrink-0 gap-0.5 pr-1 opacity-0 group-hover:opacity-100">
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              aria-label={`重命名 skill ${node.name}`}
+              title="重命名 skill 目录"
+              onClick={() => {
+                actions.onRename(node.name);
+              }}
+            >
+              <Pencil />
+            </Button>
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              aria-label={`删除 skill ${node.name}`}
+              title="删除 skill 目录"
+              onClick={() => {
+                actions.onDelete(node.name);
+              }}
+            >
+              <Trash2 />
+            </Button>
+          </span>
+        )}
+      </div>
       {open &&
         node.children.map((child) => (
           <TreeItem
@@ -239,48 +287,117 @@ function EditTab({ variant }: { variant: Variant }) {
   const files = useQuery(filesQuery(variant.id));
   const [selected, setSelected] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  const editable = variant.status === 'draft' && !isImported(variant);
   // 当前文件有未保存的修改时，切换前确认；确认后修改被丢弃
   const select = (path: string) => {
     if (dirty && !window.confirm('当前文件有未保存的修改，切换后会丢弃。继续？')) return;
     setDirty(false);
     setSelected(path);
   };
-  const current =
-    selected ?? files.data?.find((f) => f.path === 'skills/lfg/SKILL.md')?.path ?? null;
+  // 默认打开 workflow 的入口 skill
+  const entry = `skills/${variant.workflowId}/SKILL.md`;
+  const current = selected ?? files.data?.find((f) => f.path === entry)?.path ?? null;
+  const refresh = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['variants'] });
+  };
   const create = useMutation({
     mutationFn: (path: string) =>
       request<Variant>('PUT', `/api/variants/${variant.id}/file`, { path, content: '' }),
     onSuccess: async (_variant, path) => {
-      await queryClient.invalidateQueries({ queryKey: ['variants'] });
+      await refresh();
       setSelected(path);
     },
   });
+  // skill 目录的新增、重命名与删除（Contracts 16.4）
+  const skills = useMutation({
+    mutationFn: (
+      op:
+        | { kind: 'add'; name: string }
+        | { kind: 'rename'; from: string; to: string }
+        | { kind: 'delete'; name: string },
+    ) =>
+      op.kind === 'add'
+        ? request<Variant>('POST', `/api/variants/${variant.id}/skills`, { name: op.name })
+        : op.kind === 'rename'
+          ? request<Variant>('PATCH', `/api/variants/${variant.id}/skills/${op.from}`, {
+              name: op.to,
+            })
+          : request<Variant>('DELETE', `/api/variants/${variant.id}/skills/${op.name}`),
+    onSuccess: async (_variant, op) => {
+      setDirty(false);
+      setSelected(
+        op.kind === 'add'
+          ? `skills/${op.name}/SKILL.md`
+          : op.kind === 'rename'
+            ? `skills/${op.to}/SKILL.md`
+            : null,
+      );
+      queryClient.removeQueries({ queryKey: ['variants', variant.id, 'file'] });
+      await refresh();
+    },
+  });
+  const actions: SkillActions | undefined = editable
+    ? {
+        onRename: (from) => {
+          const to = window.prompt(`把 skill ${from} 改名为`, from);
+          if (to !== null && to.trim() !== '' && to.trim() !== from) {
+            skills.mutate({ kind: 'rename', from, to: to.trim() });
+          }
+        },
+        onDelete: (name) => {
+          if (window.confirm(`删除 skill 目录 skills/${name}/ 及其中的全部文件？`)) {
+            skills.mutate({ kind: 'delete', name });
+          }
+        },
+      }
+    : undefined;
 
   return (
     <div className="flex h-[calc(100svh-15rem)] min-h-96 rounded-lg border">
       <div className="flex w-64 shrink-0 flex-col border-r">
         <div className="flex items-center justify-between border-b px-3 py-2 text-sm font-medium">
           skills
-          {variant.status === 'draft' && !isImported(variant) && (
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              aria-label="新建文件"
-              title="新建文件"
-              onClick={() => {
-                const path = window.prompt(
-                  '新文件路径（skills/<skill>/ 以内）',
-                  current === null ? 'skills/' : current.replace(/[^/]+$/, ''),
-                );
-                if (path !== null && path.trim() !== '') create.mutate(path.trim());
-              }}
-            >
-              <FilePlus />
-            </Button>
+          {editable && (
+            <span className="flex gap-0.5">
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label="新增 skill 目录"
+                title="新增 skill 目录"
+                onClick={() => {
+                  const name = window.prompt('新 skill 的名字（skills/<名字>/SKILL.md）', '');
+                  if (name !== null && name.trim() !== '') {
+                    skills.mutate({ kind: 'add', name: name.trim() });
+                  }
+                }}
+              >
+                <FolderPlus />
+              </Button>
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label="新建文件"
+                title="新建文件"
+                onClick={() => {
+                  const path = window.prompt(
+                    '新文件路径（skills/<skill>/ 以内）',
+                    current === null ? 'skills/' : current.replace(/[^/]+$/, ''),
+                  );
+                  if (path !== null && path.trim() !== '') create.mutate(path.trim());
+                }}
+              >
+                <FilePlus />
+              </Button>
+            </span>
           )}
         </div>
         {create.isError && (
           <p className="px-3 py-1 text-xs text-destructive">{create.error.message}</p>
+        )}
+        {skills.isError && (
+          <p role="alert" className="px-3 py-1 text-xs text-destructive">
+            {skills.error.message}
+          </p>
         )}
         <nav aria-label="skills 文件" className="min-h-0 flex-1 overflow-auto py-1 text-sm">
           {files.isPending && <p className="px-3 text-muted-foreground">加载中…</p>}
@@ -300,6 +417,7 @@ function EditTab({ variant }: { variant: Variant }) {
                 depth={0}
                 selected={current}
                 onSelect={select}
+                actions={node.children.length > 0 ? actions : undefined}
               />
             ))}
         </nav>
@@ -411,23 +529,27 @@ function BuildLog({ variant, building }: { variant: Variant; building: boolean }
       <QueryError error={log.error} retrying={log.isFetching} onRetry={() => void log.refetch()} />
     );
   }
+  // 最近一次构建自动登记与删去的 skill（Contracts 16.4），即日志中 register-skills 的说明行
+  const registered = log.data
+    .split('\n')
+    .filter((line) => line.startsWith('[register-skills] ') && !line.endsWith(' s'))
+    .at(-1)
+    ?.slice('[register-skills] '.length);
   return (
-    <pre
-      ref={ref}
-      data-testid="build-log"
-      className="h-[calc(100svh-15rem)] min-h-96 overflow-auto rounded-lg border bg-muted/40 p-4 font-mono text-xs whitespace-pre-wrap"
-    >
-      {log.data}
-    </pre>
-  );
-}
-
-// variant 属于一个 workflow；模型与 effort 在发起评测、新建交互与 resume 时选（Contracts 16.4、16.5）
-function WorkflowInfo({ variant }: { variant: Variant }) {
-  return (
-    <p className="text-sm text-muted-foreground" data-testid="variant-workflow">
-      workflow <span className="font-mono text-foreground">{variant.workflowId}</span>
-    </p>
+    <div className="flex flex-col gap-2">
+      {registered !== undefined && (
+        <p className="text-sm" data-testid="registered-skills">
+          自动登记的 skill：{registered}
+        </p>
+      )}
+      <pre
+        ref={ref}
+        data-testid="build-log"
+        className="h-[calc(100svh-15rem)] min-h-96 overflow-auto rounded-lg border bg-muted/40 p-4 font-mono text-xs whitespace-pre-wrap"
+      >
+        {log.data}
+      </pre>
+    </div>
   );
 }
 
@@ -447,7 +569,7 @@ function Header({
       request<Variant>('POST', `/api/variants/${variant.id}/derive`, { name }),
     onSuccess: async (created) => {
       await queryClient.invalidateQueries({ queryKey: ['variants'] });
-      await navigate(`/variants/${created.id}`);
+      await navigate(variantHref(created));
     },
   });
   const frozen = variant.status === 'frozen';
@@ -471,7 +593,7 @@ function Header({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-2xl font-semibold">{variantLabel(variant)}</h1>
+        <h2 className="text-xl font-semibold">{variantLabel(variant)}</h2>
         <span className="rounded-md border px-2 py-0.5 text-xs">{statusLabel[variant.status]}</span>
         <span className="rounded-md border px-2 py-0.5 text-xs" data-testid="build-status">
           {imported ? importedLabel : buildLabel(variant)}
@@ -479,14 +601,24 @@ function Header({
         <span className="font-mono text-xs text-muted-foreground">
           {variant.version} · 基线 {variant.baseCommit.slice(0, 7)}
         </span>
+        <OpenInFinder target={{ kind: 'variant', id: variant.id }} label="在访达中打开" />
       </div>
       {variant.parentId !== null && (
         <p className="text-sm text-muted-foreground" data-testid="variant-parent">
           派生自{' '}
-          <Link className="underline" to={`/variants/${variant.parentId}`}>
-            {parent.data?.name ?? variant.parentId}
-          </Link>
+          {parent.data === undefined ? (
+            variant.parentId
+          ) : (
+            <Link className="underline" to={variantHref(parent.data)}>
+              {variantLabel(parent.data)}
+            </Link>
+          )}
           {parent.data !== undefined && isImported(parent.data) && '（导入的 variant）'}
+        </p>
+      )}
+      {variant.storageId !== null && (
+        <p className="text-sm text-muted-foreground" data-testid="variant-shared">
+          与另一个 workflow 的同名 variant 共用目录，编辑或构建时复制出自己的一份。
         </p>
       )}
       {variant.analysisId !== null && (
@@ -515,22 +647,21 @@ function Header({
         <p className="text-sm text-destructive">{variant.buildError}</p>
       )}
       <div className="flex flex-wrap items-center gap-3">
-        <WorkflowInfo variant={variant} />
-        {imported ? (
-          <div className="ml-auto flex gap-2">
-            {deriveButton('派生为可运行的 variant', `${variant.name}（可运行）`)}
-          </div>
-        ) : (
-          <div className="ml-auto flex gap-2">
-            {deriveButton('另存为新 variant', `${variant.name} 副本`)}
-            {!frozen && (
-              <Button disabled={building} onClick={onBuild}>
-                <Hammer />
-                {building ? '构建中…' : '构建并安装'}
-              </Button>
-            )}
-          </div>
-        )}
+        <div className="ml-auto flex gap-2">
+          {imported ? (
+            deriveButton('派生为可运行的 variant', `${variant.name}（可运行）`)
+          ) : (
+            <>
+              {deriveButton('另存为新 variant', `${variant.name} 副本`)}
+              {!frozen && (
+                <Button disabled={building} onClick={onBuild}>
+                  <Hammer />
+                  {building ? '构建中…' : '构建并安装'}
+                </Button>
+              )}
+            </>
+          )}
+        </div>
       </div>
       {derive.isError && <p className="text-sm text-destructive">{derive.error.message}</p>}
     </div>
@@ -543,9 +674,8 @@ const tabs: { id: Tab; label: string }[] = [
   { id: 'log', label: '构建日志' },
 ];
 
-export function VariantDetailPage() {
-  const { id } = useParams();
-  if (id === undefined) throw new Error('路由缺少 variant id');
+// 原 variant 详情的全部内容，在它所属 workflow 的页面中展开（Contracts 16.7）
+export function VariantPanel({ id }: { id: string }) {
   const queryClient = useQueryClient();
   const variant = useQuery(variantQuery(id));
   const [tab, setTab] = useState<Tab>('edit');
@@ -569,7 +699,7 @@ export function VariantDetailPage() {
   const building = build.isPending || variant.data.buildStatus === 'building';
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 rounded-lg border p-4" data-testid="variant-panel">
       <Header
         variant={variant.data}
         building={building}

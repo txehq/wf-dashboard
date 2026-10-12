@@ -4,12 +4,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { parse, patch } from '@decimalturn/toml-patch';
 import { createTwoFilesPatch } from 'diff';
-import { desc, and, eq } from 'drizzle-orm';
+import { and, count, desc, eq, isNotNull } from 'drizzle-orm';
 import { execa } from 'execa';
 import { z } from 'zod';
 import { config } from '../config.js';
 import type { Db } from '../db/index.js';
-import { variants } from '../db/schema.js';
+import { sessions, variants } from '../db/schema.js';
 import { events } from '../events.js';
 import { claudeSettingsEnv } from '../llm/client.js';
 import { loadWorkflow } from '../workflows/index.js';
@@ -214,7 +214,10 @@ export function createVariants({
     fs.mkdirSync(to.dir, { recursive: true });
     fs.cpSync(from.src, to.src, { recursive: true, verbatimSymlinks: true });
     if (fs.existsSync(from.buildLog)) fs.copyFileSync(from.buildLog, to.buildLog);
-    fs.appendFileSync(to.buildLog, `\n=== 不再与 ${sharing.map((v) => v.id).join('、')} 共用目录：复制出自己的 src（${to.dir}），需要重新构建 ===\n`);
+    fs.appendFileSync(
+      to.buildLog,
+      `\n=== 不再与 ${sharing.map((v) => v.id).join('、')} 共用目录：复制出自己的 src（${to.dir}），需要重新构建 ===\n`,
+    );
     db.update(variants)
       .set({
         storageId: own === row.id ? null : own,
@@ -418,6 +421,19 @@ export function createVariants({
   return {
     list(): Variant[] {
       return db.select().from(variants).orderBy(desc(variants.createdAt)).all();
+    },
+
+    // 每个 variant 绑定的 session 数（Workflow 页面的 variant 列表，Contracts 16.7）
+    boundSessions(): Map<string, number> {
+      return new Map(
+        db
+          .select({ variantId: sessions.variantId, n: count() })
+          .from(sessions)
+          .where(isNotNull(sessions.variantId))
+          .groupBy(sessions.variantId)
+          .all()
+          .map((r) => [r.variantId ?? '', r.n]),
+      );
     },
 
     get,

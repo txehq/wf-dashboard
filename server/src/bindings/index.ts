@@ -71,7 +71,11 @@ function skillFileReader(dataDir: string) {
   const layout = dataLayout(dataDir);
   const cache = new Map<string, string | null>();
   return (variant: Pick<Variant, 'id' | 'storageId'>, name: string): string | null => {
-    const file = path.join(layout.variant(variant.storageId ?? variant.id).skills, name, 'SKILL.md');
+    const file = path.join(
+      layout.variant(variant.storageId ?? variant.id).skills,
+      name,
+      'SKILL.md',
+    );
     let content = cache.get(file);
     if (content === undefined) {
       content = fs.existsSync(file) ? skillFileBody(fs.readFileSync(file, 'utf8')) : null;

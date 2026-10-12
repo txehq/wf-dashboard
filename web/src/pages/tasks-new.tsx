@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ImportPreview, WorkflowAnalysis } from '@wf-dashboard/server/tasks/import-schema';
 import { ArrowLeft, Save } from 'lucide-react';
 import { useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -17,12 +17,10 @@ import { createTask } from '@/lib/tasks';
 import { IssuesAlert, TaskFormFields } from '@/pages/tasks-form';
 import { LinearImportPanel } from '@/pages/tasks-import';
 
-// 新建的 task 属于 dev-workflow 的 lfg 或 ic（按 workflow 与大阶段的新表单由 W37 做）
+// 新建 task 先选评测类型 lfg 或 ic（Contracts 16.3）
 function blankForm(kind: 'lfg' | 'ic'): TaskForm {
   const common = {
     id: '',
-    workflow: 'dev-workflow',
-    bigStage: kind,
     title: '',
     persona: '',
     hiddenRequirements: '',
@@ -50,15 +48,8 @@ const modes: { mode: Mode; label: string }[] = [
 export function TaskNewPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  // 交互区"另存为 task"带来的内容：lfg 的想法，或 ic 要导入的工单地址
-  const [params] = useSearchParams();
-  const initialMode: Mode = params.get('mode') === 'ic-linear' ? 'ic-linear' : 'lfg';
-  const [mode, setMode] = useState<Mode>(initialMode);
-  const [form, setForm] = useState<TaskForm | null>(() => {
-    if (initialMode === 'ic-linear') return null;
-    const blank = blankForm('lfg');
-    return blank.kind === 'lfg' ? { ...blank, input: params.get('input') ?? '' } : blank;
-  });
+  const [mode, setMode] = useState<Mode>('lfg');
+  const [form, setForm] = useState<TaskForm | null>(() => blankForm('lfg'));
   // 导入预览中的 workflow 分析，显示在表单的"起始仓库与 checks"中
   const [analysis, setAnalysis] = useState<WorkflowAnalysis | null>(null);
   // 每次采纳导入的内容都重建表单
@@ -136,9 +127,7 @@ export function TaskNewPage() {
           ))}
         </div>
       </div>
-      {mode === 'ic-linear' && (
-        <LinearImportPanel onAdopt={adopt} initialIssue={params.get('issue') ?? ''} />
-      )}
+      {mode === 'ic-linear' && <LinearImportPanel onAdopt={adopt} />}
       {issues.length > 0 && <IssuesAlert title="还不能创建" issues={issues} />}
       {creating.isError && (
         <Alert variant="destructive">
