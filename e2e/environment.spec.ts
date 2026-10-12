@@ -1,6 +1,3 @@
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import { expect, type Page, test } from '@playwright/test';
 
 // 服务端由 pnpm start 的方式启动（构建后一个端口提供页面与 API）。开始前在设置中把 judge 换成 gateway 上
@@ -12,13 +9,8 @@ test.setTimeout(600_000);
 const pages = ['Sessions', 'Runs', 'Variants', 'Tasks', 'Compare'];
 const BROKEN_MODEL = 'claude-haiku-4-5-20251001-cc';
 
-// 修复时换上的 judge 模型：服务端默认值所取的 opus 别名（~/.claude/settings.json 的 env）
-const settingsEnv = (
-  JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude/settings.json'), 'utf8')) as {
-    env: { ANTHROPIC_DEFAULT_OPUS_MODEL: string };
-  }
-).env;
-const JUDGE_MODEL = settingsEnv.ANTHROPIC_DEFAULT_OPUS_MODEL.replace(/\[[^\]]*\]$/, '');
+// 修复时换上的 judge 模型：服务端的默认值 claude-sonnet-5-5（Contracts 4）
+const JUDGE_MODEL = 'claude-sonnet-5-5';
 
 test.beforeAll(async ({ request }) => {
   const settings = (await (await request.get('/api/settings')).json()) as {
@@ -114,7 +106,7 @@ test('发起 batch 处列出未通过的项，改好设置后提示消失', asyn
   await expect(dialog.getByTestId('env-check-model-judge').getByTestId('env-fix')).toBeVisible();
   await dialog.getByRole('button', { name: '关闭' }).click();
 
-  // 按 fix 的做法在设置中为 judge 换一个模型（默认的 opus 别名）：角色模型变了，服务端重新检查
+  // 按 fix 的做法在设置中为 judge 换一个模型（默认的 claude-sonnet-5-5）：角色模型变了，服务端重新检查
   await page.getByTestId('run-settings').locator('summary').click();
   await page.getByLabel('评分（judge）的模型').fill(JUDGE_MODEL);
   await page.getByRole('button', { name: '保存设置' }).click();

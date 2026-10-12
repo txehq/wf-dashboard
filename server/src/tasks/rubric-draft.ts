@@ -1,4 +1,4 @@
-import { models, parseStructured } from '../llm/client.js';
+import { models, parseStructured, type StructuredRequest } from '../llm/client.js';
 import { Rubric, type RubricDraft, RubricDraftOutput, type RubricDraftRequest } from './schema.js';
 
 const system = `你为一个 AI 编码 workflow 的评估系统起草评分 rubric。
@@ -33,14 +33,15 @@ ${task.hiddenRequirements}
 请起草四组 rubric。`;
 }
 
+export function rubricDraftRequest(
+  task: RubricDraftRequest,
+  model: string,
+): StructuredRequest<RubricDraftOutput> {
+  return { model, system, user: userPrompt(task), schema: RubricDraftOutput, maxTokens: 8000 };
+}
+
 export async function draftRubric(task: RubricDraftRequest): Promise<RubricDraft> {
-  const result = await parseStructured({
-    model: models.judge,
-    system,
-    user: userPrompt(task),
-    schema: RubricDraftOutput,
-    maxTokens: 8000,
-  });
+  const result = await parseStructured(rubricDraftRequest(task, models.judge));
   return {
     rubric: Rubric.parse(result.value.rubric),
     model: result.model,

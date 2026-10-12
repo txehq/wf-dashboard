@@ -39,14 +39,12 @@ export interface Models {
   judge: string;
 }
 
-// 默认值：模拟用户与 judge 都取 settings env 中 opus 的别名（sonnet 对 done 的判断不可靠，见 Reports/W21）。
-// 数据库中的设置优先于这些默认值
+// 默认值：模拟用户与 judge 都用 claude-sonnet-5-5（用户指定，Contracts 4）：2026-10-12 起 gateway 上 opus 不再遵守 prompt 的
+// 条数与格式规则，按验收标准评分每次被上游拒绝（Reports/W33）。数据库中的设置优先于这些默认值
+export const DEFAULT_ROLE_MODEL = 'claude-sonnet-5-5';
+
 export function defaultModels(): Models {
-  const current = claudeSettingsEnv();
-  return {
-    simulatedUser: stripContextTag(current.ANTHROPIC_DEFAULT_OPUS_MODEL),
-    judge: stripContextTag(current.ANTHROPIC_DEFAULT_OPUS_MODEL),
-  };
+  return { simulatedUser: DEFAULT_ROLE_MODEL, judge: DEFAULT_ROLE_MODEL };
 }
 
 // 当前生效的模型；调用处在调用时读取，PUT /api/settings 经 setModels 立即改写

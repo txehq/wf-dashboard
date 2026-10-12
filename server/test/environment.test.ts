@@ -160,8 +160,8 @@ describe('GET /api/environment', () => {
     const settings = (await app.inject({ method: 'GET', url: '/api/settings' })).json<{
       models: Record<string, string>;
     }>();
-    // 模拟用户换成 sonnet 的别名（与默认的 opus 不同）
-    const next = stripContextTag(claudeSettingsEnv().ANTHROPIC_DEFAULT_SONNET_MODEL);
+    // 模拟用户换成 opus 的别名（与默认的 sonnet 不同）
+    const next = stripContextTag(claudeSettingsEnv().ANTHROPIC_DEFAULT_OPUS_MODEL);
     const saved = await app.inject({
       method: 'PUT',
       url: '/api/settings',
@@ -185,7 +185,7 @@ describe('GET /api/environment', () => {
     }>();
     const old = settings.models.judge;
     const running = app.inject({ method: 'GET', url: '/api/environment?refresh=1' });
-    const next = stripContextTag(claudeSettingsEnv().ANTHROPIC_DEFAULT_SONNET_MODEL);
+    const next = stripContextTag(claudeSettingsEnv().ANTHROPIC_DEFAULT_OPUS_MODEL);
     const saved = await app.inject({
       method: 'PUT',
       url: '/api/settings',

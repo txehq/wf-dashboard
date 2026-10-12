@@ -14,8 +14,10 @@ const taskPath = z
 export const rubricArtifacts = ['brief', 'research', 'plan', 'tickets'] as const;
 export type RubricArtifact = (typeof rubricArtifacts)[number];
 
+export const RUBRIC_ITEM_ID = /^[a-z][a-z0-9-]*$/;
+
 export const RubricItem = z.strictObject({
-  id: z.string().regex(/^[a-z][a-z0-9-]*$/),
+  id: z.string().regex(RUBRIC_ITEM_ID),
   criterion: z.string().trim().min(1),
   maxScore: z.int().positive(),
 });
@@ -162,21 +164,26 @@ export type TaskRecord = z.infer<typeof TaskRecord>;
 export const RubricDraftRequest = LfgTaskDefinition.extend({ rubric: Rubric.optional() });
 export type RubricDraftRequest = z.infer<typeof RubricDraftRequest>;
 
-// LLM 起草 rubric 的输出；结构化输出不支持 superRefine，四组的顺序与 id 唯一由调用方再用 Rubric 校验
+// LLM 起草 rubric 的输出；结构化输出不支持 superRefine，四组的顺序与 id 唯一由调用方再用 Rubric 校验。
+// id 的写法与 RubricItem 相同，每组 4 到 8 条（与起草 prompt 的要求相同），不满足时以 zod 的原文失败
 export const RubricDraftOutput = z.object({
   rubric: z.array(
     z.object({
       artifact: z.enum(rubricArtifacts),
-      items: z.array(
-        z.object({
-          id: z.string().min(1),
-          criterion: z.string().min(1),
-          maxScore: z.int(),
-        }),
-      ),
+      items: z
+        .array(
+          z.object({
+            id: z.string().regex(RUBRIC_ITEM_ID),
+            criterion: z.string().min(1),
+            maxScore: z.int(),
+          }),
+        )
+        .min(4)
+        .max(8),
     }),
   ),
 });
+export type RubricDraftOutput = z.infer<typeof RubricDraftOutput>;
 
 export const RubricDraft = z.object({
   rubric: Rubric,

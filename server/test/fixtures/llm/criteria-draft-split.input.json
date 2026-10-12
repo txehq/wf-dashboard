@@ -1,0 +1,156 @@
+{
+  "criteria": [
+    {
+      "quote": "`npm ci && npm run build` 在干净的检出上生成且只生成 `dist/计算器.html`",
+      "text": "在干净的检出上运行 `npm ci && npm run build`，生成且只生成 `dist/计算器.html`。CI 的 `build` 任务可以证明这一点。"
+    },
+    {
+      "quote": "产物里没有任何指向外部的 `src`、`href`、`url(...)`",
+      "text": "构建产物里没有任何指向外部的 `src`、`href` 或 `url(...)`。"
+    },
+    {
+      "quote": "只有一个内联 `<script type=\"module\">`、没有 `<link rel=\"stylesheet\">`",
+      "text": "产物里只有一个内联的 `<script type=\"module\">`，没有 `<link rel=\"stylesheet\">`。"
+    },
+    {
+      "quote": "`<meta charset=\"utf-8\">` 位于前 1024 字节",
+      "text": "产物中的 `<meta charset=\"utf-8\">` 在文件前 1024 字节以内。"
+    },
+    {
+      "quote": "CSP 为 `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:`",
+      "text": "产物的 CSP 与 `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:` 完全一致。"
+    },
+    {
+      "quote": "`scripts/check-dist.mjs`：用 parse5 检查产物。",
+      "text": "有 `scripts/check-dist.mjs`，用 parse5 解析并检查产物，并作为单元测试运行。"
+    },
+    {
+      "quote": "端到端测试在 Chromium 109.0.5414.46 上运行，测试日志打印浏览器版本；当前 Chrome 的任务也打印版本",
+      "text": "端到端测试实际在 Chromium 109.0.5414.46 上运行，日志里打印浏览器版本；当前 Chrome 的任务也在日志里打印版本。"
+    },
+    {
+      "quote": "建立 `ci-required` 规则集（目标默认分支，必需检查 `ci`）",
+      "text": "已建立名为 `ci-required` 的规则集，目标是默认分支，必需检查是 `ci`。"
+    },
+    {
+      "quote": "`main` 有 `ci-required` 规则集，必需检查 `ci` 汇总单元测试、构建、Chromium 109 和当前 Chrome 的端到端测试",
+      "text": "`main` 受 `ci-required` 规则集保护。必需检查 `ci` 汇总了单元测试、构建、Chromium 109 端到端测试和当前 Chrome 端到端测试。用 `gh api .../rulesets` 读回可以确认。"
+    },
+    {
+      "quote": "`allow_auto_merge` 和 `delete_branch_on_merge` 为 `true`",
+      "text": "仓库设置里 `allow_auto_merge` 和 `delete_branch_on_merge` 都是 `true`，用 `gh api repos/txehq/wfe-r-20261009-dqva52` 读回可以确认。"
+    },
+    {
+      "quote": "一个检查失败的 PR 无法合并；一个全部通过的 PR 开启自动合并后自动合并",
+      "text": "检查失败的 PR 无法合并；全部检查通过的 PR（即本 PR）开启自动合并后会自动合并。"
+    },
+    {
+      "quote": "另开一个故意失败的草稿 PR 检查后关闭",
+      "text": "另开了一个故意让检查失败的草稿 PR，确认它无法合并后已关闭。"
+    },
+    {
+      "quote": "根目录 `.gitignore` 忽略 `node_modules/`、`dist/`、`.browsers/`、`test-results/`、`playwright-report/`、`src/core/generated/`",
+      "text": "根目录 `.gitignore` 忽略了六个目录：`node_modules/`、`dist/`、`.browsers/`、`test-results/`、`playwright-report/`、`src/core/generated/`。用 `git check-ignore` 可以验证。"
+    },
+    {
+      "quote": "禁用脚本打开页面时显示“请用 Chrome 打开这个文件”；启用脚本时这段文字隐藏；两种情况都没有非 `file:` 请求",
+      "text": "禁用脚本打开页面时显示“请用 Chrome 打开这个文件”；启用脚本时这段文字被隐藏；两种情况下都没有非 `file:` 请求。"
+    },
+    {
+      "quote": "`javaScriptEnabled: false` 和默认各一次，两个浏览器",
+      "text": "上面这条在端到端测试里覆盖 `javaScriptEnabled: false` 和默认两种模式，并且两个浏览器项目上都要运行。"
+    },
+    {
+      "quote": "页面放在带中文和空格的路径（例如 `计算器 测试/计算器.html`）下能打开，没有未捕获的错误",
+      "text": "页面放在带中文和空格的路径下（例如 `计算器 测试/计算器.html`）能打开，并且没有未捕获的错误，由端到端测试验证。"
+    },
+    {
+      "quote": "`package.json`（`\"type\": \"module\"`，`engines.node \">=22.12.0\"`，脚本 `generate`、`build`、`test:unit`、`test:e2e`、`check:dist`）和 `package-lock.json`",
+      "text": "`package.json` 包含 `\"type\": \"module\"`、`engines.node \">=22.12.0\"` 以及 `generate`、`build`、`test:unit`、`test:e2e`、`check:dist` 五个脚本，并提交了 `package-lock.json`。"
+    },
+    {
+      "quote": "依赖固定版本：vite 8.3.4、vite-plugin-singlefile 2.3.3、typescript 7.0.2、vitest 5.0.3、@playwright/test 1.29.2、parse5 8.0.1、peggy 5.1.0、decimal.js 10.6.0、zod 4.6.5、fast-check 4.10.2、yaml 2.9.1",
+      "text": "所有依赖都固定为指定的精确版本，不用范围写法：vite 8.3.4、vite-plugin-singlefile 2.3.3、typescript 7.0.2、vitest 5.0.3、@playwright/test 1.29.2、parse5 8.0.1、peggy 5.1.0、decimal.js 10.6.0、zod 4.6.5、fast-check 4.10.2、yaml 2.9.1。"
+    },
+    {
+      "quote": "`<meta charset=\"utf-8\">` 放在最前面，`<link rel=\"icon\" href=\"data:,\">`，CSP meta，`lang=\"zh-CN\"`，标题“计算器”，一段默认显示的“请用 Chrome 打开这个文件”",
+      "text": "入口 `计算器.html` 满足以下全部要求：`<meta charset=\"utf-8\">` 放在最前面，有 `<link rel=\"icon\" href=\"data:,\">`，有 CSP meta，`lang=\"zh-CN\"`，标题为“计算器”，并有一段默认显示的“请用 Chrome 打开这个文件”。"
+    },
+    {
+      "quote": "`src/main.ts` 在脚本运行后隐藏它",
+      "text": "`src/main.ts` 运行后隐藏“请用 Chrome 打开这个文件”这段文字。"
+    },
+    {
+      "quote": "`vite.config.ts`：vite-plugin-singlefile，`build.target` 和 `build.cssTarget` 为 `chrome109`，入口 `计算器.html`",
+      "text": "`vite.config.ts` 使用 vite-plugin-singlefile，`build.target` 和 `build.cssTarget` 都设为 `chrome109`，入口是 `计算器.html`。另外有 `tsconfig.json`。"
+    },
+    {
+      "quote": "项目 `chromium-109`（Playwright 1.29.2 自带的 Chromium）和 `chrome-current`（环境变量 `CHROME_PATH` 指定的 Google Chrome）",
+      "text": "`playwright.config.ts` 定义两个项目：`chromium-109` 使用 Playwright 1.29.2 自带的 Chromium；`chrome-current` 使用环境变量 `CHROME_PATH` 指定的 Google Chrome。"
+    },
+    {
+      "quote": "测试把产物复制到一个带中文和空格的目录后用 `file://` 打开，`offline: true`",
+      "text": "测试先把产物复制到一个带中文和空格的目录，再用 `file://` 打开，并设置 `offline: true`。"
+    },
+    {
+      "quote": "记录所有非 `file:` 请求，每个测试结束时断言为空；断言页面没有未捕获的错误",
+      "text": "`e2e/fixtures.ts` 记录所有非 `file:` 请求，在每个测试结束时断言记录为空，并断言页面没有未捕获的错误。"
+    },
+    {
+      "quote": "顶层 `permissions: contents: read`",
+      "text": "`.github/workflows/ci.yml` 的顶层设置了 `permissions: contents: read`。"
+    },
+    {
+      "quote": "任务 `unit`、`build`（上传产物）、`e2e-chromium-109`（在按摘要固定的 `mcr.microsoft.com/playwright:v1.29.2-jammy` 容器里）、`e2e-chrome-current`（`ubuntu-latest` 自带的 Google Chrome）和汇总任务 `ci`（依赖前四个）",
+      "text": "CI 有五个任务：`unit`；`build`，上传产物；`e2e-chromium-109`，运行在按摘要（digest）固定的 `mcr.microsoft.com/playwright:v1.29.2-jammy` 容器里；`e2e-chrome-current`，使用 `ubuntu-latest` 自带的 Google Chrome；以及汇总任务 `ci`，依赖前四个任务。"
+    },
+    {
+      "quote": "动手前先走 `/ci-optimise`",
+      "text": "编写 CI 之前先走一遍 `/ci-optimise`。"
+    },
+    {
+      "quote": "所用的 `gh api` 命令写进 `README.md` 的“仓库设置”一节",
+      "text": "修改仓库设置所用的 `gh api` 命令记录在 `README.md` 的“仓库设置”一节。"
+    },
+    {
+      "quote": "`README.md` 写本地开发步骤（`PLAYWRIGHT_BROWSERS_PATH=.browsers ./node_modules/.bin/playwright install chromium`）",
+      "text": "`README.md` 写有本地开发步骤，其中包括 `PLAYWRIGHT_BROWSERS_PATH=.browsers ./node_modules/.bin/playwright install chromium`。"
+    },
+    {
+      "quote": "样式不用 Chrome 109 之后的特性（CSS 嵌套、`color-mix()`、`popover` 等）",
+      "text": "样式里没有使用 Chrome 109 之后才有的特性，例如 CSS 嵌套、`color-mix()`、`popover`。"
+    },
+    {
+      "quote": "脚本统一调用 `./node_modules/.bin/playwright`",
+      "text": "所有脚本和 CI 都通过 `./node_modules/.bin/playwright` 调用 Playwright，不用 `npx playwright`，避免解析到上层目录的 1.64.0。"
+    },
+    {
+      "quote": "出错立即报错，不捕获，不做备用路径",
+      "text": "代码和脚本出错时立即报错，不捕获错误，不做备用路径。"
+    },
+    {
+      "quote": "中间结果放在当前目录下被 `.gitignore` 忽略的目录；不读写 `/tmp`",
+      "text": "中间结果（例如复制到中文路径的产物）放在当前目录下被 `.gitignore` 忽略的目录里，任何地方都不读写 `/tmp`。"
+    },
+    {
+      "quote": "计算逻辑（TXE P2a、P2b 工单）；按键和界面（P3a）；交付包和 Release 任务（P6）",
+      "text": "本 PR 不包含不在范围内的内容：计算逻辑、按键和界面、交付包和 Release 任务。"
+    },
+    {
+      "quote": "一个 PR，包含上面的文件和测试；CI 四个任务和汇总任务 `ci` 全部通过。",
+      "text": "交付一个 PR，包含上述全部文件和测试；CI 的四个任务和汇总任务 `ci` 全部通过。"
+    },
+    {
+      "quote": "`/acceptance` 报告：外壳在 Chromium 109 下的截图、禁用脚本时的截图、CI 运行链接、`gh api` 的读回结果。",
+      "text": "提交 `/acceptance` 报告，内容包括：外壳在 Chromium 109 下的截图、禁用脚本时的截图、CI 运行链接、`gh api` 的读回结果。"
+    },
+    {
+      "quote": "`/ic` 完整评审循环",
+      "text": "走完 `/ic` 完整评审循环，并按评审意见修改。"
+    },
+    {
+      "quote": "合并按本工单建立的自动合并规则",
+      "text": "PR 通过本工单建立的自动合并规则合并，不手动绕过规则合并。"
+    }
+  ]
+}

@@ -18,7 +18,8 @@ import { testRepos } from './helpers/local-repos.js';
 const repos = testRepos();
 const signal = () => new AbortController().signal;
 
-describe('run 的仓库（本地仓库模式）', () => {
+// 建 bundle、clone 与推送多次调用 git：机器负载高时单个用例会超过 vitest 默认的 5 秒
+describe('run 的仓库（本地仓库模式）', { timeout: 60_000 }, () => {
   it('ic 副本：起始 commit 之上一个只保留 pull_request 的 commit；workspace clone 在 main 上', async () => {
     const runId = testRunId('w7');
     const task = await buildFixtureTask(runId);

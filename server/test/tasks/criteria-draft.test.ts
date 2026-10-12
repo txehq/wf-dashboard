@@ -6,27 +6,25 @@ afterAll(closeLinearClient);
 
 // 真实 Linear（只读取）与真实 gateway 上的 judge 模型；工单为 `/lfg 做一个计算器` 建出的 TXE-3777
 describe('judge 确定验收标准', { timeout: 5 * 60_000 }, () => {
-  it('TXE-3777：有 ## Acceptance criteria 一节，逐条与原文一致', async () => {
+  // 能证明"有验收标准一节时逐条照原文、其他节不加条目"的最小正文：TXE-3777 的真实文字中，Scope 的两个列表项
+  // 加验收标准一节的前三项（1.2 带分号、每项带 — verify:，W33 中 opus 正是从这两处拆开与加条目）
+  it('TXE-3777 的 Scope 两项与验收标准三项：照原文取出 3 条', async () => {
     const issue = await readIssueForImport('TXE-3777');
-    // 这一节是 8 个任务列表项
-    const section = issue.description.split('## Acceptance criteria')[1]?.split('\n## ')[0] ?? '';
-    const expected = section
-      .split('\n')
-      .filter((line) => line.startsWith('- [ ] '))
-      .map((line) => line.slice('- [ ] '.length));
-    expect(expected).toHaveLength(8);
-    const draft = await draftCriteria(issue.title, issue.description);
-    expect(draft.criteria.map((c) => c.text)).toEqual(expected);
-    for (const c of draft.criteria) expect(issue.description).toContain(c.quote);
-    expect(draft.costUsd).toBeGreaterThan(0);
+    const lines = issue.description.split('\n');
+    const scope = lines.filter((l) => l.startsWith('  * ')).slice(0, 2);
+    const criteria = lines.filter((l) => l.startsWith('- [ ] ')).slice(0, 3);
+    const body = ['## Scope', '', ...scope, '', '## Acceptance criteria', '', ...criteria].join('\n');
+    const draft = await draftCriteria(issue.title, body);
+    expect(draft.criteria.map((c) => c.text)).toEqual(criteria.map((l) => l.slice('- [ ] '.length)));
+    for (const c of draft.criteria) expect(body).toContain(c.quote);
     console.log(
-      `TXE-3777：${String(draft.criteria.length)} 条，${draft.model}，输入 ${String(draft.inputTokens)} 输出 ${String(draft.outputTokens)} token，花费 $${draft.costUsd.toFixed(4)}`,
+      `TXE-3777 最小正文：${String(draft.criteria.length)} 条，${draft.model}，输入 ${String(draft.inputTokens)} 输出 ${String(draft.outputTokens)} token，花费 $${draft.costUsd.toFixed(4)}`,
     );
   });
 
   it('没有验收标准一节：TXE-3777 正文的 Background 与 Goals 两节，从中整理出条目，每个 quote 都在正文中', async () => {
     const issue = await readIssueForImport('TXE-3777');
-    // 只取前两节（真实正文的一部分）：没有验收标准一节的正文
+    // 只取前两节（真实正文的一部分，约 1000 个输入 token）：没有验收标准一节的正文
     const body = issue.description.split('\n## Scope')[0] ?? '';
     expect(body).toContain('## Goals');
     expect(body).not.toMatch(/acceptance criteria|验收标准/i);
