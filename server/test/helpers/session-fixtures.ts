@@ -11,6 +11,20 @@ export const LFG = {
   sessionId: '0188c133-3e7b-4592-a963-fc717cf283de',
 };
 export const IC = { runId: 'r-20261009-27yz3d', sessionId: '70e7a9b6-fdad-44c3-9b65-015ee2a0499c' };
+// 另一个 ic run（/ic TXE-3764，同一个 9f2bed6 基线），主 jsonl 一个文件、没有子代理；两个 session 一起分析时与 IC 搭配
+export const IC_OTHER = { sessionId: '40f6915a-cd31-4312-866c-dcb377515c42' };
+
+// 复制到 <dir>/projects/-fixture-ic-other/，返回主 jsonl
+export function copyOtherIcSession(dir: string): string {
+  const target = path.join(dir, 'projects', '-fixture-ic-other');
+  fs.mkdirSync(target, { recursive: true });
+  const file = path.join(target, `${IC_OTHER.sessionId}.jsonl`);
+  fs.copyFileSync(
+    path.join(import.meta.dirname, '../fixtures/runs', `${IC_OTHER.sessionId}.jsonl`),
+    file,
+  );
+  return file;
+}
 
 // 解包到 <dir>/projects/-fixture-<runId>/，返回主 jsonl
 export function unpackSession(dir: string, fixture: { runId: string; sessionId: string }): string {

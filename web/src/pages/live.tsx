@@ -308,7 +308,7 @@ export function LivePage() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-xl font-semibold">交互</h1>
+        <h1 className="text-xl font-semibold">Live</h1>
         <Button
           variant={creating ? 'secondary' : 'default'}
           data-testid="new-live-toggle"

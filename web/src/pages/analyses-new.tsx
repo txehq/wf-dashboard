@@ -28,7 +28,7 @@ export function AnalysisNewPage() {
   return (
     <div className="flex max-w-4xl flex-col gap-6">
       <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold">新建分析</h1>
+        <h1 className="text-2xl font-semibold">New analysis</h1>
         <p className="text-sm text-muted-foreground">
           四个方面（流程遵守、效率与花费、和用户的交互、产物质量）各由一个引擎进程分析，每条发现都要有
           session 中的原文作证据；最后综合出 skill 文件的修改建议。
