@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { IcTaskDraft } from './schema.js';
+import { TaskDraft } from './schema.js';
 
 // 本文件只依赖 zod，web 也直接引用这里的 schema：从 Linear 导入 ic task 的 API（Contracts 第 13 节）
 
@@ -108,6 +108,9 @@ export const ImportPreviewRequest = z.object({
       ctx.addIssue({ code: 'custom', message: `不是 Linear 工单地址或工单编号：${s}` });
     }
   }),
+  // 导入为哪个 workflow 的哪个大阶段的 task（Contracts 16.3）：大阶段要有 ticket-copy 与 repo-copy，保存时校验
+  workflow: z.string().min(1).default('dev-workflow'),
+  bigStage: z.string().min(1).default('ic'),
   // 省略时取工单关联的已合并 PR 的仓库
   repo: repoName.optional(),
   // 省略时按 Contracts 第 13 节取默认值
@@ -120,7 +123,7 @@ export const ImportPreviewRequest = z.object({
 });
 export type ImportPreviewRequest = z.input<typeof ImportPreviewRequest>;
 
-// POST /api/tasks/from-linear 的结果：不保存。task 是可以直接交给 POST /api/tasks 的 ic task 定义
+// POST /api/tasks/from-linear 的结果：不保存。task 是可以直接交给 POST /api/tasks 的 task 定义
 export const ImportPreview = z.object({
   issue: LinearIssueDetail,
   repo: repoName,
@@ -132,6 +135,6 @@ export const ImportPreview = z.object({
   workflows: WorkflowAnalysis,
   // 请求中 criteria 为 false 时为空
   criteria: CriteriaDraft.nullable(),
-  task: IcTaskDraft,
+  task: TaskDraft,
 });
 export type ImportPreview = z.infer<typeof ImportPreview>;

@@ -1,11 +1,5 @@
 import { z } from 'zod';
-import {
-  artifactKinds,
-  gradingStatuses,
-  runMessageRoles,
-  runStatuses,
-  workflows,
-} from '../db/schema.js';
+import { gradingStatuses, runMessageRoles, runStatuses } from '../db/schema.js';
 import { CrossRunRef, SourceRef } from '../grading/schema.js';
 import { StageReport } from '../stages/report.js';
 
@@ -42,7 +36,8 @@ export const Pending = z.discriminatedUnion('kind', [
 export type Pending = z.infer<typeof Pending>;
 
 export const ArtifactView = z.object({
-  kind: z.enum(artifactKinds),
+  // rubric 产物 id 或固定的种类（db/schema 的 fixedArtifactKinds）
+  kind: z.string(),
   location: z.string(),
   snapshot: z.string().nullable(),
   createdAt: z.number(),
@@ -54,17 +49,22 @@ export const RunMode = z.enum(['simulated', 'human']);
 export type RunMode = z.infer<typeof RunMode>;
 
 export const CurrentStage = z
-  .object({ workflow: z.enum(workflows), stage: z.string(), status: z.string() })
+  .object({ bigStage: z.string(), stage: z.string(), status: z.string() })
   .nullable();
 
 export const RunSummary = z.object({
   id: z.string(),
   batchId: z.string(),
   taskId: z.string(),
-  taskKind: z.enum(workflows),
+  // task 所在的 workflow 与大阶段（Contracts 16.3）
+  workflowId: z.string(),
+  bigStage: z.string(),
   taskTitle: z.string(),
   variantId: z.string(),
   variantName: z.string(),
+  // 发起 batch 时选的模型与 effort（Contracts 16.5）
+  model: z.string(),
+  effort: z.string(),
   repeatIndex: z.number(),
   status: z.enum(runStatuses),
   currentStage: CurrentStage,

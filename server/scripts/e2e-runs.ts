@@ -4,7 +4,7 @@ import { execa } from 'execa';
 import { z } from 'zod';
 import { config } from '../src/config.js';
 import { closeLinearClient, readTicket } from '../src/external/linear.js';
-import { featureDir } from '../src/stages/lfg.js';
+import { featureDir } from '../src/stages/artifacts.js';
 
 // 端到端：对正在运行的 dashboard 服务（config.port，即 WFD_PORT，默认与服务端相同）发真实请求
 // 用法：tsx scripts/e2e-runs.ts lfg|takeover|ic <variantId> [taskId]
@@ -44,8 +44,12 @@ const Run = z.looseObject({
   artifacts: z.array(
     z.looseObject({ kind: z.string(), location: z.string(), snapshot: z.string().nullable() }),
   ),
-  // 每个 workflow 是轮次的数组；一个 run 只有一轮
-  stages: z.looseObject({ lfg: z.array(CycleView), ic: z.array(CycleView) }).nullable(),
+  // 每个大阶段是轮次的数组；一个 run 只有一轮
+  stages: z
+    .looseObject({
+      bigStages: z.array(z.looseObject({ bigStage: z.string(), cycles: z.array(CycleView) })),
+    })
+    .nullable(),
   links: z.record(z.enum(['repo', 'ticket', 'pr', 'vault']), z.string().nullable()),
 });
 type Run = z.infer<typeof Run>;
@@ -69,8 +73,8 @@ const started = Date.now();
 const elapsed = () => `${String(Math.round((Date.now() - started) / 1000))}s`;
 
 // 唯一一轮的阶段
-function stagesOf(run: Run, workflow: 'lfg' | 'ic') {
-  return run.stages?.[workflow][0]?.stages ?? [];
+function stagesOf(run: Run, bigStage: 'lfg' | 'ic') {
+  return run.stages?.bigStages.find((b) => b.bigStage === bigStage)?.cycles[0]?.stages ?? [];
 }
 
 function stageLine(run: Run) {

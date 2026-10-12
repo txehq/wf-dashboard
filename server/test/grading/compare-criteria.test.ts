@@ -3,7 +3,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { config } from '../../src/config.js';
 import { gradeItems, grades } from '../../src/db/schema.js';
 import { compareRuns } from '../../src/grading/compare.js';
-import { loadIcTask, saveTask, syncTasks } from '../../src/tasks/loader.js';
+import { loadTask, saveTask, syncTasks, withTicket } from '../../src/tasks/loader.js';
 import { testRunId, withoutHiddenTests } from '../helpers/ic-fixture.js';
 import { openTestDb } from '../stages/db.js';
 import { insertRun, insertVariant } from './seed.js';
@@ -14,9 +14,11 @@ syncTasks(db, config.tasksDir);
 insertVariant(db, 'baseline');
 
 // ic-money-format 去掉隐藏测试，作为没有隐藏测试的 ic task（5 条验收标准）
-const definition = withoutHiddenTests(loadIcTask(db, 'ic-money-format'), 'w28-compare-criteria');
+const definition = withoutHiddenTests(loadTask(db, 'ic-money-format'), 'w28-compare-criteria');
 const tasksDir = path.join(config.repoRoot, '.work/test-tasks', testRunId('w28-compare'), 'tasks');
-const taskId = saveTask(db, tasksDir, definition).task.id;
+const saved = saveTask(db, tasksDir, definition);
+const taskId = saved.task.id;
+const { ticket } = withTicket({ ...saved.task, dir: saved.dir });
 
 function criteriaRun(id: string, scores: number[], reachedEnd: boolean) {
   insertRun(db, { id, taskId, variantId: 'baseline', status: 'succeeded' });
@@ -37,7 +39,7 @@ function criteriaRun(id: string, scores: number[], reachedEnd: boolean) {
       scores.map((score, i) => ({
         gradeId: grade.id,
         itemId: `ac${String(i + 1)}`,
-        criterion: definition.ticket.acceptanceCriteria[i] ?? '',
+        criterion: ticket.acceptanceCriteria[i] ?? '',
         score,
         maxScore: 2,
         reasoning: '理由。',
@@ -54,6 +56,7 @@ describe('Compare：没有隐藏测试的 ic task', () => {
     const result = compareRuns(db, {
       variants: ['baseline'],
       tasks: [taskId],
+      groupBy: 'variant',
       includeIntervened: false,
       includeCrossRef: false,
       includeSourceRef: false,
@@ -62,13 +65,15 @@ describe('Compare：没有隐藏测试的 ic task', () => {
     const c = result.cells[0];
     if (c === undefined) throw new Error('没有格子');
     expect(c.runIds).toEqual(['c1', 'c2']);
-    if (c.quality.kind !== 'ic_criteria') throw new Error('应为 ic_criteria');
-    expect(c.quality.criteriaRate.values).toEqual([
+    // 没有隐藏测试：用验收标准，不用隐藏测试
+    expect(c.quality).toMatchObject({ rubric: null, passRate: null });
+    const criteriaRate = c.quality.criteriaRate;
+    expect(criteriaRate?.values).toEqual([
       { runId: 'c1', value: 1 },
       { runId: 'c2', value: 0.5 },
     ]);
-    expect(c.quality.criteriaRate.mean).toBeCloseTo(0.75, 12);
-    expect(c.quality.reachedEnd.ratio).toBe(0.5);
+    expect(criteriaRate?.mean).toBeCloseTo(0.75, 12);
+    expect(c.quality.reachedEnd?.ratio).toBe(0.5);
     expect(c.rubricItems).toEqual([]);
     expect(c.criteriaItems.map((i) => [i.itemId, i.maxScore, i.score.mean])).toEqual([
       ['ac1', 2, 2],

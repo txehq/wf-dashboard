@@ -5,8 +5,8 @@ import { describe, expect, it } from 'vitest';
 import YAML from 'yaml';
 import { config } from '../../src/config.js';
 import { ciRuleset, COPY_COMMIT_TITLE, repoCreateArgs } from '../../src/external/github.js';
-import { loadIcTask, syncTasks } from '../../src/tasks/loader.js';
-import type { IcTask } from '../../src/tasks/schema.js';
+import { loadTask, syncTasks, withRepo } from '../../src/tasks/loader.js';
+import type { PrTask } from '../../src/tasks/schema.js';
 import { CALC_CI_IN_COPY, createCalcStartRepo } from '../helpers/calc-repo.js';
 import { git, testRunId } from '../helpers/ic-fixture.js';
 import { testRepos } from '../helpers/local-repos.js';
@@ -41,9 +41,10 @@ async function bundleTask(source: string, ref: string, name: string): Promise<st
   return taskDir;
 }
 
-const calcTask = (dir: string, commit: string): IcTask => ({
+const calcTask = (dir: string, commit: string): PrTask => ({
   id: 'ic-txe-3777',
-  kind: 'ic',
+  workflow: 'dev-workflow',
+  bigStage: 'ic',
   dir,
   title: 't',
   persona: 'p',
@@ -94,7 +95,7 @@ describe('副本仓库只保留 pull_request 的 workflow（本地 bare 仓库�
   it('ic-money-format：ci 的 push 触发被去掉，pull_request 保留', async () => {
     const { db, close } = openTestDb();
     syncTasks(db, config.tasksDir);
-    const task = loadIcTask(db, 'ic-money-format');
+    const task = withRepo(loadTask(db, 'ic-money-format'));
     close();
     const created = await repos.createCopy(
       task,
@@ -147,7 +148,7 @@ describe('副本仓库只保留 pull_request 的 workflow（本地 bare 仓库�
       '--description',
       'wf-dashboard eval run r-20261012-abc123 (ic-txe-3777)',
     ]);
-    const imported: IcTask = {
+    const imported: PrTask = {
       ...task,
       source: {
         linear: { identifier: 'TXE-3777', url: 'https://linear.app/capso/issue/TXE-3777' },

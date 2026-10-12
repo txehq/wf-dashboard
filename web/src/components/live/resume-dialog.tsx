@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { isBuiltVariant, type LiveDriver, resumeDefaultsQuery, resumeLive } from '@/lib/live-api';
-import { variantsQuery } from '@/pages/variants-api';
+import { variantLabel, variantsQuery } from '@/pages/variants-api';
 
 const LOCAL = 'local';
 
@@ -84,7 +84,7 @@ function ResumeForm({ sessionId, onClose }: { sessionId: string; onClose: () => 
         >
           {built.map((v) => (
             <option key={v.id} value={v.id}>
-              {v.name}（{v.model} · {v.effort}）
+              {variantLabel(v)}
             </option>
           ))}
           <option value={LOCAL}>本机配置（~/.claude）</option>

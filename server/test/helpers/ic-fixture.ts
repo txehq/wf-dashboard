@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execa } from 'execa';
 import { config } from '../../src/config.js';
-import { type IcTask, IcTaskDefinition, type IcTaskWithTests } from '../../src/tasks/schema.js';
+import { type PrTask, type Task, TaskDefinition, type TestsTask } from '../../src/tasks/schema.js';
 
 export const fixtureDir = fileURLToPath(new URL('../fixtures/ic-task/', import.meta.url));
 
@@ -28,18 +28,18 @@ export const git = (cwd: string, args: string[]) =>
   });
 
 // 带隐藏测试的 task 去掉隐藏测试与 task 目录：按验收标准评分的 task 定义
-export function withoutHiddenTests(task: IcTask, id: string): IcTaskDefinition {
-  const definition: Partial<IcTask> = { ...task, id };
+export function withoutHiddenTests(task: Task, id: string): TaskDefinition {
+  const definition: Partial<Task> = { ...task, id };
   delete definition.dir;
   delete definition.hiddenTests;
-  return IcTaskDefinition.parse(definition);
+  return TaskDefinition.parse(definition);
 }
 
 // 按 Contracts 第 6 节的形状在 .work/ 下建一个 task 目录：起始仓库由真实 git 命令提交并打成 bundle
 export async function buildFixtureTask(
   runId: string,
   timeoutSeconds = 600,
-): Promise<IcTaskWithTests> {
+): Promise<TestsTask & PrTask> {
   const root = path.join(config.repoRoot, '.work/test-tasks', runId);
   const source = path.join(root, 'source');
   const taskDir = path.join(root, 'task');
@@ -59,7 +59,8 @@ export async function buildFixtureTask(
   );
   return {
     id: 'w7-fixture',
-    kind: 'ic',
+    workflow: 'dev-workflow',
+    bigStage: 'ic',
     dir: taskDir,
     title: 'W7 fixture：subtract',
     persona: 'math 模块的维护者，回答简短。',

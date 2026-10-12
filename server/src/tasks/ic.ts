@@ -3,7 +3,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync } from
 import path from 'node:path';
 import { parse as parseJUnit, type TestCase, type TestSuite, type TestSuites } from 'junit2json';
 import { quote } from 'shell-quote';
-import type { IcTask, IcTaskWithTests } from './schema.js';
+import type { RepoTask, TestsTask } from './schema.js';
 
 // 隐藏测试在 checkout 中的位置，与 task 的测试命令一致
 export const hiddenTestsTarget = 'test/hidden';
@@ -20,7 +20,7 @@ function run(command: string, args: string[], cwd: string) {
 }
 
 // 从 task 的 git bundle clone 起始仓库并停在固定 commit
-export function checkoutStartRepo(task: IcTask, dest: string) {
+export function checkoutStartRepo(task: RepoTask, dest: string) {
   rmSync(dest, { recursive: true, force: true });
   mkdirSync(path.dirname(dest), { recursive: true });
   run('git', ['clone', '--quiet', '--no-checkout', path.join(task.dir, task.repo.path), dest], '.');
@@ -34,7 +34,7 @@ export function installDependencies(checkout: string) {
   run('npm', ['ci', '--no-audit', '--no-fund'], checkout);
 }
 
-export function placeHiddenTests(task: IcTaskWithTests, checkout: string) {
+export function placeHiddenTests(task: TestsTask, checkout: string) {
   const target = path.join(checkout, hiddenTestsTarget);
   rmSync(target, { recursive: true, force: true });
   cpSync(path.join(task.dir, task.hiddenTests.dir), target, { recursive: true });
@@ -43,7 +43,7 @@ export function placeHiddenTests(task: IcTaskWithTests, checkout: string) {
 // 测试配置由 task 提供，放在 checkout 之外的 configDir；同目录的 node_modules 指向 checkout 的依赖，
 // 配置中的 import（例如 @playwright/test）从 checkout 安装的包解析。返回配置文件的路径
 export function placeHiddenConfig(
-  task: IcTaskWithTests,
+  task: TestsTask,
   checkout: string,
   configDir: string,
 ): string {
@@ -56,7 +56,7 @@ export function placeHiddenConfig(
 }
 
 // 参考实现以文件形式存放在 tasks/<id>/reference/，目录结构与仓库一致，覆盖到 checkout 上
-export function applyReference(task: IcTask, checkout: string) {
+export function applyReference(task: RepoTask, checkout: string) {
   cpSync(path.join(task.dir, 'reference'), checkout, { recursive: true });
 }
 
@@ -113,7 +113,7 @@ export function junitCases(report: TestSuites | TestSuite): Omit<HiddenRun, 'exi
 // 运行 task 的测试命令（vitest 有失败测试时退出码为 1，属于正常结果），解析 JUnit XML；
 // JUnit 与测试配置写在 outDir 下
 export async function runHiddenTestCases(
-  task: IcTaskWithTests,
+  task: TestsTask,
   checkout: string,
   outDir: string,
 ): Promise<HiddenRun> {

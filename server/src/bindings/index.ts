@@ -11,6 +11,7 @@ import {
   variants as variantsTable,
 } from '../db/schema.js';
 import { events } from '../events.js';
+import { publishStageChanges, updateStages } from '../stages/report.js';
 import { HttpError } from '../variants/errors.js';
 import type { Variants } from '../variants/index.js';
 import { dataLayout } from '../variants/layout.js';
@@ -119,6 +120,8 @@ function setBinding(
     .where(eq(sessions.id, sessionId))
     .run();
   events.publish({ type: 'session.updated', sessionId });
+  // 绑定的 variant 决定阶段划分所用的 workflow（Contracts 16.6）：workflow 变化时从头重算
+  publishStageChanges(sessionId, updateStages(db, sessionId));
 }
 
 // 重新判定一个 session 的自动绑定：run 与手动的绑定不动；当前自动绑定的 variant 仍一致时保留，

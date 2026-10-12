@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { criteriaSchema, readCriteriaJudgment } from '../../src/grading/ic-criteria.js';
-import type { IcTask } from '../../src/tasks/schema.js';
+import type { PrTask } from '../../src/tasks/schema.js';
 
-const task: IcTask = {
+const task: PrTask = {
   id: 'w28-read',
-  kind: 'ic',
+  workflow: 'dev-workflow',
+  bigStage: 'ic',
   dir: '/nonexistent',
   title: 't',
   persona: 'p',

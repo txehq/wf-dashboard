@@ -92,9 +92,14 @@ test('Sessions：来源勾选、列表、详情、导入即有的阶段、进入
 
   // implement：证据是进入它的那次 Skill 调用，只列出该阶段的请求
   const stages = (await (await request.get(`/api/sessions/${icSession}/stages`)).json()) as {
-    ic: { stages: { stage: string; startSeq: number; endSeq: number }[] }[];
+    bigStages: {
+      bigStage: string;
+      cycles: { stages: { stage: string; startSeq: number; endSeq: number }[] }[];
+    }[];
   };
-  const implement = stages.ic[0]?.stages.find((s) => s.stage === 'implement');
+  const implement = stages.bigStages
+    .find((b) => b.bigStage === 'ic')
+    ?.cycles[0]?.stages.find((s) => s.stage === 'implement');
   if (implement === undefined) throw new Error('没有 implement 阶段');
   await ic.getByTestId('stage-implement').click();
   await expect(page).toHaveURL(/stage=ic%3Aimplement/);

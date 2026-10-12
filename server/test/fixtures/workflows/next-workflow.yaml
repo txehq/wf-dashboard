@@ -1,0 +1,28 @@
+# Contracts 16.1 的例子：大阶段 newlfg、newic，有自己的小阶段
+id: next-workflow
+name: next-workflow
+bigStages:
+  - id: newlfg
+    title: 想法到工单
+    prepare: [empty-repo, vault-dir]
+    message: "/newlfg {input}\n\nProduct: Magi Eval\nFeature slug: {runId}\nRepository: {repo}"
+    done: agent 报告工单已建好并停在派发确认处，或明确报告无法继续
+    taskFields: [input, persona, hiddenRequirements, rubric]
+    stages:
+      - id: scope
+      - id: spike
+      - id: tickets
+    grading:
+      - rubric: { artifacts: [{ id: scope, file: Scope.md }, { id: tickets, file: Tickets.md }] }
+  - id: newic
+    title: 工单到 PR
+    prepare: [repo-copy, ticket-copy]
+    message: '/newic {ticket}'
+    done: agent 报告 PR 已标为 ready for review，或明确报告无法继续
+    stages:
+      - id: build
+      - id: ship
+      - id: polish
+        repeatable: true
+        allowInside: [build]
+    grading: [hidden-tests, criteria-judge, pr-endpoint]

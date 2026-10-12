@@ -8,7 +8,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { createBatch, settingsQuery } from '@/lib/runs-api';
 import { tasksQuery } from '@/lib/tasks';
-import { buildLabel, type Variant, variantsQuery } from '@/pages/variants-api';
+import { bigStageIn, workflowsQuery } from '@/lib/workflows-api';
+import {
+  buildLabel,
+  type Variant,
+  variantLabel,
+  variantOptionsQuery,
+  variantsQuery,
+} from '@/pages/variants-api';
 
 function isBuilt(v: Variant): boolean {
   return v.buildStatus === 'built' && v.builtHash === v.skillsHash;
@@ -18,15 +25,19 @@ function toggle(list: string[], id: string): string[] {
   return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
 }
 
-// 发起 batch：已构建的 variant × task × 重复次数
+// 发起 batch：已构建的 variant × task × 重复次数；model 与 effort 作用于其中全部 run（Contracts 16.5）
 export function LaunchBatch() {
   const client = useQueryClient();
   const variants = useQuery(variantsQuery);
   const tasks = useQuery(tasksQuery);
   const settings = useQuery(settingsQuery);
+  const options = useQuery(variantOptionsQuery);
+  const workflows = useQuery(workflowsQuery);
   const [variantIds, setVariantIds] = useState<string[]>([]);
   const [taskIds, setTaskIds] = useState<string[]>([]);
   const [repeats, setRepeats] = useState<number | null>(null);
+  const [model, setModel] = useState<string | null>(null);
+  const [effort, setEffort] = useState<string | null>(null);
   const launch = useMutation({
     mutationFn: createBatch,
     onSuccess: async () => {
@@ -37,12 +48,22 @@ export function LaunchBatch() {
     },
   });
 
-  // 默认次数来自设置；设置还没有读到（或读取失败）时不能发起，不用 1 次代替
+  // 默认次数、模型与 effort 来自设置；设置还没有读到（或读取失败）时不能发起，不用别的值代替
   const repeatCount = repeats ?? settings.data?.defaultRepeats ?? null;
+  const chosenModel = model ?? settings.data?.agentModel ?? null;
+  const chosenEffort = effort ?? settings.data?.agentEffort ?? null;
   const total = variantIds.length * taskIds.length * (repeatCount ?? 0);
   const chosenTasks = (tasks.data ?? []).filter((t) => taskIds.includes(t.task.id));
-  const hasLfg = chosenTasks.some((t) => t.task.kind === 'lfg');
-  const hasIc = chosenTasks.some((t) => t.task.kind === 'ic');
+  const prepares = chosenTasks.flatMap(
+    (t) => bigStageIn(workflows.data, t.task.workflow, t.task.bigStage)?.prepare ?? [],
+  );
+  // task 按 workflow 与大阶段分组
+  const taskGroups = [
+    ...new Set((tasks.data ?? []).map((t) => `${t.task.workflow}/${t.task.bigStage}`)),
+  ].map((key) => ({
+    key,
+    records: (tasks.data ?? []).filter((t) => `${t.task.workflow}/${t.task.bigStage}` === key),
+  }));
 
   return (
     <Card data-testid="launch-batch">
@@ -80,10 +101,7 @@ export function LaunchBatch() {
                       }}
                     />
                     <span className={built ? 'truncate' : 'truncate text-muted-foreground'}>
-                      {v.name}
-                    </span>
-                    <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                      {v.model} · {v.effort}
+                      {variantLabel(v)}
                     </span>
                   </label>
                   {!built && v.installDir === null && (
@@ -107,58 +125,111 @@ export function LaunchBatch() {
             <legend className="mb-1 text-sm font-medium">task</legend>
             {tasks.isPending && <p className="text-sm text-muted-foreground">加载中…</p>}
             {tasks.isError && <p className="text-sm text-destructive">{tasks.error.message}</p>}
-            {(['lfg', 'ic'] as const).map((kind) => {
-              const group = (tasks.data ?? []).filter((t) => t.task.kind === kind);
-              if (group.length === 0) return null;
-              return (
-                <div key={kind} className="flex flex-col gap-1">
-                  <span className="text-xs text-muted-foreground">/{kind}</span>
-                  {group.map((t) => (
-                    <label key={t.task.id} className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={taskIds.includes(t.task.id)}
-                        onChange={() => {
-                          setTaskIds(toggle(taskIds, t.task.id));
-                        }}
-                      />
-                      {t.task.title}
-                    </label>
-                  ))}
-                </div>
-              );
-            })}
+            {taskGroups.map(({ key, records }) => (
+              <div key={key} className="flex flex-col gap-1">
+                <span className="text-xs text-muted-foreground">{key}</span>
+                {records.map((t) => (
+                  <label key={t.task.id} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={taskIds.includes(t.task.id)}
+                      onChange={() => {
+                        setTaskIds(toggle(taskIds, t.task.id));
+                      }}
+                    />
+                    {t.task.title}
+                  </label>
+                ))}
+              </div>
+            ))}
           </fieldset>
-          <label className="flex flex-col gap-1.5 text-sm">
-            <span className="font-medium">重复次数</span>
-            {repeatCount === null ? (
-              settings.isError ? (
-                <span role="alert" className="text-destructive" data-testid="repeats-error">
-                  读取默认次数失败：{settings.error.message}
-                </span>
+          <div className="flex flex-col gap-3">
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="font-medium">重复次数</span>
+              {repeatCount === null ? (
+                settings.isError ? (
+                  <span role="alert" className="text-destructive" data-testid="repeats-error">
+                    读取默认次数失败：{settings.error.message}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">加载中…</span>
+                )
               ) : (
-                <span className="text-muted-foreground">加载中…</span>
-              )
-            ) : (
-              <Input
-                type="number"
-                min={1}
-                max={50}
-                value={repeatCount}
-                className="w-24"
+                <Input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={repeatCount}
+                  className="w-24"
+                  onChange={(event) => {
+                    setRepeats(Number(event.target.value));
+                  }}
+                />
+              )}
+            </label>
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="font-medium">model</span>
+              <select
+                className="h-9 rounded-md border bg-background px-2"
+                data-testid="launch-model"
+                value={chosenModel ?? ''}
+                disabled={chosenModel === null || options.data === undefined}
                 onChange={(event) => {
-                  setRepeats(Number(event.target.value));
+                  setModel(event.target.value);
                 }}
-              />
+              >
+                {options.data?.models.map((m) => (
+                  <option key={m.alias} value={m.alias}>
+                    {m.alias}（{m.model}）
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="font-medium">effort</span>
+              <select
+                className="h-9 rounded-md border bg-background px-2"
+                data-testid="launch-effort"
+                value={chosenEffort ?? ''}
+                disabled={chosenEffort === null || options.data === undefined}
+                onChange={(event) => {
+                  setEffort(event.target.value);
+                }}
+              >
+                {options.data?.efforts.map((e) => (
+                  <option key={e} value={e}>
+                    {e}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {options.isError && (
+              <span role="alert" className="text-sm text-destructive">
+                读取模型列表失败：{options.error.message}
+              </span>
             )}
-          </label>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-4 border-t pt-4">
           <Button
-            disabled={repeatCount === null || total === 0 || launch.isPending}
+            disabled={
+              repeatCount === null ||
+              chosenModel === null ||
+              chosenEffort === null ||
+              total === 0 ||
+              launch.isPending
+            }
             onClick={() => {
-              if (repeatCount === null) throw new Error('还没有重复次数');
-              launch.mutate({ variantIds, taskIds, repeats: repeatCount });
+              if (repeatCount === null || chosenModel === null || chosenEffort === null) {
+                throw new Error('还没有重复次数、model 或 effort');
+              }
+              launch.mutate({
+                variantIds,
+                taskIds,
+                repeats: repeatCount,
+                model: chosenModel,
+                effort: chosenEffort,
+              });
             }}
           >
             <Play />
@@ -170,17 +241,16 @@ export function LaunchBatch() {
           >
             <span>
               {variantIds.length} 个 variant × {taskIds.length} 个 task × {repeatCount ?? '?'} 次 ={' '}
-              {total} 个 run；选中的 variant 将被冻结，之后不能再编辑。
+              {total} 个 run（{chosenModel ?? '?'} · {chosenEffort ?? '?'}）；选中的 variant
+              将被冻结，之后不能再编辑。
             </span>
-            {hasLfg && (
-              <span>
-                /lfg 的每个 run 会在 txehq 建一个空仓库，并写入 vault 的 Project Magi Eval。
-              </span>
+            {prepares.includes('empty-repo') && <span>每个 run 会在 txehq 建一个空仓库。</span>}
+            {prepares.includes('vault-dir') && (
+              <span>每个 run 会写入 vault 的 Project Magi Eval。</span>
             )}
-            {hasIc && (
-              <span>
-                /ic 的每个 run 会在 txehq 建起始仓库的副本，并在 Linear Workflow Eval 建工单。
-              </span>
+            {prepares.includes('repo-copy') && <span>每个 run 会在 txehq 建起始仓库的副本。</span>}
+            {prepares.includes('ticket-copy') && (
+              <span>每个 run 会在 Linear Workflow Eval 建工单。</span>
             )}
           </div>
           <EnvironmentWarning />

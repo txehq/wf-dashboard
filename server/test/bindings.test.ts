@@ -92,8 +92,6 @@ describe('session 绑定 variant', { timeout: 300_000 }, () => {
     const a = await variants.createBaseline({
       name: 'w31-基线 A',
       commit: BASE_COMMIT,
-      model: 'opus',
-      effort: 'high',
     });
     first = a.id;
     expect(binding(LFG.sessionId)).toEqual({ variantId: a.id, binding: 'auto' });
@@ -203,6 +201,8 @@ describe('session 绑定 variant', { timeout: 300_000 }, () => {
         taskId: 'lfg-calculator',
         variantId: second,
         repeatIndex: 0,
+        model: 'opus',
+        effort: 'high',
         status: 'succeeded',
         sessionId,
         workspacePath: runDir,

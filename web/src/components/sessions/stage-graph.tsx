@@ -13,7 +13,7 @@ import '@xyflow/react/dist/base.css';
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { StatusLabel } from '@/components/sessions/status-label';
 import { formatCount, formatDuration, formatInteger, formatUsd } from '@/lib/format';
-import type { StageStatus, StageView, Workflow } from '@/lib/sessions-api';
+import type { StageStatus, StageView } from '@/lib/sessions-api';
 
 // 跳过：虚线边框加斜纹；未到达：点线边框、淡色文字
 const statusBox: Record<StageStatus, string> = {
@@ -206,7 +206,8 @@ export function StageGraph({
   onSelect,
   live = false,
 }: {
-  workflow: Workflow;
+  // 大阶段 id（Contracts 16.6）
+  workflow: string;
   views: StageView[];
   selected: string | null;
   onSelect: (stage: string) => void;

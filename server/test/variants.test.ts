@@ -79,8 +79,6 @@ describe('variant 构建与隔离安装', { timeout: 1_800_000 }, () => {
     ]);
     base = await variants.createBaseline({
       name: `基线 ${marker}`,
-      model: 'opus',
-      effort: 'high',
     });
     created.push(base);
     expect(base.baseCommit).toBe(head.trim());
@@ -240,6 +238,11 @@ describe('variant 构建与隔离安装', { timeout: 1_800_000 }, () => {
         'json',
         '--permission-mode',
         'bypassPermissions',
+        // 与 runner 相同：模型与 effort 由 run 决定，放在 variant 的参数之前
+        '--model',
+        'opus',
+        '--effort',
+        'high',
         ...runtime.claudeArgs,
       ],
       {
@@ -303,8 +306,11 @@ describe('variant 构建与隔离安装', { timeout: 1_800_000 }, () => {
     expect(mod.status).toBe('frozen');
     expect(() => variants.writeFile(mod.id, interview, 'x')).toThrow(/已冻结/);
     expect(() => variants.deleteFile(mod.id, interview)).toThrow(/已冻结/);
-    expect(() => variants.setSettings(mod.id, { effort: 'low' })).toThrow(/已冻结/);
     await expect(variants.build(mod.id)).rejects.toThrow(/已冻结/);
+    // 派生只能在同一 workflow 内
+    expect(() =>
+      variants.derive(mod.id, { name: `跨 workflow ${marker}`, workflowId: 'next-workflow' }),
+    ).toThrow(/派生只能在同一 workflow 内/);
     // 冻结的 variant 仍可派生出新的 draft
     const copy = variants.derive(mod.id, { name: `另存 ${marker}` });
     created.push(copy);

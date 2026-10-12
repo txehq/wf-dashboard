@@ -35,8 +35,7 @@ interface VariantBody {
   name: string;
   parentId: string | null;
   skillsHash: string;
-  model: string;
-  effort: string;
+  workflowId: string;
   buildStatus: string;
 }
 
@@ -62,8 +61,9 @@ describe('variants API', () => {
     expect(created.statusCode).toBe(201);
     base = created.json<VariantBody>();
     createdIds.push(base.id);
-    expect(base.model).toBe('opus');
-    expect(base.effort).toBe('high');
+    expect(base.workflowId).toBe('dev-workflow');
+    expect(base).not.toHaveProperty('model');
+    expect(base).not.toHaveProperty('effort');
 
     const derived = await app.inject({
       method: 'POST',
@@ -74,7 +74,15 @@ describe('variants API', () => {
     draft = derived.json<VariantBody>();
     createdIds.push(draft.id);
     expect(draft.parentId).toBe(base.id);
+    expect(draft.workflowId).toBe('dev-workflow');
 
+    const crossWorkflow = await app.inject({
+      method: 'POST',
+      url: `/api/variants/${base.id}/derive`,
+      payload: { name: `api 跨 workflow ${marker}`, workflowId: 'next-workflow' },
+    });
+    expect(crossWorkflow.statusCode).toBe(400);
+    expect(crossWorkflow.body).toContain('派生只能在同一 workflow 内');
     const duplicate = await app.inject({
       method: 'POST',
       url: `/api/variants/${base.id}/derive`,
@@ -89,7 +97,7 @@ describe('variants API', () => {
     expect((await app.inject({ method: 'GET', url: '/api/variants/nope' })).statusCode).toBe(404);
   });
 
-  test('文件树、读写、diff 与设置', async () => {
+  test('文件树、读写与 diff', async () => {
     const files = (
       await app.inject({ method: 'GET', url: `/api/variants/${draft.id}/files` })
     ).json<{ path: string; size: number }[]>();
@@ -124,18 +132,13 @@ describe('variants API', () => {
     });
     expect(noParent.statusCode).toBe(400);
 
+    // variant 不再有模型与 effort 的设置：没有 PATCH 路由
     const patched = await app.inject({
       method: 'PATCH',
       url: `/api/variants/${draft.id}`,
       payload: { model: 'sonnet', effort: 'xhigh' },
     });
-    expect(patched.json<VariantBody>()).toMatchObject({ model: 'sonnet', effort: 'xhigh' });
-    const badEffort = await app.inject({
-      method: 'PATCH',
-      url: `/api/variants/${draft.id}`,
-      payload: { effort: 'ultra' },
-    });
-    expect(badEffort.statusCode).toBe(400);
+    expect(patched.statusCode).toBe(404);
 
     const log = await app.inject({ method: 'GET', url: `/api/variants/${draft.id}/build-log` });
     expect(log.headers['content-type']).toMatch(/^text\/plain/);

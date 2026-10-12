@@ -72,8 +72,6 @@ describe('绑定与分析的 HTTP 接口', { timeout: 120_000 }, () => {
     const base = await variants.createBaseline({
       name: 'w31-api-基线',
       commit: BASE_COMMIT,
-      model: 'opus',
-      effort: 'high',
     });
     const view = await app.inject({ method: 'GET', url: `/api/sessions/${IC.sessionId}/binding` });
     expect(view.json()).toMatchObject({

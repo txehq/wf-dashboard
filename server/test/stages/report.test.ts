@@ -5,11 +5,20 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { buildApp } from '../../src/api/app.js';
 import { config } from '../../src/config.js';
 import type { Db } from '../../src/db/index.js';
-import { batches, runs } from '../../src/db/schema.js';
+import { batches, runs, sessions, workflowTable } from '../../src/db/schema.js';
 import { ingestFile } from '../../src/ingest/ingest.js';
-import { readReport, StageReport, stageReport, updateStages } from '../../src/stages/report.js';
-import { loadSessionRows, type RequestRow } from '../../src/stages/rows.js';
+import {
+  readReport,
+  StageReport,
+  stageReport as stageReportOf,
+  updateStages,
+  type WorkflowCycle,
+} from '../../src/stages/report.js';
+import { loadSessionRows, type RequestRow, type SessionRows } from '../../src/stages/rows.js';
 import { syncTasks } from '../../src/tasks/loader.js';
+import { loadWorkflow, parseDefinition } from '../../src/workflows/index.js';
+import { eq } from 'drizzle-orm';
+import { parse } from 'yaml';
 import { insertVariant } from '../grading/seed.js';
 import { unpackRunFixture } from '../helpers/run-fixture.js';
 import { insertSession, openTestDb } from './db.js';
@@ -19,6 +28,9 @@ const work = path.join(config.repoRoot, '.work', 'test-stage-report', randomUUID
 const { db, close } = openTestDb();
 syncTasks(db, config.tasksDir);
 insertVariant(db, 'stage-report-v');
+// 一次算出的划分用内置的 dev-workflow 定义
+const stageReport = (rows: SessionRows, finished: boolean) =>
+  stageReportOf(loadWorkflow(db, 'dev-workflow'), rows, finished);
 const app = await buildApp({
   db,
   sseHeartbeatMs: config.sseHeartbeatMs,
@@ -53,6 +65,8 @@ function finishedRun(runId: string, sessionId: string, taskId: string) {
       taskId,
       variantId: 'stage-report-v',
       repeatIndex: 0,
+      model: 'opus',
+      effort: 'high',
       status: 'succeeded',
       sessionId,
       workspacePath: path.join(work, runId),
@@ -69,7 +83,18 @@ type Expected = [
   evidence: { seq: number; kind: string; text: string } | null,
 ];
 
-const views = (c: StageReport['ic'][number] | undefined): Expected[] =>
+// dev-workflow 的两个大阶段：StageReport 按定义的顺序列出 lfg、ic（Contracts 16.6）
+function cyclesOf(report: StageReport, bigStage: string): WorkflowCycle[] {
+  expect(report.workflowId).toBe('dev-workflow');
+  expect(report.bigStages.map((b) => b.bigStage)).toEqual(['lfg', 'ic']);
+  const found = report.bigStages.find((b) => b.bigStage === bigStage);
+  if (found === undefined) throw new Error(`没有大阶段 ${bigStage}`);
+  return found.cycles;
+}
+const lfgCycles = (report: StageReport) => cyclesOf(report, 'lfg');
+const icCycles = (report: StageReport) => cyclesOf(report, 'ic');
+
+const views = (c: WorkflowCycle | undefined): Expected[] =>
   (c?.stages ?? []).map((v) => [v.stage, v.status, v.startSeq, v.endSeq, v.entries, v.evidence]);
 
 const skill = (seq: number, text: string) => ({ seq, kind: 'skill', text });
@@ -78,7 +103,7 @@ const command = (seq: number, text: string) => ({ seq, kind: 'command', text });
 // 守恒：各阶段与 outside 的 mainRequests 之和等于主请求数；各阶段区间互不重叠
 function expectConservation(sessionId: string, report: StageReport) {
   const rows = loadSessionRows(db, sessionId);
-  const spans = [...report.lfg, ...report.ic].flatMap((c) => c.stages);
+  const spans = [...lfgCycles(report), ...icCycles(report)].flatMap((c) => c.stages);
   const main = spans.reduce((n, v) => n + v.stats.mainRequests, 0);
   expect(main + report.outside.mainRequests).toBe(rows.main.length);
   for (const r of rows.main) {
@@ -105,16 +130,16 @@ describe('真实样本的阶段划分', () => {
       }),
     );
 
-    expect(report.lfg.map((c) => [c.index, c.label, c.startSeq, c.endSeq])).toEqual([
+    expect(lfgCycles(report).map((c) => [c.index, c.label, c.startSeq, c.endSeq])).toEqual([
       [1, '/interview', 138, 548],
     ]);
-    expect(views(report.lfg[0])).toEqual([
+    expect(views(lfgCycles(report)[0])).toEqual([
       ['interview', 'done', 138, 548, 1, command(138, '/interview')],
       ['research', 'not-reached', null, null, 0, null],
       ['plan', 'not-reached', null, null, 0, null],
       ['ticketing', 'not-reached', null, null, 0, null],
     ]);
-    expect(report.ic.map((c) => [c.index, c.label, c.startSeq, c.endSeq])).toEqual([
+    expect(icCycles(report).map((c) => [c.index, c.label, c.startSeq, c.endSeq])).toEqual([
       [1, '第 1 轮', 549, 791],
       [2, '第 2 轮', 792, 1142],
       [3, '第 3 轮', 1143, 1230],
@@ -140,21 +165,21 @@ describe('真实样本的阶段划分', () => {
         null,
       ]);
     // PR #72：Skill fix-pr 557
-    expect(views(report.ic[0])).toEqual([
+    expect(views(icCycles(report)[0])).toEqual([
       ...skippedBefore(549),
       ['open-pr', 'done', 549, 556, 1, skill(549, skillText(549, 'open-pr'))],
       ['fix-pr', 'done', 557, 791, 1, skill(557, skillText(557, 'fix-pr'))],
       ['ready-for-review', 'not-reached', null, null, 0, null],
     ]);
     // PR #77：没有调用 fix-pr，fix-pr 未到达
-    expect(views(report.ic[1])).toEqual([
+    expect(views(icCycles(report)[1])).toEqual([
       ...skippedBefore(792),
       ['open-pr', 'done', 792, 1142, 1, skill(792, skillText(792, 'open-pr'))],
       ['fix-pr', 'not-reached', null, null, 0, null],
       ['ready-for-review', 'not-reached', null, null, 0, null],
     ]);
     // PR #78：离线 session 的最后一个阶段为 active
-    expect(views(report.ic[2])).toEqual([
+    expect(views(icCycles(report)[2])).toEqual([
       ...skippedBefore(1143),
       ['open-pr', 'done', 1143, 1153, 1, skill(1143, skillText(1143, 'open-pr'))],
       ['fix-pr', 'active', 1154, 1230, 1, skill(1154, skillText(1154, 'fix-pr'))],
@@ -172,11 +197,11 @@ describe('真实样本的阶段划分', () => {
     finishedRun(runId, sessionId, 'lfg-calculator');
     ingestFile(db, unpackRunFixture(runId, sessionId, path.join(work, runId)));
     const report = await stages(sessionId);
-    const lfg = report.lfg[0];
-    expect(report.lfg.map((c) => [c.index, c.label, c.startSeq, c.endSeq])).toEqual([
+    const lfg = lfgCycles(report)[0];
+    expect(lfgCycles(report).map((c) => [c.index, c.label, c.startSeq, c.endSeq])).toEqual([
       [1, '/lfg 做一个计算器', 0, 172],
     ]);
-    expect(report.ic).toEqual([]);
+    expect(icCycles(report)).toEqual([]);
     expect(
       views(lfg).map(([stage, status, s, e, n, ev]) => [stage, status, s, e, n, ev?.seq]),
     ).toEqual([
@@ -197,10 +222,10 @@ describe('真实样本的阶段划分', () => {
     finishedRun(runId, sessionId, 'ic-money-format');
     ingestFile(db, unpackRunFixture(runId, sessionId, path.join(work, runId)));
     const report = await stages(sessionId);
-    expect(report.ic.map((c) => [c.index, c.label, c.startSeq, c.endSeq])).toEqual([
+    expect(icCycles(report).map((c) => [c.index, c.label, c.startSeq, c.endSeq])).toEqual([
       [1, '/ic TXE-3767', 0, 33],
     ]);
-    expect(views(report.ic[0])).toEqual([
+    expect(views(icCycles(report)[0])).toEqual([
       ['claim', 'done', 1, 6, 1, skill(1, 'Skill: claim TXE-3767')],
       [
         'readiness',
@@ -310,12 +335,12 @@ describe('fix-pr 与更前面的阶段', () => {
   test('fix-pr 多次调用：entries 计数，不切新阶段；fix-pr 中的 acceptance 留在 fix-pr', async () => {
     const id = compose(['fix-pr', 'fix-pr', 'acceptance', 'fix-pr']);
     const report = await stages(id);
-    expect(report.ic).toHaveLength(1);
-    const fix = report.ic[0]?.stages.find((v) => v.stage === 'fix-pr');
+    expect(icCycles(report)).toHaveLength(1);
+    const fix = icCycles(report)[0]?.stages.find((v) => v.stage === 'fix-pr');
     // 34 + 8 条请求：fix-pr 从 #34 到最后一条
     expect(fix).toMatchObject({ status: 'active', startSeq: 34, endSeq: 41, entries: 3 });
     expect(fix?.evidence).toEqual({ seq: 34, kind: 'skill', text: 'Skill: fix-pr' });
-    expect(report.ic[0]?.stages.find((v) => v.stage === 'open-pr')).toMatchObject({
+    expect(icCycles(report)[0]?.stages.find((v) => v.stage === 'open-pr')).toMatchObject({
       status: 'done',
       startSeq: 23,
       endSeq: 33,
@@ -327,11 +352,13 @@ describe('fix-pr 与更前面的阶段', () => {
     const id = compose(['fix-pr', 'implement', 'open-pr']);
     const report = await stages(id);
     // 拼出的 session 没有用户消息：第 1 轮由 Skill claim（#1）开启
-    expect(report.ic.map((c) => [c.label, c.startSeq, c.endSeq])).toEqual([
+    expect(icCycles(report).map((c) => [c.label, c.startSeq, c.endSeq])).toEqual([
       ['第 1 轮', 1, 35],
       ['第 2 轮', 36, 39],
     ]);
-    expect(views(report.ic[1]).map(([stage, status, s, e]) => [stage, status, s, e])).toEqual([
+    expect(
+      views(icCycles(report)[1]).map(([stage, status, s, e]) => [stage, status, s, e]),
+    ).toEqual([
       ['claim', 'skipped', 36, 35],
       ['readiness', 'skipped', 36, 35],
       ['implement', 'done', 36, 37],
@@ -340,11 +367,93 @@ describe('fix-pr 与更前面的阶段', () => {
       ['fix-pr', 'not-reached', null, null],
       ['ready-for-review', 'not-reached', null, null],
     ]);
-    expect(report.ic[0]?.stages.find((v) => v.stage === 'fix-pr')).toMatchObject({
+    expect(icCycles(report)[0]?.stages.find((v) => v.stage === 'fix-pr')).toMatchObject({
       status: 'done',
       startSeq: 34,
       endSeq: 35,
     });
     expectConservation(id, report);
+  });
+});
+
+// 16.6：绑定到 next-workflow 的 variant 的 session 按 next-workflow 的定义切块
+describe('next-workflow 的阶段划分', () => {
+  const nextDefinition = parseDefinition(
+    parse(
+      fs.readFileSync(
+        path.join(import.meta.dirname, '../fixtures/workflows/next-workflow.yaml'),
+        'utf8',
+      ),
+    ),
+    'next-workflow.yaml',
+  );
+  db.insert(workflowTable)
+    .values({
+      id: 'next-workflow',
+      name: 'next-workflow',
+      definition: nextDefinition,
+      updatedAt: new Date(),
+    })
+    .run();
+  insertVariant(db, 'next-v', 'next-workflow');
+
+  test('scope、spike、tickets 一轮 newlfg；build 开启 newic，polish 中的 build 不切换、再次 polish 计次', async () => {
+    const base = loadSessionRows(db, '70e7a9b6-fdad-44c3-9b65-015ee2a0499c').main;
+    const template = base.find((r) => r.toolCalls.some((c) => c.name === 'Skill'));
+    const call = template?.toolCalls.find((c) => c.name === 'Skill');
+    const last = base.at(-1);
+    if (template === undefined || call === undefined || last === undefined) {
+      throw new Error('27yz3d 没有 Skill 调用');
+    }
+    const names = ['scope', 'spike', 'tickets', 'build', 'ship', 'polish', 'build', 'polish'];
+    const extra = names.flatMap((name, i): RequestRow[] => {
+      const at = last.timestamp.getTime() + (i + 1) * 60_000;
+      return [
+        {
+          ...template,
+          messageId: `${template.messageId}-next-${String(i)}`,
+          seq: last.seq + 1 + i * 2,
+          timestamp: new Date(at),
+          toolCalls: [{ ...call, id: `${call.id}-next-${String(i)}`, input: { skill: name } }],
+        },
+        {
+          ...last,
+          messageId: `${last.messageId}-next-${String(i)}-work`,
+          seq: last.seq + 2 + i * 2,
+          timestamp: new Date(at + 1000),
+        },
+      ];
+    });
+    const id = randomUUID();
+    insertSession(db, id, [...base, ...extra], null);
+    // 先按 dev-workflow 划分（未绑定），绑定后从头按 next-workflow 重算
+    updateStages(db, id);
+    expect((await stages(id)).workflowId).toBe('dev-workflow');
+    db.update(sessions)
+      .set({ variantId: 'next-v', variantBinding: 'manual' })
+      .where(eq(sessions.id, id))
+      .run();
+    const report = await stages(id);
+    expect(report.workflowId).toBe('next-workflow');
+    expect(report.bigStages.map((b) => [b.bigStage, b.title, b.cycles.length])).toEqual([
+      ['newlfg', '想法到工单', 1],
+      ['newic', '工单到 PR', 1],
+    ]);
+    const [newlfg, newic] = report.bigStages.map((b) => b.cycles[0]);
+    expect([newlfg?.label, newlfg?.startSeq, newlfg?.endSeq]).toEqual(['第 1 轮', 34, 39]);
+    // dev-workflow 的 Skill（claim、open-pr 等）不是 next-workflow 的标记
+    expect(views(newlfg).map(([stage, status, s, e, n]) => [stage, status, s, e, n])).toEqual([
+      ['scope', 'done', 34, 35, 1],
+      ['spike', 'done', 36, 37, 1],
+      ['tickets', 'done', 38, 39, 1],
+    ]);
+    expect([newic?.label, newic?.startSeq, newic?.endSeq]).toEqual(['第 1 轮', 40, 49]);
+    expect(views(newic).map(([stage, status, s, e, n]) => [stage, status, s, e, n])).toEqual([
+      ['build', 'done', 40, 41, 1],
+      ['ship', 'done', 42, 43, 1],
+      ['polish', 'active', 44, 49, 2],
+    ]);
+    expect(report.outside.mainRequests).toBe(34);
+    expect(report).toEqual(stageReportOf(nextDefinition, loadSessionRows(db, id), false));
   });
 });

@@ -15,20 +15,22 @@ import {
   useSessionEvents,
   type SessionDetail,
   type StageReport,
-  type Workflow,
   type WorkflowCycle,
 } from '@/lib/sessions-api';
 import { cycleName } from '@/lib/stage-status';
 
-const workflowTitle: Record<Workflow, string> = {
-  lfg: '/lfg 阶段',
-  ic: '/ic 阶段',
-};
+// 每个大阶段一行（Contracts 16.6）
+const workflowTitle = (bigStage: string) => `/${bigStage} 阶段`;
 
-function parseSelection(value: string | null): { workflow: Workflow; stage: string } | null {
+// URL 中的 stage=<大阶段>:<小阶段>
+function parseSelection(
+  report: StageReport,
+  value: string | null,
+): { workflow: string; stage: string } | null {
   if (value === null) return null;
   const [workflow, stage] = value.split(':');
-  if ((workflow !== 'lfg' && workflow !== 'ic') || stage === undefined) return null;
+  if (workflow === undefined || stage === undefined) return null;
+  if (!report.bigStages.some((b) => b.bigStage === workflow)) return null;
   return { workflow, stage };
 }
 
@@ -36,14 +38,14 @@ function cycleRange(c: WorkflowCycle): string {
   return `#${String(c.startSeq)} – #${String(c.endSeq)}`;
 }
 
-// 一个 workflow 的轮次切换：标签为开启这一轮的输入
+// 一个大阶段的轮次切换：标签为开启这一轮的输入
 function CycleTabs({
   workflow,
   cycles,
   selected,
   onSelect,
 }: {
-  workflow: Workflow;
+  workflow: string;
   cycles: WorkflowCycle[];
   selected: number;
   onSelect: (index: number) => void;
@@ -86,7 +88,7 @@ function StagesSection({
   onJump: (seq: number, toolCallId: string | null) => void;
 }) {
   const [params, setParams] = useSearchParams();
-  const selection = parseSelection(params.get('stage'));
+  const selection = parseSelection(report, params.get('stage'));
   const detailRef = useRef<HTMLDivElement>(null);
   const update = (change: (next: URLSearchParams) => void) => {
     setParams(
@@ -98,14 +100,16 @@ function StagesSection({
       { replace: true },
     );
   };
-  // 每个 workflow 选中的轮次，默认第 1 轮
-  const cycleOf = (workflow: Workflow): WorkflowCycle | undefined => {
-    const cycles = report[workflow];
+  const cyclesIn = (workflow: string): WorkflowCycle[] =>
+    report.bigStages.find((b) => b.bigStage === workflow)?.cycles ?? [];
+  // 每个大阶段选中的轮次，默认第 1 轮
+  const cycleOf = (workflow: string): WorkflowCycle | undefined => {
+    const cycles = cyclesIn(workflow);
     const index = Number(params.get(workflow) ?? '1');
     return cycles.find((c) => c.index === index) ?? cycles[0];
   };
   // 再次点击已选中的阶段恢复全部请求
-  const select = (workflow: Workflow, stage: string) => {
+  const select = (workflow: string, stage: string) => {
     const again = selection?.workflow === workflow && selection.stage === stage;
     update((next) => {
       if (again) next.delete('stage');
@@ -116,10 +120,10 @@ function StagesSection({
       detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   };
-  const selectCycle = (workflow: Workflow, index: number) => {
+  const selectCycle = (workflow: string, index: number) => {
     update((next) => {
       next.set(workflow, String(index));
-      if (parseSelection(next.get('stage'))?.workflow === workflow) next.delete('stage');
+      if (parseSelection(report, next.get('stage'))?.workflow === workflow) next.delete('stage');
     });
   };
   const clear = () => {
@@ -127,7 +131,7 @@ function StagesSection({
       next.delete('stage');
     });
   };
-  const graphs = (['lfg', 'ic'] as const).flatMap((w) => {
+  const graphs = report.bigStages.flatMap(({ bigStage: w }) => {
     const cycle = cycleOf(w);
     return cycle === undefined ? [] : [{ workflow: w, cycle }];
   });
@@ -140,21 +144,21 @@ function StagesSection({
     <>
       {graphs.length === 0 && (
         <p className="rounded-lg border border-dashed px-4 py-4 text-sm text-muted-foreground">
-          这个 session 不含 /lfg 或 /ic 的任何一轮，下面列出全部请求。
+          这个 session 不含 {report.workflowId} 中任何大阶段的一轮，下面列出全部请求。
         </p>
       )}
       {graphs.map(({ workflow, cycle }) => (
         <section
           key={workflow}
-          aria-label={workflowTitle[workflow]}
+          aria-label={workflowTitle(workflow)}
           className="flex flex-col gap-4 rounded-lg border px-4 py-4"
           data-testid={`workflow-${workflow}`}
         >
           <div className="flex flex-wrap items-center gap-4">
-            <h2 className="text-base font-semibold">{workflowTitle[workflow]}</h2>
+            <h2 className="text-base font-semibold">{workflowTitle(workflow)}</h2>
             <CycleTabs
               workflow={workflow}
-              cycles={report[workflow]}
+              cycles={cyclesIn(workflow)}
               selected={cycle.index}
               onSelect={(index) => {
                 selectCycle(workflow, index);

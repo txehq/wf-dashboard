@@ -1,5 +1,6 @@
 id: lfg-todo-api
-kind: lfg
+workflow: dev-workflow
+bigStage: lfg
 title: 移动 App 用的待办清单 HTTP API
 persona: |
   王磊，一家 20 人创业公司的 iOS 工程师，公司 App 要加待办功能，原来的后端同事离职了，后端暂时由他负责。

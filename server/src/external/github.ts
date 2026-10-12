@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { config } from '../config.js';
 import type { LinkedPr } from '../tasks/import-schema.js';
 import { copyCommitBody, copyWorkflows } from '../tasks/copy-workflows.js';
-import type { IcTask } from '../tasks/schema.js';
+import type { RepoTask } from '../tasks/schema.js';
 import {
   isWorkflowPath,
   type RemoteWorkflowRef,
@@ -166,7 +166,7 @@ export const seedDir = (runId: string) => path.join(config.runsDir, runId, 'seed
 
 // 建仓库的 gh 参数：ic 的副本带 task id，lfg（task 为 null）只有 run id。导入的 task 的 id 由来源工单编号得出，
 // 副本中不出现来源
-export function repoCreateArgs(task: IcTask | null, runId: string): string[] {
+export function repoCreateArgs(task: RepoTask | null, runId: string): string[] {
   const description =
     task === null || task.source !== undefined
       ? `wf-dashboard eval run ${runId}`
@@ -176,7 +176,7 @@ export function repoCreateArgs(task: IcTask | null, runId: string): string[] {
 
 // /ic 运行的仓库副本的内容（Contracts 第 13 节），写在 seed 中，返回要推送的 HEAD。在起始 commit 之上加一个
 // wf-dashboard 提交的 commit：workflow 的 on 只保留 pull_request 与 workflow_call，两者都没有的文件删除；没有要改的文件时不加
-export async function prepareCopySeed(task: IcTask, seed: string): Promise<string> {
+export async function prepareCopySeed(task: RepoTask, seed: string): Promise<string> {
   const bundle = path.join(task.dir, task.repo.path);
   if (!fs.existsSync(bundle))
     throw new Error(`task ${task.id} 的起始仓库 bundle 不存在：${bundle}`);
@@ -245,7 +245,7 @@ export async function pushSeed(seed: string, remote: string): Promise<void> {
 // 推送后 GitHub 中没有可以由 push、定时或手动触发的 workflow，不等待默认分支上的 CI。顺序不能调换：ruleset 生效后
 // 直接推送 main 会被拒绝（GH013），所以先推送、最后以 task 的 requiredChecks 建 ruleset（为空时不建），agent 只能经 PR 改代码
 export async function createRunRepo(
-  task: IcTask,
+  task: RepoTask,
   runId: string,
   signal: AbortSignal,
 ): Promise<RunRepo> {

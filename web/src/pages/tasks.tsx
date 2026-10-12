@@ -16,16 +16,42 @@ import {
 import { tasksQuery } from '@/lib/tasks';
 
 function summary({ task }: TaskRecord) {
-  return task.kind === 'lfg' ? task.input : task.ticket.title;
+  return task.input ?? task.ticket?.title ?? '';
 }
 
 function measure({ task }: TaskRecord) {
-  if (task.kind === 'lfg') {
+  if (task.rubric !== undefined) {
     return `${String(task.rubric.flatMap((g) => g.items).length)} 条 · 满分 ${String(rubricMaxScore(task.rubric))}`;
   }
-  return task.hiddenTests === undefined
-    ? `${String(task.ticket.acceptanceCriteria.length)} 条验收标准`
-    : `${String(Object.values(task.hiddenTests.manifest).flat().length)} 个隐藏测试`;
+  if (task.hiddenTests !== undefined) {
+    return `${String(Object.values(task.hiddenTests.manifest).flat().length)} 个隐藏测试`;
+  }
+  return `${String(task.ticket?.acceptanceCriteria.length ?? 0)} 条验收标准`;
+}
+
+// dev-workflow 两个大阶段的说明；其他 workflow 的大阶段只显示 workflow 名
+const descriptions: Record<string, string> = {
+  'dev-workflow/lfg': '输入一个想法，模拟用户按隐藏需求回答，按 rubric 给四个产物打分。',
+  'dev-workflow/ic':
+    '一张工单加固定 commit 的起始仓库，按隐藏测试的通过率评分；没有隐藏测试时按验收标准逐条评分。',
+};
+
+// task 按 workflow 与大阶段分组（Contracts 16.3），dev-workflow 在前
+function groupsOf(records: TaskRecord[]) {
+  const keys = [
+    'dev-workflow/lfg',
+    'dev-workflow/ic',
+    ...records.map((r) => `${r.task.workflow}/${r.task.bigStage}`),
+  ];
+  return [...new Set(keys)].map((key) => {
+    const [workflow = '', bigStage = ''] = key.split('/');
+    return {
+      key,
+      workflow,
+      bigStage,
+      records: records.filter((r) => r.task.workflow === workflow && r.task.bigStage === bigStage),
+    };
+  });
 }
 
 function TaskGroup({
@@ -106,24 +132,21 @@ export function TasksPage() {
           <AlertDescription>{tasks.error.message}</AlertDescription>
         </Alert>
       )}
-      {tasks.isSuccess && (
-        <>
+      {tasks.isSuccess &&
+        groupsOf(tasks.data).map((group) => (
           <TaskGroup
-            title="/lfg"
-            description="输入一个想法，模拟用户按隐藏需求回答，按 rubric 给四个产物打分。"
-            summaryLabel="输入"
-            measureLabel="Rubric"
-            records={tasks.data.filter((r) => r.task.kind === 'lfg')}
+            key={group.key}
+            title={
+              group.workflow === 'dev-workflow'
+                ? `/${group.bigStage}`
+                : `/${group.bigStage} (${group.workflow})`
+            }
+            description={descriptions[group.key] ?? `workflow ${group.workflow} 的大阶段`}
+            summaryLabel={group.bigStage === 'ic' ? '工单' : '输入'}
+            measureLabel={group.bigStage === 'ic' ? '评分依据' : 'Rubric'}
+            records={group.records}
           />
-          <TaskGroup
-            title="/ic"
-            description="一张工单加固定 commit 的起始仓库，按隐藏测试的通过率评分；没有隐藏测试时按验收标准逐条评分。"
-            summaryLabel="工单"
-            measureLabel="评分依据"
-            records={tasks.data.filter((r) => r.task.kind === 'ic')}
-          />
-        </>
-      )}
+        ))}
     </section>
   );
 }

@@ -88,14 +88,14 @@ describe('本地仓库模式下的 ic run', { timeout: 900_000 }, () => {
   test('准备阶段失败：error 写明本地仓库不支持 ic run，没有仓库与工单', async () => {
     const base = await variants.createBaseline({
       name: `W32 基线 ${randomUUID().slice(0, 8)}`,
-      model: 'opus',
-      effort: 'high',
     });
     await variants.build(base.id);
     const batch = runsModule.createBatch({
       variantIds: [base.id],
       taskIds: ['ic-money-format'],
       repeats: 1,
+      model: 'opus',
+      effort: 'high',
     });
     const runId = batch.runList[0]?.id ?? '';
     const deadline = Date.now() + 60_000;
@@ -106,7 +106,7 @@ describe('本地仓库模式下的 ic run', { timeout: 900_000 }, () => {
     }
     expect(row).toMatchObject({
       status: 'failed',
-      error: `本地仓库模式（${String(repos.localDir)}）下不能发起 ic run：本地仓库没有 PR，不支持 ic run 的 PR 与评分`,
+      error: `本地仓库模式（${String(repos.localDir)}）下不能发起 /ic run：本地仓库没有 PR，不支持 PR 的评分（hidden-tests、criteria-judge、pr-endpoint）`,
       githubRepo: null,
       linearIssueIdentifier: null,
     });

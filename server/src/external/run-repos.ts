@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { execa } from 'execa';
-import type { IcTask } from '../tasks/schema.js';
+import type { RepoTask } from '../tasks/schema.js';
 import {
   createEmptyRunRepo,
   createRunRepo,
@@ -18,7 +18,7 @@ export interface RunRepos {
   // 本地仓库模式的目录；GitHub 时为 null
   localDir: string | null;
   createEmpty(runId: string, signal: AbortSignal): Promise<RunRepo>;
-  createCopy(task: IcTask, runId: string, signal: AbortSignal): Promise<RunRepo>;
+  createCopy(task: RepoTask, runId: string, signal: AbortSignal): Promise<RunRepo>;
   clone(repo: string, dest: string, signal: AbortSignal): Promise<void>;
 }
 

@@ -17,8 +17,16 @@ import { createTask } from '@/lib/tasks';
 import { IssuesAlert, TaskFormFields } from '@/pages/tasks-form';
 import { LinearImportPanel } from '@/pages/tasks-import';
 
+// 新建的 task 属于 dev-workflow 的 lfg 或 ic（按 workflow 与大阶段的新表单由 W37 做）
 function blankForm(kind: 'lfg' | 'ic'): TaskForm {
-  const common = { id: '', title: '', persona: '', hiddenRequirements: '' };
+  const common = {
+    id: '',
+    workflow: 'dev-workflow',
+    bigStage: kind,
+    title: '',
+    persona: '',
+    hiddenRequirements: '',
+  };
   if (kind === 'lfg') return { ...common, kind, input: '', rubric: emptyRubric() };
   return {
     ...common,

@@ -18,7 +18,7 @@ const variants = createVariants({
 });
 
 let row = db.select().from(variantsTable).where(eq(variantsTable.name, name)).get();
-row ??= await variants.createBaseline({ name, model: 'opus', effort: 'high' });
+row ??= await variants.createBaseline({ name });
 if (row.buildStatus !== 'built' || row.builtHash !== row.skillsHash) {
   const started = performance.now();
   row = await variants.build(row.id);

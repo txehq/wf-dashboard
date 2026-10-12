@@ -27,9 +27,12 @@ test('编辑 skill、与基线对比、构建并查看日志', async ({ page, re
   page.on('pageerror', (error) => pageErrors.push(error.message));
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/variants');
-  await expect(page.getByRole('link', { name: `e2e 修改 ${marker}` })).toBeVisible();
-  await page.getByRole('link', { name: `e2e 修改 ${marker}` }).click();
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText(`e2e 修改 ${marker}`);
+  // variant 的名字显示为 名字 (workflow)（Contracts 16.4）
+  const label = `e2e 修改 ${marker} (dev-workflow)`;
+  await expect(page.getByRole('link', { name: label })).toBeVisible();
+  await page.getByRole('link', { name: label }).click();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(label);
+  await expect(page.getByTestId('variant-workflow')).toHaveText('workflow dev-workflow');
 
   // 打开 interview/SKILL.md，在末尾追加一行并保存
   const tree = page.getByRole('navigation', { name: 'skills 文件' });
@@ -58,8 +61,8 @@ test('编辑 skill、与基线对比、构建并查看日志', async ({ page, re
   await expect(diff.locator('.line-insert').first()).toBeVisible();
   await page.screenshot({ path: '.work/screenshots/w6-diff.png', animations: 'disabled' });
 
-  await page.getByRole('combobox', { name: 'effort' }).selectOption('xhigh');
-  await expect(page.getByRole('combobox', { name: 'effort' })).toHaveValue('xhigh');
+  // 模型与 effort 不再属于 variant（Contracts 16.5）
+  await expect(page.getByRole('combobox', { name: 'effort' })).toHaveCount(0);
 
   // 页面经 /api/events 收到的 variant.build 事件
   await page.evaluate(async () => {

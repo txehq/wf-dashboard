@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { parse, patch } from '@decimalturn/toml-patch';
 import { createTwoFilesPatch } from 'diff';
-import { desc, eq } from 'drizzle-orm';
+import { desc, and, eq } from 'drizzle-orm';
 import { execa } from 'execa';
 import { z } from 'zod';
 import { config } from '../config.js';
@@ -12,12 +12,14 @@ import type { Db } from '../db/index.js';
 import { variants } from '../db/schema.js';
 import { events } from '../events.js';
 import { claudeSettingsEnv } from '../llm/client.js';
+import { loadWorkflow, syncBuiltinWorkflows } from '../workflows/index.js';
+import { DEV_WORKFLOW_ID, requiredSkills } from '../workflows/schema.js';
 import { BuildLog } from './build-log.js';
 import { writeCodexHome } from './codex-home.js';
 import { HttpError } from './errors.js';
 import { dataLayout, type VariantLayout } from './layout.js';
-import type { Effort, ModelAlias } from './models.js';
 import { claudeSandboxProfile, wfSandboxProfile } from './sandbox.js';
+import { REGISTRY_FILES, registerSkills } from './skill-registry.js';
 import { listSkillFiles, resolveSkillPath, skillsHash } from './skills.js';
 
 export type Variant = typeof variants.$inferSelect;
@@ -181,10 +183,61 @@ export function createVariants({
     }
   }
 
-  function assertNameFree(name: string) {
-    if (db.select().from(variants).where(eq(variants.name, name)).get() !== undefined) {
-      throw new HttpError(409, `名称已被使用：${name}`);
+  // 名字在同一 workflow 内唯一（Contracts 16.4）
+  function assertNameFree(workflowId: string, name: string) {
+    const taken = db
+      .select()
+      .from(variants)
+      .where(and(eq(variants.workflowId, workflowId), eq(variants.name, name)))
+      .get();
+    if (taken !== undefined) throw new HttpError(409, `名称已被使用：${name} (${workflowId})`);
+  }
+
+  // 新 variant 的 src：导入的 variant 只有 src/skills，由基线导出加上它的 skills 组成
+  function copySource(source: Variant, id: string) {
+    const base = layout.base(source.baseCommit);
+    if (!fs.existsSync(base)) {
+      throw new HttpError(409, `基线 ${source.baseCommit} 的导出不存在：${base}`);
     }
+    const dirs = layout.variant(id);
+    fs.mkdirSync(dirs.dir, { recursive: true });
+    const copy = (from: string, to: string) => {
+      fs.cpSync(from, to, { recursive: true, verbatimSymlinks: true });
+    };
+    if (source.installDir === null) {
+      copy(base, dirs.src);
+      fs.rmSync(dirs.skills, { recursive: true, force: true });
+      copy(layout.variant(source.id).skills, dirs.skills);
+    } else {
+      copy(layout.variant(source.id).src, dirs.src);
+    }
+    return dirs;
+  }
+
+  // 从 source 复制出新的 draft，属于 workflowId
+  function copyVariant(
+    source: Variant,
+    input: { name: string; workflowId: string; note: string },
+  ): Variant {
+    assertNameFree(input.workflowId, input.name);
+    const id = randomUUID();
+    const dirs = copySource(source, id);
+    fs.writeFileSync(dirs.buildLog, `=== ${input.note} ===\n`);
+    const hash = skillsHash(dirs.src);
+    db.insert(variants)
+      .values({
+        id,
+        name: input.name,
+        workflowId: input.workflowId,
+        parentId: source.id,
+        baseCommit: source.baseCommit,
+        skillsHash: hash,
+        version: versionFor(source.baseCommit, hash),
+        installDir: dirs.dir,
+      })
+      .run();
+    onSkillsChanged();
+    return get(id);
   }
 
   function versionFor(commit: string, hash: string): string {
@@ -315,10 +368,12 @@ export function createVariants({
     async createBaseline(input: {
       name: string;
       commit?: string | undefined;
-      model: ModelAlias;
-      effort: Effort;
+      // 默认 dev-workflow
+      workflowId?: string | undefined;
     }): Promise<Variant> {
-      assertNameFree(input.name);
+      const workflowId = input.workflowId ?? DEV_WORKFLOW_ID;
+      loadWorkflow(db, workflowId);
+      assertNameFree(workflowId, input.name);
       const { stdout } = await execa('git', [
         '-C',
         repo,
@@ -343,72 +398,46 @@ export function createVariants({
         .values({
           id,
           name: input.name,
+          workflowId,
           parentId: null,
           baseCommit: commit,
           skillsHash: hash,
           version: versionFor(commit, hash),
-          model: input.model,
-          effort: input.effort,
           installDir: dirs.dir,
         })
         .run();
+      // dev-workflow 还没有底子时以最早导入的基线为底子
+      syncBuiltinWorkflows(db);
       onSkillsChanged();
       return get(id);
     },
 
-    // 从任一 variant（含已冻结的）复制出新的 draft。导入的 variant 只有 src/skills：
-    // 新 variant 的 src 由基线导出加上它的 skills 组成，未修改时 skills hash 与它相同
-    derive(sourceId: string, input: { name: string }): Variant {
+    // 从任一 variant（含已冻结的）复制出新的 draft，只能在同一 workflow 内（Contracts 16.4）。导入的 variant
+    // 只有 src/skills：新 variant 的 src 由基线导出加上它的 skills 组成，未修改时 skills hash 与它相同
+    derive(sourceId: string, input: { name: string; workflowId?: string | undefined }): Variant {
       const source = get(sourceId);
-      assertNameFree(input.name);
-      const base = layout.base(source.baseCommit);
-      if (!fs.existsSync(base)) {
-        throw new HttpError(409, `基线 ${source.baseCommit} 的导出不存在：${base}`);
+      if (input.workflowId !== undefined && input.workflowId !== source.workflowId) {
+        throw new HttpError(
+          400,
+          `variant ${source.name} 属于 workflow ${source.workflowId}，不能派生到 ${input.workflowId}：派生只能在同一 workflow 内，跨 workflow 请新建 workflow`,
+        );
       }
-      const id = randomUUID();
-      const dirs = layout.variant(id);
-      fs.mkdirSync(dirs.dir, { recursive: true });
-      const copy = (from: string, to: string) => {
-        fs.cpSync(from, to, { recursive: true, verbatimSymlinks: true });
-      };
-      if (source.installDir === null) {
-        copy(base, dirs.src);
-        fs.rmSync(dirs.skills, { recursive: true, force: true });
-        copy(layout.variant(source.id).skills, dirs.skills);
-      } else {
-        copy(layout.variant(source.id).src, dirs.src);
-      }
-      fs.writeFileSync(dirs.buildLog, `=== 从 ${source.name}（${source.id}）派生 ===\n`);
-      const hash = skillsHash(dirs.src);
-      db.insert(variants)
-        .values({
-          id,
-          name: input.name,
-          parentId: source.id,
-          baseCommit: source.baseCommit,
-          skillsHash: hash,
-          version: versionFor(source.baseCommit, hash),
-          model: source.model,
-          effort: source.effort,
-          installDir: dirs.dir,
-        })
-        .run();
-      onSkillsChanged();
-      return get(id);
+      return copyVariant(source, {
+        name: input.name,
+        workflowId: source.workflowId,
+        note: `从 ${source.name}（${source.id}）派生`,
+      });
     },
 
-    setSettings(
-      id: string,
-      input: { model?: ModelAlias | undefined; effort?: Effort | undefined },
-    ) {
-      const row = get(id);
-      assertInstallable(row);
-      assertDraft(row);
-      db.update(variants)
-        .set({ model: input.model ?? row.model, effort: input.effort ?? row.effort })
-        .where(eq(variants.id, id))
-        .run();
-      return get(id);
+    // 新建 workflow 时：复制 source 的基线导出与 src/skills，作为新 workflow 的底子（Contracts 16.4）
+    copyToWorkflow(sourceId: string, input: { workflowId: string; name: string }): Variant {
+      const source = get(sourceId);
+      loadWorkflow(db, input.workflowId);
+      return copyVariant(source, {
+        name: input.name,
+        workflowId: input.workflowId,
+        note: `从 ${source.name}（${source.id}，${source.workflowId}）复制为 workflow ${input.workflowId} 的底子`,
+      });
     },
 
     listFiles(id: string): SkillFile[] {
@@ -506,6 +535,16 @@ export function createVariants({
       const dirs = layout.variant(id);
       const log = newLog(row);
       log.append(`\n=== 构建 ${new Date().toISOString()} ===\n`);
+      // 所属 workflow 的每个大阶段入口与小阶段都要有 skill（Contracts 16.1）
+      const missing = requiredSkills(loadWorkflow(db, row.workflowId)).filter(
+        (name) => !fs.existsSync(path.join(dirs.skills, name, 'SKILL.md')),
+      );
+      if (missing.length > 0) {
+        log.fail(
+          'check-skills',
+          `variant ${row.name} 缺少 workflow ${row.workflowId} 要求的 skill：${missing.join('、')}（应为 src/skills/<名字>/SKILL.md）`,
+        );
+      }
       await ensureRuntime(row.baseCommit, log);
       const runtime = layout.runtimeBin(row.baseCommit);
 
@@ -538,6 +577,16 @@ export function createVariants({
           },
         });
 
+      // 新增或删除的 skill 目录登记进 registry 与 docs 名单（Contracts 16.4），改动写回 src/ 并记进构建日志
+      started = performance.now();
+      const registration = registerSkills(dirs.src);
+      log.note(
+        'register-skills',
+        started,
+        registration.added.length === 0 && registration.removed.length === 0
+          ? '没有新增或删除的 skill'
+          : `登记 ${registration.added.join('、') || '（无）'}；删去 ${registration.removed.join('、') || '（无）'}（${REGISTRY_FILES.join('、')}）`,
+      );
       // 改 skill frontmatter 时 docs/generated/skills.md 需要重新生成
       await sandboxed('guard-fix', runtime, ['guard', '--fix']);
       await sandboxed('guard', runtime, ['guard']);
@@ -679,7 +728,8 @@ export function createVariants({
           PATH: `${path.dirname(dirs.wfBin)}:${z.string().parse(process.env.PATH)}`,
         },
         mcpConfigPath: dirs.mcpConfig,
-        claudeArgs: ['--model', row.model, '--effort', row.effort, '--mcp-config', dirs.mcpConfig],
+        // --model 与 --effort 在运行时选（Contracts 16.5），由调用方加在前面
+        claudeArgs: ['--mcp-config', dirs.mcpConfig],
         sessionsDir: path.join(dirs.claudeDir, 'projects'),
       };
     },

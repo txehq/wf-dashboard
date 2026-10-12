@@ -21,7 +21,7 @@ import {
   type LinearIssueDetail,
   type LinkedPr,
 } from './import-schema.js';
-import type { IcTaskDefinition, IcTaskDraft } from './schema.js';
+import type { TaskDefinition, TaskDraft } from './schema.js';
 import { analyzeWorkflows } from './workflow-checks.js';
 
 // 页面据此提示用户选择仓库
@@ -105,9 +105,10 @@ export async function previewLinearImport(
   // 验收标准由 judge 读工单标题与完整正文确定（Contracts 第 13 节）
   const criteria =
     request.criteria === false ? null : await draftCriteria(issue.title, issue.description);
-  const task: IcTaskDraft = {
+  const task: TaskDraft = {
     id: slug(issue.identifier),
-    kind: 'ic',
+    workflow: request.workflow ?? 'dev-workflow',
+    bigStage: request.bigStage ?? 'ic',
     title: issue.title,
     persona: persona(issue),
     hiddenRequirements: HIDDEN_REQUIREMENTS,
@@ -142,8 +143,9 @@ export async function previewLinearImport(
 }
 
 // 保存从 Linear 导入的 task 之前：task 目录中没有 bundle、或 bundle 的 main 不是 repo.commit 时，从源仓库重新生成
-export async function ensureImportedBundle(task: IcTaskDefinition, tasksDir: string) {
+export async function ensureImportedBundle(task: TaskDefinition, tasksDir: string) {
   if (task.source === undefined) return;
+  if (task.repo === undefined) throw new Error(`导入的 task ${task.id} 没有 repo`);
   const bundle = path.join(tasksDir, task.id, task.repo.path);
   if (fs.existsSync(bundle) && (await bundleHead(bundle)) === task.repo.commit) return;
   await createRepoBundle(task.source.github.repo, task.repo.commit, bundle);

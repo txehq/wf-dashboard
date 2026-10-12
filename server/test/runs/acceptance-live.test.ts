@@ -30,8 +30,7 @@ db.insert(variants)
     baseCommit: '0'.repeat(40),
     skillsHash: 'a'.repeat(64),
     version: '0.0.0-eval.aaaaaaaa',
-    model: 'opus',
-    effort: 'high',
+    workflowId: 'dev-workflow',
   })
   .run();
 db.insert(batches).values({ id: 'b-20261010-acclve', repeats: 1 }).run();
@@ -42,6 +41,8 @@ db.insert(runs)
     taskId: 'ic-unit-converter',
     variantId,
     repeatIndex: 0,
+    model: 'opus',
+    effort: 'high',
     status: 'running',
     sessionId,
     workspacePath: path.join(work, 'workspace'),

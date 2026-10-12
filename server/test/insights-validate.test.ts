@@ -39,8 +39,6 @@ ingestFile(db, unpackSession(dir, IC));
 const variant = await variants.createBaseline({
   name: 'w31-validate',
   commit: BASE_COMMIT,
-  model: 'opus',
-  effort: 'high',
 });
 const exported = await writeInput(db, {
   analysisId: 'a-20261012-valid1',

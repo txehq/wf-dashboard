@@ -83,8 +83,8 @@ function fullResults(files: string[], ids: Set<string>): Map<string, string> {
 }
 
 function stageLabels(report: StageReport): (seq: number) => string | null {
-  const spans = (['lfg', 'ic'] as const).flatMap((workflow) =>
-    report[workflow].flatMap((cycle) =>
+  const spans = report.bigStages.flatMap(({ bigStage, cycles }) =>
+    cycles.flatMap((cycle) =>
       cycle.stages.flatMap((s) =>
         s.startSeq === null || s.endSeq === null || s.endSeq < s.startSeq
           ? []
@@ -92,7 +92,7 @@ function stageLabels(report: StageReport): (seq: number) => string | null {
               {
                 from: s.startSeq,
                 to: s.endSeq,
-                label: `${workflow}#${String(cycle.index)} ${s.stage}`,
+                label: `${bigStage}#${String(cycle.index)} ${s.stage}`,
               },
             ],
       ),
@@ -216,23 +216,16 @@ export async function exportRun(db: Db, runId: string): Promise<unknown> {
   const run = db.select().from(runs).where(eq(runs.id, runId)).get();
   if (run === undefined) throw new Error(`run ${runId} 不存在`);
   const task = loadTask(db, run.taskId);
-  const taskView =
-    task.kind === 'lfg'
-      ? {
-          id: task.id,
-          kind: task.kind,
-          title: task.title,
-          persona: task.persona,
-          input: task.input,
-        }
-      : {
-          id: task.id,
-          kind: task.kind,
-          title: task.title,
-          persona: task.persona,
-          ticket: task.ticket,
-          requiredChecks: task.requiredChecks,
-        };
+  const taskView = {
+    id: task.id,
+    workflow: task.workflow,
+    bigStage: task.bigStage,
+    title: task.title,
+    persona: task.persona,
+    ...(task.input === undefined ? {} : { input: task.input }),
+    ...(task.ticket === undefined ? {} : { ticket: task.ticket }),
+    ...(task.requiredChecks === undefined ? {} : { requiredChecks: task.requiredChecks }),
+  };
   const rows = db
     .select()
     .from(artifacts)

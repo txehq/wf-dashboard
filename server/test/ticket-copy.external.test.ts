@@ -2,7 +2,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { callLinear, closeLinearClient, createRunTicket } from '../src/external/linear.js';
 import { readIssueForImport } from '../src/external/linear.js';
-import type { IcTask } from '../src/tasks/schema.js';
+import type { PrTask } from '../src/tasks/schema.js';
 import { CALC_TICKET } from './helpers/calc-repo.js';
 import { testRunId } from './helpers/ic-fixture.js';
 
@@ -15,9 +15,10 @@ describe('从 Linear 导入的 task 的工单副本', () => {
     const source = await readIssueForImport(CALC_TICKET);
     const runId = testRunId('w29-copy');
     const sourceRepo = 'txehq/wfe-test-calc-source';
-    const task: IcTask = {
+    const task: PrTask = {
       id: 'ic-txe-3777',
-      kind: 'ic',
+      workflow: 'dev-workflow',
+      bigStage: 'ic',
       dir: '/nonexistent',
       title: source.title,
       persona: 'p',

@@ -1,12 +1,7 @@
 import { queryOptions, useQueryClient } from '@tanstack/react-query';
 import { requestJson } from '@/lib/http';
 import { invalidateThrottled, type LiveEventType, useLiveEvent } from '@/lib/live-events';
-import {
-  refreshRequestsThrottled,
-  type StageReport,
-  type StageStatus,
-  type Workflow,
-} from '@/lib/sessions-api';
+import { refreshRequestsThrottled, type StageReport, type StageStatus } from '@/lib/sessions-api';
 
 // 与 Contracts.md 第 7 节的 Runs API 对应（server/src/runs/views.ts）
 
@@ -65,17 +60,9 @@ export type Pending =
   | { kind: 'text'; text: string; since: number }
   | { kind: 'questions'; requestId: string; questions: AskQuestion[]; since: number };
 
+// rubric 产物以 rubric 分组 id 为种类（例如 brief、research），其余为固定的种类
 export type ArtifactKind =
-  | 'brief'
-  | 'research'
-  | 'plan'
-  | 'tickets'
-  | 'pr'
-  | 'repo'
-  | 'ticket'
-  | 'friction'
-  | 'acceptance'
-  | 'pr_snapshot';
+  'pr' | 'repo' | 'ticket' | 'friction' | 'acceptance' | 'pr_snapshot' | (string & {});
 
 export interface Artifact {
   kind: ArtifactKind;
@@ -107,13 +94,18 @@ export interface RunSummary {
   id: string;
   batchId: string;
   taskId: string;
-  taskKind: Workflow;
+  // task 所在的 workflow 与大阶段（Contracts 16.3）
+  workflowId: string;
+  bigStage: string;
   taskTitle: string;
   variantId: string;
   variantName: string;
+  // 发起 batch 时选的模型（别名）与 effort（Contracts 16.5）
+  model: string;
+  effort: string;
   repeatIndex: number;
   status: RunStatus;
-  currentStage: { workflow: Workflow; stage: string; status: StageStatus } | null;
+  currentStage: { bigStage: string; stage: string; status: StageStatus } | null;
   costUsd: number;
   durationMs: number | null;
   humanIntervened: boolean;
@@ -178,6 +170,9 @@ export interface Settings {
   models: { simulatedUser: string; judge: string };
   // 副本仓库可用的自托管 runner 标签（Contracts 第 13 节）
   copyRunnerLabels: string[];
+  // 发起 batch 时 model 与 effort 的默认值（Contracts 16.5）
+  agentModel: string;
+  agentEffort: string;
 }
 
 // 失败时抛出带 URL、状态码与服务端原因的错误
@@ -224,7 +219,13 @@ export function saveSettings(settings: Settings) {
   return call<Settings>('PUT', '/api/settings', settings);
 }
 
-export function createBatch(input: { variantIds: string[]; taskIds: string[]; repeats: number }) {
+export function createBatch(input: {
+  variantIds: string[];
+  taskIds: string[];
+  repeats: number;
+  model: string;
+  effort: string;
+}) {
   return call<BatchDetail>('POST', '/api/batches', input);
 }
 

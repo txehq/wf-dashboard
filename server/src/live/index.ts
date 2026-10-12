@@ -21,10 +21,12 @@ import { newId } from '../runs/index.js';
 import type { SettingsStore } from '../runs/settings.js';
 import type { EvalFacts, SimulatedPersona } from '../runs/simulated-user.js';
 import { issueIdentifier } from '../tasks/import-schema.js';
-import { loadTask } from '../tasks/loader.js';
+import { loadTask, withRepo, withTicket } from '../tasks/loader.js';
 import type { Task } from '../tasks/schema.js';
 import { HttpError } from '../variants/errors.js';
 import type { Variants } from '../variants/index.js';
+import { loadBigStage } from '../workflows/index.js';
+import { DEV_WORKFLOW_ID } from '../workflows/schema.js';
 import { type HandBackReason, type HookPayload, LiveController } from './controller.js';
 import { LivePty } from './pty.js';
 import type {
@@ -244,7 +246,9 @@ export function createLive(deps: LiveDeps) {
       variants.refreshAuthEnv(spec.variantId);
       const runtime = variants.runtimeEnv(spec.variantId);
       env = { ...runtime.env };
-      variantArgs = runtime.claudeArgs;
+      // 模型与 effort 不再属于 variant（Contracts 16.5）：交互的选择由 W37 加入，此前用设置的默认值
+      const { agentModel, agentEffort } = deps.settings.get();
+      variantArgs = ['--model', agentModel, '--effort', agentEffort, ...runtime.claudeArgs];
       if (spec.environment === 'isolated') {
         sandboxProfile = variants.sandboxProfile(
           spec.variantId,
@@ -335,15 +339,33 @@ export function createLive(deps: LiveDeps) {
     return detail(spec.liveId);
   }
 
+  // 交互只接受 dev-workflow 的 task（Contracts 16，可配置的大阶段由 W37 接入）
+  const kindOf = (task: Task) => (task.workflow === DEV_WORKFLOW_ID ? task.bigStage : null);
+
+  const taskPersona = (task: Task): SimulatedPersona => ({
+    stage: loadBigStage(db, task.workflow, task.bigStage),
+    persona: task.persona,
+    hiddenRequirements: task.hiddenRequirements,
+  });
+
   function personaOf(task: Task | null, workflow: Workflow): SimulatedPersona {
-    return task ?? { kind: workflow, persona: INPUT_PERSONA, hiddenRequirements: '' };
+    return task === null
+      ? {
+          stage: loadBigStage(db, DEV_WORKFLOW_ID, workflow),
+          persona: INPUT_PERSONA,
+          hiddenRequirements: '',
+        }
+      : taskPersona(task);
   }
 
   // Contracts 14.2
   async function create(body: CreateLiveBody): Promise<LiveDetail> {
     const task = body.taskId === null ? null : loadTask(db, body.taskId);
-    if (task !== null && task.kind !== body.workflow) {
-      throw new HttpError(400, `task ${task.id} 是 ${task.kind} task，不能用于 /${body.workflow}`);
+    if (task !== null && kindOf(task) !== body.workflow) {
+      throw new HttpError(
+        400,
+        `task ${task.id} 属于 ${task.workflow} 的大阶段 ${task.bigStage}，不能用于 /${body.workflow}`,
+      );
     }
     if (task === null && body.input === null) throw new HttpError(400, '没有选 task 时需要输入');
     // 构建成功才有 runtimeEnv
@@ -364,7 +386,7 @@ export function createLive(deps: LiveDeps) {
       // 进程本来就在 sandbox 中，Claude Code 不再询问是否信任工作目录
       extraEnv = { CLAUDE_CODE_SANDBOXED: '1', MAGI_VAULT: deps.vaultDir };
       if (body.workflow === 'lfg') {
-        const input = task?.kind === 'lfg' ? task.input : body.input;
+        const input = task === null ? body.input : (task.input ?? null);
         if (input === null) throw new HttpError(400, '没有输入');
         const repo = await deps.repos.createEmpty(liveId, signal);
         // wf obsidian 要求 product 目录已存在
@@ -381,14 +403,14 @@ export function createLive(deps: LiveDeps) {
         start = { repo: repo.repo, repoUrl: repo.url };
       } else {
         // 副本仓库与副本工单都从 task 建立（第 13 节）；粘贴的工单要先另存为 task
-        if (task?.kind !== 'ic') {
+        if (task === null) {
           throw new HttpError(
             400,
             'isolated 环境的 ic 需要选一个 ic task；粘贴的工单先另存为 task',
           );
         }
-        const repo = await deps.repos.createCopy(task, liveId, signal);
-        const ticket = await createRunTicket(task, liveId);
+        const repo = await deps.repos.createCopy(withRepo(task), liveId, signal);
+        const ticket = await createRunTicket(withTicket(task), liveId);
         initial = `/ic ${ticket.identifier}`;
         evalFacts = {
           runId: liveId,
@@ -403,6 +425,7 @@ export function createLive(deps: LiveDeps) {
           ticketUrl: ticket.url,
         };
       }
+      if (evalFacts.repo === null) throw new Error(`交互 ${liveId} 没有建出仓库`);
       await deps.repos.clone(evalFacts.repo, cwd, signal);
     } else {
       if (body.cwd === null) throw new HttpError(400, 'real 环境需要填写工作目录');
@@ -411,11 +434,11 @@ export function createLive(deps: LiveDeps) {
         throw new HttpError(400, `工作目录不存在：${cwd}`);
       }
       if (body.workflow === 'lfg') {
-        const input = task?.kind === 'lfg' ? task.input : body.input;
+        const input = task === null ? body.input : (task.input ?? null);
         if (input === null) throw new HttpError(400, '没有输入');
         initial = `/lfg ${input}`;
       } else {
-        const source = task?.kind === 'ic' ? (task.source?.linear.identifier ?? null) : body.input;
+        const source = task === null ? body.input : (task.source?.linear.identifier ?? null);
         if (source === null) throw new HttpError(400, `task ${body.taskId ?? ''} 没有来源工单`);
         const identifier = issueIdentifier(source);
         if (identifier === null) {
@@ -460,16 +483,14 @@ export function createLive(deps: LiveDeps) {
   function resumePersona(session: typeof sessions.$inferSelect): SimulatedPersona {
     if (session.runId !== null) {
       const run = db.select().from(runs).where(eq(runs.id, session.runId)).get();
-      if (run !== undefined) return loadTask(db, run.taskId);
+      if (run !== undefined) return taskPersona(loadTask(db, run.taskId));
     }
     if (session.liveId !== null) {
       const live = row(session.liveId);
-      if (live.taskId !== null) return loadTask(db, live.taskId);
-      if (live.workflow !== null) {
-        return { kind: live.workflow, persona: INPUT_PERSONA, hiddenRequirements: '' };
-      }
+      if (live.taskId !== null) return taskPersona(loadTask(db, live.taskId));
+      if (live.workflow !== null) return personaOf(null, live.workflow);
     }
-    return { kind: null, persona: RESUME_PERSONA, hiddenRequirements: '' };
+    return { stage: null, persona: RESUME_PERSONA, hiddenRequirements: '' };
   }
 
   function resumeDefaults(sessionId: string): ResumeDefaults {

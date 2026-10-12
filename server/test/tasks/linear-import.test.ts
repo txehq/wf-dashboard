@@ -11,7 +11,7 @@ import { DEFAULT_COPY_RUNNER_LABELS } from '../../src/runs/settings.js';
 import { ImportPreview, issueIdentifier } from '../../src/tasks/import-schema.js';
 import { previewLinearImport, readLinearIssue } from '../../src/tasks/linear-import.js';
 import { parseTaskYaml, serializeTask } from '../../src/tasks/loader.js';
-import { IcTaskDefinition, TaskRecord } from '../../src/tasks/schema.js';
+import { TaskDefinition, TaskRecord } from '../../src/tasks/schema.js';
 import { CALC_TICKET, CALC_TICKET_URL } from '../helpers/calc-repo.js';
 import { testRunId } from '../helpers/ic-fixture.js';
 import { IMPORT_SOURCE, NO_WORKFLOW_SOURCE } from '../helpers/import-source.js';
@@ -72,9 +72,10 @@ describe('从 Linear 导入 ic task', { timeout: 5 * 60_000 }, () => {
     expect(drafted.criteria).toHaveLength(8);
     expect(preview.task.ticket.acceptanceCriteria).toEqual(drafted.criteria.map((c) => c.text));
     for (const c of drafted.criteria) expect(raw.description).toContain(c.quote);
-    const definition = IcTaskDefinition.parse(preview.task);
+    const definition = TaskDefinition.parse(preview.task);
     const back = parseTaskYaml(serializeTask(definition), 'TXE-3777.yaml');
-    expect(back.kind === 'ic' && back.ticket.body).toBe(raw.description);
+    expect(back.bigStage).toBe('ic');
+    expect(back.ticket?.body).toBe(raw.description);
     console.log(
       `TXE-3777 正文 ${String(raw.description.length)} 字符，验收标准 ${String(drafted.criteria.length)} 条，${drafted.model}，花费 $${drafted.costUsd.toFixed(4)}`,
     );
@@ -182,7 +183,8 @@ describe('从 Linear 导入 ic task', { timeout: 5 * 60_000 }, () => {
       'task.yaml',
     ]);
     const record = TaskRecord.parse(saved.json());
-    expect(record.task.kind === 'ic' && record.task.ticket.body).toBe(preview.issue.description);
+    expect(record.task.bigStage).toBe('ic');
+    expect(record.task.ticket?.body).toBe(preview.issue.description);
     await app.close();
     db.$client.close();
   });

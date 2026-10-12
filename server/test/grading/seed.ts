@@ -4,16 +4,15 @@ import { batches, runs, sessions, variants } from '../../src/db/schema.js';
 import type { CrossRunRef } from '../../src/grading/schema.js';
 import { initialParseState } from '../../src/ingest/ingest.js';
 
-export function insertVariant(db: Db, id: string) {
+export function insertVariant(db: Db, id: string, workflowId = 'dev-workflow') {
   db.insert(variants)
     .values({
       id,
       name: id,
+      workflowId,
       baseCommit: '9f2bed6',
       skillsHash: id.padEnd(64, '0'),
       version: `2.3.0-eval.${id}`,
-      model: 'opus',
-      effort: 'high',
       status: 'frozen',
     })
     .run();
@@ -29,6 +28,7 @@ export interface RunSeed {
   startedAt?: Date;
   githubRepo?: string | null;
   createdAt?: Date;
+  model?: string;
 }
 
 let repeat = 0;
@@ -47,6 +47,8 @@ export function insertRun(db: Db, seed: RunSeed) {
       taskId: seed.taskId,
       variantId: seed.variantId,
       repeatIndex: repeat++,
+      model: seed.model ?? 'opus',
+      effort: 'high',
       status: seed.status ?? 'running',
       humanIntervened: seed.humanIntervened ?? false,
       crossRunRefs: seed.crossRunRefs ?? [],

@@ -20,9 +20,9 @@ import { compareRuns } from '../../src/grading/compare.js';
 import { CompareResult, type CrossRunRef } from '../../src/grading/schema.js';
 import { upsertFriction } from '../../src/runs/records.js';
 import { updateStages } from '../../src/stages/report.js';
-import { IC_STAGES, LFG_STAGES } from '../../src/stages/workflow.js';
-import { loadIcTask, loadLfgTask, syncTasks } from '../../src/tasks/loader.js';
-import type { RubricArtifact } from '../../src/tasks/schema.js';
+import { loadTask, syncTasks, withRubric } from '../../src/tasks/loader.js';
+import { loadWorkflow } from '../../src/workflows/index.js';
+import { bigStageOf } from '../../src/workflows/schema.js';
 import { openTestDb } from '../stages/db.js';
 import { insertRun, insertVariant } from './seed.js';
 
@@ -41,8 +41,12 @@ const { db, close } = openTestDb();
 syncTasks(db, tasksDir);
 insertVariant(db, 'baseline');
 insertVariant(db, 'modified');
-const lfgTask = loadLfgTask(db, 'optional-mcp-install');
-const icTask = loadIcTask(db, 'ic-money-format');
+const lfgTask = withRubric(loadTask(db, 'optional-mcp-install'));
+const icTask = loadTask(db, 'ic-money-format');
+// dev-workflow 两个大阶段的小阶段
+const devWorkflow = loadWorkflow(db, 'dev-workflow');
+const LFG_STAGES = bigStageOf(devWorkflow, 'lfg').stages.map((s) => s.id);
+const IC_STAGES = bigStageOf(devWorkflow, 'ic').stages.map((s) => s.id);
 
 afterAll(() => {
   close();
@@ -88,18 +92,19 @@ function request(sessionId: string, seq: number, costUsd: number, at: number, ca
 function seedSession(
   db: Db,
   sessionId: string,
-  workflow: 'lfg' | 'ic',
+  bigStage: 'lfg' | 'ic',
   factor: number,
   withSubagent: boolean,
 ) {
   const agentId = withSubagent ? `agent-${sessionId}` : null;
-  const stages = workflow === 'lfg' ? LFG_STAGES : IC_STAGES;
+  const [first, second] = bigStage === 'lfg' ? LFG_STAGES : IC_STAGES;
+  if (first === undefined || second === undefined) throw new Error(`${bigStage} 少于两个小阶段`);
   const skill = (stage: string) => ({ ...call('Skill'), input: { skill: stage } });
   const rows = [
-    request(sessionId, 0, 0.1 * factor, t0, [skill(stages[0])]),
+    request(sessionId, 0, 0.1 * factor, t0, [skill(first)]),
     request(sessionId, 1, 0.2 * factor, t0 + 1000, []),
     request(sessionId, 2, 0.3 * factor, t0 + 3000, [
-      skill(stages[1]),
+      skill(second),
       call('Read'),
       call('Agent', agentId),
     ]),
@@ -119,7 +124,7 @@ function seedRunMessage(db: Db, runId: string) {
 }
 
 // 每组一次 judge 调用（花费 0.02）；score(artifact) 为该组的得分比例，只取 0 或 1
-function seedLfgGrades(db: Db, runId: string, full: (artifact: RubricArtifact) => boolean) {
+function seedLfgGrades(db: Db, runId: string, full: (artifact: string) => boolean) {
   for (const group of lfgTask.rubric) {
     const grade = db
       .insert(grades)
@@ -166,8 +171,13 @@ function lfgRun(
   id: string,
   variantId: string,
   factor: number,
-  full: (a: RubricArtifact) => boolean,
-  extra: { humanIntervened?: boolean; crossRef?: boolean; withSubagent?: boolean } = {},
+  full: (a: string) => boolean,
+  extra: {
+    humanIntervened?: boolean;
+    crossRef?: boolean;
+    withSubagent?: boolean;
+    model?: string;
+  } = {},
 ) {
   const sessionId = insertRun(db, {
     id,
@@ -177,6 +187,7 @@ function lfgRun(
     humanIntervened: extra.humanIntervened ?? false,
     crossRunRefs: extra.crossRef === true ? [crossRef] : [],
     createdAt: new Date(t0 + factor),
+    ...(extra.model === undefined ? {} : { model: extra.model }),
   });
   seedSession(db, sessionId, 'lfg', factor, extra.withSubagent ?? false);
   seedRunMessage(db, id);
@@ -199,6 +210,8 @@ lfgRun('l3', 'baseline', 3, (a) => a !== 'brief');
 lfgRun('l4', 'baseline', 4, () => false, { humanIntervened: true });
 insertRun(db, { id: 'l5', taskId: lfgTask.id, variantId: 'baseline', status: 'failed' });
 lfgRun('l6', 'modified', 1, () => true);
+// 同一 variant 换模型（Contracts 16.5）：groupBy=model 时与 l6 分在两格
+lfgRun('l12', 'modified', 12, () => false, { model: 'sonnet' });
 lfgRun('l7', 'baseline', 7, () => true, { crossRef: true });
 lfgRun('l8', 'baseline', 8, () => true, { humanIntervened: true, crossRef: true });
 // 标为无效的 run（Contracts 7.12）：有评分结果、status 不变，任何开关下都不参与对比
@@ -238,21 +251,48 @@ function sampleStd(xs: number[]) {
   return Math.sqrt(xs.reduce((s, x) => s + (x - m) ** 2, 0) / (xs.length - 1));
 }
 
-function cell(result: CompareResult, variantId: string, taskId: string) {
-  const c = result.cells.find((x) => x.variantId === variantId && x.taskId === taskId);
-  if (c === undefined) throw new Error(`没有 ${variantId} × ${taskId}`);
+function cell(
+  result: CompareResult,
+  variantId: string,
+  taskId: string,
+  model: string | null = null,
+) {
+  const c = result.cells.find(
+    (x) => x.variantId === variantId && x.taskId === taskId && x.model === model,
+  );
+  if (c === undefined) throw new Error(`没有 ${variantId}（${String(model)}）× ${taskId}`);
   return c;
 }
 
+function rubricQuality(c: CompareResult['cells'][number]) {
+  if (c.quality.rubric === null) throw new Error(`${c.taskId} 应有 rubric 评分`);
+  return c.quality.rubric;
+}
+
 describe('compare', () => {
+  // 只对比同一 workflow 的同一大阶段的 task：lfg 与 ic 分开查询
   const query = {
     variants: ['baseline', 'modified'],
-    tasks: [lfgTask.id, icTask.id],
+    tasks: [lfgTask.id],
+    groupBy: 'variant' as const,
     includeIntervened: false,
     includeCrossRef: false,
     includeSourceRef: false,
     includeCancelled: false,
   };
+  const icQuery = { ...query, tasks: [icTask.id] };
+
+  it('所选 task 属于不同大阶段时 400；结果带上共同的 workflow 与大阶段', () => {
+    expect(() => compareRuns(db, { ...query, tasks: [lfgTask.id, icTask.id] })).toThrow(
+      /^只能对比同一 workflow 的同一大阶段的 task，所选 task 属于 dev-workflow\/(lfg、dev-workflow\/ic|ic、dev-workflow\/lfg)$/,
+    );
+    expect(compareRuns(db, query)).toMatchObject({
+      workflowId: 'dev-workflow',
+      bigStage: 'lfg',
+      groupBy: 'variant',
+    });
+    expect(compareRuns(db, icQuery)).toMatchObject({ workflowId: 'dev-workflow', bigStage: 'ic' });
+  });
 
   it('includeCancelled 放回取消后评分过的 run；排队中被取消、没有评分的 run 不放回', () => {
     const ids = (q: Partial<typeof query>) =>
@@ -292,23 +332,25 @@ describe('compare', () => {
   it('lfg：排除有人工干预与未评分的 run，得分率的均值、标准差、最小值、最大值与原始值', () => {
     const c = cell(compareRuns(db, query), 'baseline', lfgTask.id);
     expect(c.runIds).toEqual(['l1', 'l2', 'l3']);
-    if (c.quality.kind !== 'lfg') throw new Error('应为 lfg');
+    expect(c.model).toBeNull();
+    expect(c.quality).toMatchObject({ passRate: null, criteriaRate: null, reachedEnd: null });
+    const quality = rubricQuality(c);
     const totals = [1, 19 / 55, 36 / 55];
-    expect(c.quality.total.values).toEqual([
+    expect(quality.total.values).toEqual([
       { runId: 'l1', value: 1 },
       { runId: 'l2', value: 19 / 55 },
       { runId: 'l3', value: 36 / 55 },
     ]);
-    expect(c.quality.total.n).toBe(3);
-    expect(c.quality.total.mean).toBeCloseTo(2 / 3, 12);
-    expect(c.quality.total.stdDev).toBeCloseTo(sampleStd(totals), 12);
-    expect(c.quality.total.min).toBeCloseTo(19 / 55, 12);
-    expect(c.quality.total.max).toBe(1);
-    const brief = c.quality.artifacts.find((a) => a.artifact === 'brief')?.rate;
+    expect(quality.total.n).toBe(3);
+    expect(quality.total.mean).toBeCloseTo(2 / 3, 12);
+    expect(quality.total.stdDev).toBeCloseTo(sampleStd(totals), 12);
+    expect(quality.total.min).toBeCloseTo(19 / 55, 12);
+    expect(quality.total.max).toBe(1);
+    const brief = quality.artifacts.find((a) => a.artifact === 'brief')?.rate;
     expect(brief?.values.map((v) => v.value)).toEqual([1, 1, 0]);
     expect(brief?.mean).toBeCloseTo(2 / 3, 12);
     expect(brief?.stdDev).toBeCloseTo(Math.sqrt(1 / 3), 12);
-    expect(c.quality.artifacts.map((a) => a.artifact)).toEqual([
+    expect(quality.artifacts.map((a) => a.artifact)).toEqual([
       'brief',
       'research',
       'plan',
@@ -328,14 +370,37 @@ describe('compare', () => {
     const result = compareRuns(db, { ...query, includeIntervened: true });
     const c = cell(result, 'baseline', lfgTask.id);
     expect(c.runIds).toEqual(['l1', 'l2', 'l3', 'l4']);
-    if (c.quality.kind !== 'lfg') throw new Error('应为 lfg');
-    expect(c.quality.total.mean).toBeCloseTo(0.5, 12);
-    expect(c.quality.total.stdDev).toBeCloseTo(sampleStd([1, 19 / 55, 36 / 55, 0]), 12);
+    expect(rubricQuality(c).total.mean).toBeCloseTo(0.5, 12);
+    expect(rubricQuality(c).total.stdDev).toBeCloseTo(sampleStd([1, 19 / 55, 36 / 55, 0]), 12);
 
-    const modified = cell(result, 'modified', lfgTask.id);
+    // groupBy=variant 不分模型：modified 的 opus 与 sonnet 两个 run 在同一格
+    expect(cell(result, 'modified', lfgTask.id).runIds).toEqual(['l6', 'l12']);
+    const byModel = compareRuns(db, { ...query, includeIntervened: true, groupBy: 'model' });
+    const modified = cell(byModel, 'modified', lfgTask.id, 'opus');
     expect(modified.runIds).toEqual(['l6']);
-    if (modified.quality.kind !== 'lfg') throw new Error('应为 lfg');
-    expect(modified.quality.total).toMatchObject({ n: 1, mean: 1, stdDev: null, min: 1, max: 1 });
+    expect(rubricQuality(modified).total).toMatchObject({
+      n: 1,
+      mean: 1,
+      stdDev: null,
+      min: 1,
+      max: 1,
+    });
+  });
+
+  it('groupBy=model：每个 variant 按它的 run 中实际出现的模型分格', () => {
+    const result = compareRuns(db, { ...query, groupBy: 'model' });
+    expect(result.groupBy).toBe('model');
+    expect(result.cells.map((c) => [c.variantId, c.model, c.taskId])).toEqual([
+      ['baseline', 'opus', lfgTask.id],
+      ['modified', 'opus', lfgTask.id],
+      ['modified', 'sonnet', lfgTask.id],
+    ]);
+    expect(cell(result, 'baseline', lfgTask.id, 'opus').runIds).toEqual(
+      cell(compareRuns(db, query), 'baseline', lfgTask.id).runIds,
+    );
+    const sonnet = cell(result, 'modified', lfgTask.id, 'sonnet');
+    expect(sonnet.runIds).toEqual(['l12']);
+    expect(rubricQuality(sonnet).total.mean).toBe(0);
   });
 
   it('成本：每个阶段的均值（子代理计入所在阶段，未到达按 0）与三项总成本的均值', () => {
@@ -392,23 +457,25 @@ describe('compare', () => {
     expect(all.cost?.friction.perRun).toBeCloseTo(3 / 4, 12);
     expect(all.cost?.friction.issues.map((i) => i.runId)).toEqual(['l1', 'l1', 'l4']);
     // 没有 friction 的格子为 0
-    expect(cell(compareRuns(db, query), 'baseline', icTask.id).cost?.friction).toEqual({
+    expect(cell(compareRuns(db, icQuery), 'baseline', icTask.id).cost?.friction).toEqual({
       perRun: 0,
       issues: [],
     });
   });
 
   it('ic：测试通过率的分布与到达终点的比例；没有 run 的格子质量为空、成本为空', () => {
-    const result = compareRuns(db, query);
+    const result = compareRuns(db, icQuery);
     const c = cell(result, 'baseline', icTask.id);
     expect(c.runIds).toEqual(['i1', 'i2']);
-    if (c.quality.kind !== 'ic') throw new Error('应为 ic');
-    expect(c.quality.passRate.values).toEqual([
+    // 有隐藏测试的 task 用隐藏测试，不用验收标准；没有 rubric
+    expect(c.quality).toMatchObject({ rubric: null, criteriaRate: null });
+    const passRate = c.quality.passRate;
+    expect(passRate?.values).toEqual([
       { runId: 'i1', value: 3 / 8 },
       { runId: 'i2', value: 1 },
     ]);
-    expect(c.quality.passRate.mean).toBeCloseTo(11 / 16, 12);
-    expect(c.quality.passRate.stdDev).toBeCloseTo(sampleStd([3 / 8, 1]), 12);
+    expect(passRate?.mean).toBeCloseTo(11 / 16, 12);
+    expect(passRate?.stdDev).toBeCloseTo(sampleStd([3 / 8, 1]), 12);
     expect(c.quality.reachedEnd).toEqual({
       ratio: 0.5,
       values: [
@@ -417,13 +484,13 @@ describe('compare', () => {
       ],
     });
     expect(c.rubricItems).toEqual([]);
-    expect(c.cost?.stages.map((s) => s.stage)).toEqual([...IC_STAGES]);
+    expect(c.criteriaItems).toEqual([]);
+    expect(c.cost?.stages.map((s) => s.stage)).toEqual(IC_STAGES);
     expect(c.cost?.stages[0]?.costUsd).toBeCloseTo(0.45, 12);
 
     const empty = cell(result, 'modified', icTask.id);
     expect(empty.runIds).toEqual([]);
     expect(empty.cost).toBeNull();
-    if (empty.quality.kind !== 'ic') throw new Error('应为 ic');
     expect(empty.quality.passRate).toEqual({
       n: 0,
       mean: null,
@@ -432,20 +499,35 @@ describe('compare', () => {
       max: null,
       values: [],
     });
-    expect(empty.quality.reachedEnd.ratio).toBeNull();
+    expect(empty.quality.reachedEnd?.ratio).toBeNull();
   });
 
-  it('GET /api/compare：逗号分隔的参数、includeIntervened，不存在的 variant 或 task 返回 404', async () => {
+  it('GET /api/compare：逗号分隔的参数、includeIntervened、groupBy，不同大阶段的 task 返回 400，不存在的 variant 或 task 返回 404', async () => {
     const app = await buildApp({
       db,
       sseHeartbeatMs: config.sseHeartbeatMs,
       logger: false,
       tasksDir,
     });
-    const qs = `variants=baseline,modified&tasks=${lfgTask.id},${icTask.id}`;
+    const qs = `variants=baseline,modified&tasks=${lfgTask.id}`;
     const ok = await app.inject({ method: 'GET', url: `/api/compare?${qs}` });
     expect(ok.statusCode).toBe(200);
     expect(CompareResult.parse(ok.json())).toEqual(compareRuns(db, query));
+    const ic = await app.inject({
+      method: 'GET',
+      url: `/api/compare?variants=baseline,modified&tasks=${icTask.id}`,
+    });
+    expect(CompareResult.parse(ic.json())).toEqual(compareRuns(db, icQuery));
+    const byModel = await app.inject({ method: 'GET', url: `/api/compare?${qs}&groupBy=model` });
+    expect(CompareResult.parse(byModel.json())).toEqual(
+      compareRuns(db, { ...query, groupBy: 'model' }),
+    );
+    const mixed = await app.inject({
+      method: 'GET',
+      url: `/api/compare?variants=baseline&tasks=${lfgTask.id},${icTask.id}`,
+    });
+    expect(mixed.statusCode).toBe(400);
+    expect(mixed.body).toContain('只能对比同一 workflow 的同一大阶段的 task');
     const all = await app.inject({
       method: 'GET',
       url: `/api/compare?${qs}&includeIntervened=true`,

@@ -1,5 +1,6 @@
 import { queryOptions } from '@tanstack/react-query';
 import {
+  type CompareCell,
   CompareResult,
   CompareRun,
   RunArtifacts,
@@ -16,6 +17,9 @@ export const compareRunsQuery = queryOptions({
   queryFn: async () => z.array(CompareRun).parse(await getJson('/api/compare/runs')),
 });
 
+// Contracts 16.5：groupBy=model 时每个 variant 按 run 的模型分成几格
+export type CompareGrouping = 'variant' | 'model';
+
 export const compareQuery = (
   variants: string[],
   tasks: string[],
@@ -23,6 +27,7 @@ export const compareQuery = (
   includeCrossRef: boolean,
   includeSourceRef: boolean,
   includeCancelled: boolean,
+  groupBy: CompareGrouping = 'variant',
 ) =>
   queryOptions({
     queryKey: [
@@ -33,11 +38,13 @@ export const compareQuery = (
       includeCrossRef,
       includeSourceRef,
       includeCancelled,
+      groupBy,
     ],
     queryFn: async () => {
       const params = new URLSearchParams({
         variants: variants.join(','),
         tasks: tasks.join(','),
+        groupBy,
         includeIntervened: String(includeIntervened),
         includeCrossRef: String(includeCrossRef),
         includeSourceRef: String(includeSourceRef),
@@ -78,10 +85,17 @@ export type {
   RunGrades,
 } from '@wf-dashboard/server/grading/schema';
 
+// 格子的质量按哪项评分显示：有 rubric 时为 rubric，否则有隐藏测试时为测试，否则为验收标准
+export type QualityKind = 'lfg' | 'ic' | 'ic_criteria';
+export function qualityKind(q: CompareCell['quality']): QualityKind {
+  if (q.rubric !== null) return 'lfg';
+  return q.passRate !== null ? 'ic' : 'ic_criteria';
+}
+
 // 同时对比的 variant 数上限：类别色只有 8 个
 export const MAX_VARIANTS = 8;
 
-type Outcome = NonNullable<RunGrades['ic']>['detail']['outcomes'][number];
+type Outcome = NonNullable<RunGrades['hiddenTests']>['detail']['outcomes'][number];
 
 export interface OutcomeRow {
   key: string;
@@ -113,12 +127,15 @@ export function percent(x: number, digits = 0): string {
   return `${(x * 100).toFixed(digits)}%`;
 }
 
-export const artifactLabel = {
+const artifactNames: Record<string, string> = {
   brief: 'Brief',
   research: 'Research',
   plan: 'Plan',
   tickets: 'Tickets',
-} as const;
+};
+
+// rubric 分组的显示名：dev-workflow 的四组用固定名字，其他 workflow 的分组显示 id
+export const artifactLabel = (artifact: string) => artifactNames[artifact] ?? artifact;
 
 // 一个 variant 在本页的颜色槽位（0 到 7）选中时分配，取消选择前不变
 export function seriesColor(slot: number): string {

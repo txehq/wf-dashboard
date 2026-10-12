@@ -5,14 +5,15 @@ import { describe, expect, it } from 'vitest';
 import { config } from '../../src/config.js';
 import { bundleHead, readCommit } from '../../src/external/github.js';
 import { ensureImportedBundle } from '../../src/tasks/linear-import.js';
-import type { IcTaskDefinition } from '../../src/tasks/schema.js';
+import type { TaskDefinition } from '../../src/tasks/schema.js';
 import { testRunId } from '../helpers/ic-fixture.js';
 import { IMPORT_SOURCE } from '../helpers/import-source.js';
 
-function importedTask(repo: string, commit: string): IcTaskDefinition {
+function importedTask(repo: string, commit: string): TaskDefinition {
   return {
     id: 'ic-bundle-probe',
-    kind: 'ic',
+    workflow: 'dev-workflow',
+    bigStage: 'ic',
     title: 'bundle',
     persona: 'p',
     hiddenRequirements: 'h',

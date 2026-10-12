@@ -11,24 +11,26 @@ import {
 } from '../db/schema.js';
 import { events } from '../events.js';
 import { readPr } from '../external/github.js';
-import { createRunTicket } from '../external/linear.js';
 import type { RunRepos } from '../external/run-repos.js';
 import { gradeRun } from '../grading/index.js';
 import { ingestFile } from '../ingest/ingest.js';
 import { type SessionWatcher, watchSession } from '../ingest/watch.js';
-import { featureDir } from '../stages/lfg.js';
+import { featureDir } from '../stages/artifacts.js';
 import { publishStageChanges, type StageChange, updateStages } from '../stages/report.js';
 import { loadTask } from '../tasks/loader.js';
 import type { Task } from '../tasks/schema.js';
 import { HttpError } from '../variants/errors.js';
 import type { Variants } from '../variants/index.js';
+import { loadBigStage } from '../workflows/index.js';
+import { type BigStageDefinition, rubricOf } from '../workflows/schema.js';
 import { recordAcceptanceReport, watchAcceptanceReport } from './acceptance-report.js';
 import { ClaudeProcess } from './claude-process.js';
 import { refreshRunCost, watchRunCost } from './cost-refresh.js';
 import { scanCrossRunRefs } from './cross-run-refs.js';
 import { scanSourceRefs } from './source-refs.js';
 import { recordFriction } from './friction.js';
-import { LfgArtifacts } from './lfg-artifacts.js';
+import { launchSpec, prepareRun } from './prepare.js';
+import { RubricArtifacts } from './rubric-artifacts.js';
 import { addMessage, listMessages, upsertArtifact } from './records.js';
 import type { SettingsStore } from './settings.js';
 import {
@@ -97,8 +99,10 @@ export class RunDriver {
 
   private readonly db: Db;
   private task!: Task;
+  // task 所在的大阶段：准备、初始消息、结束条件与评分按它的积木执行（Contracts 16.2）
+  private stage!: BigStageDefinition;
   private proc: ClaudeProcess | null = null;
-  private lfgArtifacts: LfgArtifacts | null = null;
+  private rubricArtifacts: RubricArtifacts | null = null;
   private sessionWatcher: SessionWatcher | null = null;
   private unsubscribe: (() => void) | null = null;
   private prTimer: NodeJS.Timeout | null = null;
@@ -193,13 +197,10 @@ export class RunDriver {
     return path.join(this.deps.runsDir, this.runId);
   }
 
-  private productDir() {
-    return path.join(this.deps.vaultDir, `Project ${this.deps.product}`);
-  }
-
   private async drive() {
     const run = this.row();
     this.task = loadTask(this.db, run.taskId);
+    this.stage = loadBigStage(this.db, this.task.workflow, this.task.bigStage);
     this.setStatus('preparing', { startedAt: new Date() });
     const initial = await this.prepare(run);
     // prepare 写入了仓库
@@ -261,51 +262,29 @@ export class RunDriver {
     events.publish({ type: 'run.status', runId: this.runId, status: this.row().status });
   }
 
-  // Contracts 7.2：外部对象、workspace 与 vault；返回初始消息
+  // Contracts 7.2、16.2：外部对象、workspace 与 vault；返回按模板生成的初始消息
   private async prepare(run: RunRow): Promise<string> {
     fs.mkdirSync(this.runDir(), { recursive: true });
-    const task = this.task;
-    const repos = this.deps.repos;
-    let repo: string;
-    let initial: string;
-    if (task.kind === 'lfg') {
-      const created = await repos.createEmpty(this.runId, this.stopping.signal);
-      repo = created.repo;
-      this.update({ githubRepo: repo });
-      upsertArtifact(this.db, this.runId, 'repo', created.url, null);
-      // wf obsidian 要求 product 目录已存在
-      fs.mkdirSync(this.productDir(), { recursive: true });
-      initial = [
-        `/lfg ${task.input}`,
-        '',
-        `Product: ${this.deps.product}`,
-        `Feature slug: ${this.runId}`,
-        `Repository: ${repo}`,
-      ].join('\n');
-    } else {
-      if (repos.localDir !== null) {
-        throw new Error(
-          `本地仓库模式（${repos.localDir}）下不能发起 ic run：本地仓库没有 PR，不支持 ic run 的 PR 与评分`,
-        );
-      }
-      const created = await repos.createCopy(task, this.runId, this.stopping.signal);
-      repo = created.repo;
-      this.update({ githubRepo: repo });
-      upsertArtifact(this.db, this.runId, 'repo', created.url, null);
-      const ticket = await createRunTicket(task, this.runId);
-      this.update({ linearIssueId: ticket.uuid, linearIssueIdentifier: ticket.identifier });
-      upsertArtifact(this.db, this.runId, 'ticket', ticket.url, ticket.identifier);
-      initial = `/ic ${ticket.identifier}`;
-    }
-    await repos.clone(repo, run.workspacePath, this.stopping.signal);
-    return initial;
+    return prepareRun({
+      db: this.db,
+      repos: this.deps.repos,
+      vaultDir: this.deps.vaultDir,
+      product: this.deps.product,
+      run,
+      task: this.task,
+      stage: this.stage,
+      signal: this.stopping.signal,
+    });
   }
 
   private simulatedUserContext(): SimulatedUserContext {
     const run = this.row();
-    if (run.githubRepo === null) throw new Error(`run ${this.runId} 没有仓库`);
     return {
-      task: this.task,
+      task: {
+        stage: this.stage,
+        persona: this.task.persona,
+        hiddenRequirements: this.task.hiddenRequirements,
+      },
       eval: {
         runId: this.runId,
         repo: run.githubRepo,
@@ -319,13 +298,7 @@ export class RunDriver {
     if (this.shuttingDown) throw new Error('服务关闭，运行中断');
     this.deps.variants.refreshAuthEnv(run.variantId);
     const runtime = this.deps.variants.runtimeEnv(run.variantId);
-    const env: Record<string, string> = {
-      ...runtime.env,
-      // jsonl 固定写到 <CLAUDE_CONFIG_DIR>/projects/<runId>/<sessionId>.jsonl
-      CLAUDE_CODE_PROJECT_DIR_NAME: this.runId,
-      MAGI_VAULT: this.deps.vaultDir,
-      ...(this.task.kind === 'lfg' ? { MAGI_PRODUCT: this.deps.product } : {}),
-    };
+    const { env, variantArgs } = launchSpec(runtime, run, this.stage, this.deps);
     const jsonl = path.join(
       runtime.env.CLAUDE_CONFIG_DIR,
       'projects',
@@ -335,14 +308,19 @@ export class RunDriver {
     this.jsonl = jsonl;
     this.sessionWatcher = watchSession(this.db, jsonl, this.fail);
 
-    if (this.task.kind === 'lfg') {
-      this.lfgArtifacts = new LfgArtifacts(
+    const rubric = rubricOf(this.stage);
+    if (rubric !== null) {
+      this.rubricArtifacts = new RubricArtifacts(
         this.db,
         this.runId,
         featureDir(this.deps.vaultDir, this.deps.product, this.runId),
+        rubric,
       );
-      this.lfgArtifacts.record();
-    } else {
+      this.rubricArtifacts.record();
+    }
+    // 有副本仓库的大阶段：轮询 PR，记录验收报告
+    const tracksPr = this.stage.prepare.includes('repo-copy');
+    if (tracksPr) {
       this.prTimer = setInterval(() => {
         this.guard(this.pollPr());
       }, PR_POLL_MS);
@@ -350,17 +328,16 @@ export class RunDriver {
     // 阶段在导入 session 时划分（stages/report 的 updateStages），这里只转发为 run.stage
     const stopSession = events.subscribe((event) => {
       if (event.type === 'session.updated' && event.sessionId === run.sessionId) {
-        this.lfgArtifacts?.record();
+        this.rubricArtifacts?.record();
       }
       if (event.type === 'stage.changed' && event.sessionId === run.sessionId) {
-        this.publishStage({ workflow: event.workflow, stage: event.stage, status: event.status });
+        this.publishStage({ bigStage: event.bigStage, stage: event.stage, status: event.status });
       }
     });
     const stopCost = watchRunCost(this.db, this.runId, run.sessionId, this.fail);
-    const stopAcceptance =
-      this.task.kind === 'ic'
-        ? watchAcceptanceReport(this.db, this.runId, run.sessionId, this.fail)
-        : () => undefined;
+    const stopAcceptance = tracksPr
+      ? watchAcceptanceReport(this.db, this.runId, run.sessionId, this.fail)
+      : () => undefined;
     this.unsubscribe = () => {
       stopSession();
       stopCost();
@@ -371,7 +348,7 @@ export class RunDriver {
       sessionId: run.sessionId,
       cwd: run.workspacePath,
       env,
-      variantArgs: runtime.claudeArgs,
+      variantArgs,
       sandboxProfile: this.deps.variants.sandboxProfile(
         run.variantId,
         this.runId,
@@ -418,14 +395,14 @@ export class RunDriver {
   }
 
   private async afterTurn() {
-    this.lfgArtifacts?.record();
+    this.rubricArtifacts?.record();
     this.updateCost();
     this.update({
       crossRunRefs: scanCrossRunRefs(this.db, this.runId),
       sourceRefs: scanSourceRefs(this.db, this.runId),
     });
     await recordFriction(this.db, this.runId, this.row().sessionId);
-    if (this.task.kind === 'ic') {
+    if (this.stage.prepare.includes('repo-copy')) {
       recordAcceptanceReport(this.db, this.runId, this.row().sessionId);
       await this.pollPr();
     }
@@ -732,7 +709,7 @@ export class RunDriver {
     this.prTimer = null;
     // 最后一次导入的阶段变化仍经监听转发为 run.stage
     if (this.jsonl !== null && fs.existsSync(this.jsonl)) ingestFile(this.db, this.jsonl);
-    this.lfgArtifacts?.record();
+    this.rubricArtifacts?.record();
     this.unsubscribe?.();
     this.unsubscribe = null;
     await this.sessionWatcher?.close();
@@ -742,7 +719,7 @@ export class RunDriver {
       sourceRefs: scanSourceRefs(this.db, this.runId),
     });
     await recordFriction(this.db, this.runId, this.row().sessionId);
-    if (this.task.kind === 'ic') {
+    if (this.stage.prepare.includes('repo-copy')) {
       recordAcceptanceReport(this.db, this.runId, this.row().sessionId);
       await this.pollPr();
     }

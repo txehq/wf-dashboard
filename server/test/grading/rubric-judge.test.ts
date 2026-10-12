@@ -1,14 +1,14 @@
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 import { itemKey, judgeSchema, readJudgment } from '../../src/grading/rubric-judge.js';
-import { loadLfgTask, syncTasks } from '../../src/tasks/loader.js';
+import { loadTask, syncTasks, withRubric } from '../../src/tasks/loader.js';
 import { openTestDb } from '../stages/db.js';
 
 // 不调用模型：respond 参数的读取与校验。真实调用见 lfg-judge.test.ts
 const tasksDir = fileURLToPath(new URL('../fixtures/lfg-tasks/', import.meta.url));
 const { db, close } = openTestDb();
 syncTasks(db, tasksDir);
-const task = loadLfgTask(db, 'optional-mcp-install');
+const task = withRubric(loadTask(db, 'optional-mcp-install'));
 close();
 const tickets = task.rubric.find((g) => g.artifact === 'tickets');
 if (tickets === undefined) throw new Error('fixture 没有 tickets rubric');

@@ -1,5 +1,6 @@
 id: optional-mcp-install
-kind: lfg
+workflow: dev-workflow
+bigStage: lfg
 title: 让 wf 管理的 MCP 安装成为可选项
 persona: |
   txe-workflow 的维护者 ding113，熟悉 wf 的 Rust workspace 与 /install skill。回答直接、简短，只回答被问到的问题；不清楚的细节交给 agent 决定。

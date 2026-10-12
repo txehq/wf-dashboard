@@ -7,8 +7,8 @@ import { config } from '../../src/config.js';
 import { gradeItems, grades, requests, type ToolCall } from '../../src/db/schema.js';
 import { compareRuns } from '../../src/grading/compare.js';
 import { readReport } from '../../src/stages/report.js';
-import { IC_STAGES } from '../../src/stages/workflow.js';
-import { loadLfgTask, syncTasks } from '../../src/tasks/loader.js';
+import { loadTask, syncTasks, withRubric } from '../../src/tasks/loader.js';
+import { loadBigStage } from '../../src/workflows/index.js';
 import { openTestDb } from '../stages/db.js';
 import { insertRun, insertVariant } from './seed.js';
 
@@ -25,7 +25,8 @@ fs.cpSync(path.join(config.tasksDir, 'ic-money-format'), path.join(tasksDir, 'ic
 });
 const { db, close } = openTestDb();
 syncTasks(db, tasksDir);
-const lfgTask = loadLfgTask(db, 'optional-mcp-install');
+const lfgTask = withRubric(loadTask(db, 'optional-mcp-install'));
+const IC_STAGES = loadBigStage(db, 'dev-workflow', 'ic').stages.map((s) => s.id);
 for (const v of ['ic-v', 'lfg-v', 'empty-v']) insertVariant(db, v);
 
 afterAll(() => {
@@ -119,6 +120,7 @@ lfgRun('r-a', b1Max ?? 0);
 lfgRun('r-b', 1);
 
 const query = {
+  groupBy: 'variant' as const,
   includeIntervened: false,
   includeCrossRef: false,
   includeSourceRef: false,
@@ -127,12 +129,14 @@ const query = {
 
 describe('compare 的边界情况', () => {
   it('H8：没有阶段轮次、没有请求的 run 不让 compare 报错，阶段记为未到达、成本按 0；终态 run 的最后一个阶段为 done', () => {
-    expect(readReport(db, claimed)?.ic[0]?.stages[0]).toMatchObject({
+    const icCycles = (sessionId: string) =>
+      readReport(db, sessionId)?.bigStages.find((b) => b.bigStage === 'ic')?.cycles;
+    expect(icCycles(claimed)?.[0]?.stages[0]).toMatchObject({
       status: 'done',
       entries: 1,
       evidence: { seq: 0, kind: 'skill', text: 'Skill: claim TXE-1' },
     });
-    expect(readReport(db, noCycle)?.ic).toEqual([]);
+    expect(icCycles(noCycle)).toEqual([]);
     const c = compareRuns(db, { ...query, variants: ['ic-v'], tasks: ['ic-money-format'] })
       .cells[0];
     expect(c?.runIds).toEqual(['r-ic', 'r-claim', 'r-none']);

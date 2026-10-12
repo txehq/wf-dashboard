@@ -40,8 +40,7 @@ db.insert(variants)
     baseCommit: '0'.repeat(40),
     skillsHash: 'a'.repeat(64),
     version: '0.0.0-eval.aaaaaaaa',
-    model: 'opus',
-    effort: 'high',
+    workflowId: 'dev-workflow',
   })
   .run();
 db.insert(batches).values({ id: 'b-20261009-crossr', repeats: 1 }).run();
@@ -60,6 +59,8 @@ function insertRunRow(
       taskId,
       variantId,
       repeatIndex,
+      model: 'opus',
+      effort: 'high',
       status: 'failed',
       sessionId: session,
       workspacePath: path.join(work, id, 'workspace'),

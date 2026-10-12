@@ -1,5 +1,6 @@
 id: ic-task-store-list
-kind: ic
+workflow: dev-workflow
+bigStage: ic
 title: TaskStore 增加带筛选、排序与分页的 list
 persona: |-
   周航，Acme 规划服务的技术负责人，TypeScript 写了很多年，@acme/task-store 是他团队的库。

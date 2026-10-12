@@ -18,7 +18,7 @@ import {
 import { RunGrades } from '../../src/grading/schema.js';
 import { ingestFile } from '../../src/ingest/ingest.js';
 import { models } from '../../src/llm/client.js';
-import { loadLfgTask, syncTasks } from '../../src/tasks/loader.js';
+import { loadTask, syncTasks, withRubric } from '../../src/tasks/loader.js';
 import { unpackRunFixture } from '../helpers/run-fixture.js';
 import { openTestDb } from '../stages/db.js';
 import { insertRun, insertVariant } from './seed.js';
@@ -32,7 +32,7 @@ const outDir = path.join(config.repoRoot, '.work/grading');
 const { db, close } = openTestDb();
 syncTasks(db, tasksDir);
 insertVariant(db, 'baseline');
-const task = loadLfgTask(db, 'optional-mcp-install');
+const task = withRubric(loadTask(db, 'optional-mcp-install'));
 
 // Tickets.md 写于 2026-09-18；run 从当天 00:00 开始，引用的旧工单不算该 run 建出的
 const startedAt = new Date('2026-09-18T00:00:00Z');
@@ -91,8 +91,8 @@ describe('lfg rubric judge（真实 vault 文档、真实 judge 调用）', { ti
     await Promise.all([gradeRun(db, 'w9-lfg-a', never), gradeRun(db, 'w9-lfg-b', never)]);
     const results = ['w9-lfg-a', 'w9-lfg-b'].map((id) => {
       const g = readRunGrades(db, id);
-      if (g?.lfg == null) throw new Error(`run ${id} 没有 lfg 评分`);
-      return { id, grades: g, lfg: g.lfg };
+      if (g?.rubric == null) throw new Error(`run ${id} 没有 rubric 评分`);
+      return { id, grades: g, lfg: g.rubric };
     });
 
     for (const { id, grades, lfg } of results) {

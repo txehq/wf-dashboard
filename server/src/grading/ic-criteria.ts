@@ -11,7 +11,7 @@ import {
 } from '../external/github.js';
 import { models, parseStructured, type StructuredRequest } from '../llm/client.js';
 import type { TokenUsage } from '../llm/pricing.js';
-import type { IcTask } from '../tasks/schema.js';
+import type { PrTask } from '../tasks/schema.js';
 import { checkReasoning, itemKey } from './rubric-judge.js';
 import type { GradeItem, IcCriteriaDetail } from './schema.js';
 
@@ -29,7 +29,7 @@ const system = `你是一个 AI 编码 workflow 评估系统的评分员。被�
 - 按条目编号作答：respond 的参数中 item_1 是验收标准 1 的评分，item_2 是验收标准 2 的评分，依此类推，每个条目都有 reasoning 与 score。`;
 
 interface JudgeInput {
-  task: IcTask;
+  task: PrTask;
   pr: { number: number; url: string; title: string; body: string };
   checks: IcCriteriaDetail['checks'];
   diff: string;
@@ -70,7 +70,7 @@ ${diff}
 const JudgedCriterion = z.object({ reasoning: z.string().min(1), score: z.int() });
 type Judgment = Record<string, z.infer<typeof JudgedCriterion>>;
 
-export function criteriaSchema(task: IcTask) {
+export function criteriaSchema(task: PrTask) {
   return z.object(
     Object.fromEntries(task.ticket.acceptanceCriteria.map((_, i) => [itemKey(i), JudgedCriterion])),
   );
@@ -90,7 +90,7 @@ export function criteriaRequest(input: JudgeInput, model: string): StructuredReq
 }
 
 // 按编号把回答对应回验收标准；缺少条目、reasoning 是占位内容或没有写完、分数不是 0 / 1 / 2 时抛错
-export function readCriteriaJudgment(task: IcTask, judgment: Judgment): GradeItem[] {
+export function readCriteriaJudgment(task: PrTask, judgment: Judgment): GradeItem[] {
   return task.ticket.acceptanceCriteria.map((criterion, i): GradeItem => {
     const itemId = criterionId(i);
     const judged = judgment[itemKey(i)];
@@ -119,7 +119,7 @@ export interface IcCriteriaResult {
 // 没有隐藏测试的 ic task：仓库中最新的 PR 交给 judge 按验收标准逐条评分，终点判定读同一个 head；
 // 没有 PR 时每条记 0 分、终点为否，不调用 judge。signal 取消时在下一步之前抛出 signal.reason
 export async function gradeIcCriteria(
-  task: IcTask,
+  task: PrTask,
   repo: string,
   signal: AbortSignal,
 ): Promise<IcCriteriaResult> {
@@ -159,7 +159,7 @@ export interface PrMaterial {
 }
 
 export async function judgeIcCriteria(
-  task: IcTask,
+  task: PrTask,
   material: PrMaterial,
   signal: AbortSignal,
 ): Promise<IcCriteriaResult> {

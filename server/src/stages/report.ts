@@ -2,6 +2,7 @@ import { and, asc, eq, gt, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import {
+  liveSessions,
   requests,
   runs,
   sessions,
@@ -11,17 +12,18 @@ import {
   stageStatuses,
   terminalRunStatuses,
   userMessages,
+  variants,
   type StageStatus,
-  type Workflow,
 } from '../db/schema.js';
 import { events } from '../events.js';
+import { definitionHash, loadWorkflow } from '../workflows/index.js';
+import { DEV_WORKFLOW_ID, type WorkflowDefinition } from '../workflows/schema.js';
 import {
   type Cycle,
   cyclesOf,
   Evidence,
   foldStages,
   initialStageState,
-  STAGES,
   StageState,
   stageItems,
 } from './partition.js';
@@ -48,7 +50,7 @@ export const StageView = z.object({
   status: z.enum(stageStatuses),
   startSeq: z.number().nullable(),
   endSeq: z.number().nullable(),
-  // 这个阶段被调用的次数（fix-pr 的修复轮数）
+  // 这个阶段被调用的次数（repeatable 的小阶段为修复轮数）
   entries: z.number(),
   evidence: Evidence.nullable(),
   stats: StageStats,
@@ -64,10 +66,20 @@ export const WorkflowCycle = z.object({
 });
 export type WorkflowCycle = z.infer<typeof WorkflowCycle>;
 
+// 一个大阶段的全部轮次；session 中没有这个大阶段时 cycles 为空
+export const BigStageCycles = z.object({
+  bigStage: z.string(),
+  title: z.string(),
+  cycles: z.array(WorkflowCycle),
+});
+export type BigStageCycles = z.infer<typeof BigStageCycles>;
+
 export const StageReport = z.object({
   sessionId: z.string(),
-  lfg: z.array(WorkflowCycle),
-  ic: z.array(WorkflowCycle),
+  // 划分所用的 workflow（Contracts 16.6）
+  workflowId: z.string(),
+  // 按定义中大阶段的顺序
+  bigStages: z.array(BigStageCycles),
   outside: StageStats,
 });
 export type StageReport = z.infer<typeof StageReport>;
@@ -116,7 +128,7 @@ function inRange(seq: number, startSeq: number | null, endSeq: number | null): b
 }
 
 // 各轮各阶段加上统计；不在任何阶段区间内的主请求为 outside
-function reportOf(rows: SessionRows, cycles: Cycle[]): StageReport {
+function reportOf(rows: SessionRows, definition: WorkflowDefinition, cycles: Cycle[]): StageReport {
   const view = (c: Cycle): WorkflowCycle => ({
     index: c.index,
     label: c.label,
@@ -134,17 +146,29 @@ function reportOf(rows: SessionRows, cycles: Cycle[]): StageReport {
   const outside = rows.main.filter((r) => !spans.some((s) => inRange(r.seq, s.startSeq, s.endSeq)));
   return StageReport.parse({
     sessionId: rows.sessionId,
-    lfg: cycles.filter((c) => c.workflow === 'lfg').map(view),
-    ic: cycles.filter((c) => c.workflow === 'ic').map(view),
+    workflowId: definition.id,
+    bigStages: definition.bigStages.map((s) => ({
+      bigStage: s.id,
+      title: s.title,
+      cycles: cycles.filter((c) => c.bigStage === s.id).map(view),
+    })),
     outside: statsOf(rows, outside),
   });
 }
 
 // 一次算出整个 session 的阶段划分（与导入时增量写入的结果相同）；finished 见 cyclesOf
-export function stageReport(rows: SessionRows, finished: boolean): StageReport {
+export function stageReport(
+  definition: WorkflowDefinition,
+  rows: SessionRows,
+  finished: boolean,
+): StageReport {
   const lastSeq = rows.main.at(-1)?.seq ?? -1;
-  const state = foldStages(initialStageState(), stageItems(rows.main, rows.userMessages));
-  return reportOf(rows, cyclesOf(state, lastSeq, finished));
+  const state = foldStages(
+    definition,
+    initialStageState(),
+    stageItems(definition, rows.main, rows.userMessages),
+  );
+  return reportOf(rows, definition, cyclesOf(definition, state, lastSeq, finished));
 }
 
 // session 属于已到终态的 run
@@ -157,19 +181,66 @@ export function runFinished(db: Db, sessionId: string): boolean {
   return run !== undefined && terminalRunStatuses.includes(run.status);
 }
 
+const variantWorkflow = (db: Db, variantId: string) =>
+  db
+    .select({ workflowId: variants.workflowId })
+    .from(variants)
+    .where(eq(variants.id, variantId))
+    .get()?.workflowId;
+
+// 划分 session 所用的 workflow（Contracts 16.6）：run 与交互的 session 用所用 variant 的 workflow；
+// 绑定了 variant 的离线 session 用该 variant 的 workflow；其余只按 dev-workflow 划分
+export function sessionWorkflowId(db: Db, sessionId: string): string {
+  const session = db
+    .select({ runId: sessions.runId, liveId: sessions.liveId, variantId: sessions.variantId })
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    .get();
+  if (session === undefined) throw new Error(`session ${sessionId} 不存在`);
+  const run =
+    session.runId === null
+      ? undefined
+      : db.select({ variantId: runs.variantId }).from(runs).where(eq(runs.id, session.runId)).get();
+  const live =
+    session.liveId === null
+      ? undefined
+      : db
+          .select({ variantId: liveSessions.variantId })
+          .from(liveSessions)
+          .where(eq(liveSessions.id, session.liveId))
+          .get();
+  const variantId = run?.variantId ?? live?.variantId ?? session.variantId;
+  return (variantId === null ? undefined : variantWorkflow(db, variantId)) ?? DEV_WORKFLOW_ID;
+}
+
 export interface StageChange {
-  workflow: Workflow;
+  bigStage: string;
   stage: string;
   status: StageStatus;
 }
 
-const spanKey = (workflow: string, cycle: number, stage: string) =>
-  `${workflow}:${String(cycle)}:${stage}`;
+// stage_states.state：折叠状态加上划分所用定义的 hash
+const SavedState = StageState.extend({ definitionHash: z.string() });
+
+const spanKey = (bigStage: string, cycle: number, stage: string) =>
+  `${bigStage}:${String(cycle)}:${stage}`;
 
 // 把 session 新增的主请求折叠进已保存的状态，重写 stage_cycles 与 stage_spans，返回状态变化的阶段。
-// 最后一条请求在一轮结束前还可能追加 content block：已保存的状态只折叠到它之前，它与之后的命令每次重新折叠
+// 最后一条请求在一轮结束前还可能追加 content block：已保存的状态只折叠到它之前，它与之后的命令每次重新折叠。
+// 所用的 workflow 或其定义与保存时不同时从头折叠
 export function updateStages(db: Db, sessionId: string): StageChange[] {
-  const saved = db.select().from(stageStates).where(eq(stageStates.sessionId, sessionId)).get();
+  // run 的 claude 还没有写出 jsonl：session 还没有导入，没有可划分的请求
+  if (!db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, sessionId)).get())
+    return [];
+  const workflowId = sessionWorkflowId(db, sessionId);
+  const definition = loadWorkflow(db, workflowId);
+  const hash = definitionHash(definition);
+  const stored = db.select().from(stageStates).where(eq(stageStates.sessionId, sessionId)).get();
+  const parsed = stored === undefined ? undefined : SavedState.parse(stored.state);
+  const saved =
+    stored?.workflowId === workflowId && parsed?.definitionHash === hash
+      ? { ...stored, state: parsed }
+      : undefined;
   const foldedSeq = saved?.foldedSeq ?? -1;
   const foldedAt = saved?.foldedAt ?? null;
   const fresh = db
@@ -197,20 +268,24 @@ export function updateStages(db: Db, sessionId: string): StageChange[] {
     .all();
   const complete = fresh.slice(0, -1);
   const state = foldStages(
-    saved === undefined ? initialStageState() : StageState.parse(saved.state),
-    stageItems(complete, users),
+    definition,
+    saved === undefined ? initialStageState() : { cycles: saved.state.cycles },
+    stageItems(definition, complete, users),
   );
   const committedAt = complete.at(-1)?.timestamp ?? foldedAt;
   const shown = foldStages(
+    definition,
     state,
     stageItems(
+      definition,
       [last],
       users.filter((u) => committedAt === null || u.timestamp > committedAt),
     ),
   );
-  const cycles = cyclesOf(shown, last.seq, runFinished(db, sessionId));
+  const cycles = cyclesOf(definition, shown, last.seq, runFinished(db, sessionId));
   const values = {
-    state,
+    workflowId,
+    state: { ...state, definitionHash: hash },
     foldedSeq: complete.at(-1)?.seq ?? foldedSeq,
     foldedAt: committedAt,
     updatedAt: new Date(),
@@ -218,7 +293,7 @@ export function updateStages(db: Db, sessionId: string): StageChange[] {
   // 没有变化时不重写（Runs 列表每次读取都会调用）
   if (
     saved?.foldedSeq === values.foldedSeq &&
-    JSON.stringify(savedCycles(db, sessionId)) === JSON.stringify(cycles)
+    JSON.stringify(savedCycles(db, definition, sessionId)) === JSON.stringify(cycles)
   )
     return [];
   return db.transaction((tx) => {
@@ -228,7 +303,7 @@ export function updateStages(db: Db, sessionId: string): StageChange[] {
         .from(stageSpans)
         .where(eq(stageSpans.sessionId, sessionId))
         .all()
-        .map((s) => [spanKey(s.workflow, s.cycle, s.stage), s.status]),
+        .map((s) => [spanKey(s.bigStage, s.cycle, s.stage), s.status]),
     );
     tx.insert(stageStates)
       .values({ sessionId, ...values })
@@ -241,7 +316,7 @@ export function updateStages(db: Db, sessionId: string): StageChange[] {
       tx.insert(stageCycles)
         .values({
           sessionId,
-          workflow: c.workflow,
+          bigStage: c.bigStage,
           cycle: c.index,
           label: c.label,
           startSeq: c.startSeq,
@@ -250,10 +325,10 @@ export function updateStages(db: Db, sessionId: string): StageChange[] {
         .run();
       for (const s of c.spans) {
         tx.insert(stageSpans)
-          .values({ sessionId, workflow: c.workflow, cycle: c.index, ...s })
+          .values({ sessionId, bigStage: c.bigStage, cycle: c.index, ...s })
           .run();
-        if (before.get(spanKey(c.workflow, c.index, s.stage)) !== s.status)
-          changes.push({ workflow: c.workflow, stage: s.stage, status: s.status });
+        if (before.get(spanKey(c.bigStage, c.index, s.stage)) !== s.status)
+          changes.push({ bigStage: c.bigStage, stage: s.stage, status: s.status });
       }
     }
     return changes;
@@ -265,20 +340,22 @@ export function publishStageChanges(sessionId: string, changes: StageChange[]) {
 }
 
 // stage_cycles 与 stage_spans 中保存的各轮，形状与 cyclesOf 相同
-function savedCycles(db: Db, sessionId: string): Cycle[] {
+function savedCycles(db: Db, definition: WorkflowDefinition, sessionId: string): Cycle[] {
   const cycles = db.select().from(stageCycles).where(eq(stageCycles.sessionId, sessionId)).all();
   const spans = db.select().from(stageSpans).where(eq(stageSpans.sessionId, sessionId)).all();
+  const order = (bigStage: string) =>
+    definition.bigStages.find((s) => s.id === bigStage)?.stages.map((s) => s.id) ?? [];
   return cycles
     .sort((a, b) => a.startSeq - b.startSeq || a.id - b.id)
     .map((c) => ({
-      workflow: c.workflow,
+      bigStage: c.bigStage,
       index: c.cycle,
       label: c.label,
       startSeq: c.startSeq,
       endSeq: c.endSeq,
       spans: spans
-        .filter((s) => s.workflow === c.workflow && s.cycle === c.cycle)
-        .sort((a, b) => STAGES[c.workflow].indexOf(a.stage) - STAGES[c.workflow].indexOf(b.stage))
+        .filter((s) => s.bigStage === c.bigStage && s.cycle === c.cycle)
+        .sort((a, b) => order(c.bigStage).indexOf(a.stage) - order(c.bigStage).indexOf(b.stage))
         .map((s) => ({
           stage: s.stage,
           status: s.status,
@@ -297,5 +374,6 @@ export function readReport(db: Db, sessionId: string): StageReport | null {
     return null;
   const rows = loadSessionRows(db, sessionId);
   publishStageChanges(sessionId, updateStages(db, sessionId));
-  return reportOf(rows, savedCycles(db, sessionId));
+  const definition = loadWorkflow(db, sessionWorkflowId(db, sessionId));
+  return reportOf(rows, definition, savedCycles(db, definition, sessionId));
 }

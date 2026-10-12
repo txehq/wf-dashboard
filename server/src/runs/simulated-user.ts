@@ -1,18 +1,22 @@
 import { z } from 'zod';
-import type { AskQuestion, Workflow } from '../db/schema.js';
+import type { AskQuestion } from '../db/schema.js';
 import { EVAL_PROJECT, EVAL_TEAM } from '../external/linear.js';
 import { ORG } from '../external/github.js';
 import { models, parseStructured } from '../llm/client.js';
 import { isFiller } from '../llm/filler.js';
+import { type BigStageDefinition, hasRepo } from '../workflows/schema.js';
 
 // dispatch gate 的固定回答（Spikes/Stage Markers 1.5）
 export const DISPATCH_GATE_REPLY = '不派发，到此结束。';
 const GO = /\bgo\b/i;
 
-// 模拟用户扮演的人：run 与选了 task 的交互取 task 的字段（Task 本身满足这个形状）
+// 模拟用户看到的大阶段：入口命令、积木（评估环境的事实）、结束条件与 dispatch gate（Contracts 16.1、16.2）
+export type PersonaStage = Pick<BigStageDefinition, 'id' | 'prepare' | 'done' | 'dispatchGate'>;
+
+// 模拟用户扮演的人：run 与选了 task 的交互取 task 的字段
 export interface SimulatedPersona {
-  // 对话所在的 workflow；resume 的 session 没有 workflow 时为空
-  kind: Workflow | null;
+  // 对话所在的大阶段；resume 的 session 没有大阶段时为空
+  stage: PersonaStage | null;
   persona: string;
   // 只在被问到时透露的需求；为空字符串时没有这一节
   hiddenRequirements: string;
@@ -22,9 +26,9 @@ export interface SimulatedPersona {
 export interface EvalFacts {
   // run id 或交互 id，也是 feature slug
   runId: string;
-  // txehq/wfe-<id>
-  repo: string;
-  // ic 的工单 identifier
+  // txehq/wfe-<id>；大阶段没有仓库积木时为空
+  repo: string | null;
+  // 工单副本的 identifier
   ticket: string | null;
   product: string;
 }
@@ -94,26 +98,27 @@ export function rejectFiller(reply: string, answers: Record<string, string> = {}
   }
 }
 
-function facts(kind: Workflow | null, ctx: EvalFacts): string[] {
-  const common = [
+// 按积木生成（Contracts 16.2）：仓库积木给出本次运行的仓库，vault-dir 给出 product 与 feature slug，ticket-copy 给出工单
+function facts(stage: PersonaStage | null, ctx: EvalFacts): string[] {
+  const prepare = stage?.prepare ?? [];
+  return [
     `- 工单系统：Linear 的 ${EVAL_TEAM} team，"${EVAL_PROJECT}" project。`,
-    `- 代码托管：GitHub 组织 ${ORG}；本次运行的仓库是 ${ctx.repo}。`,
+    stage !== null && hasRepo(stage) && ctx.repo !== null
+      ? `- 代码托管：GitHub 组织 ${ORG}；本次运行的仓库是 ${ctx.repo}。`
+      : `- 代码托管：GitHub 组织 ${ORG}。`,
+    ...(prepare.includes('vault-dir')
+      ? [`- 文档写进 Obsidian vault，product 是 "${ctx.product}"，feature slug 是 ${ctx.runId}。`]
+      : []),
+    ...(prepare.includes('ticket-copy') ? [`- 要做的工单是 ${ctx.ticket ?? '（未建）'}。`] : []),
   ];
-  if (kind === 'lfg') {
-    return [
-      ...common,
-      `- 文档写进 Obsidian vault，product 是 "${ctx.product}"，feature slug 是 ${ctx.runId}。`,
-    ];
-  }
-  return [...common, `- 要做的工单是 ${ctx.ticket ?? '（未建）'}。`];
 }
 
-function doneRule(kind: Workflow | null): string {
-  if (kind === 'lfg') {
-    return '这是 /lfg 运行。done 为 true 的条件（满足其一）：你在之前的对话中已经回答过 dispatch gate（不派发），并且 agent 最新一轮报告了结束状态；或 agent 明确报告无法继续。其他情况一律为 false。';
-  }
-  if (kind === 'ic') {
-    return '这是 /ic 运行。done 为 true 的条件（满足其一）：agent 最新一轮报告 PR 已经标记为 ready for review（工单已移到 review 状态）；或 agent 明确报告无法继续。其他情况一律为 false。';
+const SENTENCE_END = /[。！？.!?]$/u;
+
+function doneRule(stage: PersonaStage | null): string {
+  if (stage !== null) {
+    const done = stage.done.trim();
+    return `这是 /${stage.id} 运行。done 为 true 的条件（满足其一）：${done}${SENTENCE_END.test(done) ? '' : '。'}其他情况一律为 false。`;
   }
   return 'done 为 true 的条件（满足其一）：agent 最新一轮报告你交给它的工作已经全部完成；或 agent 明确报告无法继续。其他情况一律为 false。';
 }
@@ -152,10 +157,10 @@ export function systemPrompt(ctx: SimulatedUserContext): string {
       '- 授权范围：agent 可以在上述 Linear project 中建工单，在 GitHub 组织 txehq 中建仓库与 PR，写 vault 的 Project Magi Eval/。被问到是否授权这些操作时回答可以；超出范围的操作不授权。',
       '',
       '## 评估环境的公共事实（agent 问到时如实回答）',
-      ...facts(task.kind, ctx.eval),
+      ...facts(task.stage, ctx.eval),
     );
   }
-  if (task.kind === 'lfg') {
+  if (task.stage?.dispatchGate === true) {
     lines.push(
       '',
       '## dispatch gate',
@@ -165,7 +170,7 @@ export function systemPrompt(ctx: SimulatedUserContext): string {
   lines.push(
     '',
     '## 何时结束（done）',
-    doneRule(task.kind),
+    doneRule(task.stage),
     WAITING_RULE,
     'done 为 true 时，reply 写一句简短的结束语，它不会发给 agent。',
     '',
@@ -280,10 +285,12 @@ export async function simulateUser(
     cost = result;
   }
   rejectFiller(reply, answers);
-  if (ctx.task.kind === 'lfg') {
+  if (ctx.task.stage?.dispatchGate === true) {
     const said = [reply, ...Object.values(answers ?? {})];
     if (said.some((s) => GO.test(s))) {
-      throw new Error(`lfg 运行中模拟用户的回答出现了 go：${JSON.stringify(said)}`);
+      throw new Error(
+        `/${ctx.task.stage.id} 运行中模拟用户的回答出现了 go：${JSON.stringify(said)}`,
+      );
     }
   }
   return {

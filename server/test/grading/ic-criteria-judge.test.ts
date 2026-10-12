@@ -11,7 +11,7 @@ import {
   prInfoFrom,
 } from '../../src/external/github.js';
 import { judgeIcCriteria } from '../../src/grading/ic-criteria.js';
-import { loadIcTask, syncTasks } from '../../src/tasks/loader.js';
+import { loadTask, syncTasks, withPr } from '../../src/tasks/loader.js';
 import { withoutHiddenTests } from '../helpers/ic-fixture.js';
 import { recordedPr } from '../helpers/gh-fixtures.js';
 import { openTestDb } from '../stages/db.js';
@@ -25,8 +25,8 @@ const recorded = recordedPr('criteria-judge');
 
 describe('验收标准 judge（真实 gateway，录下的 PR）', { timeout: 20 * 60_000 }, () => {
   it('ic-money-format 去掉隐藏测试：参考实现的 PR 逐条评分', async () => {
-    const source = loadIcTask(db, 'ic-money-format');
-    const task = { ...withoutHiddenTests(source, 'w28-criteria-task'), dir: source.dir };
+    const source = loadTask(db, 'ic-money-format');
+    const task = withPr({ ...withoutHiddenTests(source, 'w28-criteria-task'), dir: source.dir });
     const latest = latestPrFrom(recorded.stdout('list'));
     if (latest === null) throw new Error('criteria-judge 的录制中没有 PR');
     const checks = checksFrom(recorded.repo, recorded.pr(), recorded.result('checks'));

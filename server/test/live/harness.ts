@@ -27,8 +27,6 @@ export async function startLiveServer(options: { localHome?: string } = {}) {
   });
   const base = await variants.createBaseline({
     name: `W30 基线 ${randomUUID().slice(0, 8)}`,
-    model: 'opus',
-    effort: 'high',
   });
   const variant: Variant = await variants.build(base.id);
   const settings = createSettingsStore(db);

@@ -55,4 +55,11 @@ export class BuildLog {
     this.timings[step] = seconds;
     this.append(`\n[${step}] ${text}\n[${step}] ${String(seconds)} s\n`);
   }
+
+  // 不调用外部命令的步骤失败：记录原文与状态后抛错
+  fail(step: string, message: string): never {
+    this.append(`\n[${step}] ${message}\n`);
+    this.onFailure(message);
+    throw new HttpError(400, message);
+  }
 }

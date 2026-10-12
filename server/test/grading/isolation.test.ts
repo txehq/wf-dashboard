@@ -5,8 +5,8 @@ import { execa } from 'execa';
 import { afterAll, describe, expect, it } from 'vitest';
 import { config } from '../../src/config.js';
 import { gradingSandboxProfile, runHiddenTests } from '../../src/grading/hidden-tests.js';
-import { loadIcTask, syncTasks, withHiddenTests } from '../../src/tasks/loader.js';
-import type { IcTaskWithTests } from '../../src/tasks/schema.js';
+import { loadTask, syncTasks, withHiddenTests } from '../../src/tasks/loader.js';
+import type { TestsTask } from '../../src/tasks/schema.js';
 import { buildFixtureTask, git, testRunId } from '../helpers/ic-fixture.js';
 import { openTestDb } from '../stages/db.js';
 
@@ -17,7 +17,7 @@ afterAll(close);
 const realSettings = path.join(os.homedir(), '.claude/settings.json');
 
 // 从 task 的 bundle clone 起始仓库到 data/runs/<runId>/grading/checkout，与评分时的位置相同
-async function startCheckout(task: IcTaskWithTests, runId: string): Promise<string> {
+async function startCheckout(task: TestsTask, runId: string): Promise<string> {
   const checkout = path.join(config.runsDir, runId, 'grading/checkout');
   await git(config.repoRoot, ['clone', '-q', path.join(task.dir, task.repo.path), checkout]);
   return checkout;
@@ -34,7 +34,7 @@ describe('评分隔离：checkout 中的配置与安装脚本不影响隐藏测�
     ['对照：起始仓库', false],
     ['作弊：vitest.config.js + setupFiles 让断言失效，postinstall 在 checkout 外写文件', true],
   ])('%s → 通过 4 / 声明 19，checkout 外没有文件', async (_, cheat) => {
-    const task = withHiddenTests(loadIcTask(db, 'ic-money-format'));
+    const task = withHiddenTests(loadTask(db, 'ic-money-format'));
     const runId = testRunId(cheat ? 'w18a-cheat' : 'w18a-control');
     const checkout = await startCheckout(task, runId);
     const outside = path.join(path.dirname(checkout), 'outside-checkout.txt');
@@ -175,7 +175,7 @@ describe('评分 sandbox', { timeout: 5 * 60_000 }, () => {
 
   // W15 Medium 13：PR 中已有 test/hidden 时以前抛错让 run 失败；现在整个目录换成 task 的隐藏测试
   it('PR 自带的 test/hidden 不参与评分', async () => {
-    const task = withHiddenTests(loadIcTask(db, 'ic-money-format'));
+    const task = withHiddenTests(loadTask(db, 'ic-money-format'));
     const runId = testRunId('w18b-own-hidden');
     const checkout = await startCheckout(task, runId);
     fs.mkdirSync(path.join(checkout, 'test/hidden'), { recursive: true });
@@ -191,7 +191,7 @@ describe('评分 sandbox', { timeout: 5 * 60_000 }, () => {
 
   // Contracts 7.9（W18c）：checkout 内的步骤因 agent 的代码失败，是 agent 的结果——记 0 / 声明数并写明原文，不抛错
   it('PR 的 package-lock.json 让 npm ci 失败：记 0 / 声明数，error 为 npm ci 的原文', async () => {
-    const task = withHiddenTests(loadIcTask(db, 'ic-money-format'));
+    const task = withHiddenTests(loadTask(db, 'ic-money-format'));
     const runId = testRunId('w18c-npm-ci');
     const checkout = await startCheckout(task, runId);
     const lockPath = path.join(checkout, 'package-lock.json');

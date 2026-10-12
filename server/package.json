@@ -6,7 +6,8 @@
     "./tasks/schema": "./src/tasks/schema.ts",
     "./tasks/import-schema": "./src/tasks/import-schema.ts",
     "./grading/schema": "./src/grading/schema.ts",
-    "./live/views": "./src/live/views.ts"
+    "./live/views": "./src/live/views.ts",
+    "./workflows/schema": "./src/workflows/schema.ts"
   },
   "scripts": {
     "dev": "tsx watch src/main.ts",
