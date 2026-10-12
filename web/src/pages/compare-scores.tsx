@@ -86,6 +86,7 @@ function ScoreCell({
   variant,
   intervened,
   crossRef,
+  sourceRef,
   cancelled,
   isBaseline,
 }: {
@@ -94,6 +95,7 @@ function ScoreCell({
   variant: SelectedVariant;
   intervened: Set<string>;
   crossRef: Set<string>;
+  sourceRef: Set<string>;
   cancelled: Set<string>;
   isBaseline: boolean;
 }) {
@@ -122,6 +124,7 @@ function ScoreCell({
           ...v,
           intervened: intervened.has(v.runId),
           crossRef: crossRef.has(v.runId),
+          sourceRef: sourceRef.has(v.runId),
           cancelled: cancelled.has(v.runId),
         }))}
         mean={main.mean}
@@ -324,6 +327,7 @@ function TaskRow({
   variants,
   intervened,
   crossRef,
+  sourceRef,
   cancelled,
 }: {
   task: TaskRecord;
@@ -331,6 +335,7 @@ function TaskRow({
   variants: SelectedVariant[];
   intervened: Set<string>;
   crossRef: Set<string>;
+  sourceRef: Set<string>;
   cancelled: Set<string>;
 }) {
   const [open, setOpen] = useState(false);
@@ -368,6 +373,7 @@ function TaskRow({
                 variant={variant}
                 intervened={intervened}
                 crossRef={crossRef}
+                sourceRef={sourceRef}
                 cancelled={cancelled}
                 isBaseline={i === 0}
               />
@@ -396,6 +402,7 @@ export function ScoreTable({
   tasks,
   intervened,
   crossRef,
+  sourceRef,
   cancelled,
 }: {
   result: CompareResult;
@@ -403,6 +410,7 @@ export function ScoreTable({
   tasks: TaskRecord[];
   intervened: Set<string>;
   crossRef: Set<string>;
+  sourceRef: Set<string>;
   cancelled: Set<string>;
 }) {
   const groups = [
@@ -465,6 +473,7 @@ export function ScoreTable({
                     variants={variants}
                     intervened={intervened}
                     crossRef={crossRef}
+                    sourceRef={sourceRef}
                     cancelled={cancelled}
                   />
                 ))}

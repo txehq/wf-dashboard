@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
 // 真实调用 gateway（模型请求或 claude CLI）的测试：在单独的项目中逐个文件顺序执行，降低对 gateway 的并发；
-// 其余测试照常并行。gateway 的错误不重试（Contracts 4），挂起的请求 120 秒后以超时错误失败
+// 其余测试照常并行。gateway 的错误不重试（Contracts 4），挂起的请求 10 分钟后以超时错误失败
 export const gatewayTests = [
   'test/environment.test.ts',
   'test/linear-reconnect.test.ts',

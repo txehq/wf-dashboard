@@ -5,9 +5,9 @@ import { execa } from 'execa';
 import { z } from 'zod';
 import { config } from '../config.js';
 import type { LinkedPr } from '../tasks/import-schema.js';
+import { copyCommitBody, copyWorkflows } from '../tasks/copy-workflows.js';
 import type { IcTask } from '../tasks/schema.js';
 import {
-  analyzeWorkflows,
   isWorkflowPath,
   type RemoteWorkflowRef,
   type WorkflowFile,
@@ -132,54 +132,7 @@ function ciRuleset(requiredChecks: string[]) {
   };
 }
 
-const CheckRun = z
-  .object({
-    name: z.string(),
-    status: z.string(),
-    conclusion: z.string().nullable(),
-    html_url: z.string(),
-    app: z.object({ id: z.number() }).loose().nullable(),
-  })
-  .loose();
-
-// GitHub 的 required check 接受的结论
-const PASSING_CONCLUSIONS = ['success', 'skipped', 'neutral'];
-
-async function actionsCheckRuns(repo: string, sha: string) {
-  const pages = await ghJson(
-    ['api', `repos/${repo}/commits/${sha}/check-runs?per_page=100`, '--paginate', '--slurp'],
-    z.array(z.object({ check_runs: z.array(CheckRun) }).loose()),
-  );
-  return pages.flatMap((p) => p.check_runs).filter((c) => c.app?.id === ACTIONS_INTEGRATION_ID);
-}
-
-// 推送起始代码后，由 push 触发的 required check 必须全部结束且通过；signal 中止时停止等待
-async function waitPushChecks(repo: string, sha: string, names: string[], signal: AbortSignal) {
-  const deadline = Date.now() + RUN_TIMEOUT_MS;
-  for (;;) {
-    signal.throwIfAborted();
-    const runs = await actionsCheckRuns(repo, sha);
-    const found = names.map((name) => ({ name, run: runs.find((r) => r.name === name) }));
-    const pending = found.filter((f) => f.run?.status !== 'completed').map((f) => f.name);
-    if (pending.length === 0) {
-      const failed = found.filter((f) => !PASSING_CONCLUSIONS.includes(f.run?.conclusion ?? ''));
-      if (failed.length > 0) {
-        throw new Error(
-          `${repo} 起始代码的 required check 未通过：${failed.map((f) => `${f.name} ${f.run?.conclusion ?? ''} ${f.run?.html_url ?? ''}`).join(', ')}`,
-        );
-      }
-      return;
-    }
-    if (Date.now() > deadline) {
-      throw new Error(
-        `${repo}@${sha} 的 check ${pending.join('、')} ${String(RUN_TIMEOUT_MS)}ms 内未结束`,
-      );
-    }
-    await sleep(RUN_POLL_MS, undefined, { signal });
-  }
-}
-
-// bare 仓库中某个 commit 的 workflow 文件；没有 .github/workflows 时为空
+// 本地仓库中某个 commit 的 workflow 文件；没有 .github/workflows 时为空
 export async function seedWorkflowFiles(seed: string, commit: string): Promise<WorkflowFile[]> {
   const tree = await execa('git', ['-C', seed, 'cat-file', '-t', `${commit}:.github/workflows`], {
     reject: false,
@@ -208,9 +161,10 @@ export async function seedWorkflowFiles(seed: string, commit: string): Promise<W
   );
 }
 
-// /ic 运行的仓库副本。顺序不能调换：ruleset 生效后直接推送 main 会被拒绝（GH013），
-// 所以先推送起始代码、等由 push 触发的 required check 结束，最后以 task 的 requiredChecks 建 ruleset（为空时不建），
-// agent 只能经 PR 改代码
+// /ic 运行的仓库副本（Contracts 第 13 节）。在起始 commit 之上加一个 wf-dashboard 提交的 commit：workflow 的 on 只保留
+// pull_request，没有 pull_request 触发的文件删除；没有要改的文件时不加。推送后 GitHub 中没有可以由 push、定时或手动触发的
+// workflow，不等待默认分支上的 CI。顺序不能调换：ruleset 生效后直接推送 main 会被拒绝（GH013），所以先推送、最后以
+// task 的 requiredChecks 建 ruleset（为空时不建），agent 只能经 PR 改代码
 export async function createRunRepo(
   task: IcTask,
   runId: string,
@@ -218,19 +172,40 @@ export async function createRunRepo(
 ): Promise<RunRepo> {
   const repo = runRepoName(runId);
   const bundle = path.join(task.dir, task.repo.path);
-  const seed = path.join(config.runsDir, runId, 'seed.git');
+  const seed = path.join(config.runsDir, runId, 'seed');
   if (!fs.existsSync(bundle))
     throw new Error(`task ${task.id} 的起始仓库 bundle 不存在：${bundle}`);
-  await cmd('git', ['clone', '--bare', bundle, seed]);
-  await cmd('git', ['-C', seed, 'cat-file', '-e', `${task.repo.commit}^{commit}`]);
-  // 推送后要等待的只有由 push 触发的 required check
-  const analysis = await analyzeWorkflows(
-    await seedWorkflowFiles(seed, task.repo.commit),
-    readRemoteWorkflow,
-  );
-  const pushChecks = task.requiredChecks.filter((name) =>
-    analysis.jobs.some((j) => j.checkName === name && j.onPush),
-  );
+  await cmd('git', ['clone', '--quiet', '--no-checkout', bundle, seed]);
+  await cmd('git', ['-C', seed, 'checkout', '--quiet', '--detach', task.repo.commit]);
+  const files = (await seedWorkflowFiles(seed, task.repo.commit)).map((f) => ({
+    ...f,
+    content: fs.readFileSync(path.join(seed, f.path), 'utf8'),
+  }));
+  const changes = copyWorkflows(files);
+  for (const change of changes) {
+    const file = path.join(seed, change.path);
+    if (change.kind === 'deleted') fs.rmSync(file);
+    else fs.writeFileSync(file, change.content);
+  }
+  if (changes.length > 0) {
+    await cmd('git', ['-C', seed, 'add', '--all', '.github/workflows']);
+    // 本机 git 可能没有配置身份；这个 commit 以 dashboard 的名义创建
+    await cmd('git', [
+      '-C',
+      seed,
+      '-c',
+      'user.name=wf-dashboard',
+      '-c',
+      'user.email=wf-dashboard@users.noreply.github.com',
+      'commit',
+      '--quiet',
+      '-m',
+      COPY_COMMIT_TITLE,
+      '-m',
+      copyCommitBody(changes),
+    ]);
+  }
+  const head = (await cmd('git', ['-C', seed, 'rev-parse', 'HEAD'])).trim();
 
   await cmd('gh', [
     'repo',
@@ -238,24 +213,25 @@ export async function createRunRepo(
     repo,
     '--private',
     '--description',
-    `wf-dashboard eval run ${runId} (${task.id})`,
+    // 导入的 task 的 id 由来源工单编号得出，副本中不出现来源
+    task.source === undefined
+      ? `wf-dashboard eval run ${runId} (${task.id})`
+      : `wf-dashboard eval run ${runId}`,
   ]);
   await cmd('git', [
     '-C',
     seed,
     'push',
+    '--quiet',
     `https://github.com/${repo}.git`,
-    `${task.repo.commit}:refs/heads/main`,
+    `HEAD:refs/heads/main`,
   ]);
   // 推送之后本地副本不再需要
   fs.rmSync(seed, { recursive: true });
   const view = await waitDefaultBranchMain(repo, signal);
   const mainSha = await branchSha(repo, 'main');
-  if (mainSha !== task.repo.commit) {
-    throw new Error(`${repo} main 在 ${mainSha}，应为 ${task.repo.commit}`);
-  }
+  if (mainSha !== head) throw new Error(`${repo} main 在 ${mainSha}，应为 ${head}`);
 
-  if (pushChecks.length > 0) await waitPushChecks(repo, mainSha, pushChecks, signal);
   if (task.requiredChecks.length > 0) {
     await ghJson(
       ['api', '-X', 'POST', `repos/${repo}/rulesets`, '--input', '-'],
@@ -265,6 +241,8 @@ export async function createRunRepo(
   }
   return { repo, url: view.url, mainSha };
 }
+
+export const COPY_COMMIT_TITLE = 'eval copy: keep only pull_request workflows';
 
 // /lfg 运行用：只有一个初始提交，没有 CI 与 ruleset。
 // 初始提交在本地建在 main 上再推送：--add-readme 会用组织的默认分支名（txehq 为 master）
@@ -752,25 +730,30 @@ export async function readRemoteWorkflow(ref: RemoteWorkflowRef): Promise<string
 // 在 commit 处生成起始仓库的 bundle：完整克隆源仓库（bare），main 指向 commit 后打包 main 的全部历史。
 // 先写临时文件，校验后再改名
 export async function createRepoBundle(repo: string, commit: string, bundlePath: string) {
-  const work = path.join(
-    config.dataDir,
-    'task-imports',
-    `${repo.replace('/', '__')}-${commit.slice(0, 12)}-${String(process.pid)}-${String(Date.now())}`,
-  );
-  fs.mkdirSync(path.dirname(work), { recursive: true });
-  await cmd('gh', ['repo', 'clone', repo, work, '--', '--bare', '--quiet']);
-  // 不在任何分支上的 commit（例如只在 PR 的 ref 中）需要单独取
-  const present = await execa('git', ['-C', work, 'cat-file', '-e', `${commit}^{commit}`], {
-    reject: false,
-  });
-  if (present.exitCode !== 0) await cmd('git', ['-C', work, 'fetch', '--quiet', 'origin', commit]);
-  await cmd('git', ['-C', work, 'update-ref', 'refs/heads/main', commit]);
-  const tmp = `${bundlePath}.${String(process.pid)}.tmp`;
-  fs.mkdirSync(path.dirname(bundlePath), { recursive: true });
-  await cmd('git', ['-C', work, 'bundle', 'create', '--quiet', tmp, 'main']);
-  await cmd('git', ['-C', work, 'bundle', 'verify', '--quiet', tmp]);
-  fs.renameSync(tmp, bundlePath);
-  fs.rmSync(work, { recursive: true });
+  // 克隆与打包都在 bundle 同目录下的临时目录中进行，成功后把 bundle 改名到位；无论成败临时目录都删除，
+  // 失败时错误照原文抛出
+  const dir = path.dirname(bundlePath);
+  fs.mkdirSync(dir, { recursive: true });
+  const work = path.join(dir, `.bundle-tmp-${String(process.pid)}-${String(Date.now())}`);
+  fs.mkdirSync(work);
+  try {
+    const clone = path.join(work, 'source.git');
+    await cmd('gh', ['repo', 'clone', repo, clone, '--', '--bare', '--quiet']);
+    // 不在任何分支上的 commit（例如只在 PR 的 ref 中）需要单独取
+    const present = await execa('git', ['-C', clone, 'cat-file', '-e', `${commit}^{commit}`], {
+      reject: false,
+    });
+    if (present.exitCode !== 0) {
+      await cmd('git', ['-C', clone, 'fetch', '--quiet', 'origin', commit]);
+    }
+    await cmd('git', ['-C', clone, 'update-ref', 'refs/heads/main', commit]);
+    const tmp = path.join(work, 'repo.bundle');
+    await cmd('git', ['-C', clone, 'bundle', 'create', '--quiet', tmp, 'main']);
+    await cmd('git', ['-C', clone, 'bundle', 'verify', '--quiet', tmp]);
+    fs.renameSync(tmp, bundlePath);
+  } finally {
+    fs.rmSync(work, { recursive: true, force: true });
+  }
 }
 
 // bundle 中 main 指向的 commit

@@ -5,15 +5,12 @@ import { config } from '../../src/config.js';
 import { gradeRun, readRunGrades } from '../../src/grading/index.js';
 import { loadIcTask, saveTask, syncTasks } from '../../src/tasks/loader.js';
 import { testRunId, withoutHiddenTests } from '../helpers/ic-fixture.js';
-import { deleteTestRepos, repoWithReadyPr } from '../helpers/test-repos.js';
+import { repoWithReadyPr } from '../helpers/test-repos.js';
 import { openTestDb } from '../stages/db.js';
 import { insertRun, insertVariant } from './seed.js';
 
 const { db, close } = openTestDb();
-afterAll(async () => {
-  close();
-  await deleteTestRepos();
-}, 5 * 60_000);
+afterAll(close);
 syncTasks(db, config.tasksDir);
 insertVariant(db, 'baseline');
 

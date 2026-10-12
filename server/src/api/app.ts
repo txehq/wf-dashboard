@@ -114,7 +114,7 @@ export async function buildApp({
     workDir: config.environmentDir,
   });
   await app.register(environmentRoutes, { environment });
-  await app.register(linearImportRoutes());
+  await app.register(linearImportRoutes({ settings }));
 
   // session 绑定 variant 与 skill 分析（Contracts 第 15 节）：本功能之前导入的 session 补提取 skill 正文与 run 的绑定
   backfillSkillLoads(db);

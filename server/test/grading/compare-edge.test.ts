@@ -118,7 +118,12 @@ const b1Max = lfgTask.rubric[0]?.items.find((i) => i.id === 'b1')?.maxScore;
 lfgRun('r-a', b1Max ?? 0);
 lfgRun('r-b', 1);
 
-const query = { includeIntervened: false, includeCrossRef: false, includeCancelled: false };
+const query = {
+  includeIntervened: false,
+  includeCrossRef: false,
+  includeSourceRef: false,
+  includeCancelled: false,
+};
 
 describe('compare 的边界情况', () => {
   it('H8：没有阶段轮次、没有请求的 run 不让 compare 报错，阶段记为未到达、成本按 0；终态 run 的最后一个阶段为 done', () => {

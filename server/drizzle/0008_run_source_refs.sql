@@ -1,0 +1,1 @@
+ALTER TABLE `runs` ADD `source_refs` text DEFAULT '[]' NOT NULL;

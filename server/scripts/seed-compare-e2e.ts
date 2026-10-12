@@ -569,6 +569,8 @@ const icResults: Record<VariantKey, { passed: number; reached: boolean }[]> = {
     { passed: 16, reached: true },
     // agent 的 package-lock.json 让 npm ci 失败的那次 run（Contracts 7.9）：标为无效，不参与对比，只用来看运行详情
     { passed: 0, reached: false },
+    // 读取了来源工单与来源 PR 的那次 run（Contracts 第 13 节）：compare 默认排除
+    { passed: 19, reached: true },
   ],
   modified: [
     { passed: 17, reached: true },
@@ -747,6 +749,30 @@ db.update(runs)
     invalidReason: '只用于运行详情的 e2e：隐藏测试的错误显示',
   })
   .where(eq(runs.id, npmCiRun))
+  .run();
+
+// 读取了来源工单与来源 PR 的 run（Contracts 第 13 节）：compare 默认排除，includeSourceRef 放回。
+// 记录的形状与 scanSourceRefs 在 W28 的真实 run r-20261011-5vqkvn 上得到的相同
+const sourceRefRun = 'r-20261009-baic04';
+seedIcRun('baseline', 4, sourceRefRun);
+db.update(runs)
+  .set({
+    sourceRefs: [
+      {
+        kind: 'ticket',
+        requestSeq: 4,
+        toolCallId: 'toolu_sourceref000001',
+        excerpt: 'id: TXE-3635',
+      },
+      {
+        kind: 'pr',
+        requestSeq: 5,
+        toolCallId: 'toolu_sourceref000002',
+        excerpt: 'command: gh pr view 638 --repo txehq/tokun-cn --json state,mergedAt',
+      },
+    ],
+  })
+  .where(eq(runs.id, sourceRefRun))
   .run();
 
 console.log(

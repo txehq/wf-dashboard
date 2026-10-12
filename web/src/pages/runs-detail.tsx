@@ -30,6 +30,7 @@ import {
   runDuration,
   runQuery,
   setRunInvalid,
+  type SourceRef,
   useRunEvents,
 } from '@/lib/runs-api';
 import { type StageView, sessionQuery, type Workflow } from '@/lib/sessions-api';
@@ -361,6 +362,55 @@ function CrossRefs({
   );
 }
 
+// Contracts 第 13 节：从 Linear 导入的 task 的 run 读取了来源工单、来源仓库或来源 PR
+const sourceKindLabel: Record<SourceRef['kind'], string> = {
+  ticket: '来源工单',
+  pr: '来源 PR',
+  repo: '来源仓库',
+};
+
+function SourceRefs({ refs, onFocus }: { refs: SourceRef[]; onFocus: (ref: SourceRef) => void }) {
+  if (refs.length === 0) return null;
+  return (
+    <section
+      className="flex flex-col gap-2 rounded-lg border-2 border-dashed border-destructive/50 px-4 py-3"
+      aria-labelledby="source-refs-title"
+      data-testid="source-refs"
+    >
+      <h2 id="source-refs-title" className="flex items-center gap-1.5 text-sm font-medium">
+        <Link2 className="size-4" aria-hidden />
+        读取了来源工单 / 仓库
+        <span className="font-normal text-muted-foreground">
+          对比时默认排除；共 {refs.length} 处
+        </span>
+      </h2>
+      <ul className="flex flex-col gap-1">
+        {refs.map((ref) => (
+          <li
+            key={`${ref.toolCallId}:${ref.kind}`}
+            className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm"
+          >
+            <span className="text-xs text-muted-foreground">{sourceKindLabel[ref.kind]}</span>
+            <button
+              type="button"
+              data-testid="source-ref-jump"
+              className="rounded border px-1.5 py-0.5 text-xs hover:bg-muted"
+              onClick={() => {
+                onFocus(ref);
+              }}
+            >
+              请求 #{ref.requestSeq}
+            </button>
+            <code className="min-w-0 flex-1 truncate text-xs" title={ref.excerpt}>
+              {ref.excerpt}
+            </code>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 // Contracts 第 12 节：选中阶段时只显示该阶段的请求（与 Sessions 详情相同）；显示全部时运行中跟随最新一条
 function Requests({
   run,
@@ -441,6 +491,14 @@ function RunView({ run }: { run: RunDetail }) {
       <Failure run={run} views={views} />
       <CrossRefs
         refs={run.crossRunRefs}
+        onFocus={(ref) => {
+          setSelected(null);
+          setFocus({ seq: ref.requestSeq, toolCallId: ref.toolCallId, nonce: Date.now() });
+          document.getElementById('run-requests')?.scrollIntoView({ behavior: 'smooth' });
+        }}
+      />
+      <SourceRefs
+        refs={run.sourceRefs}
         onFocus={(ref) => {
           setSelected(null);
           setFocus({ seq: ref.requestSeq, toolCallId: ref.toolCallId, nonce: Date.now() });

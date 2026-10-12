@@ -56,6 +56,7 @@ describe('Compare：没有隐藏测试的 ic task', () => {
       tasks: [taskId],
       includeIntervened: false,
       includeCrossRef: false,
+      includeSourceRef: false,
       includeCancelled: false,
     });
     const c = result.cells[0];

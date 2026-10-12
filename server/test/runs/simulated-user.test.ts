@@ -29,8 +29,8 @@ const initial: TranscriptEntry = {
 };
 
 const GO = /\bgo\b/i;
-// 每条测试一次模型调用：比 SDK 的请求超时（120 秒）长，gateway 挂起时报告的是 SDK 的超时错误
-const TIMEOUT = 150_000;
+// 每条测试一次模型调用：比 SDK 的请求超时（600 秒）长，gateway 挂起时报告的是 SDK 的超时错误
+const TIMEOUT = 660_000;
 
 describe('模拟用户（真实 gateway）', { timeout: TIMEOUT }, () => {
   test('interview 的提问：按 persona 回答被问到的部分，不倾倒全部需求', async () => {

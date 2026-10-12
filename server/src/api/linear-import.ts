@@ -6,9 +6,10 @@ import {
 } from 'fastify-type-provider-zod';
 import { ImportPreview, ImportPreviewRequest } from '../tasks/import-schema.js';
 import { previewLinearImport } from '../tasks/linear-import.js';
+import type { SettingsStore } from '../runs/settings.js';
 
 // Contracts 第 13 节：用户粘贴工单地址或编号，导入为 ic task。原工单与源仓库只读取
-export function linearImportRoutes() {
+export function linearImportRoutes({ settings }: { settings: SettingsStore }) {
   return (fastify: FastifyInstance, _options: unknown, done: () => void) => {
     fastify.setValidatorCompiler(validatorCompiler);
     fastify.setSerializerCompiler(serializerCompiler);
@@ -18,7 +19,7 @@ export function linearImportRoutes() {
     app.post(
       '/api/tasks/from-linear',
       { schema: { body: ImportPreviewRequest, response: { 200: ImportPreview } } },
-      (request) => previewLinearImport(request.body),
+      (request) => previewLinearImport(request.body, settings.get().copyRunnerLabels),
     );
     done();
   };

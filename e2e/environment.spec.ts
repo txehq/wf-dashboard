@@ -130,3 +130,29 @@ test('发起 batch 处列出未通过的项，改好设置后提示消失', asyn
   ).toBeVisible();
   await expect(page.getByTestId('env-check-model-judge')).toContainText(JUDGE_MODEL);
 });
+
+// Contracts 第 13 节：副本仓库可用的自托管 runner 标签，默认 arc-linux-dind，设置中每行一个
+test('设置中编辑 copyRunnerLabels：保存后读回，刷新后仍在', async ({ page, request }) => {
+  await page.goto('/runs');
+  await page.getByTestId('run-settings').locator('summary').click();
+  const labels = page.getByLabel('副本仓库可用的自托管 runner 标签');
+  await expect(labels).toHaveValue('arc-linux-dind');
+  await labels.fill('arc-linux-dind\n\n  linux-large  ');
+  await page.getByRole('button', { name: '保存设置' }).click();
+  await expect(page.getByRole('button', { name: '保存设置' })).toBeDisabled();
+  const saved = (await (await request.get('/api/settings')).json()) as {
+    copyRunnerLabels: string[];
+  };
+  expect(saved.copyRunnerLabels).toEqual(['arc-linux-dind', 'linux-large']);
+  await page.screenshot({ path: '.work/screenshots/w29-settings.png', animations: 'disabled' });
+
+  await page.reload();
+  await page.getByTestId('run-settings').locator('summary').click();
+  await expect(page.getByLabel('副本仓库可用的自托管 runner 标签')).toHaveValue(
+    'arc-linux-dind\nlinux-large',
+  );
+  // 改回默认值
+  await page.getByLabel('副本仓库可用的自托管 runner 标签').fill('arc-linux-dind');
+  await page.getByRole('button', { name: '保存设置' }).click();
+  await expect(page.getByRole('button', { name: '保存设置' })).toBeDisabled();
+});

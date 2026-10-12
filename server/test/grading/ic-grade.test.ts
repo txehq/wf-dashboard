@@ -16,7 +16,7 @@ import {
   testRunId,
   withoutHiddenTests,
 } from '../helpers/ic-fixture.js';
-import { deleteTestRepos, repoWithoutPr, repoWithReadyPr } from '../helpers/test-repos.js';
+import { repoWithoutPr, repoWithReadyPr } from '../helpers/test-repos.js';
 import { openTestDb } from '../stages/db.js';
 import { insertRun, insertVariant } from './seed.js';
 
@@ -51,10 +51,7 @@ beforeAll(async () => {
   REPO_WITHOUT_PR = withoutPr;
 }, 15 * 60_000);
 
-afterAll(async () => {
-  close();
-  await deleteTestRepos();
-}, 5 * 60_000);
+afterAll(close);
 
 describe('ic 评分（测试现建的 GitHub 仓库）', { timeout: 10 * 60_000 }, () => {
   it('有 PR：隐藏测试 3 / 8 与终点判定写入 grades', async () => {

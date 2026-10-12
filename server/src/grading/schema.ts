@@ -206,6 +206,7 @@ export const CompareResult = z.object({
   tasks: z.array(z.string()),
   includeIntervened: z.boolean(),
   includeCrossRef: z.boolean(),
+  includeSourceRef: z.boolean(),
   includeCancelled: z.boolean(),
   cells: z.array(CompareCell),
 });
@@ -223,6 +224,16 @@ export const CrossRunRef = z.object({
 });
 export type CrossRunRef = z.infer<typeof CrossRunRef>;
 
+// Contracts 第 13 节：从 Linear 导入的 task 的 run 读取了来源工单、来源仓库或来源仓库的 PR（runs.source_refs 的元素）
+export const SourceRef = z.object({
+  kind: z.enum(['ticket', 'pr', 'repo']),
+  // 主 session 的 seq；子代理中的调用取发起该子代理的主 session 请求
+  requestSeq: z.number(),
+  toolCallId: z.string(),
+  excerpt: z.string(),
+});
+export type SourceRef = z.infer<typeof SourceRef>;
+
 // Compare 页面可选的 run：已评分（succeeded）与取消后评分过的 run，未标为无效
 export const CompareRun = z.object({
   id: z.string(),
@@ -232,6 +243,7 @@ export const CompareRun = z.object({
   cancelled: z.boolean(),
   humanIntervened: z.boolean(),
   crossRunRefs: z.array(CrossRunRef),
+  sourceRefs: z.array(SourceRef),
   // ISO 时间，web 用同一个 schema 解析响应
   createdAt: z.iso.datetime(),
 });

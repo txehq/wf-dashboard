@@ -81,8 +81,12 @@ function persona(issue: LinearIssueDetail) {
 
 const HIDDEN_REQUIREMENTS = '除工单正文外没有额外的需求；被问到工单没有写到的事时，回答"按工单来"。';
 
-// POST /api/tasks/from-linear：读工单、选仓库与 commit、分析 workflow，返回可编辑的 task 草稿，不写任何文件
-export async function previewLinearImport(request: ImportPreviewRequest): Promise<ImportPreview> {
+// POST /api/tasks/from-linear：读工单、选仓库与 commit、分析 workflow，返回可编辑的 task 草稿，不写任何文件。
+// copyRunnerLabels 取设置中副本可用的自托管 runner 标签
+export async function previewLinearImport(
+  request: ImportPreviewRequest,
+  copyRunnerLabels: string[],
+): Promise<ImportPreview> {
   const identifier = issueIdentifier(request.issue);
   if (identifier === null) throw new Error(`不是 Linear 工单地址或工单编号：${request.issue}`);
   const issue = await readLinearIssue(identifier);
@@ -96,6 +100,7 @@ export async function previewLinearImport(request: ImportPreviewRequest): Promis
   const workflows = await analyzeWorkflows(
     await readWorkflowFiles(repo, commit.sha),
     readRemoteWorkflow,
+    copyRunnerLabels,
   );
   // 验收标准由 judge 读工单标题与完整正文确定（Contracts 第 13 节）
   const criteria =
@@ -106,7 +111,14 @@ export async function previewLinearImport(request: ImportPreviewRequest): Promis
     title: issue.title,
     persona: persona(issue),
     hiddenRequirements: HIDDEN_REQUIREMENTS,
-    source: { linear: { identifier: issue.identifier, url: issue.url }, github: { repo } },
+    source: {
+      linear: { identifier: issue.identifier, url: issue.url },
+      // 来源工单关联的、属于这个仓库的 PR；读取来源的记录只匹配这些编号
+      github: {
+        repo,
+        prs: issue.linkedPrs.filter((p) => p.repo === repo).map((p) => p.number),
+      },
+    },
     ticket: {
       title: issue.title,
       // 正文原样保存；正文为空的工单由用户在表单中填写
