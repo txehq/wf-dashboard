@@ -43,8 +43,7 @@ async function bundleTask(source: string, ref: string, name: string): Promise<st
 
 const calcTask = (dir: string, commit: string): PrTask => ({
   id: 'ic-txe-3777',
-  workflow: 'dev-workflow',
-  bigStage: 'ic',
+  kind: 'ic',
   dir,
   title: 't',
   persona: 'p',

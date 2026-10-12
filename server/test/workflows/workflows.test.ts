@@ -6,39 +6,94 @@ import { buildApp } from '../../src/api/app.js';
 import { config } from '../../src/config.js';
 import { syncTasks } from '../../src/tasks/loader.js';
 import { createVariants } from '../../src/variants/index.js';
+import { EVAL_KINDS, evalSpec, taskFieldsOfKind } from '../../src/workflows/eval-kinds.js';
 import { builtinDefinition, loadWorkflow } from '../../src/workflows/index.js';
-import { taskFieldsOf, WorkflowDefinition, WorkflowView } from '../../src/workflows/schema.js';
+import { EvalKindConfig, WorkflowDefinition, WorkflowView } from '../../src/workflows/schema.js';
 import { openTestDb } from '../stages/db.js';
 
-// Contracts 16.1、16.2：workflow 定义的校验、API、从 variant 复制成新 workflow，以及构建时的 skill 检查
-const nextYaml = parse(
-  fs.readFileSync(
-    path.join(import.meta.dirname, '../fixtures/workflows/next-workflow.yaml'),
-    'utf8',
-  ),
+// Contracts 16.1、16.2：workflow 定义的校验、两种评测类型的内部配置、API、从 variant 复制成新 workflow，
+// 以及构建时的 skill 检查
+const myreviewYaml = parse(
+  fs.readFileSync(path.join(import.meta.dirname, '../fixtures/workflows/myreview.yaml'), 'utf8'),
 ) as Record<string, unknown>;
 
 // 失败时的原文：zod 把 superRefine 的 message 放进 error.message
-function issuesOf(value: unknown): string {
-  const result = WorkflowDefinition.safeParse(value);
-  if (result.success) throw new Error('定义应当校验失败');
+function issuesOf(schema: typeof WorkflowDefinition | typeof EvalKindConfig, value: unknown) {
+  const result = schema.safeParse(value);
+  if (result.success) throw new Error('应当校验失败');
   return result.error.message;
 }
 
-type BigStages = { id: string; stages: Record<string, unknown>[]; [k: string]: unknown }[];
-const next = () => structuredClone(nextYaml) as { bigStages: BigStages; [k: string]: unknown };
+type Stages = Record<string, unknown>[];
+const myreview = () => structuredClone(myreviewYaml) as { stages: Stages; [k: string]: unknown };
 
 describe('workflow 定义的校验', () => {
-  test('16.1 的 next-workflow 例子通过；taskFields 与积木推出的一致', () => {
-    const definition = WorkflowDefinition.parse(nextYaml);
-    expect(definition.bigStages.map((s) => [s.id, s.stages.map((x) => x.id)])).toEqual([
-      ['newlfg', ['scope', 'spike', 'tickets']],
-      ['newic', ['build', 'ship', 'polish']],
+  test('16.1 的 myreview 例子通过', () => {
+    expect(WorkflowDefinition.parse(myreviewYaml)).toEqual({
+      id: 'myreview',
+      name: '我的 review 流程',
+      stages: [
+        { id: 'scan' },
+        { id: 'fix', repeatable: true, allowInside: ['scan'] },
+        { id: 'report' },
+      ],
+    });
+  });
+
+  test('内置的 lfg 与 ic：小阶段、fix-pr 的 repeatable 与 allowInside', () => {
+    expect(builtinDefinition('lfg')).toEqual({
+      id: 'lfg',
+      name: 'lfg',
+      stages: [{ id: 'interview' }, { id: 'research' }, { id: 'plan' }, { id: 'ticketing' }],
+    });
+    const ic = builtinDefinition('ic');
+    expect(ic.stages.map((s) => s.id)).toEqual([
+      'claim',
+      'readiness',
+      'implement',
+      'acceptance',
+      'open-pr',
+      'fix-pr',
+      'ready-for-review',
     ]);
-    const [newlfg, newic] = definition.bigStages;
-    if (newlfg === undefined || newic === undefined) throw new Error('缺少大阶段');
-    expect(taskFieldsOf(newlfg)).toEqual(['input', 'persona', 'hiddenRequirements', 'rubric']);
-    expect(taskFieldsOf(newic)).toEqual([
+    expect(ic.stages.find((s) => s.id === 'fix-pr')).toEqual({
+      id: 'fix-pr',
+      repeatable: true,
+      allowInside: ['acceptance'],
+    });
+  });
+
+  test('小阶段 id 重复、与 workflow 同名、allowInside 引用不存在的小阶段、id 不是 slug，各以原文失败', () => {
+    const duplicate = myreview();
+    duplicate.stages.push({ id: 'scan' });
+    expect(issuesOf(WorkflowDefinition, duplicate)).toContain('小阶段 id 重复：scan');
+    const entry = myreview();
+    entry.stages.push({ id: 'myreview' });
+    expect(issuesOf(WorkflowDefinition, entry)).toContain('小阶段 myreview 与 workflow 同名');
+    const inside = myreview();
+    inside.stages[1] = { id: 'fix', allowInside: ['scan', 'deploy'] };
+    expect(issuesOf(WorkflowDefinition, inside)).toContain(
+      '小阶段 fix 的 allowInside 引用了不存在的小阶段 deploy',
+    );
+    expect(issuesOf(WorkflowDefinition, { ...myreview(), id: 'My Review' })).toContain(
+      '只能包含小写字母、数字与连字符，以字母开头',
+    );
+  });
+});
+
+describe('评测类型的内部配置（16.2）', () => {
+  test('lfg 与 ic：积木、dispatch gate、评分与推出的 task 字段', () => {
+    expect(EVAL_KINDS.lfg).toMatchObject({
+      prepare: ['empty-repo', 'vault-dir'],
+      dispatchGate: true,
+    });
+    expect(EVAL_KINDS.ic).toMatchObject({
+      prepare: ['repo-copy', 'ticket-copy'],
+      grading: ['hidden-tests', 'criteria-judge', 'pr-endpoint'],
+    });
+    expect(EVAL_KINDS.ic.dispatchGate).toBeUndefined();
+    expect(taskFieldsOfKind('lfg')).toEqual(['input', 'persona', 'hiddenRequirements', 'rubric']);
+    expect(taskFieldsOfKind('ic')).toEqual([
       'persona',
       'hiddenRequirements',
       'ticket',
@@ -46,79 +101,25 @@ describe('workflow 定义的校验', () => {
       'requiredChecks',
       'hiddenTests',
     ]);
-    // 简写的产物条目展开为 files
-    expect(newlfg.grading).toEqual([
-      {
-        rubric: {
-          artifacts: [
-            { id: 'scope', files: [{ file: 'Scope.md', kind: 'scope' }], description: 'Scope.md' },
-            {
-              id: 'tickets',
-              files: [{ file: 'Tickets.md', kind: 'tickets' }],
-              description: 'Tickets.md',
-            },
-          ],
-        },
-      },
-    ]);
+    // 入口命令取 workflow 的 id
+    expect(evalSpec('lfg', 'mylfg')).toMatchObject({ id: 'mylfg', kind: 'lfg' });
   });
 
-  test('内置的 dev-workflow：lfg 与 ic 的小阶段、fix-pr 的 repeatable 与 allowInside', () => {
-    const dev = builtinDefinition();
-    expect(dev.bigStages.map((s) => [s.id, s.stages.map((x) => x.id)])).toEqual([
-      ['lfg', ['interview', 'research', 'plan', 'ticketing']],
-      [
-        'ic',
-        ['claim', 'readiness', 'implement', 'acceptance', 'open-pr', 'fix-pr', 'ready-for-review'],
-      ],
-    ]);
-    expect(dev.bigStages[1]?.stages.find((s) => s.id === 'fix-pr')).toEqual({
-      id: 'fix-pr',
-      repeatable: true,
-      allowInside: ['acceptance'],
-    });
-    expect(dev.bigStages[0]?.dispatchGate).toBe(true);
-    expect(dev.bigStages[1]?.dispatchGate).toBeUndefined();
-  });
-
-  test('大阶段 id 重复以原文失败', () => {
-    const d = next();
-    const [first] = d.bigStages;
-    if (first === undefined) throw new Error('缺少大阶段');
-    d.bigStages.push({ ...structuredClone(first) });
-    expect(issuesOf(d)).toContain('大阶段 id 重复：newlfg');
-  });
-
-  test('allowInside 引用不存在的小阶段以原文失败', () => {
-    const d = next();
-    const polish = d.bigStages[1]?.stages.find((s) => s.id === 'polish');
-    if (polish === undefined) throw new Error('缺少 polish');
-    polish.allowInside = ['build', 'deploy'];
-    expect(issuesOf(d)).toContain(
-      '大阶段 newic：小阶段 polish 的 allowInside 引用了不存在的小阶段 deploy',
+  test('message 的占位与评分积木的依赖不满足时以原文失败', () => {
+    expect(
+      issuesOf(EvalKindConfig, { ...EVAL_KINDS.lfg, message: '{entry} {input} {ticket}' }),
+    ).toContain(
+      '评测类型 lfg：message 用了积木没有提供的占位 {ticket}（可用：{entry}、{input}、{runId}、{repo}）',
     );
-  });
-
-  test('message 用了积木没有提供的占位以原文失败', () => {
-    const d = next();
-    const newlfg = d.bigStages[0];
-    if (newlfg === undefined) throw new Error('缺少 newlfg');
-    newlfg.message = '/newlfg {input} {ticket}';
-    expect(issuesOf(d)).toContain(
-      '大阶段 newlfg：message 用了积木没有提供的占位 {ticket}（可用：{input}、{runId}、{repo}）',
-    );
-  });
-
-  test('taskFields 与积木推出的不一致、评分积木缺少依赖时以原文失败', () => {
-    const d = next();
-    const newic = d.bigStages[1];
-    if (newic === undefined) throw new Error('缺少 newic');
-    newic.taskFields = ['persona', 'hiddenRequirements', 'ticket'];
-    newic.prepare = ['ticket-copy'];
-    newic.message = '/newic {ticket}';
-    const text = issuesOf(d);
+    const text = issuesOf(EvalKindConfig, { ...EVAL_KINDS.ic, prepare: ['ticket-copy'] });
     expect(text).toContain('评分 hidden-tests 要求准备积木 repo-copy');
-    expect(text).toContain('taskFields 为 persona, hiddenRequirements, ticket');
+    expect(text).toContain('评分 pr-endpoint 要求准备积木 repo-copy');
+    expect(issuesOf(EvalKindConfig, { ...EVAL_KINDS.ic, prepare: ['repo-copy'] })).toContain(
+      '评分 criteria-judge 要求准备积木 ticket-copy',
+    );
+    expect(issuesOf(EvalKindConfig, { ...EVAL_KINDS.lfg, prepare: ['empty-repo'] })).toContain(
+      '评分 rubric 要求准备积木 vault-dir',
+    );
   });
 });
 
@@ -136,97 +137,135 @@ const variants = createVariants({
   repo: config.txeWorkflowRepo,
   ctxBin: config.ctxBin,
 });
+const created: string[] = [];
 beforeAll(async () => {
   await app.ready();
 });
 afterAll(async () => {
+  for (const id of created) fs.rmSync(variants.layout(id).dir, { recursive: true, force: true });
   await app.close();
   close();
 });
 
 describe('workflows API 与从 variant 复制', () => {
-  test('GET 列出内置的 dev-workflow；PUT dev-workflow 返回 409', async () => {
+  test('GET 列出内置的 lfg 与 ic；PUT 内置的返回 409', async () => {
     const list = await app.inject({ method: 'GET', url: '/api/workflows' });
     expect(list.statusCode).toBe(200);
-    const [dev] = WorkflowView.array().parse(list.json());
-    expect(dev?.id).toBe('dev-workflow');
-    expect(dev?.builtin).toBe(true);
-    expect(dev?.taskFields).toEqual({
-      lfg: ['input', 'persona', 'hiddenRequirements', 'rubric'],
-      ic: ['persona', 'hiddenRequirements', 'ticket', 'repo', 'requiredChecks', 'hiddenTests'],
-    });
+    expect(
+      WorkflowView.array()
+        .parse(list.json())
+        .map((w) => [w.id, w.evalKind, w.builtin, w.copiedFrom]),
+    ).toEqual([
+      ['lfg', 'lfg', true, null],
+      ['ic', 'ic', true, null],
+    ]);
     const put = await app.inject({
       method: 'PUT',
-      url: '/api/workflows/dev-workflow',
-      payload: { definition: builtinDefinition() },
+      url: '/api/workflows/lfg',
+      payload: { name: 'lfg', definition: builtinDefinition('lfg') },
     });
     expect(put.statusCode).toBe(409);
-    expect(put.json<{ message: string }>().message).toContain('dev-workflow 是内置的，不能修改');
+    expect(put.json<{ message: string }>().message).toBe(
+      'lfg 是内置的 workflow，不能修改；要改就复制成新 workflow',
+    );
   });
 
   test(
-    '从基线复制成 next-workflow：底子为"基线"；构建时缺少阶段 skill 以原文失败；跨 workflow 派生被拒绝',
+    '从 lfg 的基线复制成 myreview（不保留评测类型）：第一个 variant 名为"基线"、入口 skill 改名；构建时缺少小阶段 skill 以原文失败',
     { timeout: 300_000 },
     async () => {
       const base = await variants.createBaseline({ name: '基线' });
-      expect(base.workflowId).toBe('dev-workflow');
-      const created = await app.inject({
-        method: 'POST',
-        url: '/api/workflows',
+      created.push(base.id);
+      expect(base.workflowId).toBe('lfg');
+      const post = (payload: Record<string, unknown>) =>
+        app.inject({ method: 'POST', url: '/api/workflows', payload });
+      const response = await post({
+        id: 'myreview',
+        name: '我的 review 流程',
+        fromVariantId: base.id,
+        keepEvalKind: false,
+        definition: myreviewYaml,
+      });
+      expect(response.statusCode).toBe(201);
+      const view = WorkflowView.parse(response.json());
+      expect([view.evalKind, view.copiedFrom, view.builtin, view.variants]).toEqual([
+        null,
+        'lfg',
+        false,
+        1,
+      ]);
+      const copy = variants.list().find((v) => v.workflowId === 'myreview');
+      if (copy === undefined) throw new Error('myreview 没有 variant');
+      created.push(copy.id);
+      // 同名的"基线"在不同 workflow 中可以共存；入口 skill lfg 在副本中改名为 myreview
+      expect([copy.name, copy.parentId, copy.status]).toEqual(['基线', base.id, 'draft']);
+      const skills = variants.layout(copy.id).skills;
+      expect(fs.existsSync(path.join(skills, 'myreview', 'SKILL.md'))).toBe(true);
+      expect(fs.existsSync(path.join(skills, 'lfg'))).toBe(false);
+      expect(loadWorkflow(db, 'myreview').stages.map((s) => s.id)).toEqual([
+        'scan',
+        'fix',
+        'report',
+      ]);
+      await expect(variants.build(copy.id)).rejects.toThrow(
+        'variant 基线 缺少 workflow myreview 要求的 skill：scan、fix、report（应为 src/skills/<名字>/SKILL.md）',
+      );
+
+      // id 已存在 409；与其他 workflow 的小阶段同名 400；定义与请求不一致 400
+      expect(
+        (
+          await post({
+            id: 'myreview',
+            name: '我的 review 流程',
+            fromVariantId: base.id,
+            keepEvalKind: false,
+            definition: myreviewYaml,
+          })
+        ).statusCode,
+      ).toBe(409);
+      const clash = await post({
+        id: 'interview',
+        name: 'interview',
+        fromVariantId: base.id,
+        keepEvalKind: true,
+        definition: { ...myreviewYaml, id: 'interview', name: 'interview' },
+      });
+      expect(clash.statusCode).toBe(400);
+      expect(clash.json<{ message: string }>().message).toBe(
+        'workflow id interview 与 workflow lfg 的小阶段同名',
+      );
+      const mismatch = await post({
+        id: 'other',
+        name: 'other',
+        fromVariantId: base.id,
+        keepEvalKind: true,
+        definition: myreviewYaml,
+      });
+      expect(mismatch.statusCode).toBe(400);
+
+      // 改名与改小阶段；评测类型不变
+      const renamed = await app.inject({
+        method: 'PUT',
+        url: '/api/workflows/myreview',
         payload: {
-          id: 'next-workflow',
-          name: 'next-workflow',
-          variantId: base.id,
-          definition: nextYaml,
+          name: '审阅流程',
+          definition: { ...myreviewYaml, name: '审阅流程', stages: [{ id: 'scan' }] },
         },
       });
-      expect(created.statusCode).toBe(201);
-      const view = WorkflowView.parse(created.json());
-      expect(view.builtin).toBe(false);
-      if (view.baseVariantId === null) throw new Error('新 workflow 没有底子');
-      const copy = variants.get(view.baseVariantId);
-      // 同名的"基线"在不同 workflow 中可以共存
-      expect([copy.name, copy.workflowId, copy.parentId, copy.skillsHash]).toEqual([
-        '基线',
-        'next-workflow',
-        base.id,
-        base.skillsHash,
-      ]);
-      expect(loadWorkflow(db, 'next-workflow').bigStages.map((s) => s.id)).toEqual([
-        'newlfg',
-        'newic',
-      ]);
-
-      // 基线的 skill 中没有 next-workflow 的入口与小阶段
-      await expect(variants.build(copy.id)).rejects.toThrow(
-        'variant 基线 缺少 workflow next-workflow 要求的 skill：newlfg、scope、spike、tickets、newic、build、ship、polish（应为 src/skills/<名字>/SKILL.md）',
-      );
-      expect(variants.get(copy.id).buildStatus).toBe('failed');
+      expect(renamed.statusCode).toBe(200);
+      expect(WorkflowView.parse(renamed.json())).toMatchObject({
+        name: '审阅流程',
+        evalKind: null,
+        definition: { stages: [{ id: 'scan' }] },
+      });
 
       const cross = await app.inject({
         method: 'POST',
         url: `/api/variants/${base.id}/derive`,
-        payload: { name: '跨 workflow', workflowId: 'next-workflow' },
+        payload: { name: '跨 workflow', workflowId: 'myreview' },
       });
       expect(cross.statusCode).toBe(400);
       expect(cross.json<{ message: string }>().message).toContain('派生只能在同一 workflow 内');
-
-      // 复制 :id 的定义，换掉 id 与 name
-      const copied = await app.inject({
-        method: 'POST',
-        url: '/api/workflows/next-workflow/copy',
-        payload: { variantId: copy.id, id: 'next-2', name: 'next 2' },
-      });
-      expect(copied.statusCode).toBe(201);
-      const second = WorkflowView.parse(copied.json());
-      expect([second.id, second.name]).toEqual(['next-2', 'next 2']);
-      expect(WorkflowDefinition.parse(second.definition).bigStages.map((s) => s.id)).toEqual([
-        'newlfg',
-        'newic',
-      ]);
-      for (const id of [copy.id, view.baseVariantId, second.baseVariantId, base.id]) {
-        if (id !== null) fs.rmSync(variants.layout(id).dir, { recursive: true, force: true });
-      }
     },
   );
 });

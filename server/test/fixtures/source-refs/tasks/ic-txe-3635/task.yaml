@@ -1,6 +1,5 @@
 id: ic-txe-3635
-workflow: dev-workflow
-bigStage: ic
+kind: ic
 title: Validator Site 的 release 标签含 @ 时被丢弃
 persona: 提出 Linear 工单 TXE-3635（[CC3-sfdcda9] Validator Site browser drops the release label because it contains '@'）的人，熟悉 TXE team 的这个仓库。只依据工单正文回答；工单没有写到的事，回答"按工单来"。
 hiddenRequirements: 除工单正文外没有额外的需求；被问到工单没有写到的事时，回答"按工单来"。

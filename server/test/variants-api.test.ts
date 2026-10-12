@@ -61,7 +61,7 @@ describe('variants API', () => {
     expect(created.statusCode).toBe(201);
     base = created.json<VariantBody>();
     createdIds.push(base.id);
-    expect(base.workflowId).toBe('dev-workflow');
+    expect(base.workflowId).toBe('lfg');
     expect(base).not.toHaveProperty('model');
     expect(base).not.toHaveProperty('effort');
 
@@ -74,12 +74,12 @@ describe('variants API', () => {
     draft = derived.json<VariantBody>();
     createdIds.push(draft.id);
     expect(draft.parentId).toBe(base.id);
-    expect(draft.workflowId).toBe('dev-workflow');
+    expect(draft.workflowId).toBe('lfg');
 
     const crossWorkflow = await app.inject({
       method: 'POST',
       url: `/api/variants/${base.id}/derive`,
-      payload: { name: `api 跨 workflow ${marker}`, workflowId: 'next-workflow' },
+      payload: { name: `api 跨 workflow ${marker}`, workflowId: 'ic' },
     });
     expect(crossWorkflow.statusCode).toBe(400);
     expect(crossWorkflow.body).toContain('派生只能在同一 workflow 内');

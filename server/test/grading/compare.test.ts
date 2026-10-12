@@ -22,7 +22,6 @@ import { upsertFriction } from '../../src/runs/records.js';
 import { updateStages } from '../../src/stages/report.js';
 import { loadTask, syncTasks, withRubric } from '../../src/tasks/loader.js';
 import { loadWorkflow } from '../../src/workflows/index.js';
-import { bigStageOf } from '../../src/workflows/schema.js';
 import { openTestDb } from '../stages/db.js';
 import { insertRun, insertVariant } from './seed.js';
 
@@ -39,14 +38,16 @@ fs.cpSync(path.join(config.tasksDir, 'ic-money-format'), path.join(tasksDir, 'ic
 
 const { db, close } = openTestDb();
 syncTasks(db, tasksDir);
+// lfg 的 run 用 lfg 的 variant，ic 的 run 用 ic 的 variant（Contracts 16.4）
 insertVariant(db, 'baseline');
 insertVariant(db, 'modified');
+insertVariant(db, 'baseline-ic', 'ic');
+insertVariant(db, 'modified-ic', 'ic');
 const lfgTask = withRubric(loadTask(db, 'optional-mcp-install'));
 const icTask = loadTask(db, 'ic-money-format');
-// dev-workflow 两个大阶段的小阶段
-const devWorkflow = loadWorkflow(db, 'dev-workflow');
-const LFG_STAGES = bigStageOf(devWorkflow, 'lfg').stages.map((s) => s.id);
-const IC_STAGES = bigStageOf(devWorkflow, 'ic').stages.map((s) => s.id);
+// 内置 lfg 与 ic 的小阶段
+const LFG_STAGES = loadWorkflow(db, 'lfg').stages.map((s) => s.id);
+const IC_STAGES = loadWorkflow(db, 'ic').stages.map((s) => s.id);
 
 afterAll(() => {
   close();
@@ -92,13 +93,13 @@ function request(sessionId: string, seq: number, costUsd: number, at: number, ca
 function seedSession(
   db: Db,
   sessionId: string,
-  bigStage: 'lfg' | 'ic',
+  workflow: 'lfg' | 'ic',
   factor: number,
   withSubagent: boolean,
 ) {
   const agentId = withSubagent ? `agent-${sessionId}` : null;
-  const [first, second] = bigStage === 'lfg' ? LFG_STAGES : IC_STAGES;
-  if (first === undefined || second === undefined) throw new Error(`${bigStage} 少于两个小阶段`);
+  const [first, second] = workflow === 'lfg' ? LFG_STAGES : IC_STAGES;
+  if (first === undefined || second === undefined) throw new Error(`${workflow} 少于两个小阶段`);
   const skill = (stage: string) => ({ ...call('Skill'), input: { skill: stage } });
   const rows = [
     request(sessionId, 0, 0.1 * factor, t0, [skill(first)]),
@@ -222,7 +223,7 @@ lfgRun('l10', 'baseline', 10, (a) => a === 'brief');
 db.update(runs).set({ status: 'cancelled' }).where(eq(runs.id, 'l10')).run();
 insertRun(db, { id: 'l11', taskId: lfgTask.id, variantId: 'baseline', status: 'cancelled' });
 
-// ic：baseline 两个 run
+// ic：baseline-ic 两个 run
 for (const [id, factor, passed, reached] of [
   ['i1', 1, 3, true],
   ['i2', 2, 8, false],
@@ -230,7 +231,7 @@ for (const [id, factor, passed, reached] of [
   const sessionId = insertRun(db, {
     id,
     taskId: icTask.id,
-    variantId: 'baseline',
+    variantId: 'baseline-ic',
     status: 'succeeded',
     createdAt: new Date(t0 + factor),
   });
@@ -270,7 +271,7 @@ function rubricQuality(c: CompareResult['cells'][number]) {
 }
 
 describe('compare', () => {
-  // 只对比同一 workflow 的同一大阶段的 task：lfg 与 ic 分开查询
+  // 只在同一个 workflow 内对比：lfg 与 ic 分开查询
   const query = {
     variants: ['baseline', 'modified'],
     tasks: [lfgTask.id],
@@ -280,18 +281,23 @@ describe('compare', () => {
     includeSourceRef: false,
     includeCancelled: false,
   };
-  const icQuery = { ...query, tasks: [icTask.id] };
+  const icQuery = { ...query, variants: ['baseline-ic', 'modified-ic'], tasks: [icTask.id] };
 
-  it('所选 task 属于不同大阶段时 400；结果带上共同的 workflow 与大阶段', () => {
+  it('variant 属于不同 workflow、task 的 kind 与评测类型不同时 400；结果带上 workflow 与评测类型', () => {
+    expect(() =>
+      compareRuns(db, { ...query, variants: ['baseline', 'baseline-ic'] }),
+    ).toThrow(
+      '只能对比同一个 workflow 的 variant，所选 variant 属于 baseline (lfg)、baseline-ic (ic)：不同 workflow 之间不对比',
+    );
     expect(() => compareRuns(db, { ...query, tasks: [lfgTask.id, icTask.id] })).toThrow(
-      /^只能对比同一 workflow 的同一大阶段的 task，所选 task 属于 dev-workflow\/(lfg、dev-workflow\/ic|ic、dev-workflow\/lfg)$/,
+      `workflow lfg 的评测类型是 lfg，task ${icTask.id} (ic) 不是这种评测类型`,
     );
     expect(compareRuns(db, query)).toMatchObject({
-      workflowId: 'dev-workflow',
-      bigStage: 'lfg',
+      workflowId: 'lfg',
+      kind: 'lfg',
       groupBy: 'variant',
     });
-    expect(compareRuns(db, icQuery)).toMatchObject({ workflowId: 'dev-workflow', bigStage: 'ic' });
+    expect(compareRuns(db, icQuery)).toMatchObject({ workflowId: 'ic', kind: 'ic' });
   });
 
   it('includeCancelled 放回取消后评分过的 run；排队中被取消、没有评分的 run 不放回', () => {
@@ -457,7 +463,7 @@ describe('compare', () => {
     expect(all.cost?.friction.perRun).toBeCloseTo(3 / 4, 12);
     expect(all.cost?.friction.issues.map((i) => i.runId)).toEqual(['l1', 'l1', 'l4']);
     // 没有 friction 的格子为 0
-    expect(cell(compareRuns(db, icQuery), 'baseline', icTask.id).cost?.friction).toEqual({
+    expect(cell(compareRuns(db, icQuery), 'baseline-ic', icTask.id).cost?.friction).toEqual({
       perRun: 0,
       issues: [],
     });
@@ -465,7 +471,7 @@ describe('compare', () => {
 
   it('ic：测试通过率的分布与到达终点的比例；没有 run 的格子质量为空、成本为空', () => {
     const result = compareRuns(db, icQuery);
-    const c = cell(result, 'baseline', icTask.id);
+    const c = cell(result, 'baseline-ic', icTask.id);
     expect(c.runIds).toEqual(['i1', 'i2']);
     // 有隐藏测试的 task 用隐藏测试，不用验收标准；没有 rubric
     expect(c.quality).toMatchObject({ rubric: null, criteriaRate: null });
@@ -488,7 +494,7 @@ describe('compare', () => {
     expect(c.cost?.stages.map((s) => s.stage)).toEqual(IC_STAGES);
     expect(c.cost?.stages[0]?.costUsd).toBeCloseTo(0.45, 12);
 
-    const empty = cell(result, 'modified', icTask.id);
+    const empty = cell(result, 'modified-ic', icTask.id);
     expect(empty.runIds).toEqual([]);
     expect(empty.cost).toBeNull();
     expect(empty.quality.passRate).toEqual({
@@ -502,7 +508,7 @@ describe('compare', () => {
     expect(empty.quality.reachedEnd?.ratio).toBeNull();
   });
 
-  it('GET /api/compare：逗号分隔的参数、includeIntervened、groupBy，不同大阶段的 task 返回 400，不存在的 variant 或 task 返回 404', async () => {
+  it('GET /api/compare：逗号分隔的参数、includeIntervened、groupBy，跨 workflow 返回 400，不存在的 variant 或 task 返回 404', async () => {
     const app = await buildApp({
       db,
       sseHeartbeatMs: config.sseHeartbeatMs,
@@ -515,7 +521,7 @@ describe('compare', () => {
     expect(CompareResult.parse(ok.json())).toEqual(compareRuns(db, query));
     const ic = await app.inject({
       method: 'GET',
-      url: `/api/compare?variants=baseline,modified&tasks=${icTask.id}`,
+      url: `/api/compare?variants=baseline-ic,modified-ic&tasks=${icTask.id}`,
     });
     expect(CompareResult.parse(ic.json())).toEqual(compareRuns(db, icQuery));
     const byModel = await app.inject({ method: 'GET', url: `/api/compare?${qs}&groupBy=model` });
@@ -524,10 +530,10 @@ describe('compare', () => {
     );
     const mixed = await app.inject({
       method: 'GET',
-      url: `/api/compare?variants=baseline&tasks=${lfgTask.id},${icTask.id}`,
+      url: `/api/compare?variants=baseline,baseline-ic&tasks=${lfgTask.id}`,
     });
     expect(mixed.statusCode).toBe(400);
-    expect(mixed.body).toContain('只能对比同一 workflow 的同一大阶段的 task');
+    expect(mixed.body).toContain('不同 workflow 之间不对比');
     const all = await app.inject({
       method: 'GET',
       url: `/api/compare?${qs}&includeIntervened=true`,

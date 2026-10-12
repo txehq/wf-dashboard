@@ -1,6 +1,5 @@
 id: ic-unit-converter
-workflow: dev-workflow
-bigStage: ic
+kind: ic
 title: 单位换算页面：温度、结果精度、输入提示与交换单位
 persona: |-
   周婷，Acme 跨境电商商品团队的运营，每天用这个内部的单位换算页面把供应商给的英制规格换成商品详情页上的公制数值。

@@ -28,7 +28,7 @@ db.insert(variants)
     baseCommit: '0'.repeat(40),
     skillsHash: 'a'.repeat(64),
     version: '0.0.0-eval.aaaaaaaa',
-    workflowId: 'dev-workflow',
+    workflowId: 'lfg',
   })
   .run();
 db.insert(batches).values({ id: 'b-20261009-before', repeats: 1 }).run();
@@ -174,8 +174,8 @@ describe('服务重启时的状态修正', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
       id: before.running,
-      workflowId: 'dev-workflow',
-      bigStage: 'lfg',
+      workflowId: 'lfg',
+      kind: 'lfg',
       model: 'opus',
       effort: 'high',
       mode: 'simulated',

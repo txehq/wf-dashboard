@@ -26,7 +26,7 @@ import { scanCrossRunRefs } from '../src/runs/cross-run-refs.js';
 import { updateStages } from '../src/stages/report.js';
 import { loadTask, syncTasks, withHiddenTests, withRubric } from '../src/tasks/loader.js';
 import { createVariants } from '../src/variants/index.js';
-import { loadBigStage } from '../src/workflows/index.js';
+import { loadWorkflow } from '../src/workflows/index.js';
 
 // 用法：WFD_DATA_DIR=<e2e 数据目录> tsx scripts/seed-compare-e2e.ts
 // 清空该数据目录，写入 Compare 页面 e2e 用的数据：基线与一个修改过的 variant（真实导出与派生），
@@ -49,7 +49,7 @@ const db = openDatabase(config.dbPath, config.migrationsDir);
 syncTasks(db, config.tasksDir);
 const lfgTask = withRubric(loadTask(db, 'lfg-calculator'));
 const icTask = withHiddenTests(loadTask(db, 'ic-money-format'));
-const LFG_STAGES = loadBigStage(db, 'dev-workflow', 'lfg').stages.map((s) => s.id);
+const LFG_STAGES = loadWorkflow(db, 'lfg').stages.map((s) => s.id);
 
 // 确定的伪随机数，每次生成相同的数据
 function rng(seed: number) {
@@ -130,6 +130,23 @@ for (const v of [baseline, modified, trial]) {
     .where(eq(variantsTable.id, v.id))
     .run();
 }
+// ic 的 run 用 ic workflow 的 variant（Contracts 16.4）：同名的两个，内容与 lfg 的两个相同
+const icVariants = {
+  baseline: variantsModule.copyToWorkflow(baseline.id, { workflowId: 'ic', name: baseline.name }),
+  modified: variantsModule.copyToWorkflow(modified.id, { workflowId: 'ic', name: modified.name }),
+};
+for (const v of Object.values(icVariants)) {
+  db.update(variantsTable)
+    .set({
+      buildStatus: 'built',
+      builtHash: variantsModule.get(v.id).skillsHash,
+      builtAt: new Date('2026-10-09T07:30:00Z'),
+      status: 'frozen',
+      frozenAt: new Date('2026-10-09T07:40:00Z'),
+    })
+    .where(eq(variantsTable.id, v.id))
+    .run();
+}
 
 // ---- 评分理由 ----
 
@@ -153,6 +170,10 @@ const gradeFixture = GradeFixture.parse(
 
 type VariantKey = 'baseline' | 'modified';
 const variantIds: Record<VariantKey, string> = { baseline: baseline.id, modified: modified.id };
+const icVariantIds: Record<VariantKey, string> = {
+  baseline: icVariants.baseline.id,
+  modified: icVariants.modified.id,
+};
 
 function doc(variant: VariantKey, name: string) {
   return fs.readFileSync(path.join(fixtures, variant, `${name}.md`), 'utf8');
@@ -359,7 +380,7 @@ function seedMessages(runId: string, lines: string[], r: () => number, intervene
 
 const batchId = 'b-20261009-seed01';
 db.insert(batches).values({ id: batchId, repeats: 3 }).run();
-for (const id of Object.values(variantIds)) {
+for (const id of [...Object.values(variantIds), ...Object.values(icVariantIds)]) {
   db.insert(batchVariants).values({ batchId, variantId: id }).run();
 }
 for (const id of [lfgTask.id, icTask.id]) {
@@ -619,7 +640,7 @@ function seedIcRun(variant: VariantKey, index: number, id: string) {
     id,
     batchId,
     taskId: icTask.id,
-    variantId: variantIds[variant],
+    variantId: icVariantIds[variant],
     repeatIndex: index,
     humanIntervened: false,
     github: true,

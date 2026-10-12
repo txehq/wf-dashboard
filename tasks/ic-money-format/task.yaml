@@ -1,6 +1,5 @@
 id: ic-money-format
-workflow: dev-workflow
-bigStage: ic
+kind: ic
 title: 金额格式化：按币种小数位、负数与大金额
 persona: |-
   何静，@acme/money 这个内部库的维护者，后端工程师，同时负责公司结算服务。

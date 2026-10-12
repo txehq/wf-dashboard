@@ -12,15 +12,21 @@ import type { Db } from '../db/index.js';
 import { variants } from '../db/schema.js';
 import { events } from '../events.js';
 import { claudeSettingsEnv } from '../llm/client.js';
-import { loadWorkflow, syncBuiltinWorkflows } from '../workflows/index.js';
-import { DEV_WORKFLOW_ID, requiredSkills } from '../workflows/schema.js';
+import { loadWorkflow } from '../workflows/index.js';
+import { requiredSkills } from '../workflows/schema.js';
 import { BuildLog } from './build-log.js';
 import { writeCodexHome } from './codex-home.js';
 import { HttpError } from './errors.js';
 import { dataLayout, type VariantLayout } from './layout.js';
 import { claudeSandboxProfile, wfSandboxProfile } from './sandbox.js';
 import { REGISTRY_FILES, registerSkills } from './skill-registry.js';
-import { listSkillFiles, resolveSkillPath, skillsHash } from './skills.js';
+import {
+  listSkillFiles,
+  renameFrontmatter,
+  resolveSkillPath,
+  skillDir,
+  skillsHash,
+} from './skills.js';
 
 export type Variant = typeof variants.$inferSelect;
 
@@ -187,6 +193,42 @@ export function createVariants({
     return row;
   }
 
+  // variant 的目录：data/variants/<storage_id>，storage_id 为空时是自己的 id
+  const storageOf = (row: Pick<Variant, 'id' | 'storageId'>) => row.storageId ?? row.id;
+  const dirsOf = (row: Pick<Variant, 'id' | 'storageId'>) => layout.variant(storageOf(row));
+
+  // 编辑或构建前调用（Contracts 16.4）：与其他 variant 共用目录时复制出自己的一份。只复制 src/ 与构建日志，
+  // 构建产物与隔离 home 留给共用的另一个 variant，这一个需要重新构建
+  function ownStorage(row: Variant): Variant {
+    const storage = storageOf(row);
+    const sharing = db
+      .select({ id: variants.id, storageId: variants.storageId })
+      .from(variants)
+      .all()
+      .filter((v) => v.id !== row.id && storageOf(v) === storage);
+    if (sharing.length === 0) return row;
+    // 目录名优先取自己的 id；自己的 id 就是共用的目录时另取一个
+    const own = fs.existsSync(layout.variant(row.id).dir) ? randomUUID() : row.id;
+    const from = layout.variant(storage);
+    const to = layout.variant(own);
+    fs.mkdirSync(to.dir, { recursive: true });
+    fs.cpSync(from.src, to.src, { recursive: true, verbatimSymlinks: true });
+    if (fs.existsSync(from.buildLog)) fs.copyFileSync(from.buildLog, to.buildLog);
+    fs.appendFileSync(to.buildLog, `\n=== 不再与 ${sharing.map((v) => v.id).join('、')} 共用目录：复制出自己的 src（${to.dir}），需要重新构建 ===\n`);
+    db.update(variants)
+      .set({
+        storageId: own === row.id ? null : own,
+        installDir: to.dir,
+        buildStatus: 'none',
+        builtHash: null,
+        builtAt: null,
+        buildError: null,
+      })
+      .where(eq(variants.id, row.id))
+      .run();
+    return get(row.id);
+  }
+
   function assertDraft(row: Variant) {
     if (row.status === 'frozen') {
       throw new HttpError(409, `variant ${row.name} 已冻结，修改需要另存为新 variant`);
@@ -227,9 +269,9 @@ export function createVariants({
     if (source.installDir === null) {
       copy(base, dirs.src);
       fs.rmSync(dirs.skills, { recursive: true, force: true });
-      copy(layout.variant(source.id).skills, dirs.skills);
+      copy(dirsOf(source).skills, dirs.skills);
     } else {
-      copy(layout.variant(source.id).src, dirs.src);
+      copy(dirsOf(source).src, dirs.src);
     }
     return dirs;
   }
@@ -311,7 +353,7 @@ export function createVariants({
 
   function newLog(row: Variant) {
     return new BuildLog(
-      layout.variant(row.id).buildLog,
+      dirsOf(row).buildLog,
       (step) => {
         events.publish({ type: 'variant.build', variantId: row.id, status: 'building', step });
       },
@@ -327,7 +369,7 @@ export function createVariants({
 
   // 编辑后重新计算 hash 与版本号；内容变化后原有构建作废
   function afterEdit(row: Variant): Variant {
-    const hash = skillsHash(layout.variant(row.id).src);
+    const hash = skillsHash(dirsOf(row).src);
     if (hash !== row.skillsHash) {
       db.update(variants)
         .set({ skillsHash: hash, version: versionFor(row.baseCommit, hash), buildStatus: 'none' })
@@ -381,17 +423,16 @@ export function createVariants({
     get,
 
     layout(id: string): VariantLayout {
-      get(id);
-      return layout.variant(id);
+      return dirsOf(get(id));
     },
 
     async createBaseline(input: {
       name: string;
       commit?: string | undefined;
-      // 默认 dev-workflow
+      // 默认内置的 lfg
       workflowId?: string | undefined;
     }): Promise<Variant> {
-      const workflowId = input.workflowId ?? DEV_WORKFLOW_ID;
+      const workflowId = input.workflowId ?? 'lfg';
       loadWorkflow(db, workflowId);
       assertNameFree(workflowId, input.name);
       const { stdout } = await execa('git', [
@@ -426,8 +467,6 @@ export function createVariants({
           installDir: dirs.dir,
         })
         .run();
-      // dev-workflow 还没有底子时以最早导入的基线为底子
-      syncBuiltinWorkflows(db);
       onSkillsChanged();
       return get(id);
     },
@@ -449,20 +488,38 @@ export function createVariants({
       });
     },
 
-    // 新建 workflow 时：复制 source 的基线导出与 src/skills，作为新 workflow 的底子（Contracts 16.4）
+    // 新建 workflow 时：复制 source 的基线导出与 src/skills，作为新 workflow 的第一个 variant（Contracts 16.1）。
+    // 入口 skill 与 workflow id 同名：来源 workflow 的入口 skill 在副本中改名为新的 id（frontmatter 的 name 一起改）
     copyToWorkflow(sourceId: string, input: { workflowId: string; name: string }): Variant {
       const source = get(sourceId);
       loadWorkflow(db, input.workflowId);
-      return copyVariant(source, {
+      const copy = copyVariant(source, {
         name: input.name,
         workflowId: input.workflowId,
-        note: `从 ${source.name}（${source.id}，${source.workflowId}）复制为 workflow ${input.workflowId} 的底子`,
+        note: `从 ${source.name}（${source.id}，${source.workflowId}）复制为 workflow ${input.workflowId} 的第一个 variant`,
       });
+      const skills = dirsOf(copy).skills;
+      const entry = skillDir(skills, source.workflowId);
+      const renamed = skillDir(skills, input.workflowId);
+      if (fs.existsSync(entry) && !fs.existsSync(renamed)) {
+        fs.renameSync(entry, renamed);
+        const skillMd = path.join(renamed, 'SKILL.md');
+        if (fs.existsSync(skillMd)) {
+          fs.writeFileSync(
+            skillMd,
+            renameFrontmatter(fs.readFileSync(skillMd, 'utf8'), input.workflowId),
+          );
+        }
+        fs.appendFileSync(
+          dirsOf(copy).buildLog,
+          `入口 skill ${source.workflowId} 改名为 ${input.workflowId}\n`,
+        );
+      }
+      return afterEdit(copy);
     },
 
     listFiles(id: string): SkillFile[] {
-      get(id);
-      const src = layout.variant(id).src;
+      const src = dirsOf(get(id)).src;
       return listSkillFiles(src).map((file) => ({
         path: file,
         size: fs.statSync(path.join(src, file)).size,
@@ -470,8 +527,7 @@ export function createVariants({
     },
 
     readFile(id: string, file: string): string {
-      get(id);
-      const absolute = resolveSkillPath(layout.variant(id).src, file);
+      const absolute = resolveSkillPath(dirsOf(get(id)).src, file);
       if (!fs.statSync(absolute, { throwIfNoEntry: false })?.isFile()) {
         throw new HttpError(404, `文件不存在：${file}`);
       }
@@ -480,10 +536,11 @@ export function createVariants({
 
     // 保存或新建 skills/ 内的文件
     writeFile(id: string, file: string, content: string): Variant {
-      const row = get(id);
-      assertInstallable(row);
-      assertDraft(row);
-      const absolute = resolveSkillPath(layout.variant(id).src, file);
+      const before = get(id);
+      assertInstallable(before);
+      assertDraft(before);
+      const row = ownStorage(before);
+      const absolute = resolveSkillPath(dirsOf(row).src, file);
       if (fs.statSync(absolute, { throwIfNoEntry: false })?.isDirectory()) {
         throw new HttpError(400, `路径是目录：${file}`);
       }
@@ -493,11 +550,12 @@ export function createVariants({
     },
 
     deleteFile(id: string, file: string): Variant {
-      const row = get(id);
-      assertInstallable(row);
-      assertDraft(row);
-      const skillsDir = layout.variant(id).skills;
-      const absolute = resolveSkillPath(layout.variant(id).src, file);
+      const before = get(id);
+      assertInstallable(before);
+      assertDraft(before);
+      const row = ownStorage(before);
+      const skillsDir = dirsOf(row).skills;
+      const absolute = resolveSkillPath(dirsOf(row).src, file);
       if (!fs.statSync(absolute, { throwIfNoEntry: false })?.isFile()) {
         throw new HttpError(404, `文件不存在：${file}`);
       }
@@ -510,6 +568,56 @@ export function createVariants({
       return afterEdit(row);
     },
 
+    // 新增 skill 目录 skills/<name>/，内含只有 frontmatter 的 SKILL.md（Contracts 16.4）
+    addSkill(id: string, name: string): Variant {
+      const before = get(id);
+      assertInstallable(before);
+      assertDraft(before);
+      const row = ownStorage(before);
+      const dir = skillDir(dirsOf(row).skills, name);
+      if (fs.existsSync(dir)) throw new HttpError(409, `skill 目录已存在：${name}`);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, 'SKILL.md'),
+        `---\nname: ${name}\ndescription: ${name}\n---\n`,
+      );
+      return afterEdit(row);
+    },
+
+    // 重命名 skill 目录，SKILL.md frontmatter 的 name 随之改为新名字，其余内容不变
+    renameSkill(id: string, from: string, to: string): Variant {
+      const before = get(id);
+      assertInstallable(before);
+      assertDraft(before);
+      const row = ownStorage(before);
+      const skills = dirsOf(row).skills;
+      const source = skillDir(skills, from);
+      const target = skillDir(skills, to);
+      if (!fs.statSync(source, { throwIfNoEntry: false })?.isDirectory()) {
+        throw new HttpError(404, `skill 目录不存在：${from}`);
+      }
+      if (fs.existsSync(target)) throw new HttpError(409, `skill 目录已存在：${to}`);
+      fs.renameSync(source, target);
+      const skillMd = path.join(target, 'SKILL.md');
+      if (fs.existsSync(skillMd)) {
+        fs.writeFileSync(skillMd, renameFrontmatter(fs.readFileSync(skillMd, 'utf8'), to));
+      }
+      return afterEdit(row);
+    },
+
+    deleteSkill(id: string, name: string): Variant {
+      const before = get(id);
+      assertInstallable(before);
+      assertDraft(before);
+      const row = ownStorage(before);
+      const dir = skillDir(dirsOf(row).skills, name);
+      if (!fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory()) {
+        throw new HttpError(404, `skill 目录不存在：${name}`);
+      }
+      fs.rmSync(dir, { recursive: true });
+      return afterEdit(row);
+    },
+
     // 与 parent 或基线 commit 逐文件对比 skills/
     diff(id: string, against: 'parent' | 'base'): VariantDiff {
       const row = get(id);
@@ -518,44 +626,44 @@ export function createVariants({
       if (against === 'parent') {
         if (row.parentId === null) throw new HttpError(400, `variant ${row.name} 没有 parent`);
         variantId = row.parentId;
-        reference = layout.variant(row.parentId).src;
+        reference = dirsOf(get(row.parentId)).src;
       } else {
         reference = layout.base(row.baseCommit);
       }
       return {
         against: { kind: against, variantId, commit: row.baseCommit },
-        files: diffTrees(reference, layout.variant(id).src),
+        files: diffTrees(reference, dirsOf(row).src),
       };
     },
 
     // 任意两个 variant 之间逐文件对比 skills/，from 为旧的一侧
     diffBetween(fromId: string, toId: string): FileDiff[] {
-      get(fromId);
-      get(toId);
-      return diffTrees(layout.variant(fromId).src, layout.variant(toId).src);
+      return diffTrees(dirsOf(get(fromId)).src, dirsOf(get(toId)).src);
     },
 
     buildLog(id: string): string {
-      get(id);
-      return fs.readFileSync(layout.variant(id).buildLog, 'utf8');
+      return fs.readFileSync(dirsOf(get(id)).buildLog, 'utf8');
     },
 
     // 构建并隔离安装；每次从空的 dist 与 home 开始
     async build(id: string): Promise<Variant> {
-      const row = get(id);
-      assertInstallable(row);
-      assertDraft(row);
-      if (row.buildStatus === 'building') throw new HttpError(409, `variant ${row.name} 正在构建`);
+      const before = get(id);
+      assertInstallable(before);
+      assertDraft(before);
+      if (before.buildStatus === 'building') {
+        throw new HttpError(409, `variant ${before.name} 正在构建`);
+      }
+      const row = ownStorage(before);
       db.update(variants)
         .set({ buildStatus: 'building', buildError: null })
         .where(eq(variants.id, id))
         .run();
       events.publish({ type: 'variant.build', variantId: id, status: 'building', step: null });
 
-      const dirs = layout.variant(id);
+      const dirs = dirsOf(row);
       const log = newLog(row);
       log.append(`\n=== 构建 ${new Date().toISOString()} ===\n`);
-      // 所属 workflow 的每个大阶段入口与小阶段都要有 skill（Contracts 16.1）
+      // 所属 workflow 的入口 skill 与每个小阶段都要有 skill（Contracts 16.1）
       const missing = requiredSkills(loadWorkflow(db, row.workflowId)).filter(
         (name) => !fs.existsSync(path.join(dirs.skills, name, 'SKILL.md')),
       );
@@ -723,7 +831,7 @@ export function createVariants({
       if (row.buildStatus !== 'built') {
         throw new HttpError(409, `variant ${row.name} 还没有构建，没有 settings.json`);
       }
-      const dirs = layout.variant(id);
+      const dirs = dirsOf(row);
       const merged = writeIsolatedSettings(dirs.claudeDir);
       // 这一步之前构建的 variant 在这里补写一次
       markOnboardingDone(dirs.claudeDir);
@@ -737,7 +845,7 @@ export function createVariants({
       if (row.buildStatus !== 'built') {
         throw new HttpError(409, `variant ${row.name} 还没有构建，没有 .claude.json`);
       }
-      trustDirectory(layout.variant(id).claudeDir, cwd);
+      trustDirectory(dirsOf(row).claudeDir, cwd);
     },
 
     runtimeEnv(id: string): RuntimeEnv {
@@ -745,7 +853,7 @@ export function createVariants({
       if (row.buildStatus !== 'built' || row.builtHash !== row.skillsHash) {
         throw new HttpError(409, `variant ${row.name} 还没有按当前内容构建`);
       }
-      const dirs = layout.variant(id);
+      const dirs = dirsOf(row);
       return {
         env: {
           ...isolatedBaseEnv(),
@@ -764,16 +872,17 @@ export function createVariants({
     },
 
     // 一个 run 的 claude 进程的 sandbox（Contracts 7.3）；runsDir 是 runs 模块存放各 run 的目录，
-    // localRepo 是本地仓库模式下这个 run 的 bare 仓库（GitHub 时为 null）
+    // localRepo 是本地仓库模式下这个 run 的 bare 仓库（GitHub 时为 null）。放行的是 variant 实际所在的目录
     sandboxProfile(id: string, runId: string, runsDir: string, localRepo: string | null): string {
+      const row = get(id);
       return claudeSandboxProfile(
         runId,
-        id,
+        storageOf(row),
         {
           repoRoot: config.repoRoot,
           dataDir,
           runsDir,
-          variantsDir: path.dirname(layout.variant(id).dir),
+          variantsDir: path.dirname(dirsOf(row).dir),
           featuresDir: path.join(config.vaultDir, `Project ${config.evalProduct}`, 'Features'),
           home: os.homedir(),
         },

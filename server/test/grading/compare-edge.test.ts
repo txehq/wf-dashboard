@@ -8,7 +8,7 @@ import { gradeItems, grades, requests, type ToolCall } from '../../src/db/schema
 import { compareRuns } from '../../src/grading/compare.js';
 import { readReport } from '../../src/stages/report.js';
 import { loadTask, syncTasks, withRubric } from '../../src/tasks/loader.js';
-import { loadBigStage } from '../../src/workflows/index.js';
+import { loadWorkflow } from '../../src/workflows/index.js';
 import { openTestDb } from '../stages/db.js';
 import { insertRun, insertVariant } from './seed.js';
 
@@ -26,8 +26,9 @@ fs.cpSync(path.join(config.tasksDir, 'ic-money-format'), path.join(tasksDir, 'ic
 const { db, close } = openTestDb();
 syncTasks(db, tasksDir);
 const lfgTask = withRubric(loadTask(db, 'optional-mcp-install'));
-const IC_STAGES = loadBigStage(db, 'dev-workflow', 'ic').stages.map((s) => s.id);
-for (const v of ['ic-v', 'lfg-v', 'empty-v']) insertVariant(db, v);
+const IC_STAGES = loadWorkflow(db, 'ic').stages.map((s) => s.id);
+insertVariant(db, 'ic-v', 'ic');
+for (const v of ['lfg-v', 'empty-v']) insertVariant(db, v);
 
 afterAll(() => {
   close();
@@ -130,7 +131,7 @@ const query = {
 describe('compare 的边界情况', () => {
   it('H8：没有阶段轮次、没有请求的 run 不让 compare 报错，阶段记为未到达、成本按 0；终态 run 的最后一个阶段为 done', () => {
     const icCycles = (sessionId: string) =>
-      readReport(db, sessionId)?.bigStages.find((b) => b.bigStage === 'ic')?.cycles;
+      readReport(db, sessionId)?.workflows.find((w) => w.workflow === 'ic')?.cycles;
     expect(icCycles(claimed)?.[0]?.stages[0]).toMatchObject({
       status: 'done',
       entries: 1,

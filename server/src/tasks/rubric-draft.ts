@@ -1,8 +1,7 @@
-import type { Db } from '../db/index.js';
 import { models, parseStructured, type StructuredRequest } from '../llm/client.js';
 import { HttpError } from '../variants/errors.js';
-import { loadBigStage } from '../workflows/index.js';
-import { type BigStageDefinition, rubricOf, type RubricArtifactSpec } from '../workflows/schema.js';
+import { evalSpec } from '../workflows/eval-kinds.js';
+import { type EvalSpec, rubricOf, type RubricArtifactSpec } from '../workflows/schema.js';
 import { chineseCount } from '../workflows/text.js';
 import {
   Rubric,
@@ -24,7 +23,7 @@ function prefixes(artifacts: RubricArtifactSpec[]): Map<string, string> {
   );
 }
 
-function systemPrompt(stage: BigStageDefinition, artifacts: RubricArtifactSpec[]) {
+function systemPrompt(stage: EvalSpec, artifacts: RubricArtifactSpec[]) {
   const prefix = prefixes(artifacts);
   const ids = [...prefix.entries()];
   const [firstId, firstPrefix] = ids[0] ?? ['', ''];
@@ -47,7 +46,7 @@ ${artifacts.map((a) => `- ${a.id}：${a.description}`).join('\n')}
 criterion 使用中文。`;
 }
 
-function userPrompt(stage: BigStageDefinition, task: RubricDraftRequest, groups: number) {
+function userPrompt(stage: EvalSpec, task: RubricDraftRequest, groups: number) {
   return `task：${task.title}
 ${task.input === undefined ? '' : `\n用户交给 /${stage.id} 的原话：\n${task.input}\n`}
 模拟用户的 persona：
@@ -59,16 +58,16 @@ ${task.hiddenRequirements}
 请起草${chineseCount(groups)}组 rubric。`;
 }
 
-// 起草请求：大阶段没有 rubric 评分时 400
+// 起草请求：评测类型没有 rubric 评分时 400。prompt 中的入口命令为这种评测类型的内置 workflow（id 与评测类型同名）
 export function rubricDraftRequest(
-  stage: BigStageDefinition,
   task: RubricDraftRequest,
   model: string,
 ): StructuredRequest<RubricDraftOutput> {
+  const stage = evalSpec(task.kind, task.kind);
   const artifacts = rubricOf(stage);
   const [first, ...rest] = artifacts?.map((a) => a.id) ?? [];
   if (artifacts === null || first === undefined) {
-    throw new HttpError(400, `${task.workflow} 的大阶段 ${task.bigStage} 没有 rubric 评分`);
+    throw new HttpError(400, `评测类型 ${task.kind} 没有 rubric 评分`);
   }
   return {
     model,
@@ -79,12 +78,11 @@ export function rubricDraftRequest(
   };
 }
 
-export async function draftRubric(db: Db, task: RubricDraftRequest): Promise<RubricDraft> {
-  const stage = loadBigStage(db, task.workflow, task.bigStage);
-  const result = await parseStructured(rubricDraftRequest(stage, task, models.judge));
+export async function draftRubric(task: RubricDraftRequest): Promise<RubricDraft> {
+  const result = await parseStructured(rubricDraftRequest(task, models.judge));
   const rubric = Rubric.parse(result.value.rubric);
-  const issues = taskFieldIssues({ ...task, rubric }, stage).filter((i) => i.includes('rubric'));
-  if (issues.length > 0) throw new Error(`起草的 rubric 不符合大阶段：${issues.join('；')}`);
+  const issues = taskFieldIssues({ ...task, rubric }).filter((i) => i.includes('rubric'));
+  if (issues.length > 0) throw new Error(`起草的 rubric 不符合评测类型：${issues.join('；')}`);
   return {
     rubric,
     model: result.model,

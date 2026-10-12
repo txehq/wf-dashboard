@@ -5,9 +5,9 @@ import {
   liveEventKinds,
   liveProcessKinds,
   liveStatuses,
-  workflows,
 } from '../db/schema.js';
 import { AskQuestionView } from '../runs/views.js';
+import { efforts, modelAliases } from '../variants/model-names.js';
 
 // 交互 API 的形状（Contracts 14）
 
@@ -49,7 +49,8 @@ export const LiveSummary = z.object({
   title: z.string(),
   claudeSessionId: z.string(),
   environment: z.enum(liveEnvironments),
-  workflow: z.enum(workflows).nullable(),
+  // 新建时选的 workflow 的 id；从已有 session 开始的项为空
+  workflow: z.string().nullable(),
   input: z.string().nullable(),
   taskId: z.string().nullable(),
   cwd: z.string(),
@@ -106,16 +107,18 @@ export type ImportLiveBody = z.infer<typeof ImportLiveBody>;
 export const DeleteLiveBody = z.strictObject({ confirmTitle: z.string() });
 export type DeleteLiveBody = z.infer<typeof DeleteLiveBody>;
 
+// Contracts 14.2：先选 workflow，再选它的 variant；问题作为初始消息 /<workflow id> <问题> 的内容
 export const CreateLiveBody = z.strictObject({
-  workflow: z.enum(workflows),
-  // 选了 task 时为空，输入取自 task
-  input: z.string().min(1).nullable(),
-  taskId: z.string().min(1).nullable(),
+  workflow: z.string().min(1),
+  input: z.string().trim().min(1),
   variantId: z.string().min(1),
   environment: z.enum(liveEnvironments),
   // real 环境的真实目录；isolated 为空
   cwd: z.string().min(1).nullable(),
   driver: z.enum(liveDrivers),
+  // 没有选时取 /settings 的 agentModel 与 agentEffort（Contracts 16.5）
+  model: z.enum(modelAliases).optional(),
+  effort: z.enum(efforts).optional(),
 });
 export type CreateLiveBody = z.infer<typeof CreateLiveBody>;
 
@@ -124,6 +127,8 @@ export const ResumeLiveBody = z.strictObject({
   // 空表示"本机配置"
   variantId: z.string().min(1).nullable(),
   driver: z.enum(liveDrivers),
+  model: z.enum(modelAliases).optional(),
+  effort: z.enum(efforts).optional(),
 });
 export type ResumeLiveBody = z.infer<typeof ResumeLiveBody>;
 

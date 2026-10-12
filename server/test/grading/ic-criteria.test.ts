@@ -4,8 +4,7 @@ import type { PrTask } from '../../src/tasks/schema.js';
 
 const task: PrTask = {
   id: 'w28-read',
-  workflow: 'dev-workflow',
-  bigStage: 'ic',
+  kind: 'ic',
   dir: '/nonexistent',
   title: 't',
   persona: 'p',

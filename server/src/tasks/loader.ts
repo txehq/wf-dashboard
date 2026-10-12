@@ -12,8 +12,6 @@ import { eq, notInArray } from 'drizzle-orm';
 import { parse, stringify } from 'yaml';
 import type { Db } from '../db/index.js';
 import { tasks } from '../db/schema.js';
-import { loadBigStage } from '../workflows/index.js';
-import type { BigStageDefinition } from '../workflows/schema.js';
 import {
   type PrTask,
   type RepoTask,
@@ -43,22 +41,20 @@ export function parseTaskYaml(text: string, file: string): TaskDefinition {
   return result.data;
 }
 
-// task 所在的大阶段；字段按它的积木校验（Contracts 16.3），缺少或多出时以原文失败
-export function checkTask(db: Db, definition: TaskDefinition): BigStageDefinition {
-  const stage = loadBigStage(db, definition.workflow, definition.bigStage);
-  const issues = taskFieldIssues(definition, stage);
+// 字段按 task 的评测类型的积木校验（Contracts 16.3），缺少或多出时以原文失败
+export function checkTask(definition: TaskDefinition) {
+  const issues = taskFieldIssues(definition);
   if (issues.length > 0) throw new Error(issues.join('；'));
-  return stage;
 }
 
-function readTaskFile(db: Db, tasksDir: string, id: string) {
+function readTaskFile(tasksDir: string, id: string) {
   const file = taskYamlPath(tasksDir, id);
   const text = readFileSync(file, 'utf8');
   const definition = parseTaskYaml(text, file);
   if (definition.id !== id) {
     throw new Error(`${file} 的 id 为 ${definition.id}，与目录名 ${id} 不一致`);
   }
-  checkTask(db, definition);
+  checkTask(definition);
   return { definition, hash: createHash('sha256').update(text).digest('hex') };
 }
 
@@ -66,8 +62,7 @@ function toRow(definition: TaskDefinition, dir: string, contentHash: string, upd
   const hidden = definition.hiddenTests;
   return {
     id: definition.id,
-    workflowId: definition.workflow,
-    bigStage: definition.bigStage,
+    kind: definition.kind,
     title: definition.title,
     persona: definition.persona,
     hiddenRequirements: definition.hiddenRequirements,
@@ -94,8 +89,7 @@ function toRow(definition: TaskDefinition, dir: string, contentHash: string, upd
 function definitionFromRow(row: TaskRow): TaskDefinition {
   return TaskDefinition.parse({
     id: row.id,
-    workflow: row.workflowId,
-    bigStage: row.bigStage,
+    kind: row.kind,
     title: row.title,
     persona: row.persona,
     hiddenRequirements: row.hiddenRequirements,
@@ -136,8 +130,8 @@ export interface SyncResult {
 
 const emptyResult = (): SyncResult => ({ inserted: [], updated: [], unchanged: [], deleted: [] });
 
-function upsert(db: Db, tx: Tx, tasksDir: string, id: string, result: SyncResult) {
-  const { definition, hash } = readTaskFile(db, tasksDir, id);
+function upsert(tx: Tx, tasksDir: string, id: string, result: SyncResult) {
+  const { definition, hash } = readTaskFile(tasksDir, id);
   const existing = tx
     .select({ contentHash: tasks.contentHash })
     .from(tasks)
@@ -165,7 +159,7 @@ export function syncTasks(db: Db, tasksDir: string): SyncResult {
     .sort();
   const result = emptyResult();
   db.transaction((tx) => {
-    for (const id of ids) upsert(db, tx, tasksDir, id, result);
+    for (const id of ids) upsert(tx, tasksDir, id, result);
     const stale = tx
       .select({ id: tasks.id })
       .from(tasks)
@@ -180,9 +174,9 @@ export function syncTasks(db: Db, tasksDir: string): SyncResult {
   return result;
 }
 
-// 写回 tasks/<id>/task.yaml 并同步这一个 task；字段不符合大阶段时不写文件
+// 写回 tasks/<id>/task.yaml 并同步这一个 task；字段不符合评测类型时不写文件
 export function saveTask(db: Db, tasksDir: string, definition: TaskDefinition): TaskRecord {
-  checkTask(db, definition);
+  checkTask(definition);
   const file = taskYamlPath(tasksDir, definition.id);
   mkdirSync(path.dirname(file), { recursive: true });
   // 先写临时文件再改名：写到一半时进程退出不会留下损坏的 task.yaml
@@ -190,7 +184,7 @@ export function saveTask(db: Db, tasksDir: string, definition: TaskDefinition): 
   writeFileSync(tmp, serializeTask(definition));
   renameSync(tmp, file);
   db.transaction((tx) => {
-    upsert(db, tx, tasksDir, definition.id, emptyResult());
+    upsert(tx, tasksDir, definition.id, emptyResult());
   });
   const record = getTaskRecord(db, definition.id);
   if (!record) throw new Error(`task ${definition.id} 写入后读不到`);
@@ -207,7 +201,7 @@ export function listTaskRecords(db: Db): TaskRecord[] {
   return db
     .select()
     .from(tasks)
-    .orderBy(tasks.workflowId, tasks.bigStage, tasks.id)
+    .orderBy(tasks.kind, tasks.id)
     .all()
     .map(toRecord);
 }
@@ -224,7 +218,7 @@ export function loadTask(db: Db, id: string): Task {
   return { ...record.task, dir: record.dir };
 }
 
-// 以下按积木取出必有的字段：加载时已按大阶段校验，缺少说明调用方用错了积木
+// 以下按积木取出必有的字段：加载时已按评测类型校验，缺少说明调用方用错了积木
 export function withRubric(task: Task): RubricTask {
   if (task.rubric === undefined) throw new Error(`task ${task.id} 没有 rubric`);
   return { ...task, rubric: task.rubric };

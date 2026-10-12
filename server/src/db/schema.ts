@@ -10,9 +10,10 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core';
 
-// dev-workflow 的两个大阶段：Sessions 列表的粗判与交互的启动用它（可配置的 workflow 见 workflowTable）
+// 内置的两个 workflow，也是两种评测类型：Sessions 列表的粗判用它（可配置的 workflow 见 workflowTable）
 export const workflows = ['lfg', 'ic'] as const;
 export type Workflow = (typeof workflows)[number];
+const evalKinds = workflows;
 
 export interface ToolCall {
   // tool_use.id
@@ -64,28 +65,28 @@ export const sources = sqliteTable('sources', {
   createdAt: createdAt(),
 });
 
-// workflow（Contracts 16.1）：大阶段与小阶段的定义；dev-workflow 由服务启动时从内置的 YAML 写入
+// workflow（Contracts 16.1）：入口命令与小阶段的定义；内置的 lfg、ic 由服务启动时从 YAML 写入
 export const workflowTable = sqliteTable('workflows', {
+  // 也是入口命令 /<id>
   id: text('id').primaryKey(),
   name: text('name').notNull(),
-  // 新建 workflow 时作底子的 variant；dev-workflow 为最早导入的基线，还没有导入时为空
-  baseVariantId: text('base_variant_id').references((): AnySQLiteColumn => variants.id, {
-    onDelete: 'set null',
-  }),
+  // 评测类型（16.2）；为空时不能评测，只用于 Live、阶段划分与分析。创建后不能修改
+  evalKind: text('eval_kind', { enum: evalKinds }),
   // 经 WorkflowDefinition 校验后的定义
   definition: text('definition', { mode: 'json' }).$type<WorkflowDefinition>().notNull(),
+  // 复制来源的 workflow；内置的为空
+  copiedFrom: text('copied_from'),
   createdAt: createdAt(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 });
 
-// tasks/<id>/task.yaml 的镜像，启动时由 tasks/loader.ts 同步；大阶段不需要的字段为空
+// tasks/<id>/task.yaml 的镜像，启动时由 tasks/loader.ts 同步；评测类型不需要的字段为空
 export const tasks = sqliteTable(
   'tasks',
   {
     id: text('id').primaryKey(),
-    // task 绑定的 workflow 与大阶段（Contracts 16.3）；workflow 是否存在由加载器校验
-    workflowId: text('workflow_id').notNull(),
-    bigStage: text('big_stage').notNull(),
+    // task 的评测类型（Contracts 16.3）
+    kind: text('kind', { enum: evalKinds }).notNull(),
     title: text('title').notNull(),
     persona: text('persona').notNull(),
     hiddenRequirements: text('hidden_requirements').notNull(),
@@ -115,7 +116,7 @@ export const tasks = sqliteTable(
     createdAt: createdAt(),
     updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
   },
-  (t) => [index('tasks_workflow_big_stage_idx').on(t.workflowId, t.bigStage)],
+  (t) => [index('tasks_kind_idx').on(t.kind)],
 );
 
 export const variants = sqliteTable(
@@ -126,6 +127,9 @@ export const variants = sqliteTable(
     name: text('name').notNull(),
     // 所属 workflow（Contracts 16.4）；是否存在由 variants 模块校验
     workflowId: text('workflow_id').notNull(),
+    // 存放 src、构建产物与隔离 home 的目录 data/variants/<storage_id>，为空时是自己的 id。迁移拆出的 lfg 与 ic
+    // 两个 variant 共用一份（16.4），其中一个被编辑或构建时复制出自己的一份，改为空
+    storageId: text('storage_id'),
     // 另存为新 variant 时指向来源
     parentId: text('parent_id').references((): AnySQLiteColumn => variants.id, {
       onDelete: 'set null',
@@ -299,8 +303,8 @@ export const liveSessions = sqliteTable(
     // 用户可改（Contracts 14.3）；默认取输入的前 40 个字，从已有 session 开始的项取该 session 的标题
     title: text('title').notNull(),
     environment: text('environment', { enum: liveEnvironments }).notNull(),
-    // 从已有 session 开始的项为空
-    workflow: text('workflow', { enum: workflows }),
+    // 新建时选的 workflow 的 id（Contracts 16.7）；从已有 session 开始的项为空
+    workflow: text('workflow'),
     input: text('input'),
     taskId: text('task_id').references(() => tasks.id, { onDelete: 'set null' }),
     cwd: text('cwd').notNull(),
@@ -508,13 +512,12 @@ export interface StageEvidence {
   text: string;
 }
 
-// 阶段划分的折叠状态（stages/partition 的 StageState）：已折叠到 folded_seq 为止的主请求
+// 阶段划分的折叠状态（stages/partition 的 StageState）：已折叠到 folded_seq 为止的主请求。
+// state 中记录划分所用的 workflow 与各自定义的 hash（Contracts 16.6），绑定或定义改变时从头重算
 export const stageStates = sqliteTable('stage_states', {
   sessionId: text('session_id')
     .primaryKey()
     .references(() => sessions.id, { onDelete: 'cascade' }),
-  // 划分所用的 workflow（Contracts 16.6）；session 所用的 workflow 或其定义改变时从头重算
-  workflowId: text('workflow_id').notNull(),
   state: text('state', { mode: 'json' }).notNull(),
   foldedSeq: integer('folded_seq').notNull(),
   // folded_seq 那条请求的时间：之后的用户消息还没有折叠
@@ -522,7 +525,7 @@ export const stageStates = sqliteTable('stage_states', {
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 });
 
-// 一轮大阶段：同一 session 可以有多轮
+// 一个 workflow 的一轮：同一 session 可以有多轮
 export const stageCycles = sqliteTable(
   'stage_cycles',
   {
@@ -530,8 +533,8 @@ export const stageCycles = sqliteTable(
     sessionId: text('session_id')
       .notNull()
       .references(() => sessions.id, { onDelete: 'cascade' }),
-    // 大阶段 id
-    bigStage: text('big_stage').notNull(),
+    // workflow id
+    workflow: text('workflow').notNull(),
     // 从 1 开始
     cycle: integer('cycle').notNull(),
     label: text('label').notNull(),
@@ -541,7 +544,7 @@ export const stageCycles = sqliteTable(
     createdAt: createdAt(),
   },
   (t) => [
-    uniqueIndex('stage_cycles_session_big_stage_cycle_idx').on(t.sessionId, t.bigStage, t.cycle),
+    uniqueIndex('stage_cycles_session_workflow_cycle_idx').on(t.sessionId, t.workflow, t.cycle),
   ],
 );
 
@@ -552,7 +555,7 @@ export const stageSpans = sqliteTable(
     sessionId: text('session_id')
       .notNull()
       .references(() => sessions.id, { onDelete: 'cascade' }),
-    bigStage: text('big_stage').notNull(),
+    workflow: text('workflow').notNull(),
     // 所属轮次，对应 stage_cycles.cycle
     cycle: integer('cycle').notNull(),
     stage: text('stage').notNull(),
@@ -566,9 +569,9 @@ export const stageSpans = sqliteTable(
     createdAt: createdAt(),
   },
   (t) => [
-    uniqueIndex('stage_spans_session_big_stage_cycle_stage_idx').on(
+    uniqueIndex('stage_spans_session_workflow_cycle_stage_idx').on(
       t.sessionId,
-      t.bigStage,
+      t.workflow,
       t.cycle,
       t.stage,
     ),

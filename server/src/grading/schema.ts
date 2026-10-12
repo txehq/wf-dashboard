@@ -203,9 +203,9 @@ export type CompareCell = z.infer<typeof CompareCell>;
 export const CompareResult = z.object({
   variants: z.array(z.string()),
   tasks: z.array(z.string()),
-  // 所选 task 共同的 workflow 与大阶段（Contracts 16.5）
+  // 所选 variant 共同的 workflow 与它的评测类型（Contracts 16.5）
   workflowId: z.string(),
-  bigStage: z.string(),
+  kind: z.enum(['lfg', 'ic']),
   groupBy: z.enum(compareGroupings),
   includeIntervened: z.boolean(),
   includeCrossRef: z.boolean(),

@@ -13,12 +13,12 @@ import {
   type TaskDefinition,
   type TaskRecord,
 } from '../src/tasks/schema.js';
-import { builtinDefinition } from '../src/workflows/index.js';
-import { bigStageOf, rubricOf } from '../src/workflows/schema.js';
+import { EVAL_KINDS } from '../src/workflows/eval-kinds.js';
+import { rubricOf } from '../src/workflows/schema.js';
 
-// 有 rubric 的 task 定义（dev-workflow 的 lfg）
+// 有 rubric 的 task 定义（lfg 评测类型）
 type RubricTaskDefinition = TaskDefinition & { rubric: ArtifactRubric[] };
-const lfgArtifacts = (rubricOf(bigStageOf(builtinDefinition(), 'lfg')) ?? []).map((a) => a.id);
+const lfgArtifacts = (rubricOf(EVAL_KINDS.lfg) ?? []).map((a) => a.id);
 
 const workDir = path.join(config.repoRoot, '.work', 'test-tasks-api', randomUUID());
 // 写操作落在 tasks/ 的副本上
@@ -58,7 +58,7 @@ async function call(method: string, pathname: string, body?: unknown) {
 async function getLfg(id: string): Promise<RubricTaskDefinition> {
   const { body } = await call('GET', `/api/tasks/${id}`);
   const { task } = body as TaskRecord;
-  if (task.bigStage !== 'lfg' || task.rubric === undefined) throw new Error(`${id} 不是 lfg task`);
+  if (task.kind !== 'lfg' || task.rubric === undefined) throw new Error(`${id} 不是 lfg task`);
   return { ...task, rubric: task.rubric };
 }
 
@@ -67,14 +67,14 @@ describe('Tasks API', () => {
     const { status, body } = await call('GET', '/api/tasks');
     expect(status).toBe(200);
     const records = body as TaskRecord[];
-    expect(records.map((r) => `${r.task.workflow}/${r.task.bigStage}:${r.task.id}`)).toEqual([
-      'dev-workflow/ic:ic-money-format',
-      'dev-workflow/ic:ic-task-store-list',
-      'dev-workflow/ic:ic-unit-converter',
-      'dev-workflow/ic:ic-wrap-cli',
-      'dev-workflow/lfg:lfg-calculator',
-      'dev-workflow/lfg:lfg-photo-sorter',
-      'dev-workflow/lfg:lfg-todo-api',
+    expect(records.map((r) => `${r.task.kind}:${r.task.id}`)).toEqual([
+      'ic:ic-money-format',
+      'ic:ic-task-store-list',
+      'ic:ic-unit-converter',
+      'ic:ic-wrap-cli',
+      'lfg:lfg-calculator',
+      'lfg:lfg-photo-sorter',
+      'lfg:lfg-todo-api',
     ]);
     expect(records[0]?.dir).toBe(path.join(tasksDir, 'ic-money-format'));
   });
@@ -141,7 +141,7 @@ describe('Tasks API', () => {
     expect(list).toHaveLength(8);
   });
 
-  test('起草请求的大阶段必须有 rubric 评分', async () => {
+  test('起草请求的评测类型必须有 rubric 评分', async () => {
     const { body } = await call('GET', '/api/tasks/ic-wrap-cli');
     expect((await call('POST', '/api/tasks/rubric-draft', (body as TaskRecord).task)).status).toBe(
       400,
@@ -153,8 +153,7 @@ describe('Tasks API', () => {
     const task = await getLfg('lfg-calculator');
     const form: RubricDraftRequest = {
       id: task.id,
-      workflow: task.workflow,
-      bigStage: task.bigStage,
+      kind: task.kind,
       title: task.title,
       persona: task.persona,
       hiddenRequirements: task.hiddenRequirements,

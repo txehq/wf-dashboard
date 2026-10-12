@@ -123,7 +123,6 @@ describe('交互：新建、退出、在同一项上 resume（真实 claude）',
     live = await server.api<LiveDetail>('POST', '/api/live', {
       workflow: 'lfg',
       input: '做一个计算器',
-      taskId: null,
       variantId: server.variant.id,
       environment: 'real',
       cwd: realCwd,

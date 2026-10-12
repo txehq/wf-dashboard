@@ -40,7 +40,7 @@ db.insert(variants)
     baseCommit: '0'.repeat(40),
     skillsHash: 'a'.repeat(64),
     version: '0.0.0-eval.aaaaaaaa',
-    workflowId: 'dev-workflow',
+    workflowId: 'lfg',
   })
   .run();
 db.insert(batches).values({ id: 'b-20261009-crossr', repeats: 1 }).run();

@@ -33,6 +33,7 @@ import { bindingRoutes } from './bindings.js';
 import { analysisRoutes } from './analyses.js';
 import { createWorkflows } from '../workflows/index.js';
 import { workflowRoutes } from './workflows.js';
+import { openRoutes } from './open.js';
 
 export interface AppOptions {
   db: Db;
@@ -159,6 +160,8 @@ export async function buildApp({
 
   // 可配置的 workflow（Contracts 16.1）
   await app.register(workflowRoutes, { workflows: createWorkflows({ db, variants }) });
+  // "在访达中打开"（Contracts 16.7）
+  await app.register(openRoutes, { variants, live });
 
   // 页面的路由在浏览器中：未匹配 /api 的路径都返回 index.html
   if (webDir !== undefined) {

@@ -7,8 +7,8 @@ import { readReport } from '../stages/report.js';
 import { loadTask } from '../tasks/loader.js';
 import type { Task } from '../tasks/schema.js';
 import { HttpError } from '../variants/errors.js';
-import { loadBigStage } from '../workflows/index.js';
-import type { BigStageDefinition } from '../workflows/schema.js';
+import { evalSpecOf, loadWorkflow } from '../workflows/index.js';
+import type { EvalSpec, WorkflowDefinition } from '../workflows/schema.js';
 import { CRITERION_MAX, criterionId } from './ic-criteria.js';
 import { readRunGrades } from './index.js';
 import {
@@ -60,8 +60,8 @@ function endpointOf(g: GradedRun) {
   return g.grades.endpoint;
 }
 
-// 按 task 所在大阶段的评分积木分项（Contracts 16.2）：有隐藏测试的 task 用隐藏测试，没有时用验收标准
-function qualityOf(stage: BigStageDefinition, task: Task, graded: GradedRun[]): Quality {
+// 按评测类型的评分积木分项（Contracts 16.2）：有隐藏测试的 task 用隐藏测试，没有时用验收标准
+function qualityOf(stage: EvalSpec, task: Task, graded: GradedRun[]): Quality {
   const rubric = task.rubric;
   const tests = stage.grading.includes('hidden-tests') && task.hiddenTests !== undefined;
   const criteria = stage.grading.includes('criteria-judge') && !tests;
@@ -189,15 +189,15 @@ function rubricItems(task: Task, graded: GradedRun[]): CompareCell['rubricItems'
   }));
 }
 
-// 没有进入任何阶段的 run（session 没有导入，或其中没有这个大阶段的轮次，例如 agent 一开始就报告无法继续）：
+// 没有进入任何阶段的 run（session 没有导入，或其中没有这个 workflow 的轮次，例如 agent 一开始就报告无法继续）：
 // 全部阶段记为未到达，成本按 0 计入均值
-function stageCosts(db: Db, graded: GradedRun[], stage: BigStageDefinition): StageCost[] {
+function stageCosts(db: Db, graded: GradedRun[], workflow: WorkflowDefinition): StageCost[] {
   const reports = graded.map((g) => {
     // dashboard 发起的运行只有一轮
     const report = readReport(db, g.run.sessionId);
-    return report?.bigStages.find((b) => b.bigStage === stage.id)?.cycles[0]?.stages ?? [];
+    return report?.workflows.find((w) => w.workflow === workflow.id)?.cycles[0]?.stages ?? [];
   });
-  return stage.stages.map(({ id }) => {
+  return workflow.stages.map(({ id }) => {
     const views = reports.map((vs) => vs.find((v) => v.stage === id));
     const stats = views.map((v) => v?.stats);
     const pick = (f: (s: NonNullable<(typeof stats)[number]>) => number) =>
@@ -259,34 +259,35 @@ export function comparableRun(includeCancelled: boolean) {
   );
 }
 
-// 所选 task 共同的 workflow 与大阶段；variant 必须属于该 workflow（Contracts 16.5），否则 400 原文
+// 所选 variant 共同的 workflow：必须有评测类型，所选 task 的 kind 必须是它的评测类型（Contracts 16.5），否则 400 原文
 function compareScope(db: Db, query: CompareQuery) {
-  const taskRows = db
-    .select({ id: tasksTable.id, workflowId: tasksTable.workflowId, bigStage: tasksTable.bigStage })
-    .from(tasksTable)
-    .where(inArray(tasksTable.id, query.tasks))
-    .all();
-  const scopes = [...new Set(taskRows.map((t) => `${t.workflowId}/${t.bigStage}`))];
-  const [first] = taskRows;
-  if (first === undefined || scopes.length !== 1) {
-    throw new HttpError(
-      400,
-      `只能对比同一 workflow 的同一大阶段的 task，所选 task 属于 ${scopes.join('、')}`,
-    );
-  }
-  const others = db
+  const variantRows = db
     .select({ id: variants.id, name: variants.name, workflowId: variants.workflowId })
     .from(variants)
     .where(inArray(variants.id, query.variants))
+    .all();
+  const workflowIds = [...new Set(variantRows.map((v) => v.workflowId))];
+  const [workflowId] = workflowIds;
+  if (workflowId === undefined || workflowIds.length !== 1) {
+    throw new HttpError(
+      400,
+      `只能对比同一个 workflow 的 variant，所选 variant 属于 ${variantRows.map((v) => `${v.name} (${v.workflowId})`).join('、')}：不同 workflow 之间不对比`,
+    );
+  }
+  const stage = evalSpecOf(db, workflowId);
+  const others = db
+    .select({ id: tasksTable.id, kind: tasksTable.kind })
+    .from(tasksTable)
+    .where(inArray(tasksTable.id, query.tasks))
     .all()
-    .filter((v) => v.workflowId !== first.workflowId);
+    .filter((t) => t.kind !== stage.kind);
   if (others.length > 0) {
     throw new HttpError(
       400,
-      `所选 task 属于 workflow ${first.workflowId}，variant ${others.map((v) => `${v.name} (${v.workflowId})`).join('、')} 不属于它：不同 workflow 之间不对比`,
+      `workflow ${workflowId} 的评测类型是 ${stage.kind}，task ${others.map((t) => `${t.id} (${t.kind})`).join('、')} 不是这种评测类型`,
     );
   }
-  return { workflowId: first.workflowId, bigStage: first.bigStage };
+  return { workflowId, kind: stage.kind, stage };
 }
 
 // variant 的 run 中在这些 task 上出现过的模型，按名字排序
@@ -303,8 +304,8 @@ function modelsOf(db: Db, variantId: string, taskIds: string[]): string[] {
 // groupBy=variant 时每个 variant × task 一格；groupBy=model 时每个 (variant, model) × task 一格。
 // 默认排除有人工干预、参考了其他 run、读取了来源与被取消的 run，四个开关各自只放回一类
 export function compareRuns(db: Db, query: CompareQuery): CompareResult {
-  const scope = compareScope(db, query);
-  const stage = loadBigStage(db, scope.workflowId, scope.bigStage);
+  const { workflowId, kind, stage } = compareScope(db, query);
+  const workflow = loadWorkflow(db, workflowId);
   const groups = query.variants.flatMap(
     (variantId): { variantId: string; model: string | null }[] =>
       query.groupBy === 'variant'
@@ -346,7 +347,7 @@ export function compareRuns(db: Db, query: CompareQuery): CompareResult {
           graded.length === 0
             ? null
             : {
-                stages: stageCosts(db, graded, stage),
+                stages: stageCosts(db, graded, workflow),
                 total: meanBreakdown(graded.map((g) => runCostBreakdown(db, g.run.id))),
                 friction: frictionStats(
                   db,
@@ -358,5 +359,5 @@ export function compareRuns(db: Db, query: CompareQuery): CompareResult {
       };
     }),
   );
-  return { ...query, ...scope, cells };
+  return { ...query, workflowId, kind, cells };
 }

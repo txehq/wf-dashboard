@@ -1,11 +1,8 @@
 import { z } from 'zod';
 import { claudeSettingsEnv } from '../llm/client.js';
+import { type ModelAlias, modelAliases } from './model-names.js';
 
-export const modelAliases = ['opus', 'sonnet', 'haiku', 'fable'] as const;
-export type ModelAlias = (typeof modelAliases)[number];
-
-export const efforts = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
-export type Effort = (typeof efforts)[number];
+export { type Effort, efforts, type ModelAlias, modelAliases } from './model-names.js';
 
 const envKey: Record<ModelAlias, string> = {
   opus: 'ANTHROPIC_DEFAULT_OPUS_MODEL',

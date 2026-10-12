@@ -73,7 +73,7 @@ describe('从 Linear 导入 ic task', { timeout: 5 * 60_000 }, () => {
       ticket: { ...preview.task.ticket, acceptanceCriteria: ['页面外壳与 CI 按工单建立'] },
     });
     const back = parseTaskYaml(serializeTask(definition), 'TXE-3777.yaml');
-    expect(back.bigStage).toBe('ic');
+    expect(back.kind).toBe('ic');
     expect(back.ticket?.body).toBe(raw.description);
   });
 
@@ -179,7 +179,7 @@ describe('从 Linear 导入 ic task', { timeout: 5 * 60_000 }, () => {
       'task.yaml',
     ]);
     const record = TaskRecord.parse(saved.json());
-    expect(record.task.bigStage).toBe('ic');
+    expect(record.task.kind).toBe('ic');
     expect(record.task.ticket?.body).toBe(preview.issue.description);
     await app.close();
     db.$client.close();

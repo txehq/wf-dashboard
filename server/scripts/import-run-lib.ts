@@ -5,7 +5,6 @@ import type { Db } from '../src/db/index.js';
 import { ingestFile } from '../src/ingest/ingest.js';
 import { readReport } from '../src/stages/report.js';
 import { dataLayout } from '../src/variants/layout.js';
-import { DEV_WORKFLOW_ID } from '../src/workflows/schema.js';
 
 // 把另一个数据目录（例如 W4 worktree 的 data/）中一个已结束的 run 导入 db：
 // variant、batch、run、对话、产物与评分按行复制；session 从来源 variant 的 jsonl 重新导入，阶段离线重新判定。
@@ -134,10 +133,15 @@ export function importRun(
 
   target.transaction(() => {
     if (!exists('variants', 'id', variantId)) {
+      // variant 属于 run 的 task 的评测类型同名的内置 workflow（Contracts 16.4）
+      const kind = target.prepare('select kind from tasks where id = ?').get(run.task_id) as
+        | { kind: string }
+        | undefined;
+      if (kind === undefined) throw new Error(`目标库中没有 run ${runId} 的 task ${String(run.task_id)}`);
       insert('variants', {
         ...variant,
         name: `${String(variant.name)}（导入 ${variantId.slice(0, 8)}）`,
-        workflow_id: DEV_WORKFLOW_ID,
+        workflow_id: kind.kind,
         install_dir: null,
         build_status: 'none',
         built_hash: null,
@@ -194,8 +198,8 @@ export function importRun(
   return {
     runId,
     sessionId,
-    stages: report.bigStages
-      .flatMap((b) => b.cycles)
+    stages: report.workflows
+      .flatMap((w) => w.cycles)
       .flatMap((c) => c.stages.map((s) => `${s.stage}:${s.status}`)),
   };
 }

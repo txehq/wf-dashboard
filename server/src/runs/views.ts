@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { gradingStatuses, runMessageRoles, runStatuses } from '../db/schema.js';
 import { CrossRunRef, SourceRef } from '../grading/schema.js';
 import { StageReport } from '../stages/report.js';
+import { evalKinds } from '../workflows/schema.js';
 
 // Runs API 与 run.* 事件共用的形状（Contracts 7.6）
 
@@ -49,16 +50,16 @@ export const RunMode = z.enum(['simulated', 'human']);
 export type RunMode = z.infer<typeof RunMode>;
 
 export const CurrentStage = z
-  .object({ bigStage: z.string(), stage: z.string(), status: z.string() })
+  .object({ workflow: z.string(), stage: z.string(), status: z.string() })
   .nullable();
 
 export const RunSummary = z.object({
   id: z.string(),
   batchId: z.string(),
   taskId: z.string(),
-  // task 所在的 workflow 与大阶段（Contracts 16.3）
+  // variant 所属的 workflow（Contracts 16.4）与 task 的评测类型（16.3）
   workflowId: z.string(),
-  bigStage: z.string(),
+  kind: z.enum(evalKinds),
   taskTitle: z.string(),
   variantId: z.string(),
   variantName: z.string(),

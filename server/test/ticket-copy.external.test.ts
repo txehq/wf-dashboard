@@ -17,8 +17,7 @@ describe('从 Linear 导入的 task 的工单副本', () => {
     const sourceRepo = 'txehq/wfe-test-calc-source';
     const task: PrTask = {
       id: 'ic-txe-3777',
-      workflow: 'dev-workflow',
-      bigStage: 'ic',
+      kind: 'ic',
       dir: '/nonexistent',
       title: source.title,
       persona: 'p',

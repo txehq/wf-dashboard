@@ -17,7 +17,6 @@ import {
   taskFieldIssues,
   TaskRecord,
 } from '../tasks/schema.js';
-import { loadBigStage } from '../workflows/index.js';
 
 const TaskNotFound = createError<[string]>('TASK_NOT_FOUND', '没有 task %s', 404);
 const TaskExists = createError<[string]>('TASK_EXISTS', 'task %s 已存在', 409);
@@ -32,10 +31,7 @@ export function taskRoutes({ db, tasksDir }: { db: Db; tasksDir: string }) {
     return record;
   };
   const checkTaskRequest = (definition: TaskDefinition) => {
-    const issues = taskFieldIssues(
-      definition,
-      loadBigStage(db, definition.workflow, definition.bigStage),
-    );
+    const issues = taskFieldIssues(definition);
     if (issues.length > 0) throw new BadTaskRequest(issues.join('；'));
   };
 
@@ -59,7 +55,7 @@ export function taskRoutes({ db, tasksDir }: { db: Db; tasksDir: string }) {
       { schema: { body: TaskDefinition, response: { 201: TaskRecord } } },
       async (request, reply) => {
         if (getTaskRecord(db, request.body.id)) throw new TaskExists(request.body.id);
-        // 字段按大阶段的积木校验（Contracts 16.3），不符合时以原文 400
+        // 字段按评测类型的积木校验（Contracts 16.3），不符合时以原文 400
         checkTaskRequest(request.body);
         // 从 Linear 导入的 task：先在 repo.commit 处生成起始仓库 bundle（Contracts 第 13 节）
         await ensureImportedBundle(request.body, tasksDir);
@@ -77,11 +73,8 @@ export function taskRoutes({ db, tasksDir }: { db: Db; tasksDir: string }) {
           throw new BadTaskRequest(`body 的 id ${request.body.id} 与路径 ${id} 不一致`);
         }
         const existing = requireTask(id).task;
-        if (
-          existing.workflow !== request.body.workflow ||
-          existing.bigStage !== request.body.bigStage
-        ) {
-          throw new BadTaskRequest(`task ${id} 的 workflow 与大阶段不能改变`);
+        if (existing.kind !== request.body.kind) {
+          throw new BadTaskRequest(`task ${id} 的评测类型不能改变`);
         }
         checkTaskRequest(request.body);
         await ensureImportedBundle(request.body, tasksDir);
@@ -92,7 +85,7 @@ export function taskRoutes({ db, tasksDir }: { db: Db; tasksDir: string }) {
     app.post(
       '/api/tasks/rubric-draft',
       { schema: { body: RubricDraftRequest, response: { 200: RubricDraft } } },
-      (request) => draftRubric(db, request.body),
+      (request) => draftRubric(request.body),
     );
     done();
   };

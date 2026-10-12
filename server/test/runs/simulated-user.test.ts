@@ -11,16 +11,15 @@ import {
   type TranscriptEntry,
 } from '../../src/runs/simulated-user.js';
 import { parseTaskYaml } from '../../src/tasks/loader.js';
-import { builtinDefinition } from '../../src/workflows/index.js';
-import { bigStageOf } from '../../src/workflows/schema.js';
+import { evalSpec } from '../../src/workflows/eval-kinds.js';
 
-// dev-workflow 中某个大阶段的 task 扮演的人
-function personaOf(taskId: string, bigStage: 'lfg' | 'ic'): SimulatedPersona {
+// 内置 workflow（lfg 或 ic）的 task 扮演的人
+function personaOf(taskId: string, kind: 'lfg' | 'ic'): SimulatedPersona {
   const taskFile = path.join(config.tasksDir, taskId, 'task.yaml');
   const definition = parseTaskYaml(fs.readFileSync(taskFile, 'utf8'), taskFile);
-  if (definition.bigStage !== bigStage) throw new Error(`${taskId} 应为 ${bigStage} task`);
+  if (definition.kind !== kind) throw new Error(`${taskId} 应为 ${kind} task`);
   return {
-    stage: bigStageOf(builtinDefinition(), bigStage),
+    stage: evalSpec(kind, kind),
     persona: definition.persona,
     hiddenRequirements: definition.hiddenRequirements,
   };

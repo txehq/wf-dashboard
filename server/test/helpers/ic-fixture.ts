@@ -59,8 +59,7 @@ export async function buildFixtureTask(
   );
   return {
     id: 'w7-fixture',
-    workflow: 'dev-workflow',
-    bigStage: 'ic',
+    kind: 'ic',
     dir: taskDir,
     title: 'W7 fixture：subtract',
     persona: 'math 模块的维护者，回答简短。',
