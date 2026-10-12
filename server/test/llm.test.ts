@@ -3,21 +3,19 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
   anthropic,
-  claudeSettingsEnv,
   defaultModels,
   gatewayClient,
   models,
   parseStructured,
-  stripContextTag,
 } from '../src/llm/client.js';
 import { costUsd, fromApiUsage, priceOf } from '../src/llm/pricing.js';
 
 describe('默认模型', () => {
-  it('模拟用户与 judge 默认取 settings env 中 opus 的别名（Contracts 4）', () => {
-    const opus = stripContextTag(claudeSettingsEnv().ANTHROPIC_DEFAULT_OPUS_MODEL);
-    expect(opus).not.toMatch(/\[/);
-    expect(defaultModels().simulatedUser).toBe(opus);
-    expect(defaultModels().judge).toBe(opus);
+  it('模拟用户与 judge 默认为 claude-sonnet-5-5（Contracts 4）', () => {
+    expect(defaultModels()).toEqual({
+      simulatedUser: 'claude-sonnet-5-5',
+      judge: 'claude-sonnet-5-5',
+    });
   });
 });
 
