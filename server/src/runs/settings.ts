@@ -4,6 +4,7 @@ import { config } from '../config.js';
 import type { Db } from '../db/index.js';
 import { settings as settingsTable } from '../db/schema.js';
 import { defaultModels, setModels } from '../llm/client.js';
+import { efforts, modelAliases } from '../variants/models.js';
 
 const ModelName = z.string().trim().min(1);
 
@@ -21,6 +22,10 @@ export const Settings = z.strictObject({
     .array(z.string().trim().min(1))
     .refine((labels) => new Set(labels).size === labels.length, '标签不能重复')
     .default(DEFAULT_COPY_RUNNER_LABELS),
+  // 被测 agent 的 --model（别名，由 settings.json env 解析为 gateway 模型名）与 --effort：发起 batch、
+  // 新建交互与 resume 时的默认值（Contracts 16.5）；在它之前保存的设置读出为默认值
+  agentModel: z.enum(modelAliases).default('opus'),
+  agentEffort: z.enum(efforts).default('high'),
 });
 export type Settings = z.infer<typeof Settings>;
 
@@ -31,6 +36,8 @@ export function defaultSettings(): Settings {
     defaultRepeats: config.defaultRepeats,
     models: defaultModels(),
     copyRunnerLabels: DEFAULT_COPY_RUNNER_LABELS,
+    agentModel: 'opus',
+    agentEffort: 'high',
   };
 }
 

@@ -10,6 +10,7 @@ import {
   request,
   statusLabel,
   type Variant,
+  variantLabel,
   variantsQuery,
 } from '@/pages/variants-api';
 import { QueryError } from '@/pages/variants-error';
@@ -73,7 +74,10 @@ export function VariantsPage() {
   const byId = new Map(list.data?.map((v) => [v.id, v]));
   return (
     <div className="flex flex-col gap-6">
-      <PageShell title="Variants" description="编辑 skill 内容，设置模型与 effort。" />
+      <PageShell
+        title="Variants"
+        description="编辑 skill 内容。variant 属于一个 workflow，模型与 effort 在发起评测时选。"
+      />
       <CreateBaseline />
       {list.isPending && <p className="text-sm text-muted-foreground">加载中…</p>}
       {list.isError && (
@@ -95,8 +99,6 @@ export function VariantsPage() {
               <th className="py-2 font-medium">名称</th>
               <th className="font-medium">来源</th>
               <th className="font-medium">版本</th>
-              <th className="font-medium">模型</th>
-              <th className="font-medium">effort</th>
               <th className="font-medium">状态</th>
               <th className="font-medium">构建</th>
             </tr>
@@ -106,7 +108,7 @@ export function VariantsPage() {
               <tr key={variant.id} className="border-b">
                 <td className="py-2">
                   <Link className="font-medium underline-offset-4 hover:underline" to={variant.id}>
-                    {variant.name}
+                    {variantLabel(variant)}
                   </Link>
                 </td>
                 <td>
@@ -115,8 +117,6 @@ export function VariantsPage() {
                     : `派生自 ${byId.get(variant.parentId)?.name ?? variant.parentId}`}
                 </td>
                 <td className="font-mono text-xs">{variant.version}</td>
-                <td>{variant.model}</td>
-                <td>{variant.effort}</td>
                 <td>{statusLabel[variant.status]}</td>
                 <td>{isImported(variant) ? importedLabel : buildLabel(variant)}</td>
               </tr>

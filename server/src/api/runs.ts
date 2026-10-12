@@ -8,6 +8,7 @@ import { runStatuses } from '../db/schema.js';
 import type { Runs } from '../runs/index.js';
 import type { SettingsStore } from '../runs/settings.js';
 import { BatchDetail, BatchSummary, RunDetail, RunSummary } from '../runs/views.js';
+import { efforts, modelAliases } from '../variants/models.js';
 
 const IdParams = z.object({ id: z.string().min(1) });
 const Ok = z.object({ ok: z.literal(true) });
@@ -29,17 +30,22 @@ export const runRoutes: FastifyPluginCallbackZod<{ runs: Runs; settings: Setting
           variantIds: z.array(z.string().min(1)).min(1),
           taskIds: z.array(z.string().min(1)).min(1),
           repeats: z.int().min(1).max(50).optional(),
+          // 作用于 batch 中全部 run；省略时取设置的 agentModel、agentEffort（Contracts 16.5）
+          model: z.enum(modelAliases).optional(),
+          effort: z.enum(efforts).optional(),
         }),
         response: { 201: BatchDetail },
       },
     },
     (request, reply) => {
-      const { variantIds, taskIds, repeats } = request.body;
+      const { variantIds, taskIds, repeats, model, effort } = request.body;
       void reply.code(201);
       return runs.createBatch({
         variantIds: [...new Set(variantIds)],
         taskIds: [...new Set(taskIds)],
         repeats: repeats ?? settings.get().defaultRepeats,
+        model: model ?? settings.get().agentModel,
+        effort: effort ?? settings.get().agentEffort,
       });
     },
   );

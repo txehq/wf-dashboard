@@ -2,15 +2,18 @@ import { asc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import { artifacts, gradeItems, grades, requests, runs } from '../db/schema.js';
+import { icEndpoint, readPr } from '../external/github.js';
 import { readIssueContent } from '../external/linear.js';
 import { inputField } from '../stages/rows.js';
-import { loadTask } from '../tasks/loader.js';
-import type { ArtifactRubric, IcTask, LfgTask } from '../tasks/schema.js';
+import { loadTask, withHiddenTests, withPr, withRepo, withRubric } from '../tasks/loader.js';
+import type { ArtifactRubric, RubricTask, Task } from '../tasks/schema.js';
+import { loadBigStage } from '../workflows/index.js';
+import { hasGrading, rubricOf } from '../workflows/schema.js';
 import { gradeIc } from './ic.js';
 import { gradeIcCriteria } from './ic-criteria.js';
-import { judgeArtifact, missingArtifactItems } from './rubric-judge.js';
+import { judgeArtifact, type JudgeStage, missingArtifactItems } from './rubric-judge.js';
 import { recordPrSnapshot } from './pr-snapshot.js';
-import { type ArtifactGrade, type GradeItem, RunGrades } from './schema.js';
+import { type ArtifactGrade, type GradeItem, IcEndpoint, RunGrades } from './schema.js';
 
 type Run = typeof runs.$inferSelect;
 type ArtifactRow = typeof artifacts.$inferSelect;
@@ -50,7 +53,7 @@ export function createdTickets(db: Db, run: Run): string[] {
   return out;
 }
 
-// tickets 产物：Tickets.md 加上 Linear 中该 run 建出的工单的标题与正文
+// linearTickets 的产物：文件快照加上 Linear 中该 run 建出的工单的标题与正文
 export async function ticketsContent(db: Db, run: Run, snapshot: string): Promise<string> {
   const issues = [];
   for (const identifier of createdTickets(db, run)) {
@@ -68,7 +71,8 @@ export async function ticketsContent(db: Db, run: Run, snapshot: string): Promis
 async function judgeGroup(
   db: Db,
   run: Run,
-  task: LfgTask,
+  task: RubricTask,
+  judging: JudgeStage,
   group: ArtifactRubric,
   rows: ArtifactRow[],
   signal: AbortSignal,
@@ -88,12 +92,13 @@ async function judgeGroup(
   if (artifact.snapshot === null) {
     throw new Error(`run ${run.id} 的 ${group.artifact} 产物没有内容快照`);
   }
+  const spec = judging.artifacts.find((a) => a.id === group.artifact);
   const content =
-    group.artifact === 'tickets'
+    spec?.linearTickets === true
       ? await ticketsContent(db, run, artifact.snapshot)
       : artifact.snapshot;
   signal.throwIfAborted();
-  const judged = await judgeArtifact(task, group, content, signal);
+  const judged = await judgeArtifact(task, judging, group, content, signal);
   return {
     group,
     artifact,
@@ -105,10 +110,17 @@ async function judgeGroup(
   } satisfies JudgedGroup;
 }
 
-async function gradeLfg(db: Db, run: Run, task: LfgTask, signal: AbortSignal) {
+// rubric 积木：每个产物一次 judge 调用（Contracts 7.9 的 lfg 评分）
+async function gradeRubric(
+  db: Db,
+  run: Run,
+  task: RubricTask,
+  judging: JudgeStage,
+  signal: AbortSignal,
+) {
   const rows = db.select().from(artifacts).where(eq(artifacts.runId, run.id)).all();
   const judged = await Promise.all(
-    task.rubric.map((g) => judgeGroup(db, run, task, g, rows, signal)),
+    task.rubric.map((g) => judgeGroup(db, run, task, judging, g, rows, signal)),
   );
   signal.throwIfAborted();
   db.transaction((tx) => {
@@ -134,40 +146,39 @@ async function gradeLfg(db: Db, run: Run, task: LfgTask, signal: AbortSignal) {
   });
 }
 
-async function gradeIcRun(db: Db, run: Run, task: IcTask, signal: AbortSignal) {
-  if (run.githubRepo === null) throw new Error(`run ${run.id} 没有 GitHub 仓库`);
-  if (task.hiddenTests === undefined) {
-    await gradeIcCriteriaRun(db, run, task, run.githubRepo, signal);
-    return;
-  }
-  const result = await gradeIc(
-    { ...task, hiddenTests: task.hiddenTests },
-    run.id,
-    run.githubRepo,
-    signal,
-  );
+// hidden-tests 积木；endpoint 为大阶段是否选了 pr-endpoint
+async function gradeHiddenTests(
+  db: Db,
+  run: Run,
+  task: Task,
+  repo: string,
+  endpoint: boolean,
+  signal: AbortSignal,
+) {
+  const result = await gradeIc(withHiddenTests(task), run.id, repo, signal);
   db.insert(grades)
     .values({
       runId: run.id,
       kind: 'ic',
       testsPassed: result.testsPassed,
       testsDeclared: result.testsDeclared,
-      reachedEnd: result.reachedEnd,
+      reachedEnd: endpoint ? result.reachedEnd : null,
       icDetail: result.detail,
     })
     .run();
   // detail.error 是 agent 的代码造成的失败（Contracts 7.9）：已记 0 / 声明数，评分照常完成
 }
 
-// 没有隐藏测试：一次 judge 调用按验收标准逐条评分（Contracts 第 13 节），条目写 grade_items
-async function gradeIcCriteriaRun(
+// criteria-judge 积木：一次 judge 调用按验收标准逐条评分（Contracts 第 13 节），条目写 grade_items
+async function gradeCriteria(
   db: Db,
   run: Run,
-  task: IcTask,
+  task: Task,
   repo: string,
+  endpoint: boolean,
   signal: AbortSignal,
 ) {
-  const result = await gradeIcCriteria(task, repo, signal);
+  const result = await gradeIcCriteria(withPr(task), repo, signal);
   signal.throwIfAborted();
   db.transaction((tx) => {
     const grade = tx
@@ -179,7 +190,7 @@ async function gradeIcCriteriaRun(
         inputTokens: result.judge?.usage.inputTokens ?? 0,
         outputTokens: result.judge?.usage.outputTokens ?? 0,
         costUsd: result.judge?.costUsd ?? 0,
-        reachedEnd: result.reachedEnd,
+        reachedEnd: endpoint ? result.reachedEnd : null,
         criteriaDetail: result.detail,
       })
       .returning({ id: grades.id })
@@ -190,8 +201,29 @@ async function gradeIcCriteriaRun(
   });
 }
 
-// runs 模块在进入 grading 时调用；全部评分完成后一次写入，任何一步失败都不留下部分结果。
-// signal 中止（取消评分、服务关闭）时结束评分的子进程与模型请求，抛出 signal.reason，不写入
+// 只选了 pr-endpoint：仓库中最新的 PR 的终点判定；没有 PR 时为否
+async function gradeEndpoint(db: Db, run: Run, task: Task, repo: string) {
+  const pr = await readPr(repo);
+  const endpoint =
+    pr === null ? null : await icEndpoint(repo, pr.number, withRepo(task).requiredChecks);
+  db.insert(grades)
+    .values({
+      runId: run.id,
+      kind: 'endpoint',
+      reachedEnd: endpoint?.reached ?? false,
+      icDetail: {
+        pr: null,
+        outcomes: [],
+        fileErrors: [],
+        endpoint,
+        error: null,
+      },
+    })
+    .run();
+}
+
+// runs 模块在进入 grading 时调用：按 task 所在大阶段的评分积木执行（Contracts 16.2）。全部评分完成后一次写入，
+// 任何一步失败都不留下部分结果。signal 中止（取消评分、服务关闭）时结束评分的子进程与模型请求，抛出 signal.reason，不写入
 export async function gradeRun(db: Db, runId: string, signal: AbortSignal): Promise<void> {
   const run = db.select().from(runs).where(eq(runs.id, runId)).get();
   if (run === undefined) throw new Error(`没有 run ${runId}`);
@@ -199,10 +231,21 @@ export async function gradeRun(db: Db, runId: string, signal: AbortSignal): Prom
     throw new Error(`run ${runId} 已经评分过`);
   }
   const task = loadTask(db, run.taskId);
+  const stage = loadBigStage(db, task.workflow, task.bigStage);
   await recordPrSnapshot(db, run);
   signal.throwIfAborted();
-  if (task.kind === 'lfg') await gradeLfg(db, run, task, signal);
-  else await gradeIcRun(db, run, task, signal);
+  const rubric = rubricOf(stage);
+  if (rubric !== null) {
+    await gradeRubric(db, run, withRubric(task), { stage, artifacts: rubric }, signal);
+  }
+  const tests = hasGrading(stage, 'hidden-tests') && task.hiddenTests !== undefined;
+  const criteria = hasGrading(stage, 'criteria-judge') && !tests;
+  const endpoint = hasGrading(stage, 'pr-endpoint');
+  if (!tests && !criteria && !endpoint) return;
+  if (run.githubRepo === null) throw new Error(`run ${run.id} 没有仓库`);
+  if (tests) await gradeHiddenTests(db, run, task, run.githubRepo, endpoint, signal);
+  else if (criteria) await gradeCriteria(db, run, task, run.githubRepo, endpoint, signal);
+  else await gradeEndpoint(db, run, task, run.githubRepo);
 }
 
 // 尚未评分时为 null
@@ -229,56 +272,9 @@ export function readRunGrades(db: Db, runId: string): RunGrades | null {
         maxScore,
         reasoning,
       }));
-  const criteria = rows.find((r) => r.kind === 'ic_criteria');
-  if (criteria !== undefined) {
-    if (criteria.reachedEnd === null || criteria.criteriaDetail === null) {
-      throw new Error(`run ${runId} 的验收标准评分不完整`);
-    }
-    const items = itemsOf(criteria.id);
-    return RunGrades.parse({
-      runId,
-      kind: 'ic',
-      costUsd,
-      lfg: null,
-      ic: null,
-      icCriteria: {
-        items,
-        score: items.reduce((sum, i) => sum + i.score, 0),
-        maxScore: items.reduce((sum, i) => sum + i.maxScore, 0),
-        reachedEnd: criteria.reachedEnd,
-        judgeModel: criteria.judgeModel,
-        inputTokens: criteria.inputTokens,
-        outputTokens: criteria.outputTokens,
-        costUsd: criteria.costUsd,
-        detail: criteria.criteriaDetail,
-      },
-    });
-  }
-  const ic = rows.find((r) => r.kind === 'ic');
-  if (ic !== undefined) {
-    if (
-      ic.testsPassed === null ||
-      ic.testsDeclared === null ||
-      ic.reachedEnd === null ||
-      ic.icDetail === null
-    ) {
-      throw new Error(`run ${runId} 的 ic 评分不完整`);
-    }
-    return RunGrades.parse({
-      runId,
-      kind: 'ic',
-      costUsd,
-      lfg: null,
-      ic: {
-        testsPassed: ic.testsPassed,
-        testsDeclared: ic.testsDeclared,
-        reachedEnd: ic.reachedEnd,
-        detail: ic.icDetail,
-      },
-      icCriteria: null,
-    });
-  }
-  const groups = rows.map((g): ArtifactGrade => {
+
+  const rubricRows = rows.filter((r) => r.kind === 'rubric');
+  const groups = rubricRows.map((g): ArtifactGrade => {
     if (g.artifact === null)
       throw new Error(`run ${runId} 的 rubric 评分 ${String(g.id)} 没有产物组`);
     const items = itemsOf(g.id);
@@ -295,16 +291,59 @@ export function readRunGrades(db: Db, runId: string): RunGrades | null {
       items,
     };
   });
+
+  const ic = rows.find((r) => r.kind === 'ic');
+  if (
+    ic !== undefined &&
+    (ic.testsPassed === null || ic.testsDeclared === null || ic.icDetail === null)
+  ) {
+    throw new Error(`run ${runId} 的隐藏测试评分不完整`);
+  }
+  const criteria = rows.find((r) => r.kind === 'ic_criteria');
+  if (criteria?.criteriaDetail === null) {
+    throw new Error(`run ${runId} 的验收标准评分不完整`);
+  }
+  const criteriaItems = criteria === undefined ? [] : itemsOf(criteria.id);
+  const endpointRow = rows.find((r) => r.kind !== 'rubric' && r.reachedEnd !== null);
+  const endpointDetail =
+    endpointRow === undefined
+      ? null
+      : (endpointRow.icDetail?.endpoint ?? endpointRow.criteriaDetail?.endpoint ?? null);
+
   return RunGrades.parse({
     runId,
-    kind: 'lfg',
     costUsd,
-    lfg: {
-      artifacts: groups,
-      score: groups.reduce((sum, g) => sum + g.score, 0),
-      maxScore: groups.reduce((sum, g) => sum + g.maxScore, 0),
-    },
-    ic: null,
-    icCriteria: null,
+    rubric:
+      rubricRows.length === 0
+        ? null
+        : {
+            artifacts: groups,
+            score: groups.reduce((sum, g) => sum + g.score, 0),
+            maxScore: groups.reduce((sum, g) => sum + g.maxScore, 0),
+          },
+    hiddenTests:
+      ic === undefined
+        ? null
+        : { testsPassed: ic.testsPassed, testsDeclared: ic.testsDeclared, detail: ic.icDetail },
+    criteria:
+      criteria === undefined
+        ? null
+        : {
+            items: criteriaItems,
+            score: criteriaItems.reduce((sum, i) => sum + i.score, 0),
+            maxScore: criteriaItems.reduce((sum, i) => sum + i.maxScore, 0),
+            judgeModel: criteria.judgeModel,
+            inputTokens: criteria.inputTokens,
+            outputTokens: criteria.outputTokens,
+            costUsd: criteria.costUsd,
+            detail: criteria.criteriaDetail,
+          },
+    endpoint:
+      endpointRow === undefined
+        ? null
+        : {
+            reached: endpointRow.reachedEnd,
+            detail: endpointDetail === null ? null : IcEndpoint.parse(endpointDetail),
+          },
   });
 }

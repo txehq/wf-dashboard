@@ -3,7 +3,7 @@ import { RequestTimeline } from '@/components/sessions/request-timeline';
 import { ToolBars } from '@/components/sessions/session-summary';
 import { StatusLabel } from '@/components/sessions/status-label';
 import { formatCount, formatDuration, formatInteger, formatUsd } from '@/lib/format';
-import type { StageView, SubagentInfo, Workflow, WorkflowCycle } from '@/lib/sessions-api';
+import type { StageView, SubagentInfo, WorkflowCycle } from '@/lib/sessions-api';
 import { cycleName, entriesText, evidenceKindLabel } from '@/lib/stage-status';
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
@@ -50,7 +50,8 @@ export function StageDetail({
   subagents,
 }: {
   sessionId: string;
-  workflow: Workflow;
+  // 大阶段 id
+  workflow: string;
   cycle: WorkflowCycle | undefined;
   view: StageView;
   subagents: SubagentInfo[];

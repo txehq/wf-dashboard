@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import Database from 'better-sqlite3';
 import { asc, eq } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { afterAll, expect, test } from 'vitest';
 import { z } from 'zod';
 import { config } from '../../src/config.js';
@@ -39,8 +42,11 @@ function migrationsBefore(tag: string): string {
 
 test('旧结构的交互记录合并成项与进程', () => {
   fs.mkdirSync(work, { recursive: true });
-  const old = openDatabase(dbFile, migrationsBefore('0009_live_items'));
-  const run = (sql: string, ...params: unknown[]) => old.$client.prepare(sql).run(...params);
+  // 旧结构的数据库只执行迁移：openDatabase 还会按当前结构写入内置的 workflow
+  const old = new Database(dbFile);
+  old.pragma('foreign_keys = ON');
+  migrate(drizzle({ client: old }), { migrationsFolder: migrationsBefore('0009_live_items') });
+  const run = (sql: string, ...params: unknown[]) => old.prepare(sql).run(...params);
   const t = (iso: string) => new Date(iso).getTime();
   // A：/lfg 新建后被 resume 两次（resume 行的 claude_session_id 与 resumed_from 都是 A 的 session）
   // B：从本机导入的 session X 第一次 resume（resumed_from 指向的 session 没有项），之后又 resume 一次
@@ -90,7 +96,7 @@ test('旧结构的交互记录合并成项与进程', () => {
   run(session, 'sx', '/p/sx.jsonl', '帮我看看这个仓库的测试为什么失败', 'l-20261012-bbbbb2');
   run(session, 'sc', '/p/sc.jsonl', null, 'l-20261012-cccccc');
   run(session, 'so', '/p/so.jsonl', '不属于任何交互', null);
-  old.$client.close();
+  old.close();
 
   const db = openDatabase(dbFile, config.migrationsDir);
   expect(db.select().from(liveSessions).orderBy(asc(liveSessions.id)).all()).toEqual([

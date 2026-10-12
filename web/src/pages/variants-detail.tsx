@@ -19,7 +19,7 @@ import {
   type SkillFile,
   statusLabel,
   type Variant,
-  variantOptionsQuery,
+  variantLabel,
   variantQuery,
 } from '@/pages/variants-api';
 import { QueryError } from '@/pages/variants-error';
@@ -422,63 +422,12 @@ function BuildLog({ variant, building }: { variant: Variant; building: boolean }
   );
 }
 
-function Settings({ variant }: { variant: Variant }) {
-  const queryClient = useQueryClient();
-  const options = useQuery(variantOptionsQuery);
-  const update = useMutation({
-    mutationFn: (body: { model?: string; effort?: string }) =>
-      request<Variant>('PATCH', `/api/variants/${variant.id}`, body),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['variants'] });
-    },
-  });
-  const frozen = variant.status === 'frozen' || isImported(variant);
+// variant 属于一个 workflow；模型与 effort 在发起评测、新建交互与 resume 时选（Contracts 16.4、16.5）
+function WorkflowInfo({ variant }: { variant: Variant }) {
   return (
-    <div className="flex items-center gap-3 text-sm">
-      <label className="flex items-center gap-2">
-        模型
-        <select
-          className="h-8 rounded-md border bg-background px-2"
-          value={variant.model}
-          disabled={frozen || options.data === undefined}
-          onChange={(event) => {
-            update.mutate({ model: event.target.value });
-          }}
-        >
-          {/* 当前值不在选项中（例如导入的 variant 用了已下线的别名）时照实显示，不显示成第一项 */}
-          {options.data !== undefined &&
-            !options.data.models.some((m) => m.alias === variant.model) && (
-              <option value={variant.model}>{variant.model}（不在当前选项中）</option>
-            )}
-          {options.data?.models.map((m) => (
-            <option key={m.alias} value={m.alias}>
-              {m.alias}（{m.model}）
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="flex items-center gap-2">
-        effort
-        <select
-          className="h-8 rounded-md border bg-background px-2"
-          value={variant.effort}
-          disabled={frozen || options.data === undefined}
-          onChange={(event) => {
-            update.mutate({ effort: event.target.value });
-          }}
-        >
-          {options.data !== undefined && !options.data.efforts.includes(variant.effort) && (
-            <option value={variant.effort}>{variant.effort}（不在当前选项中）</option>
-          )}
-          {options.data?.efforts.map((e) => (
-            <option key={e} value={e}>
-              {e}
-            </option>
-          ))}
-        </select>
-      </label>
-      {update.isError && <span className="text-destructive">{update.error.message}</span>}
-    </div>
+    <p className="text-sm text-muted-foreground" data-testid="variant-workflow">
+      workflow <span className="font-mono text-foreground">{variant.workflowId}</span>
+    </p>
   );
 }
 
@@ -522,7 +471,7 @@ function Header({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-2xl font-semibold">{variant.name}</h1>
+        <h1 className="text-2xl font-semibold">{variantLabel(variant)}</h1>
         <span className="rounded-md border px-2 py-0.5 text-xs">{statusLabel[variant.status]}</span>
         <span className="rounded-md border px-2 py-0.5 text-xs" data-testid="build-status">
           {imported ? importedLabel : buildLabel(variant)}
@@ -566,7 +515,7 @@ function Header({
         <p className="text-sm text-destructive">{variant.buildError}</p>
       )}
       <div className="flex flex-wrap items-center gap-3">
-        <Settings variant={variant} />
+        <WorkflowInfo variant={variant} />
         {imported ? (
           <div className="ml-auto flex gap-2">
             {deriveButton('派生为可运行的 variant', `${variant.name}（可运行）`)}

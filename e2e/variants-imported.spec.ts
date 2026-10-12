@@ -94,7 +94,8 @@ test('导入的 variant 派生为可运行的 variant：跳转到新 variant，�
     void dialog.accept(name);
   });
   await page.getByRole('button', { name: '派生为可运行的 variant' }).click();
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText(name);
+  // 页面中 variant 的名字为 名字 (workflow)（Contracts 16.4）
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(`${name} (dev-workflow)`);
   await expect(page).not.toHaveURL(new RegExp(`/variants/${run.variantId}$`));
   const id = page.url().split('/').pop() ?? '';
   const derived = (await (await request.get(`${api}/variants/${id}`)).json()) as {

@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { rubricArtifacts } from '../tasks/schema.js';
 
 // 本文件只依赖 zod，web 也直接引用这里的 schema
 
@@ -58,7 +57,6 @@ export const IcCriteriaGrade = z.object({
   items: z.array(GradeItem),
   score: z.number(),
   maxScore: z.number(),
-  reachedEnd: z.boolean(),
   judgeModel: z.string().nullable(),
   inputTokens: z.number(),
   outputTokens: z.number(),
@@ -68,7 +66,8 @@ export const IcCriteriaGrade = z.object({
 export type IcCriteriaGrade = z.infer<typeof IcCriteriaGrade>;
 
 export const ArtifactGrade = z.object({
-  artifact: z.enum(rubricArtifacts),
+  // rubric 分组 id（大阶段 rubric 积木的产物 id）
+  artifact: z.string(),
   // 评分时产物是否存在；不存在时每条记 0 分，没有 judge 调用
   present: z.boolean(),
   artifactId: z.number().nullable(),
@@ -82,24 +81,25 @@ export const ArtifactGrade = z.object({
 });
 export type ArtifactGrade = z.infer<typeof ArtifactGrade>;
 
+// 按评分积木分别记录（Contracts 16.2）；为空表示大阶段没有这项评分
 export const RunGrades = z.object({
   runId: z.string(),
-  kind: z.enum(['lfg', 'ic']),
   // judge 调用的花费合计，计入 run 成本的评分一项
   costUsd: z.number(),
-  lfg: z
+  rubric: z
     .object({ artifacts: z.array(ArtifactGrade), score: z.number(), maxScore: z.number() })
     .nullable(),
-  ic: z
+  hiddenTests: z
     .object({
       testsPassed: z.number(),
       testsDeclared: z.number(),
-      reachedEnd: z.boolean(),
       detail: IcDetail,
     })
     .nullable(),
-  // 没有隐藏测试的 ic task：验收标准逐条的得分与理由
-  icCriteria: IcCriteriaGrade.nullable(),
+  // 没有隐藏测试时：验收标准逐条的得分与理由
+  criteria: IcCriteriaGrade.nullable(),
+  // pr-endpoint：PR 不是 draft 且 requiredChecks 通过；没有 PR 时 detail 为空
+  endpoint: z.object({ reached: z.boolean(), detail: IcEndpoint.nullable() }).nullable(),
 });
 export type RunGrades = z.infer<typeof RunGrades>;
 
@@ -143,32 +143,28 @@ export const FrictionStats = z.object({
 });
 export type FrictionStats = z.infer<typeof FrictionStats>;
 
-export const LfgQuality = z.object({
-  kind: z.literal('lfg'),
+export const RubricQuality = z.object({
   // 得分率：得分 / 满分
   total: Distribution,
-  artifacts: z.array(z.object({ artifact: z.enum(rubricArtifacts), rate: Distribution })),
+  artifacts: z.array(z.object({ artifact: z.string(), rate: Distribution })),
 });
 
-export const IcQuality = z.object({
-  kind: z.literal('ic'),
-  // 通过数 / 声明数
-  passRate: Distribution,
-  reachedEnd: z.object({
-    ratio: z.number().nullable(),
-    values: z.array(z.object({ runId: z.string(), reached: z.boolean() })),
-  }),
+export const ReachedEnd = z.object({
+  ratio: z.number().nullable(),
+  values: z.array(z.object({ runId: z.string(), reached: z.boolean() })),
 });
 
-// 没有隐藏测试的 ic task：验收标准得分率（得分 / 满分）与到达终点的比例
-export const IcCriteriaQuality = z.object({
-  kind: z.literal('ic_criteria'),
-  criteriaRate: Distribution,
-  reachedEnd: z.object({
-    ratio: z.number().nullable(),
-    values: z.array(z.object({ runId: z.string(), reached: z.boolean() })),
-  }),
+// 质量按大阶段的评分积木分项；为空表示这个 task 没有这项评分
+export const Quality = z.object({
+  rubric: RubricQuality.nullable(),
+  // 隐藏测试：通过数 / 声明数
+  passRate: Distribution.nullable(),
+  // 按验收标准评分：得分 / 满分
+  criteriaRate: Distribution.nullable(),
+  // pr-endpoint：到达终点的比例
+  reachedEnd: ReachedEnd.nullable(),
 });
+export type Quality = z.infer<typeof Quality>;
 
 // 每条验收标准在一组 run 上的得分
 export const CriterionMean = z.object({
@@ -179,19 +175,22 @@ export const CriterionMean = z.object({
 });
 
 export const RubricItemMean = z.object({
-  artifact: z.enum(rubricArtifacts),
+  artifact: z.string(),
   itemId: z.string(),
   criterion: z.string(),
   maxScore: z.number(),
   score: Distribution,
 });
 
+export const compareGroupings = ['variant', 'model'] as const;
+
 export const CompareCell = z.object({
   variantId: z.string(),
+  // groupBy=model 时为这一格的模型；groupBy=variant 时为空（不分模型）
+  model: z.string().nullable(),
   taskId: z.string(),
-  kind: z.enum(['lfg', 'ic']),
   runIds: z.array(z.string()),
-  quality: z.discriminatedUnion('kind', [LfgQuality, IcQuality, IcCriteriaQuality]),
+  quality: Quality,
   // run 数为 0 时为空
   cost: z
     .object({ stages: z.array(StageCost), total: CostBreakdown, friction: FrictionStats })
@@ -204,6 +203,10 @@ export type CompareCell = z.infer<typeof CompareCell>;
 export const CompareResult = z.object({
   variants: z.array(z.string()),
   tasks: z.array(z.string()),
+  // 所选 task 共同的 workflow 与大阶段（Contracts 16.5）
+  workflowId: z.string(),
+  bigStage: z.string(),
+  groupBy: z.enum(compareGroupings),
   includeIntervened: z.boolean(),
   includeCrossRef: z.boolean(),
   includeSourceRef: z.boolean(),
@@ -246,23 +249,14 @@ export const CompareRun = z.object({
   sourceRefs: z.array(SourceRef),
   // ISO 时间，web 用同一个 schema 解析响应
   createdAt: z.iso.datetime(),
+  // 发起 batch 时选的模型（Contracts 16.5），Compare 按模型分组用它
+  model: z.string(),
 });
 export type CompareRun = z.infer<typeof CompareRun>;
 
-// 与 db/schema 的 artifactKinds 相同
+// kind 为 rubric 产物 id 或 db/schema 的 fixedArtifactKinds
 export const RunArtifact = z.object({
-  kind: z.enum([
-    'brief',
-    'research',
-    'plan',
-    'tickets',
-    'pr',
-    'repo',
-    'ticket',
-    'friction',
-    'acceptance',
-    'pr_snapshot',
-  ]),
+  kind: z.string(),
   location: z.string(),
   snapshot: z.string().nullable(),
 });

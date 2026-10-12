@@ -4,17 +4,9 @@ import path from 'node:path';
 import matter from 'gray-matter';
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { toString } from 'mdast-util-to-string';
+import type { RubricArtifactSpec } from '../workflows/schema.js';
 
-// lfg 的产物记录（Contracts 7.2）：feature 目录中的 Brief、Research、Tickets 与 plan 锁定后的快照，不参与阶段划分
-
-// feature 目录中的固定文件名与 wf obsidian 写入的 frontmatter kind
-export const LFG_DOCS = {
-  brief: { file: 'Brief.md', kind: 'brief' },
-  research: { file: 'Research.md', kind: 'research' },
-  design: { file: 'System Design.md', kind: 'design' },
-  tickets: { file: 'Tickets.md', kind: 'tickets' },
-} as const;
-type DocKey = keyof typeof LFG_DOCS;
+// rubric 评分的产物（Contracts 7.2、16.2）：feature 目录中由 wf obsidian 写出的文件与 plan 锁定后的快照，不参与阶段划分
 
 // 与 wf obsidian 的 slugify 一致
 export function slugify(s: string): string {
@@ -49,7 +41,7 @@ export function planLockedLine(body: string): string | null {
   return null;
 }
 
-export interface LfgDoc {
+export interface FeatureDoc {
   path: string;
   kind: string | null;
   feature: string | null;
@@ -57,7 +49,7 @@ export interface LfgDoc {
   planLockLine: string | null;
 }
 
-function readDoc(file: string): LfgDoc | null {
+export function readDoc(file: string): FeatureDoc | null {
   if (!fs.existsSync(file)) return null;
   const raw = fs.readFileSync(file, 'utf8');
   const { data, content } = matter(raw);
@@ -72,52 +64,46 @@ function readDoc(file: string): LfgDoc | null {
   };
 }
 
-// feature 目录当前的四个产物；kind 或 feature 不符的文件不算
-export function lfgSnapshot(dir: string, feature: string): Record<DocKey, LfgDoc | null> {
-  const read = (key: DocKey) => {
-    const doc = readDoc(path.join(dir, LFG_DOCS[key].file));
-    return doc?.kind === LFG_DOCS[key].kind && doc.feature === feature ? doc : null;
-  };
-  return {
-    brief: read('brief'),
-    research: read('research'),
-    design: read('design'),
-    tickets: read('tickets'),
-  };
+// 产物的候选文件中 frontmatter 的 kind 相符、feature 为 run id 的那些，按候选顺序；不存在的为 null
+export function candidateDocs(
+  dir: string,
+  feature: string,
+  spec: RubricArtifactSpec,
+): (FeatureDoc | null)[] {
+  return spec.files.map(({ file, kind }) => {
+    const doc = readDoc(path.join(dir, file));
+    return doc?.kind === kind && doc.feature === feature ? doc : null;
+  });
 }
 
-export interface LfgArtifactDocs {
-  brief: LfgDoc | null;
-  research: LfgDoc | null;
-  // 锁定了 Plan 一节的 Research.md 或 System Design.md
-  plan: LfgDoc | null;
-  tickets: LfgDoc | null;
-}
-
-// 实时运行中 feature 目录的产物：每次 observe() 读一次目录。
-// plan 锁定要求锁定标记出现在文件首次出现之后的某次改写中，因此记住每个主文档首次被看到时的 hash。
-export class LfgTracker {
+// 实时运行中 feature 目录的产物：每次 observe() 读一次目录，返回每个产物 id 当前的文件。
+// lockedPlan 的产物要求锁定标记出现在文件首次出现之后的某次改写中，因此记住每个候选文件首次被看到时的 hash
+export class ArtifactTracker {
   private readonly firstHash = new Map<string, string>();
 
   constructor(
     readonly dir: string,
     readonly feature: string,
+    readonly specs: RubricArtifactSpec[],
   ) {}
 
-  observe(): LfgArtifactDocs {
-    const docs = lfgSnapshot(this.dir, this.feature);
-    let plan: LfgDoc | null = null;
-    for (const doc of [docs.research, docs.design]) {
-      if (!doc) continue;
-      const first = this.firstHash.get(doc.path);
-      if (first === undefined) this.firstHash.set(doc.path, doc.hash);
-      else if (!plan && doc.planLockLine !== null && doc.hash !== first) plan = doc;
+  observe(): Map<string, FeatureDoc | null> {
+    const out = new Map<string, FeatureDoc | null>();
+    for (const spec of this.specs) {
+      const docs = candidateDocs(this.dir, this.feature, spec);
+      if (spec.lockedPlan !== true) {
+        out.set(spec.id, docs.find((d) => d !== null) ?? null);
+        continue;
+      }
+      let locked: FeatureDoc | null = null;
+      for (const doc of docs) {
+        if (!doc) continue;
+        const first = this.firstHash.get(doc.path);
+        if (first === undefined) this.firstHash.set(doc.path, doc.hash);
+        else if (!locked && doc.planLockLine !== null && doc.hash !== first) locked = doc;
+      }
+      out.set(spec.id, locked);
     }
-    return {
-      brief: docs.brief,
-      research: docs.research ?? docs.design,
-      plan,
-      tickets: docs.tickets,
-    };
+    return out;
   }
 }

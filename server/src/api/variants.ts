@@ -13,12 +13,12 @@ const Effort = z.enum(efforts);
 const Variant = z.object({
   id: z.string(),
   name: z.string(),
+  // 所属 workflow（Contracts 16.4）；页面显示为 名字 (workflow)
+  workflowId: z.string(),
   parentId: z.string().nullable(),
   baseCommit: z.string(),
   skillsHash: z.string(),
   version: z.string(),
-  model: z.string(),
-  effort: z.string(),
   status: z.enum(['draft', 'frozen']),
   installDir: z.string().nullable(),
   buildStatus: z.enum(['none', 'building', 'built', 'failed']),
@@ -70,7 +70,7 @@ export const variantRoutes: FastifyPluginCallbackZod<{ variants: Variants }> = (
     variants.list(),
   );
 
-  // 从 txe-workflow 的 commit（默认 HEAD）导入基线
+  // 从 txe-workflow 的 commit（默认 HEAD）导入基线，属于 workflowId（默认 dev-workflow）
   app.post(
     '/api/variants',
     {
@@ -78,8 +78,7 @@ export const variantRoutes: FastifyPluginCallbackZod<{ variants: Variants }> = (
         body: z.object({
           name: Name,
           commit: z.string().min(1).optional(),
-          model: ModelAlias.default('opus'),
-          effort: Effort.default('high'),
+          workflowId: z.string().min(1).optional(),
         }),
         response: { 201: Variant },
       },
@@ -96,22 +95,15 @@ export const variantRoutes: FastifyPluginCallbackZod<{ variants: Variants }> = (
     (request) => variants.get(request.params.id),
   );
 
-  app.patch(
-    '/api/variants/:id',
-    {
-      schema: {
-        params: IdParams,
-        body: z.object({ model: ModelAlias.optional(), effort: Effort.optional() }),
-        response: { 200: Variant },
-      },
-    },
-    (request) => variants.setSettings(request.params.id, request.body),
-  );
-
+  // 派生只能在同一 workflow 内：给出与来源不同的 workflowId 时 400
   app.post(
     '/api/variants/:id/derive',
     {
-      schema: { params: IdParams, body: z.object({ name: Name }), response: { 201: Variant } },
+      schema: {
+        params: IdParams,
+        body: z.object({ name: Name, workflowId: z.string().min(1).optional() }),
+        response: { 201: Variant },
+      },
     },
     async (request, reply) =>
       reply.code(201).send(variants.derive(request.params.id, request.body)),

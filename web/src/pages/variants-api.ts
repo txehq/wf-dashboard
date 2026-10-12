@@ -4,12 +4,12 @@ import { requestJson } from '@/lib/http';
 export interface Variant {
   id: string;
   name: string;
+  // 所属 workflow（Contracts 16.4）
+  workflowId: string;
   parentId: string | null;
   baseCommit: string;
   skillsHash: string;
   version: string;
-  model: string;
-  effort: string;
   status: 'draft' | 'frozen';
   // 从其他数据目录导入的 variant 没有安装目录
   installDir: string | null;
@@ -48,6 +48,10 @@ export interface VariantDiff {
 }
 
 export const statusLabel: Record<Variant['status'], string> = { draft: '草稿', frozen: '已冻结' };
+
+// 页面中 variant 的名字：名字 (workflow)，例如 基线 (dev-workflow)
+export const variantLabel = (variant: Pick<Variant, 'name' | 'workflowId'>) =>
+  `${variant.name} (${variant.workflowId})`;
 
 export function buildLabel(variant: Variant): string {
   if (variant.buildStatus === 'built' && variant.builtHash !== variant.skillsHash) {

@@ -1,5 +1,6 @@
 id: lfg-photo-sorter
-kind: lfg
+workflow: dev-workflow
+bigStage: lfg
 title: 按拍摄日期整理照片的命令行工具
 persona: |
   刘芳，自由摄影师，也是家里的"电脑负责人"；用 MacBook Pro（Apple Silicon），会用终端敲命令但不写代码。

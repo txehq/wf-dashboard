@@ -10,7 +10,13 @@ import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import { artifacts, runs, tasks, variants } from '../db/schema.js';
 import { comparableRun, compareRuns } from '../grading/compare.js';
-import { CompareResult, CompareRun, RunArtifacts, SkillDiff } from '../grading/schema.js';
+import {
+  CompareResult,
+  CompareRun,
+  compareGroupings,
+  RunArtifacts,
+  SkillDiff,
+} from '../grading/schema.js';
 import type { Variants } from '../variants/index.js';
 
 const NotFound = createError<[string, string]>('COMPARE_NOT_FOUND', '没有 %s：%s', 404);
@@ -25,6 +31,8 @@ const IdList = z
 const Query = z.object({
   variants: IdList,
   tasks: IdList,
+  // Contracts 16.5：按 variant 或按 (variant, model) 分组
+  groupBy: z.enum(compareGroupings).default('variant'),
   includeIntervened: z.enum(['true', 'false']).default('false'),
   includeCrossRef: z.enum(['true', 'false']).default('false'),
   includeSourceRef: z.enum(['true', 'false']).default('false'),
@@ -65,6 +73,7 @@ export function compareRoutes({ db, variants: variantsModule }: { db: Db; varian
         return compareRuns(db, {
           variants: query.variants,
           tasks: query.tasks,
+          groupBy: query.groupBy,
           includeIntervened: query.includeIntervened === 'true',
           includeCrossRef: query.includeCrossRef === 'true',
           includeSourceRef: query.includeSourceRef === 'true',
@@ -85,6 +94,7 @@ export function compareRoutes({ db, variants: variantsModule }: { db: Db; varian
           crossRunRefs: runs.crossRunRefs,
           sourceRefs: runs.sourceRefs,
           createdAt: runs.createdAt,
+          model: runs.model,
         })
         .from(runs)
         .where(comparableRun(true))

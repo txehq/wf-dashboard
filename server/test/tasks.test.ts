@@ -7,15 +7,21 @@ import { config } from '../src/config.js';
 import { openDatabase } from '../src/db/index.js';
 import { tasks } from '../src/db/schema.js';
 import {
-  loadIcTask,
-  loadLfgTask,
+  loadTask,
   parseTaskYaml,
   saveTask,
   serializeTask,
   syncTasks,
   taskYamlPath,
+  withRepo,
+  withRubric,
 } from '../src/tasks/loader.js';
-import { rubricArtifacts, rubricMaxScore } from '../src/tasks/schema.js';
+import { rubricMaxScore } from '../src/tasks/schema.js';
+import { builtinDefinition } from '../src/workflows/index.js';
+import { bigStageOf, rubricOf } from '../src/workflows/schema.js';
+
+// dev-workflow 的 lfg 评分的产物：rubric 分组依次与它们一致
+const lfgArtifacts = (rubricOf(bigStageOf(builtinDefinition(), 'lfg')) ?? []).map((a) => a.id);
 
 const workDir = path.join(config.repoRoot, '.work', 'test-tasks', randomUUID());
 const cleanups: (() => void)[] = [];
@@ -63,14 +69,18 @@ describe('自带 task', () => {
     const file = taskYamlPath(config.tasksDir, id);
     const definition = parseTaskYaml(readFileSync(file, 'utf8'), file);
     expect(definition.id).toBe(id);
-    expect(definition.kind).toBe(id.split('-')[0]);
-    if (definition.kind === 'lfg') {
-      expect(definition.rubric.map((g) => g.artifact)).toEqual([...rubricArtifacts]);
-      for (const group of definition.rubric) {
+    expect(definition.workflow).toBe('dev-workflow');
+    expect(definition.bigStage).toBe(id.split('-')[0]);
+    if (definition.bigStage === 'lfg') {
+      const rubric = definition.rubric;
+      if (rubric === undefined) throw new Error(`${id} 没有 rubric`);
+      expect(lfgArtifacts).toEqual(['brief', 'research', 'plan', 'tickets']);
+      expect(rubric.map((g) => g.artifact)).toEqual(lfgArtifacts);
+      for (const group of rubric) {
         expect(group.items.length).toBeGreaterThanOrEqual(4);
         expect(group.items.length).toBeLessThanOrEqual(8);
       }
-      expect(rubricMaxScore(definition.rubric)).toBeGreaterThan(0);
+      expect(rubricMaxScore(rubric)).toBeGreaterThan(0);
     } else {
       // 自带 ic task 都有隐藏测试，CI 的 check 名都是 ci
       expect(definition.requiredChecks).toEqual(['ci']);
@@ -106,11 +116,11 @@ describe('loader', () => {
   test('加载出的 task 带 task 目录的绝对路径', () => {
     const db = openTestDb();
     syncTasks(db, config.tasksDir);
-    const ic = loadIcTask(db, 'ic-money-format');
+    const ic = withRepo(loadTask(db, 'ic-money-format'));
     expect(ic.dir).toBe(path.join(config.tasksDir, 'ic-money-format'));
     expect(ic.repo.path).toBe('repo.bundle');
-    expect(loadLfgTask(db, 'lfg-calculator').input).toBe('做一个计算器');
-    expect(() => loadLfgTask(db, 'ic-money-format')).toThrow(/不是 lfg task/);
+    expect(withRubric(loadTask(db, 'lfg-calculator')).input).toBe('做一个计算器');
+    expect(() => withRubric(loadTask(db, 'ic-money-format'))).toThrow(/没有 rubric/);
   });
 
   test('文件修改后更新对应行，删除目录后删除对应行', () => {
@@ -137,8 +147,21 @@ describe('loader', () => {
     const db = openTestDb();
     const dir = copyTasksDir();
     const file = taskYamlPath(dir, 'lfg-calculator');
-    writeFileSync(file, readFileSync(file, 'utf8').replace('kind: lfg', 'kind: other'));
+    writeFileSync(file, readFileSync(file, 'utf8').replace('bigStage: lfg', 'bigStage: LFG'));
     expect(() => syncTasks(db, dir)).toThrow(`${file} 不符合 task schema`);
+  });
+
+  test('字段按大阶段的积木校验：缺少或多出字段时同步以原文失败', () => {
+    const db = openTestDb();
+    const dir = copyTasksDir();
+    const file = taskYamlPath(dir, 'lfg-calculator');
+    const definition = parseTaskYaml(readFileSync(file, 'utf8'), file);
+    writeFileSync(file, serializeTask({ ...definition, bigStage: 'ic' }));
+    expect(() => syncTasks(db, dir)).toThrow(
+      'task lfg-calculator（dev-workflow 的大阶段 ic）缺少字段：ticket、repo、requiredChecks；task lfg-calculator（dev-workflow 的大阶段 ic）多出字段：input、rubric',
+    );
+    writeFileSync(file, serializeTask({ ...definition, bigStage: 'nope' }));
+    expect(() => syncTasks(db, dir)).toThrow('workflow dev-workflow 没有大阶段 nope');
   });
 
   test('task.yaml 的 id 必须与目录名一致', () => {

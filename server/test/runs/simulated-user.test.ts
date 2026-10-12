@@ -5,18 +5,31 @@ import { config } from '../../src/config.js';
 import {
   DISPATCH_GATE_REPLY,
   rejectFiller,
+  type SimulatedPersona,
   simulateUser,
   type SimulatedUserContext,
   type TranscriptEntry,
 } from '../../src/runs/simulated-user.js';
 import { parseTaskYaml } from '../../src/tasks/loader.js';
-import type { LfgTask } from '../../src/tasks/schema.js';
+import { builtinDefinition } from '../../src/workflows/index.js';
+import { bigStageOf } from '../../src/workflows/schema.js';
+
+// dev-workflow 中某个大阶段的 task 扮演的人
+function personaOf(taskId: string, bigStage: 'lfg' | 'ic'): SimulatedPersona {
+  const taskFile = path.join(config.tasksDir, taskId, 'task.yaml');
+  const definition = parseTaskYaml(fs.readFileSync(taskFile, 'utf8'), taskFile);
+  if (definition.bigStage !== bigStage) throw new Error(`${taskId} 应为 ${bigStage} task`);
+  return {
+    stage: bigStageOf(builtinDefinition(), bigStage),
+    persona: definition.persona,
+    hiddenRequirements: definition.hiddenRequirements,
+  };
+}
 
 // 真实调用 gateway，用默认的模拟用户模型（sonnet）
 const file = path.join(config.tasksDir, 'lfg-calculator', 'task.yaml');
 const definition = parseTaskYaml(fs.readFileSync(file, 'utf8'), file);
-if (definition.kind !== 'lfg') throw new Error('lfg-calculator 应为 lfg task');
-const task: LfgTask = { ...definition, dir: path.dirname(file) };
+const task = personaOf('lfg-calculator', 'lfg');
 const runId = 'r-20261009-simusr';
 const ctx: SimulatedUserContext = {
   task,
@@ -25,7 +38,7 @@ const ctx: SimulatedUserContext = {
 
 const initial: TranscriptEntry = {
   speaker: 'user',
-  content: `/lfg ${task.input}\n\nProduct: Magi Eval\nFeature slug: ${runId}\nRepository: txehq/wfe-${runId}`,
+  content: `/lfg ${String(definition.input)}\n\nProduct: Magi Eval\nFeature slug: ${runId}\nRepository: txehq/wfe-${runId}`,
 };
 
 const GO = /\bgo\b/i;
@@ -162,12 +175,9 @@ describe('模拟用户（真实 gateway）', { timeout: TIMEOUT }, () => {
 
 // r-20261009-jzo9c4（W12）中 /ic 的 Goal 确认：问题长达数百字，模型逐字抄写问题时留空，run 因此失败
 describe('模拟用户回答 /ic 的长问题（真实 gateway）', { timeout: TIMEOUT }, () => {
-  const icFile = path.join(config.tasksDir, 'ic-money-format', 'task.yaml');
-  const icDefinition = parseTaskYaml(fs.readFileSync(icFile, 'utf8'), icFile);
-  if (icDefinition.kind !== 'ic') throw new Error('ic-money-format 应为 ic task');
   const icRunId = 'r-20261009-jzo9c4';
   const icCtx: SimulatedUserContext = {
-    task: icDefinition,
+    task: personaOf('ic-money-format', 'ic'),
     eval: {
       runId: icRunId,
       repo: `txehq/wfe-${icRunId}`,
@@ -285,12 +295,9 @@ describe('占位内容的回答', () => {
 });
 
 describe('r-20261010-1iqzja 的 Confirm goal（真实 gateway）', () => {
-  const unitFile = path.join(config.tasksDir, 'ic-unit-converter', 'task.yaml');
-  const unitDefinition = parseTaskYaml(fs.readFileSync(unitFile, 'utf8'), unitFile);
-  if (unitDefinition.kind !== 'ic') throw new Error('ic-unit-converter 应为 ic task');
   const unitRunId = 'r-20261010-1iqzja';
   const unitCtx: SimulatedUserContext = {
-    task: unitDefinition,
+    task: personaOf('ic-unit-converter', 'ic'),
     eval: {
       runId: unitRunId,
       repo: `txehq/wfe-${unitRunId}`,

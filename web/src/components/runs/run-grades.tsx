@@ -12,7 +12,20 @@ const outcomeLabel = {
   'not-run': '未运行',
 } as const;
 
-function LfgGrades({ grades }: { grades: NonNullable<RunGrades['lfg']> }) {
+type Endpoint = RunGrades['endpoint'];
+
+// pr-endpoint 的结果；大阶段没有选 pr-endpoint 时不显示
+function EndpointRow({ endpoint, reachedText }: { endpoint: Endpoint; reachedText: string }) {
+  if (endpoint === null) return null;
+  return (
+    <>
+      <dt className="text-muted-foreground">终点</dt>
+      <dd>{endpoint.reached ? reachedText : '未到达'}</dd>
+    </>
+  );
+}
+
+function LfgGrades({ grades }: { grades: NonNullable<RunGrades['rubric']> }) {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm">
@@ -28,7 +41,7 @@ function LfgGrades({ grades }: { grades: NonNullable<RunGrades['lfg']> }) {
           data-testid={`grade-${group.artifact}`}
         >
           <h3 className="flex flex-wrap items-baseline gap-2 text-sm font-medium">
-            {artifactLabel[group.artifact]}
+            {artifactLabel(group.artifact)}
             <span className="tabular-nums">
               {group.score} / {group.maxScore}
             </span>
@@ -62,7 +75,13 @@ function LfgGrades({ grades }: { grades: NonNullable<RunGrades['lfg']> }) {
   );
 }
 
-function IcGrades({ grades }: { grades: NonNullable<RunGrades['ic']> }) {
+function IcGrades({
+  grades,
+  endpoint,
+}: {
+  grades: NonNullable<RunGrades['hiddenTests']>;
+  endpoint: Endpoint;
+}) {
   const { detail } = grades;
   return (
     <div className="flex flex-col gap-3">
@@ -74,8 +93,7 @@ function IcGrades({ grades }: { grades: NonNullable<RunGrades['ic']> }) {
           </span>{' '}
           通过
         </dd>
-        <dt className="text-muted-foreground">终点</dt>
-        <dd>{grades.reachedEnd ? '已到达（ready for review 且 CI 全绿）' : '未到达'}</dd>
+        <EndpointRow endpoint={endpoint} reachedText="已到达（ready for review 且 CI 全绿）" />
         {detail.endpoint !== null && (
           <>
             <dt className="text-muted-foreground">CI</dt>
@@ -157,7 +175,13 @@ function IcGrades({ grades }: { grades: NonNullable<RunGrades['ic']> }) {
 }
 
 // 没有隐藏测试的 ic task：judge 对照验收标准逐条评分（0 未满足、1 部分满足、2 满足）
-function CriteriaGrades({ grades }: { grades: NonNullable<RunGrades['icCriteria']> }) {
+function CriteriaGrades({
+  grades,
+  endpoint,
+}: {
+  grades: NonNullable<RunGrades['criteria']>;
+  endpoint: Endpoint;
+}) {
   const { detail } = grades;
   return (
     <div className="flex flex-col gap-3" data-testid="grade-criteria">
@@ -173,8 +197,7 @@ function CriteriaGrades({ grades }: { grades: NonNullable<RunGrades['icCriteria'
               : `${grades.judgeModel} · ${formatUsd(grades.costUsd)}`}
           </span>
         </dd>
-        <dt className="text-muted-foreground">终点</dt>
-        <dd>{grades.reachedEnd ? '已到达（PR 不是草稿且必需检查通过）' : '未到达'}</dd>
+        <EndpointRow endpoint={endpoint} reachedText="已到达（PR 不是草稿且必需检查通过）" />
         {detail.endpoint !== null && detail.endpoint.missingRequired.length > 0 && (
           <>
             <dt className="text-muted-foreground">CI</dt>
@@ -231,9 +254,23 @@ export function RunGradesPanel({ runId }: { runId: string }) {
       </h2>
       {grades.isPending && <p className="text-sm text-muted-foreground">加载中…</p>}
       {grades.isError && <p className="text-sm text-destructive">{grades.error.message}</p>}
-      {grades.data?.lfg != null && <LfgGrades grades={grades.data.lfg} />}
-      {grades.data?.ic != null && <IcGrades grades={grades.data.ic} />}
-      {grades.data?.icCriteria != null && <CriteriaGrades grades={grades.data.icCriteria} />}
+      {grades.data?.rubric != null && <LfgGrades grades={grades.data.rubric} />}
+      {grades.data?.hiddenTests != null && (
+        <IcGrades grades={grades.data.hiddenTests} endpoint={grades.data.endpoint} />
+      )}
+      {grades.data?.criteria != null && (
+        <CriteriaGrades grades={grades.data.criteria} endpoint={grades.data.endpoint} />
+      )}
+      {grades.data?.hiddenTests === null &&
+        grades.data.criteria === null &&
+        grades.data.endpoint !== null && (
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+            <EndpointRow
+              endpoint={grades.data.endpoint}
+              reachedText="已到达（PR 不是草稿且必需检查通过）"
+            />
+          </dl>
+        )}
     </section>
   );
 }

@@ -12,13 +12,18 @@ import { eq, notInArray } from 'drizzle-orm';
 import { parse, stringify } from 'yaml';
 import type { Db } from '../db/index.js';
 import { tasks } from '../db/schema.js';
+import { loadBigStage } from '../workflows/index.js';
+import type { BigStageDefinition } from '../workflows/schema.js';
 import {
-  type IcTask,
-  type IcTaskWithTests,
-  type LfgTask,
+  type PrTask,
+  type RepoTask,
+  type RubricTask,
   type Task,
   TaskDefinition,
+  taskFieldIssues,
   type TaskRecord,
+  type TestsTask,
+  type TicketTask,
 } from './schema.js';
 
 type TaskRow = typeof tasks.$inferSelect;
@@ -38,87 +43,76 @@ export function parseTaskYaml(text: string, file: string): TaskDefinition {
   return result.data;
 }
 
-function readTaskFile(tasksDir: string, id: string) {
+// task 所在的大阶段；字段按它的积木校验（Contracts 16.3），缺少或多出时以原文失败
+export function checkTask(db: Db, definition: TaskDefinition): BigStageDefinition {
+  const stage = loadBigStage(db, definition.workflow, definition.bigStage);
+  const issues = taskFieldIssues(definition, stage);
+  if (issues.length > 0) throw new Error(issues.join('；'));
+  return stage;
+}
+
+function readTaskFile(db: Db, tasksDir: string, id: string) {
   const file = taskYamlPath(tasksDir, id);
   const text = readFileSync(file, 'utf8');
   const definition = parseTaskYaml(text, file);
   if (definition.id !== id) {
     throw new Error(`${file} 的 id 为 ${definition.id}，与目录名 ${id} 不一致`);
   }
+  checkTask(db, definition);
   return { definition, hash: createHash('sha256').update(text).digest('hex') };
 }
 
 function toRow(definition: TaskDefinition, dir: string, contentHash: string, updatedAt: Date) {
-  const base = {
+  const hidden = definition.hiddenTests;
+  return {
     id: definition.id,
-    kind: definition.kind,
+    workflowId: definition.workflow,
+    bigStage: definition.bigStage,
     title: definition.title,
     persona: definition.persona,
     hiddenRequirements: definition.hiddenRequirements,
-    dir,
-    contentHash,
-    updatedAt,
-  };
-  if (definition.kind === 'lfg') {
-    return {
-      ...base,
-      input: definition.input,
-      rubric: definition.rubric,
-      ticketTitle: null,
-      ticketBody: null,
-      acceptanceCriteria: null,
-      repoPath: null,
-      repoCommit: null,
-      source: null,
-      requiredChecks: null,
-      hiddenTestsDir: null,
-      hiddenTestsConfig: null,
-      testCommand: null,
-      hiddenTestsTimeoutSeconds: null,
-      hiddenTestsManifest: null,
-    };
-  }
-  const hidden = definition.hiddenTests;
-  return {
-    ...base,
-    input: null,
-    rubric: null,
-    ticketTitle: definition.ticket.title,
-    ticketBody: definition.ticket.body,
-    acceptanceCriteria: definition.ticket.acceptanceCriteria,
-    repoPath: definition.repo.path,
-    repoCommit: definition.repo.commit,
+    input: definition.input ?? null,
+    rubric: definition.rubric ?? null,
+    ticketTitle: definition.ticket?.title ?? null,
+    ticketBody: definition.ticket?.body ?? null,
+    acceptanceCriteria: definition.ticket?.acceptanceCriteria ?? null,
+    repoPath: definition.repo?.path ?? null,
+    repoCommit: definition.repo?.commit ?? null,
     source: definition.source ?? null,
-    requiredChecks: definition.requiredChecks,
+    requiredChecks: definition.requiredChecks ?? null,
     hiddenTestsDir: hidden?.dir ?? null,
     hiddenTestsConfig: hidden?.config ?? null,
     testCommand: hidden?.command ?? null,
     hiddenTestsTimeoutSeconds: hidden?.timeoutSeconds ?? null,
     hiddenTestsManifest: hidden?.manifest ?? null,
+    dir,
+    contentHash,
+    updatedAt,
   };
 }
 
 function definitionFromRow(row: TaskRow): TaskDefinition {
-  const base = {
+  return TaskDefinition.parse({
     id: row.id,
+    workflow: row.workflowId,
+    bigStage: row.bigStage,
     title: row.title,
     persona: row.persona,
     hiddenRequirements: row.hiddenRequirements,
-  };
-  if (row.kind === 'lfg') {
-    return TaskDefinition.parse({ ...base, kind: 'lfg', input: row.input, rubric: row.rubric });
-  }
-  return TaskDefinition.parse({
-    ...base,
-    kind: 'ic',
+    ...(row.input === null ? {} : { input: row.input }),
+    ...(row.rubric === null ? {} : { rubric: row.rubric }),
     ...(row.source === null ? {} : { source: row.source }),
-    ticket: {
-      title: row.ticketTitle,
-      body: row.ticketBody,
-      acceptanceCriteria: row.acceptanceCriteria,
-    },
-    repo: { path: row.repoPath, commit: row.repoCommit },
-    requiredChecks: row.requiredChecks,
+    ...(row.ticketTitle === null
+      ? {}
+      : {
+          ticket: {
+            title: row.ticketTitle,
+            body: row.ticketBody,
+            acceptanceCriteria: row.acceptanceCriteria,
+          },
+        }),
+    ...(row.repoPath === null ? {} : { repo: { path: row.repoPath, commit: row.repoCommit } }),
+    ...(row.requiredChecks === null ? {} : { requiredChecks: row.requiredChecks }),
     ...(row.hiddenTestsDir === null
       ? {}
       : {
@@ -142,8 +136,8 @@ export interface SyncResult {
 
 const emptyResult = (): SyncResult => ({ inserted: [], updated: [], unchanged: [], deleted: [] });
 
-function upsert(tx: Tx, tasksDir: string, id: string, result: SyncResult) {
-  const { definition, hash } = readTaskFile(tasksDir, id);
+function upsert(db: Db, tx: Tx, tasksDir: string, id: string, result: SyncResult) {
+  const { definition, hash } = readTaskFile(db, tasksDir, id);
   const existing = tx
     .select({ contentHash: tasks.contentHash })
     .from(tasks)
@@ -171,7 +165,7 @@ export function syncTasks(db: Db, tasksDir: string): SyncResult {
     .sort();
   const result = emptyResult();
   db.transaction((tx) => {
-    for (const id of ids) upsert(tx, tasksDir, id, result);
+    for (const id of ids) upsert(db, tx, tasksDir, id, result);
     const stale = tx
       .select({ id: tasks.id })
       .from(tasks)
@@ -186,8 +180,9 @@ export function syncTasks(db: Db, tasksDir: string): SyncResult {
   return result;
 }
 
-// 写回 tasks/<id>/task.yaml 并同步这一个 task
+// 写回 tasks/<id>/task.yaml 并同步这一个 task；字段不符合大阶段时不写文件
 export function saveTask(db: Db, tasksDir: string, definition: TaskDefinition): TaskRecord {
+  checkTask(db, definition);
   const file = taskYamlPath(tasksDir, definition.id);
   mkdirSync(path.dirname(file), { recursive: true });
   // 先写临时文件再改名：写到一半时进程退出不会留下损坏的 task.yaml
@@ -195,7 +190,7 @@ export function saveTask(db: Db, tasksDir: string, definition: TaskDefinition): 
   writeFileSync(tmp, serializeTask(definition));
   renameSync(tmp, file);
   db.transaction((tx) => {
-    upsert(tx, tasksDir, definition.id, emptyResult());
+    upsert(db, tx, tasksDir, definition.id, emptyResult());
   });
   const record = getTaskRecord(db, definition.id);
   if (!record) throw new Error(`task ${definition.id} 写入后读不到`);
@@ -209,7 +204,12 @@ const toRecord = (row: TaskRow): TaskRecord => ({
 });
 
 export function listTaskRecords(db: Db): TaskRecord[] {
-  return db.select().from(tasks).orderBy(tasks.kind, tasks.id).all().map(toRecord);
+  return db
+    .select()
+    .from(tasks)
+    .orderBy(tasks.workflowId, tasks.bigStage, tasks.id)
+    .all()
+    .map(toRecord);
 }
 
 export function getTaskRecord(db: Db, id: string): TaskRecord | undefined {
@@ -224,20 +224,31 @@ export function loadTask(db: Db, id: string): Task {
   return { ...record.task, dir: record.dir };
 }
 
-export function loadLfgTask(db: Db, id: string): LfgTask {
-  const task = loadTask(db, id);
-  if (task.kind !== 'lfg') throw new Error(`task ${id} 不是 lfg task`);
-  return task;
+// 以下按积木取出必有的字段：加载时已按大阶段校验，缺少说明调用方用错了积木
+export function withRubric(task: Task): RubricTask {
+  if (task.rubric === undefined) throw new Error(`task ${task.id} 没有 rubric`);
+  return { ...task, rubric: task.rubric };
 }
 
-export function loadIcTask(db: Db, id: string): IcTask {
-  const task = loadTask(db, id);
-  if (task.kind !== 'ic') throw new Error(`task ${id} 不是 ic task`);
-  return task;
+export function withTicket(task: Task): TicketTask {
+  if (task.ticket === undefined) throw new Error(`task ${task.id} 没有工单`);
+  return { ...task, ticket: task.ticket };
+}
+
+export function withRepo(task: Task): RepoTask {
+  if (task.repo === undefined || task.requiredChecks === undefined) {
+    throw new Error(`task ${task.id} 没有起始仓库与 requiredChecks`);
+  }
+  return { ...task, repo: task.repo, requiredChecks: task.requiredChecks };
+}
+
+export function withPr(task: Task): PrTask {
+  const { repo, requiredChecks } = withRepo(task);
+  return { ...task, repo, requiredChecks, ticket: withTicket(task).ticket };
 }
 
 // 隐藏测试的执行与清单生成只用于带隐藏测试的 task
-export function withHiddenTests(task: IcTask): IcTaskWithTests {
+export function withHiddenTests(task: Task): TestsTask {
   if (task.hiddenTests === undefined) throw new Error(`task ${task.id} 没有隐藏测试`);
-  return { ...task, hiddenTests: task.hiddenTests };
+  return { ...withRepo(task), hiddenTests: task.hiddenTests };
 }

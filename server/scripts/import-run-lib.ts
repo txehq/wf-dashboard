@@ -5,6 +5,7 @@ import type { Db } from '../src/db/index.js';
 import { ingestFile } from '../src/ingest/ingest.js';
 import { readReport } from '../src/stages/report.js';
 import { dataLayout } from '../src/variants/layout.js';
+import { DEV_WORKFLOW_ID } from '../src/workflows/schema.js';
 
 // 把另一个数据目录（例如 W4 worktree 的 data/）中一个已结束的 run 导入 db：
 // variant、batch、run、对话、产物与评分按行复制；session 从来源 variant 的 jsonl 重新导入，阶段离线重新判定。
@@ -122,13 +123,21 @@ export function importRun(
     one('select base_commit from variants where id = ?', variantId).base_commit,
   );
   copyVariantContent(sourceDir, targetDataDir, variantId, baseCommit);
+  // 来源早于 Contracts 16.5 时模型与 effort 在 variant 上，run 取它所用 variant 当时的值（与迁移相同）
+  const {
+    model: variantModel,
+    effort: variantEffort,
+    ...variant
+  } = one('select * from variants where id = ?', variantId);
+  const runModel = 'model' in run ? run.model : variantModel;
+  const runEffort = 'effort' in run ? run.effort : variantEffort;
 
   target.transaction(() => {
     if (!exists('variants', 'id', variantId)) {
-      const variant = one('select * from variants where id = ?', variantId);
       insert('variants', {
         ...variant,
         name: `${String(variant.name)}（导入 ${variantId.slice(0, 8)}）`,
+        workflow_id: DEV_WORKFLOW_ID,
         install_dir: null,
         build_status: 'none',
         built_hash: null,
@@ -144,7 +153,7 @@ export function importRun(
         insert('batch_tasks', row);
       }
     }
-    insert('runs', run);
+    insert('runs', { ...run, model: runModel, effort: runEffort });
     for (const row of all('select * from run_messages where run_id = ?', runId)) {
       insert('run_messages', withoutId(row));
     }
@@ -185,8 +194,8 @@ export function importRun(
   return {
     runId,
     sessionId,
-    stages: [...report.lfg, ...report.ic].flatMap((c) =>
-      c.stages.map((s) => `${s.stage}:${s.status}`),
-    ),
+    stages: report.bigStages
+      .flatMap((b) => b.cycles)
+      .flatMap((c) => c.stages.map((s) => `${s.stage}:${s.status}`)),
   };
 }

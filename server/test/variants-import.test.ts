@@ -60,14 +60,15 @@ describe('导入的 variant 派生为可运行的 variant', () => {
 
       await expect(variants.build(importedId)).rejects.toThrow(/导入的/);
       expect(() => variants.writeFile(importedId, 'skills/lfg/SKILL.md', 'x')).toThrow(/导入的/);
-      expect(() => variants.setSettings(importedId, { effort: 'low' })).toThrow(/导入的/);
+      expect(() =>
+        variants.derive(importedId, { name: 'w26-other', workflowId: 'next-workflow' }),
+      ).toThrow(/派生只能在同一 workflow 内/);
 
       derived = variants.derive(importedId, { name: `w26-${randomUUID().slice(0, 8)}` });
       expect(derived).toMatchObject({
         parentId: importedId,
         baseCommit: imported.baseCommit,
-        model: imported.model,
-        effort: imported.effort,
+        workflowId: imported.workflowId,
         status: 'draft',
         skillsHash: imported.skillsHash,
         buildStatus: 'none',

@@ -5,15 +5,17 @@ import { and, eq } from 'drizzle-orm';
 import { afterAll, describe, expect, test } from 'vitest';
 import { config } from '../../src/config.js';
 import { artifacts, batches, runs, variants } from '../../src/db/schema.js';
-import { LfgArtifacts } from '../../src/runs/lfg-artifacts.js';
-import { featureDir } from '../../src/stages/lfg.js';
+import { RubricArtifacts } from '../../src/runs/rubric-artifacts.js';
+import { featureDir } from '../../src/stages/artifacts.js';
 import { syncTasks } from '../../src/tasks/loader.js';
+import { loadBigStage } from '../../src/workflows/index.js';
+import { rubricOf } from '../../src/workflows/schema.js';
 import { openTestDb } from '../stages/db.js';
 
 // lfg run r-20261009-dqva52 写出的真实 Brief.md、Research.md、Tickets.md（vault 中 Project Magi Eval 的 feature 目录）
 const runId = 'r-20261009-dqva52';
 const source = path.join(config.vaultDir, 'Project Magi Eval', 'Features', runId);
-const work = path.join(config.repoRoot, '.work', 'test-lfg-artifacts', randomUUID());
+const work = path.join(config.repoRoot, '.work', 'test-rubric-artifacts', randomUUID());
 
 const { db, close } = openTestDb();
 syncTasks(db, config.tasksDir);
@@ -21,12 +23,11 @@ const variantId = randomUUID();
 db.insert(variants)
   .values({
     id: variantId,
-    name: `lfg-artifacts-${variantId.slice(0, 8)}`,
+    name: `rubric-artifacts-${variantId.slice(0, 8)}`,
+    workflowId: 'dev-workflow',
     baseCommit: '0'.repeat(40),
     skillsHash: 'a'.repeat(64),
     version: '0.0.0-eval.aaaaaaaa',
-    model: 'opus',
-    effort: 'high',
   })
   .run();
 db.insert(batches).values({ id: 'b-20261009-lfgart', repeats: 1 }).run();
@@ -37,6 +38,8 @@ db.insert(runs)
     taskId: 'lfg-calculator',
     variantId,
     repeatIndex: 0,
+    model: 'opus',
+    effort: 'high',
     status: 'running',
     sessionId: randomUUID(),
     workspacePath: path.join(work, 'workspace'),
@@ -55,10 +58,12 @@ const snapshot = (kind: 'brief' | 'research' | 'plan' | 'tickets') =>
     .where(and(eq(artifacts.runId, runId), eq(artifacts.kind, kind)))
     .get()?.snapshot;
 
-describe('lfg run 的产物记录', () => {
+describe('dev-workflow lfg run 的 rubric 产物记录', () => {
   test('产物出现时写入快照；plan 锁定后 research 保留锁定前的内容', () => {
     const dir = featureDir(path.join(work, 'vault'), 'Magi Eval', runId);
-    const recorder = new LfgArtifacts(db, runId, dir);
+    const specs = rubricOf(loadBigStage(db, 'dev-workflow', 'lfg'));
+    if (specs === null) throw new Error('dev-workflow 的 lfg 没有 rubric 评分');
+    const recorder = new RubricArtifacts(db, runId, dir, specs);
     // feature 目录在 interview 写出 Brief.md 时才出现
     recorder.record();
     expect(snapshot('brief')).toBeUndefined();

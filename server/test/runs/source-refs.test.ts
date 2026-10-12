@@ -29,8 +29,7 @@ db.insert(variants)
     baseCommit: '0'.repeat(40),
     skillsHash: 'a'.repeat(64),
     version: '0.0.0-eval.aaaaaaaa',
-    model: 'opus',
-    effort: 'high',
+    workflowId: 'dev-workflow',
   })
   .run();
 db.insert(batches).values({ id: 'b-20261011-source', repeats: 1 }).run();
@@ -46,6 +45,8 @@ for (const [index, [id, session]] of [
       taskId: 'ic-txe-3635',
       variantId: 'v-source-refs',
       repeatIndex: index,
+      model: 'opus',
+      effort: 'high',
       status: 'succeeded',
       sessionId: session ?? '',
       workspacePath: path.join(work, id ?? '', 'workspace'),

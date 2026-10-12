@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { StageDetail } from '@/components/sessions/stage-detail';
-import type { StageView, SubagentInfo, Workflow, WorkflowCycle } from '@/lib/sessions-api';
+import type { StageView, SubagentInfo, WorkflowCycle } from '@/lib/sessions-api';
 
 // Contracts 第 12 节：选中阶段后请求明细只显示该阶段（所选轮次与阶段的 seq 区间），
 // "显示全部"恢复全部请求。Sessions 详情与 Runs 详情共用
@@ -13,7 +13,8 @@ export function StageRequests({
   onShowAll,
 }: {
   sessionId: string;
-  workflow: Workflow;
+  // 大阶段 id
+  workflow: string;
   cycle: WorkflowCycle | undefined;
   view: StageView;
   subagents: SubagentInfo[];

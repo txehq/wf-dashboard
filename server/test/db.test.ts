@@ -28,7 +28,8 @@ function seedRun(db: Db) {
   db.insert(schema.tasks)
     .values({
       id: 'calculator',
-      kind: 'lfg',
+      workflowId: 'dev-workflow',
+      bigStage: 'lfg',
       title: '做一个计算器',
       input: '我想要一个计算器',
       persona: '产品经理',
@@ -48,11 +49,10 @@ function seedRun(db: Db) {
     .values({
       id: 'baseline',
       name: 'baseline',
+      workflowId: 'dev-workflow',
       baseCommit: '9f2bed6',
       skillsHash: 'a'.repeat(64),
       version: '2.3.0-eval.aaaaaaaa',
-      model: 'opus',
-      effort: 'high',
     })
     .run();
   db.insert(schema.batches).values({ id: 'batch-1', repeats: 1 }).run();
@@ -65,6 +65,8 @@ function seedRun(db: Db) {
       taskId: 'calculator',
       variantId: 'baseline',
       repeatIndex: 0,
+      model: 'opus',
+      effort: 'high',
       sessionId: 'session-1',
       workspacePath: '/workspace/run-1',
     })
@@ -150,6 +152,7 @@ describe('database', () => {
       'tasks',
       'user_messages',
       'variants',
+      'workflows',
     ]);
   });
 

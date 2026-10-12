@@ -30,8 +30,7 @@ db.insert(variants)
     baseCommit: '0'.repeat(40),
     skillsHash: 'a'.repeat(64),
     version: '0.0.0-eval.aaaaaaaa',
-    model: 'opus',
-    effort: 'high',
+    workflowId: 'dev-workflow',
     status: 'frozen',
   })
   .run();
@@ -46,6 +45,8 @@ function insert(id: string, taskId: string, repeatIndex: number, status: RunStat
       taskId,
       variantId,
       repeatIndex,
+      model: 'opus',
+      effort: 'high',
       status,
       error: status === 'failed' ? 'claude 进程意外退出' : null,
       sessionId: randomUUID(),
@@ -122,6 +123,8 @@ describe('POST /api/runs/:id/rerun', () => {
       taskId: 'lfg-calculator',
       variantId,
       repeatIndex: 3,
+      model: 'opus',
+      effort: 'high',
       status: 'queued',
       humanIntervened: false,
       invalidReason: null,

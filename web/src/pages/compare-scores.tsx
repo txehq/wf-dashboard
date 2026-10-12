@@ -8,6 +8,7 @@ import {
   type CompareResult,
   type Distribution,
   percent,
+  qualityKind,
   type SelectedVariant,
   seriesColor,
 } from '@/lib/compare';
@@ -20,16 +21,12 @@ function cellOf(result: CompareResult, variantId: string, taskId: string): Compa
   return cell;
 }
 
-// 格子的主指标：lfg 为总得分率，ic 为隐藏测试通过率，没有隐藏测试的 ic 为验收标准得分率
+// 格子的主指标：有 rubric 时为总得分率，有隐藏测试时为通过率，按验收标准评分时为验收标准得分率
 function mainOf(cell: CompareCell): Distribution {
-  switch (cell.quality.kind) {
-    case 'lfg':
-      return cell.quality.total;
-    case 'ic':
-      return cell.quality.passRate;
-    case 'ic_criteria':
-      return cell.quality.criteriaRate;
-  }
+  const q = cell.quality;
+  const main = q.rubric?.total ?? q.passRate ?? q.criteriaRate;
+  if (main === null) throw new Error(`格子 ${cell.variantId} × ${cell.taskId} 没有质量指标`);
+  return main;
 }
 
 const mainLabel = { lfg: '总得分率', ic: '隐藏测试通过率', ic_criteria: '验收标准得分率' } as const;
@@ -103,7 +100,8 @@ function ScoreCell({
   if (main.n === 0) {
     return <p className="text-sm text-muted-foreground">没有已评分的 run</p>;
   }
-  const label = mainLabel[cell.quality.kind];
+  const label = mainLabel[qualityKind(cell.quality)];
+  const reachedEnd = cell.quality.rubric === null ? cell.quality.reachedEnd : null;
   return (
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap items-baseline gap-x-2">
@@ -111,8 +109,8 @@ function ScoreCell({
           {meanSd(main, (x) => percent(x))}
         </span>
         <span className="text-xs text-muted-foreground">
-          {cell.quality.kind !== 'lfg' && cell.quality.reachedEnd.ratio !== null
-            ? `到达终点 ${String(cell.quality.reachedEnd.values.filter((v) => v.reached).length)}/${String(main.n)} · `
+          {reachedEnd !== null && reachedEnd.ratio !== null
+            ? `到达终点 ${String(reachedEnd.values.filter((v) => v.reached).length)}/${String(main.n)} · `
             : ''}
           {main.n} 次 run
         </span>
@@ -152,7 +150,7 @@ function LfgDetail({ cells, variants }: { cells: CompareCell[]; variants: Select
   for (const item of cells.flatMap((c) => c.rubricItems)) {
     if (!items.some((x) => sameItem(x, item))) items.push(item);
   }
-  const artifacts = base.quality.kind === 'lfg' ? base.quality.artifacts : [];
+  const artifacts = base.quality.rubric?.artifacts ?? [];
   return (
     <table className="w-full text-sm" data-testid="rubric-detail">
       <thead>
@@ -170,12 +168,13 @@ function LfgDetail({ cells, variants }: { cells: CompareCell[]; variants: Select
           <Fragment key={artifact}>
             <tr className="border-b bg-muted/40">
               <th scope="row" className="py-1.5 pr-3 text-left font-medium">
-                {artifactLabel[artifact]} 得分率
+                {artifactLabel(artifact)} 得分率
               </th>
               {cells.map((cell, i) => {
                 const rate = (c: CompareCell) => {
-                  if (c.quality.kind !== 'lfg') throw new Error('lfg 行中出现 ic 格子');
-                  const found = c.quality.artifacts.find((a) => a.artifact === artifact);
+                  if (c.quality.rubric === null)
+                    throw new Error('rubric 行中出现没有 rubric 的格子');
+                  const found = c.quality.rubric.artifacts.find((a) => a.artifact === artifact);
                   if (found === undefined) throw new Error(`格子中没有 ${artifact}`);
                   return found.rate;
                 };
@@ -257,9 +256,8 @@ function IcDetail({ cells, variants }: { cells: CompareCell[]; variants: Selecte
             各次 run
           </th>
           {cells.map((cell) => {
-            if (cell.quality.kind === 'lfg') throw new Error('ic 行中出现 lfg 格子');
             const reached = new Map(
-              cell.quality.reachedEnd.values.map((v) => [v.runId, v.reached]),
+              (cell.quality.reachedEnd?.values ?? []).map((v) => [v.runId, v.reached]),
             );
             return (
               <td key={cell.variantId} className="px-3 py-1.5 align-top">
@@ -280,7 +278,9 @@ function IcDetail({ cells, variants }: { cells: CompareCell[]; variants: Selecte
         </tr>
         <tr>
           <th scope="row" className="py-1.5 pr-3 text-left font-medium">
-            {cells[0]?.quality.kind === 'ic_criteria' ? '得分率范围' : '通过率范围'}
+            {cells[0] !== undefined && qualityKind(cells[0].quality) === 'ic_criteria'
+              ? '得分率范围'
+              : '通过率范围'}
           </th>
           {cells.map((cell) => {
             const d = mainOf(cell);
@@ -384,7 +384,7 @@ function TaskRow({
       {open && (
         <tr className="border-b bg-muted/20">
           <td colSpan={variants.length + 1} className="px-3 py-3">
-            {task.task.kind === 'lfg' ? (
+            {task.task.rubric !== undefined ? (
               <LfgDetail cells={cells} variants={variants} />
             ) : (
               <IcDetail cells={cells} variants={variants} />
@@ -413,17 +413,23 @@ export function ScoreTable({
   sourceRef: Set<string>;
   cancelled: Set<string>;
 }) {
+  // 所选 task 同属一个大阶段（Contracts 16.5）；按评分积木的主指标分组
+  const stage = `/${result.bigStage}`;
   const groups = [
-    { kind: 'lfg', title: '/lfg · 总得分率', records: tasks.filter((t) => t.task.kind === 'lfg') },
+    {
+      kind: 'lfg',
+      title: `${stage} · 总得分率`,
+      records: tasks.filter((t) => t.task.rubric !== undefined),
+    },
     {
       kind: 'ic',
-      title: '/ic · 隐藏测试通过率',
-      records: tasks.filter((t) => t.task.kind === 'ic' && t.task.hiddenTests !== undefined),
+      title: `${stage} · 隐藏测试通过率`,
+      records: tasks.filter((t) => t.task.rubric === undefined && t.task.hiddenTests !== undefined),
     },
     {
       kind: 'ic_criteria',
-      title: '/ic · 验收标准得分率（没有隐藏测试）',
-      records: tasks.filter((t) => t.task.kind === 'ic' && t.task.hiddenTests === undefined),
+      title: `${stage} · 验收标准得分率（没有隐藏测试）`,
+      records: tasks.filter((t) => t.task.rubric === undefined && t.task.hiddenTests === undefined),
     },
   ].filter((g) => g.records.length > 0);
   return (

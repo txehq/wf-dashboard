@@ -55,7 +55,9 @@ function TaskEditor({ record }: { record: TaskRecord }) {
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-semibold">{record.task.title}</h1>
-            <Badge variant="secondary">/{record.task.kind}</Badge>
+            <Badge variant="secondary">
+              /{record.task.bigStage} ({record.task.workflow})
+            </Badge>
           </div>
           <p className="font-mono text-xs text-muted-foreground">{record.dir}</p>
         </div>

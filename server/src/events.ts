@@ -1,14 +1,14 @@
 import { EventEmitter } from 'node:events';
-import type { AnalysisStatus, RunStatus, StageStatus, Workflow } from './db/schema.js';
+import type { AnalysisStatus, RunStatus, StageStatus } from './db/schema.js';
 import type { ArtifactView, Pending, RunMessageView } from './runs/views.js';
 
-// 进程内事件；run.* 由 runs 模块发布（Contracts 7.6）
+// 进程内事件；run.* 由 runs 模块发布（Contracts 7.6）；bigStage 为大阶段 id（Contracts 16.6）
 export type AppEvent =
   | { type: 'session.updated'; sessionId: string }
   | {
       type: 'stage.changed';
       sessionId: string;
-      workflow: Workflow;
+      bigStage: string;
       stage: string;
       status: StageStatus;
     }
@@ -25,7 +25,7 @@ export type AppEvent =
   | {
       type: 'run.stage';
       runId: string;
-      workflow: Workflow;
+      bigStage: string;
       stage: string;
       status: StageStatus;
     }

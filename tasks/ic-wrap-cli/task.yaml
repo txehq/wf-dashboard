@@ -1,5 +1,6 @@
 id: ic-wrap-cli
-kind: ic
+workflow: dev-workflow
+bigStage: ic
 title: wrap 命令行工具：段落、长单词与参数校验
 persona: |-
   林晓，Acme 文档团队的工程师，用 wrap 把发布说明排成固定宽度后贴进邮件和终端提示。

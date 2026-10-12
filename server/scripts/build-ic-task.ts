@@ -75,7 +75,9 @@ run('git', ['bundle', 'create', '--quiet', bundle, 'main'], repoDir);
 
 // 3. 参考实现上运行隐藏测试，生成清单
 const definition = parseTaskYaml(readFileSync(yamlFile, 'utf8'), yamlFile);
-if (definition.kind !== 'ic') throw new Error(`${id} 不是 ic task`);
+if (definition.bigStage !== 'ic' || definition.repo === undefined) {
+  throw new Error(`${id} 不是 ic task`);
+}
 const task = withHiddenTests({ ...definition, repo: { ...definition.repo, commit }, dir: taskDir });
 const referenceCheckout = path.join(buildDir, 'reference');
 checkoutStartRepo(task, referenceCheckout);

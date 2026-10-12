@@ -45,8 +45,6 @@ describe('按 session 的 skill 新建 variant 并构建', () => {
       const base = await variants.createBaseline({
         name: `w31-build-base-${randomUUID().slice(0, 8)}`,
         commit: BASE_COMMIT,
-        model: 'opus',
-        effort: 'high',
       });
       created.push(base);
       const modified = modifiedIcSession(dir, 'read everything it points at', 'read all of it');

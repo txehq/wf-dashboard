@@ -120,7 +120,7 @@ export function scanSourceRefs(db: Db, runId: string): SourceRef[] {
     .get();
   if (run === undefined) throw new Error(`run ${runId} 不存在`);
   const task = loadTask(db, run.taskId);
-  if (task.kind !== 'ic' || task.source === undefined) return [];
+  if (task.source === undefined) return [];
   const rows = db
     .select()
     .from(requests)

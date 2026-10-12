@@ -15,6 +15,12 @@ const sectionOf = (page: Page, title: string) =>
 const lfgRow = (page: Page) => page.getByTestId('score-row-lfg-calculator');
 const icRow = (page: Page) => page.getByTestId('score-row-ic-money-format');
 
+// 对比范围是同一 workflow 的同一大阶段（Contracts 16.5），默认是 dev-workflow/lfg
+const chooseScope = async (page: Page, scope: string) => {
+  await page.getByTestId('compare-scope').getByRole('radio', { name: scope }).check();
+  await expect(page.getByTestId('compare-body')).toHaveAttribute('data-refreshing', 'false');
+};
+
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/compare');
@@ -22,18 +28,23 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByTestId('score-table')).toBeVisible();
 });
 
-test('默认选择全部有 run 的 variant 与 task，基线在第一列', async ({ page }) => {
+test('默认选择 dev-workflow/lfg 中全部有 run 的 variant 与 task，基线在第一列', async ({
+  page,
+}) => {
+  await expect(
+    page.getByTestId('compare-scope').getByRole('radio', { name: 'dev-workflow/lfg' }),
+  ).toBeChecked();
   const head = page.getByTestId('score-table').locator('thead th');
   await expect(head).toHaveText([
     'task',
-    '基线 v2.3.0基线',
-    'interview 追问边界',
-    'plan 先问细节（试跑）',
+    '基线 v2.3.0 (dev-workflow)基线',
+    'interview 追问边界 (dev-workflow)',
+    'plan 先问细节（试跑） (dev-workflow)',
   ]);
   await expect(page.getByRole('checkbox', { name: '课堂用的网页计算器' })).toBeChecked();
   await expect(
     page.getByRole('checkbox', { name: '金额格式化：按币种小数位、负数与大金额' }),
-  ).toBeChecked();
+  ).toHaveCount(0);
   await expect(page.getByRole('checkbox', { name: '包含有人工干预的 run' })).not.toBeChecked();
 
   // lfg：基线 3 次（46、44、46 / 84），修改后的 variant 明显更高
@@ -45,13 +56,6 @@ test('默认选择全部有 run 的 variant 与 task，基线在第一列', asyn
   await expect(modCell).toContainText('3 次 run');
   await expect(modCell.getByTestId('delta')).toHaveAttribute('data-direction', 'up');
   await expect(modCell.getByTestId('delta')).toHaveAttribute('data-reliable', 'true');
-
-  // ic：通过率与到达终点比例
-  const [icBase, icMod] = await icRow(page).getByTestId('score-cell').all();
-  if (icBase === undefined || icMod === undefined) throw new Error('ic 行没有两个格子');
-  await expect(icBase).toContainText('到达终点 2/3');
-  await expect(icMod).toContainText('到达终点 2/3');
-  await expect(icMod.getByTestId('delta')).toHaveAttribute('data-direction', 'up');
   await shot(page, 'scores');
 
   // 点击一次 run 打开 Runs 详情
@@ -60,6 +64,54 @@ test('默认选择全部有 run 的 variant 与 task，基线在第一列', asyn
   const href = await dot.getAttribute('href');
   await dot.click();
   await expect(page).toHaveURL(new RegExp(`${String(href)}$`));
+});
+
+test('换到 dev-workflow/ic：通过率与到达终点比例，只列出有 ic run 的 variant', async ({ page }) => {
+  await chooseScope(page, 'dev-workflow/ic');
+  await expect(page.getByTestId('score-table').locator('thead th')).toHaveText([
+    'task',
+    '基线 v2.3.0 (dev-workflow)基线',
+    'interview 追问边界 (dev-workflow)',
+  ]);
+  await expect(lfgRow(page)).toHaveCount(0);
+  const [icBase, icMod] = await icRow(page).getByTestId('score-cell').all();
+  if (icBase === undefined || icMod === undefined) throw new Error('ic 行没有两个格子');
+  await expect(icBase).toContainText('到达终点 2/3');
+  await expect(icMod).toContainText('到达终点 2/3');
+  await expect(icMod.getByTestId('delta')).toHaveAttribute('data-direction', 'up');
+  await shot(page, 'scores-ic');
+});
+
+// Contracts 16.5：按 variant 与模型分组，同一 variant 在不同模型下各占一列
+test('按 variant 与模型分组', async ({ page }) => {
+  await page
+    .getByTestId('compare-group-by')
+    .getByRole('radio', { name: '按 variant 与模型' })
+    .check();
+  const head = page.getByTestId('score-table').locator('thead th');
+  await expect(head).toHaveText([
+    'task',
+    '基线 v2.3.0 (dev-workflow) · opus基线',
+    'interview 追问边界 (dev-workflow) · opus',
+    'interview 追问边界 (dev-workflow) · sonnet',
+    'plan 先问细节（试跑） (dev-workflow) · opus',
+  ]);
+  const cells = lfgRow(page).getByTestId('score-cell');
+  await expect(cells.nth(0)).toContainText('3 次 run');
+  await expect(cells.nth(1)).toContainText('2 次 run');
+  await expect(cells.nth(2)).toContainText('1 次 run');
+  await expect(cells.nth(2).getByTestId('run-dot')).toHaveAttribute(
+    'href',
+    '/runs/r-20261009-molf02',
+  );
+  await shot(page, 'group-by-model');
+
+  await page
+    .getByTestId('compare-group-by')
+    .getByRole('radio', { name: '按 variant', exact: true })
+    .check();
+  await expect(head).toHaveCount(4);
+  await expect(cells.nth(1)).toContainText('3 次 run');
 });
 
 test('展开一行看每个产物与每条 rubric 的平均得分', async ({ page }) => {
@@ -74,7 +126,9 @@ test('展开一行看每个产物与每条 rubric 的平均得分', async ({ pag
   await expect(b6.locator('td').nth(1)).toContainText('1.0 / 4');
   await expect(b6.locator('td').nth(2)).toContainText('3.7 / 4');
   await expect(detail.locator('tr', { hasText: 'Brief 得分率' })).toContainText('60%');
+  await shot(sectionOf(page, '分数'), 'expanded');
 
+  await chooseScope(page, 'dev-workflow/ic');
   await icRow(page)
     .getByRole('button', { name: /金额格式化/ })
     .click();
@@ -82,7 +136,7 @@ test('展开一行看每个产物与每条 rubric 的平均得分', async ({ pag
   await expect(ic).toContainText('r-20261009-baic01');
   await expect(ic).toContainText('未到达终点');
   await expect(ic).toContainText('58% – 84%');
-  await shot(sectionOf(page, '分数'), 'expanded');
+  await shot(sectionOf(page, '分数'), 'expanded-ic');
 });
 
 test('包含与排除有人工干预的 run', async ({ page }) => {
@@ -106,6 +160,7 @@ test('包含与排除有人工干预的 run', async ({ page }) => {
 });
 
 test('包含与排除参考了其他 run 的 run：菱形点，与人工干预的开关互不影响', async ({ page }) => {
+  await chooseScope(page, 'dev-workflow/ic');
   const modCell = icRow(page).getByTestId('score-cell').nth(1);
   await expect(modCell).toContainText('3 次 run');
   const toggle = page.getByRole('checkbox', { name: '包含参考了其他 run 的 run' });
@@ -119,18 +174,23 @@ test('包含与排除参考了其他 run 的 run：菱形点，与人工干预�
   });
   await expect(crossDot).toHaveAttribute('data-cross-ref', 'true');
   await expect(modCell.locator('[data-testid="run-dot"][data-cross-ref="true"]')).toHaveCount(1);
-  // 人工干预的 run 仍被排除
-  await expect(lfgRow(page).getByTestId('score-cell').first()).toContainText('3 次 run');
-  await page.getByRole('checkbox', { name: '包含有人工干预的 run' }).check();
-  await expect(lfgRow(page).getByTestId('score-cell').first()).toContainText('4 次 run');
   await crossDot.hover();
   await page.screenshot({ path: '.work/screenshots/w13-compare.png', animations: 'disabled' });
 
+  // 换范围时开关保留；人工干预的 run 仍被排除
+  await chooseScope(page, 'dev-workflow/lfg');
+  await expect(toggle).toBeChecked();
+  await expect(lfgRow(page).getByTestId('score-cell').first()).toContainText('3 次 run');
+  await page.getByRole('checkbox', { name: '包含有人工干预的 run' }).check();
+  await expect(lfgRow(page).getByTestId('score-cell').first()).toContainText('4 次 run');
+
+  await chooseScope(page, 'dev-workflow/ic');
   await toggle.uncheck();
   await expect(modCell).toContainText('3 次 run');
 });
 
 test('包含与排除读取了来源的 run：默认排除，开关放回，点上标出', async ({ page }) => {
+  await chooseScope(page, 'dev-workflow/ic');
   const baseCell = icRow(page).getByTestId('score-cell').first();
   await expect(baseCell).toContainText('3 次 run');
   const toggle = page.getByRole('checkbox', { name: '包含读取了来源工单或仓库的 run' });
@@ -200,18 +260,20 @@ test('只有一次 run 的差值标为不可信，没有 run 的格子，切换�
   await expect(trialCell.getByTestId('cell-mean')).not.toContainText('±');
   await expect(trialCell.getByTestId('delta')).toHaveAttribute('data-reliable', 'false');
   await expect(trialCell.getByTestId('delta')).toContainText('run 少于 2 次，差值不可信');
-  await expect(icRow(page).getByTestId('score-cell').nth(2)).toHaveText('没有已评分的 run');
 
-  // 取消试跑的 variant 与 ic task
+  // 取消试跑的 variant
   await page.getByRole('checkbox', { name: /plan 先问细节/ }).uncheck();
-  await page.getByRole('checkbox', { name: '金额格式化：按币种小数位、负数与大金额' }).uncheck();
   await expect(icRow(page)).toHaveCount(0);
   await expect(lfgRow(page).getByTestId('score-cell')).toHaveCount(2);
 
   // 设修改后的 variant 为基线，列顺序随之改变
   await page.getByRole('button', { name: '设为基线' }).click();
   const head = page.getByTestId('score-table').locator('thead th');
-  await expect(head).toHaveText(['task', 'interview 追问边界基线', '基线 v2.3.0']);
+  await expect(head).toHaveText([
+    'task',
+    'interview 追问边界 (dev-workflow)基线',
+    '基线 v2.3.0 (dev-workflow)',
+  ]);
   const baseCell = lfgRow(page).getByTestId('score-cell').nth(1);
   await expect(baseCell.getByTestId('delta')).toHaveAttribute('data-direction', 'down');
   await shot(page, 'selection');
@@ -248,7 +310,8 @@ test('产物并排：lfg 的 rubric 得分、理由与 markdown；ic 的 PR、�
   ).toContainText('1 / 4');
   await shot(section, 'artifacts-tickets');
 
-  await section.getByLabel('产物并排的 task').selectOption('ic-money-format');
+  await chooseScope(page, 'dev-workflow/ic');
+  await expect(section.getByLabel('产物并排的 task')).toHaveValue('ic-money-format');
   await expect(section.getByLabel('左')).toHaveValue('r-20261009-baic00');
   await expect(section.getByLabel('右')).toHaveValue('r-20261009-moic00');
   const summaries = section.getByTestId('ic-summary');
@@ -293,12 +356,12 @@ test('各阶段成本：分组条形图、指标切换、表格与三项成本',
   const table = section.getByTestId('stage-cost-table');
   await expect(table.locator('tbody tr')).toHaveCount(12);
 
-  await section.getByLabel('成本对比的 task').selectOption('ic-money-format');
-  // ic 7 个阶段 × 3 个 variant，试跑的 variant 没有 ic run；有一次 run 未到达 ready-for-review
-  await expect(table.locator('tbody tr')).toHaveCount(21);
+  await chooseScope(page, 'dev-workflow/ic');
+  await section.getByRole('radio', { name: '表' }).click();
+  // ic 7 个阶段 × 2 个 variant（试跑的 variant 没有 ic run，不在这个范围中）；有一次 run 未到达 ready-for-review
+  await expect(table.locator('tbody tr')).toHaveCount(14);
   await expect(table.locator('tr', { hasText: 'ready-for-review' }).first()).toContainText('2/3');
   await expect(breakdownCaption(section, '合计')).toBeVisible();
-  await expect(section.getByTestId('cost-breakdown')).toContainText('没有 run');
   await section.getByRole('radio', { name: '图' }).click();
   await expect(chart.locator('.recharts-bar-rectangle')).toHaveCount(14);
   await shot(section, 'costs-ic');
@@ -320,8 +383,8 @@ test('skill 内容 diff：两个 variant 逐文件对比', async ({ page }) => {
   await shot(section, 'skill-diff');
 
   // 反过来比较，新增变为删除
-  await section.getByLabel('旧').selectOption({ label: 'interview 追问边界' });
-  await section.getByLabel('新').selectOption({ label: '基线 v2.3.0' });
+  await section.getByLabel('旧').selectOption({ label: 'interview 追问边界 (dev-workflow)' });
+  await section.getByLabel('新').selectOption({ label: '基线 v2.3.0 (dev-workflow)' });
   await expect(section.getByText('2 个文件不同')).toBeVisible();
   await expect(diff.locator('.original .view-lines')).toContainText('Boundaries are asked');
 });

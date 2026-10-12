@@ -2,17 +2,19 @@ import { z } from 'zod';
 import { models, parseStructured, type StructuredRequest } from '../llm/client.js';
 import { isFiller } from '../llm/filler.js';
 import type { TokenUsage } from '../llm/pricing.js';
-import type { ArtifactRubric, LfgTask, RubricArtifact } from '../tasks/schema.js';
+import type { ArtifactRubric, Task } from '../tasks/schema.js';
+import type { BigStageDefinition, RubricArtifactSpec } from '../workflows/schema.js';
+import { chineseCount } from '../workflows/text.js';
 import type { GradeItem } from './schema.js';
 
-const artifactNames: Record<RubricArtifact, string> = {
-  brief: 'Brief.md：interview 阶段写出的需求简报',
-  research: 'Research.md：基于 brief 的调研与 spec',
-  plan: '锁定后的 plan（Research.md 的 Plan 一节或 System Design.md）',
-  tickets: 'Tickets.md 与该 run 在 Linear 中建出的工单',
-};
+// judge 看到的大阶段：入口命令与 rubric 积木列出的产物（Contracts 16.2）
+export interface JudgeStage {
+  stage: Pick<BigStageDefinition, 'id'>;
+  artifacts: RubricArtifactSpec[];
+}
 
-const system = `你是一个 AI 编码 workflow 评估系统的评分员。被评估的是 Magi workflow 的 /lfg 流程：agent 拿到用户的一句想法，与用户对话后依次产出 brief、research、plan、tickets 四个产物。你每次只评一个产物。
+function systemPrompt({ stage, artifacts }: JudgeStage) {
+  return `你是一个 AI 编码 workflow 评估系统的评分员。被评估的是 Magi workflow 的 /${stage.id} 流程：agent 拿到用户的一句想法，与用户对话后依次产出 ${artifacts.map((a) => a.id).join('、')} ${chineseCount(artifacts.length)}个产物。你每次只评一个产物。
 
 评分规则：
 - 严格按 rubric 逐条评分：每一条都要评，只评列出的条目，条目之间互不影响，不给整体印象分。
@@ -20,24 +22,28 @@ const system = `你是一个 AI 编码 workflow 评估系统的评分员。被�
 - score 为 0 到该条 maxScore 之间的整数：完全满足给满分，完全没有给 0，部分满足按满足的程度给中间分。
 - reasoning 用中文写一到三句：指出产物中支持该分数的具体内容（可以短引原文），或指出缺少的内容。
 - 按条目编号作答：respond 的参数中 item_1 是条目 1 的评分，item_2 是条目 2 的评分，依此类推，每个条目都有 reasoning 与 score。`;
+}
 
 // 按编号作答（与模拟用户相同，见 Reports/W21、W23）：gateway 不执行 strict tool 的约束，
 // 需要模型抄写的字段会出错，itemId 由代码按编号对应回 rubric
 export const itemKey = (index: number) => `item_${String(index + 1)}`;
 
-function userPrompt(task: LfgTask, group: ArtifactRubric, content: string) {
+function userPrompt(task: Task, judging: JudgeStage, group: ArtifactRubric, content: string) {
+  const spec = judging.artifacts.find((a) => a.id === group.artifact);
+  if (spec === undefined) {
+    throw new Error(`大阶段 ${judging.stage.id} 的 rubric 积木没有产物 ${group.artifact}`);
+  }
   const items = group.items
     .map((i, n) => `- 条目 ${String(n + 1)}（maxScore ${String(i.maxScore)}）：${i.criterion}`)
     .join('\n');
+  const input =
+    task.input === undefined ? '' : `用户交给 /${judging.stage.id} 的原话：\n${task.input}\n\n`;
   return `task：${task.title}
 
-用户交给 /lfg 的原话：
-${task.input}
-
-隐藏需求（模拟用户只在被问到时透露）：
+${input}隐藏需求（模拟用户只在被问到时透露）：
 ${task.hiddenRequirements}
 
-被评分的产物：${artifactNames[group.artifact]}
+被评分的产物：${spec.description}
 
 rubric（${String(group.items.length)} 条）：
 ${items}
@@ -69,15 +75,16 @@ const SENTENCE_END = /[。！？.!?…][」』"”'’）)】\]]*\s*$/u;
 
 // judge 的请求：judgeArtifact 与 .work/w23 的统计脚本共用
 export function judgeRequest(
-  task: LfgTask,
+  task: Task,
+  judging: JudgeStage,
   group: ArtifactRubric,
   content: string,
   model: string,
 ): StructuredRequest<Judgment> {
   return {
     model,
-    system,
-    user: userPrompt(task, group, content),
+    system: systemPrompt(judging),
+    user: userPrompt(task, judging, group, content),
     schema: judgeSchema(group),
     maxTokens: 8000,
   };
@@ -116,13 +123,14 @@ export function readJudgment(group: ArtifactRubric, judgment: Judgment): GradeIt
 
 // 一个产物一次 judge 调用
 export async function judgeArtifact(
-  task: LfgTask,
+  task: Task,
+  judging: JudgeStage,
   group: ArtifactRubric,
   content: string,
   signal: AbortSignal,
 ): Promise<JudgeResult> {
   const result = await parseStructured({
-    ...judgeRequest(task, group, content, models.judge),
+    ...judgeRequest(task, judging, group, content, models.judge),
     signal,
   });
   const items = readJudgment(group, result.value);

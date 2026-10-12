@@ -11,15 +11,17 @@ import { formatTime } from '@/lib/format';
 import type { Artifact, RunDetail } from '@/lib/runs-api';
 import { cn } from '@/lib/utils';
 
-const docLabel = {
+// dev-workflow 的 rubric 产物的显示名；其他 workflow 的产物显示 id
+const docLabel: Record<string, string> = {
   brief: 'Brief',
   research: 'Research',
   plan: 'Plan（锁定后的文档）',
   tickets: 'Tickets',
-} as const;
-type DocKind = keyof typeof docLabel;
+};
 
-const isDoc = (a: Artifact): a is Artifact & { kind: DocKind } => a.kind in docLabel;
+// 固定种类以外的产物都是 rubric 评分的产物文件（Contracts 16.2）
+const fixedKinds = new Set(['pr', 'repo', 'ticket', 'friction', 'acceptance', 'pr_snapshot']);
+const isDoc = (a: Artifact) => !fixedKinds.has(a.kind);
 
 const updated = (a: Artifact) => formatTime(new Date(a.updatedAt).toISOString());
 
@@ -74,7 +76,7 @@ function LinkRow({
 // 产物：出现即列出；文档点击后在下方渲染，其余是外部链接
 export function RunArtifacts({ run }: { run: RunDetail }) {
   const docs = run.artifacts.filter(isDoc);
-  const [open, setOpen] = useState<DocKind | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
   const shown = docs.find((d) => d.kind === open) ?? null;
   const pr = run.artifacts.find((a) => a.kind === 'pr');
   const acceptance = run.artifacts.find((a) => a.kind === 'acceptance');
@@ -91,8 +93,8 @@ export function RunArtifacts({ run }: { run: RunDetail }) {
       </h2>
       {empty && (
         <p className="text-sm text-muted-foreground">
-          {run.taskKind === 'lfg'
-            ? 'Brief、Research、Tickets 写出后出现在这里。'
+          {run.links.vault !== null
+            ? '产物文件写出后出现在这里。'
             : 'PR 与验收报告出现后列在这里。'}
         </p>
       )}
@@ -113,7 +115,7 @@ export function RunArtifacts({ run }: { run: RunDetail }) {
               }}
             >
               <FileText className="size-4" aria-hidden />
-              {docLabel[d.kind]}
+              {docLabel[d.kind] ?? d.kind}
               <span className="text-xs font-normal text-muted-foreground">{updated(d)}</span>
             </button>
           ))}

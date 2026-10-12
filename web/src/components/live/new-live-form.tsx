@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { createLive, isBuiltVariant, type LiveDetail, type LiveDriver } from '@/lib/live-api';
 import { tasksQuery } from '@/lib/tasks';
-import { variantsQuery } from '@/pages/variants-api';
+import { variantLabel, variantsQuery } from '@/pages/variants-api';
 
 type Workflow = 'lfg' | 'ic';
 type Environment = 'isolated' | 'real';
@@ -47,7 +47,10 @@ export function NewLiveForm({ onCreated }: { onCreated: (live: LiveDetail) => vo
 
   const built = (variants.data ?? []).filter(isBuiltVariant);
   const chosenVariant = variantId ?? built[0]?.id ?? null;
-  const ofKind = (tasks.data ?? []).filter((t) => t.task.kind === workflow);
+  // 交互只接受 dev-workflow 的 task（可配置的大阶段由 W37 接入）
+  const ofKind = (tasks.data ?? []).filter(
+    (t) => t.task.workflow === 'dev-workflow' && t.task.bigStage === workflow,
+  );
   const onsite = taskId === ONSITE;
   const ready =
     chosenVariant !== null &&
@@ -105,7 +108,7 @@ export function NewLiveForm({ onCreated }: { onCreated: (live: LiveDetail) => vo
               >
                 {built.map((v) => (
                   <option key={v.id} value={v.id}>
-                    {v.name}（{v.model} · {v.effort}）
+                    {variantLabel(v)}
                   </option>
                 ))}
               </select>

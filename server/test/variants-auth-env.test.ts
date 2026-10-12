@@ -59,8 +59,6 @@ describe('refreshAuthEnv', () => {
     writeSource('v1');
     const base = await variants.createBaseline({
       name: `auth-env-${randomUUID().slice(0, 8)}`,
-      model: 'sonnet',
-      effort: 'low',
     });
     variantId = base.id;
     const built = await variants.build(base.id);

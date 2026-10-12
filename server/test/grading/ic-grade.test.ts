@@ -17,7 +17,7 @@ import { gradeRun, readRunGrades } from '../../src/grading/index.js';
 import { StoredPrSnapshot, storePrSnapshot } from '../../src/grading/pr-snapshot.js';
 import { exportRun } from '../../src/insights/export.js';
 import { saveTask } from '../../src/tasks/loader.js';
-import type { IcTask, IcTaskWithTests } from '../../src/tasks/schema.js';
+import type { PrTask, Task, TestsTask } from '../../src/tasks/schema.js';
 import { recordedPr } from '../helpers/gh-fixtures.js';
 import { buildFixtureTask, testRunId, withoutHiddenTests } from '../helpers/ic-fixture.js';
 import { openTestDb } from '../stages/db.js';
@@ -38,8 +38,8 @@ const branch = branchFrom(graded.stdout('branch'));
 // 没有任何 PR 的真实仓库（只读）：评分的"没有 PR"路径照常读 GitHub
 const NO_PR_REPO = recordedPr('no-pr').repo;
 
-// W7 fixture 的 IcTask 写成 tasks/<id>/task.yaml 并同步进 tasks 表
-async function fixtureTask(timeoutSeconds = 600): Promise<IcTaskWithTests> {
+// W7 fixture 的 task 写成 tasks/<id>/task.yaml 并同步进 tasks 表
+async function fixtureTask(timeoutSeconds = 600): Promise<TestsTask & PrTask> {
   const id = testRunId('w9-ic-task');
   const { dir, ...definition } = await buildFixtureTask(id, timeoutSeconds);
   const tasksDir = path.join(config.repoRoot, '.work/test-tasks', id, 'tasks');
@@ -49,7 +49,7 @@ async function fixtureTask(timeoutSeconds = 600): Promise<IcTaskWithTests> {
 }
 
 // 隐藏测试在录下的 PR head 上运行，终点由录下的 pr view 与 pr checks 判定
-const gradeRecorded = (task: IcTaskWithTests, runId: string) =>
+const gradeRecorded = (task: TestsTask, runId: string) =>
   gradeIcPr(
     task,
     runId,
@@ -159,7 +159,7 @@ describe('ic 评分（录下的 PR 与只读的 GitHub）', { timeout: 10 * 60_0
     ]);
     // task 中没有隐藏需求、rubric 与隐藏测试
     expect(Object.keys(exported.task).sort()).toEqual(
-      ['id', 'kind', 'persona', 'requiredChecks', 'ticket', 'title'].sort(),
+      ['bigStage', 'id', 'persona', 'requiredChecks', 'ticket', 'title', 'workflow'].sort(),
     );
 
     // 没有快照的旧 run：仓库存在时现读，仓库不存在时记为不可用
@@ -185,8 +185,10 @@ describe('ic 评分（录下的 PR 与只读的 GitHub）', { timeout: 10 * 60_0
     const runId = testRunId('w9-ic-nopr');
     insertRun(db, { id: runId, taskId: task.id, variantId: 'baseline', githubRepo: NO_PR_REPO });
     await gradeRun(db, runId, new AbortController().signal);
-    const ic = readRunGrades(db, runId)?.ic;
-    expect(ic).toMatchObject({ testsPassed: 0, testsDeclared: 8, reachedEnd: false });
+    const grades = readRunGrades(db, runId);
+    const ic = grades?.hiddenTests;
+    expect(ic).toMatchObject({ testsPassed: 0, testsDeclared: 8 });
+    expect(grades?.endpoint).toEqual({ reached: false, detail: null });
     expect(ic?.detail.pr).toBeNull();
     expect(ic?.detail.endpoint).toBeNull();
     expect(ic?.detail.outcomes.every((o) => o.outcome === 'not-run')).toBe(true);
@@ -227,26 +229,26 @@ describe('ic 评分（录下的 PR 与只读的 GitHub）', { timeout: 10 * 60_0
     });
     await gradeRun(db, runId, new AbortController().signal);
     const grades = readRunGrades(db, runId);
-    expect(grades).toMatchObject({ kind: 'ic', costUsd: 0, ic: null });
-    expect(grades?.icCriteria).toMatchObject({
+    expect(grades).toMatchObject({ costUsd: 0, rubric: null, hiddenTests: null });
+    expect(grades?.endpoint).toEqual({ reached: false, detail: null });
+    expect(grades?.criteria).toMatchObject({
       score: 0,
       maxScore: 4,
-      reachedEnd: false,
       judgeModel: null,
       detail: { pr: null, endpoint: null, checks: [], diffChars: 0 },
     });
-    expect(grades?.icCriteria?.items.map((i) => [i.itemId, i.score, i.reasoning])).toEqual([
+    expect(grades?.criteria?.items.map((i) => [i.itemId, i.score, i.reasoning])).toEqual([
       ['ac1', 0, '该 run 没有建出 PR，该条记 0 分。'],
       ['ac2', 0, '该 run 没有建出 PR，该条记 0 分。'],
     ]);
   });
 
-  it('没有 GitHub 仓库的 run 评分抛错，不写 grades', async () => {
-    const task: IcTask = await fixtureTask();
+  it('没有仓库的 run 评分抛错，不写 grades', async () => {
+    const task: Task = await fixtureTask();
     const runId = testRunId('w9-ic-norepo');
     insertRun(db, { id: runId, taskId: task.id, variantId: 'baseline' });
     await expect(gradeRun(db, runId, new AbortController().signal)).rejects.toThrow(
-      '没有 GitHub 仓库',
+      `run ${runId} 没有仓库`,
     );
     expect(readRunGrades(db, runId)).toBeNull();
   });

@@ -162,6 +162,7 @@ describe('compare 页面的只读接口', () => {
         crossRunRefs: [crossRef],
         sourceRefs: [],
         createdAt: '2026-10-09T08:00:00.000Z',
+        model: 'opus',
       },
       {
         id: `cmp-b-${marker}`,
@@ -172,6 +173,7 @@ describe('compare 页面的只读接口', () => {
         crossRunRefs: [],
         sourceRefs: [],
         createdAt: '2026-10-09T09:00:00.000Z',
+        model: 'opus',
       },
       {
         id: `cmp-d-${marker}`,
@@ -182,6 +184,7 @@ describe('compare 页面的只读接口', () => {
         crossRunRefs: [],
         sourceRefs: [],
         createdAt: '2026-10-09T10:00:00.000Z',
+        model: 'opus',
       },
     ]);
     const cancelled = await app.inject({

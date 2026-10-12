@@ -16,10 +16,15 @@ import {
   variants as variantsTable,
 } from '../db/schema.js';
 import { events } from '../events.js';
-import { featureDir } from '../stages/lfg.js';
-import { publishStageChanges, readReport, updateStages } from '../stages/report.js';
-import { IC_STAGES, LFG_STAGES } from '../stages/workflow.js';
+import { featureDir } from '../stages/artifacts.js';
+import {
+  publishStageChanges,
+  readReport,
+  sessionWorkflowId,
+  updateStages,
+} from '../stages/report.js';
 import { HttpError } from '../variants/errors.js';
+import { loadBigStage, loadWorkflow } from '../workflows/index.js';
 import { artifactView, listMessages, messageView } from './records.js';
 import { RunDriver, type RunnerDeps } from './runner.js';
 import type { BatchDetail, BatchSummary, RunDetail, RunMode, RunSummary } from './views.js';
@@ -137,8 +142,15 @@ export function createRuns(deps: RunnerDeps) {
       .all();
     for (const id of sessionIds) {
       const own = spans.filter((s) => s.sessionId === id);
+      if (own.length === 0) {
+        out.set(id, null);
+        continue;
+      }
+      const definition = loadWorkflow(db, sessionWorkflowId(db, id));
       const order = (s: (typeof own)[number]) =>
-        (s.workflow === 'lfg' ? LFG_STAGES : IC_STAGES).indexOf(s.stage as never);
+        definition.bigStages
+          .find((b) => b.id === s.bigStage)
+          ?.stages.findIndex((x) => x.id === s.stage) ?? -1;
       own.sort((a, b) => order(a) - order(b));
       const active = own.find((s) => s.status === 'active');
       const last = [...own].reverse().find((s) => s.status === 'done' || s.status === 'skipped');
@@ -147,7 +159,7 @@ export function createRuns(deps: RunnerDeps) {
         id,
         pick === undefined
           ? null
-          : { workflow: pick.workflow, stage: pick.stage, status: pick.status },
+          : { bigStage: pick.bigStage, stage: pick.stage, status: pick.status },
       );
     }
     return out;
@@ -182,10 +194,13 @@ export function createRuns(deps: RunnerDeps) {
         id: r.id,
         batchId: r.batchId,
         taskId: r.taskId,
-        taskKind: task.kind,
+        workflowId: task.workflowId,
+        bigStage: task.bigStage,
         taskTitle: task.title,
         variantId: r.variantId,
         variantName: variant.name,
+        model: r.model,
+        effort: r.effort,
         repeatIndex: r.repeatIndex,
         status: r.status,
         currentStage: stages.get(r.sessionId) ?? null,
@@ -240,17 +255,32 @@ export function createRuns(deps: RunnerDeps) {
   pump();
 
   return {
-    // 冻结全部 variant 后建 batch 与全部 run（queued）
-    createBatch(input: { variantIds: string[]; taskIds: string[]; repeats: number }): BatchDetail {
+    // 冻结全部 variant 后建 batch 与全部 run（queued）；model 与 effort 作用于其中全部 run（Contracts 16.5）
+    createBatch(input: {
+      variantIds: string[];
+      taskIds: string[];
+      repeats: number;
+      model: string;
+      effort: string;
+    }): BatchDetail {
+      const workflowOf = new Map<string, string>();
       for (const id of input.variantIds) {
         const v = deps.variants.get(id);
         if (v.buildStatus !== 'built' || v.builtHash !== v.skillsHash) {
           throw new HttpError(400, `variant ${v.name} 还没有按当前内容构建成功`);
         }
+        workflowOf.set(id, v.workflowId);
       }
       for (const id of input.taskIds) {
-        if (db.select().from(tasks).where(eq(tasks.id, id)).get() === undefined) {
-          throw new HttpError(400, `task 不存在：${id}`);
+        const task = db.select().from(tasks).where(eq(tasks.id, id)).get();
+        if (task === undefined) throw new HttpError(400, `task 不存在：${id}`);
+        for (const [variantId, workflowId] of workflowOf) {
+          if (task.workflowId !== workflowId) {
+            throw new HttpError(
+              400,
+              `task ${id} 属于 workflow ${task.workflowId}，variant ${deps.variants.get(variantId).name} 属于 ${workflowId}：只能在同一 workflow 内运行`,
+            );
+          }
         }
       }
       for (const id of input.variantIds) deps.variants.freeze(id);
@@ -272,6 +302,8 @@ export function createRuns(deps: RunnerDeps) {
                   taskId,
                   variantId,
                   repeatIndex,
+                  model: input.model,
+                  effort: input.effort,
                   sessionId: randomUUID(),
                   workspacePath: path.join(deps.runsDir, id, 'workspace'),
                 })
@@ -348,7 +380,11 @@ export function createRuns(deps: RunnerDeps) {
           repo: location('repo'),
           ticket: location('ticket'),
           pr: row.prUrl,
-          vault: summary.taskKind === 'lfg' && fs.existsSync(dir) ? dir : null,
+          vault:
+            loadBigStage(db, summary.workflowId, summary.bigStage).prepare.includes('vault-dir') &&
+            fs.existsSync(dir)
+              ? dir
+              : null,
         },
         friction: artifactRows
           .filter((a) => a.kind === 'friction')
@@ -435,6 +471,8 @@ export function createRuns(deps: RunnerDeps) {
             taskId: row.taskId,
             variantId: row.variantId,
             repeatIndex: last.repeatIndex + 1,
+            model: row.model,
+            effort: row.effort,
             sessionId: randomUUID(),
             workspacePath: path.join(deps.runsDir, rerunId, 'workspace'),
           })

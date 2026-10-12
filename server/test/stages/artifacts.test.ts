@@ -2,14 +2,24 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { config } from '../../src/config.js';
-import { featureDir, LfgTracker, lfgSnapshot, slugify } from '../../src/stages/lfg.js';
+import { ArtifactTracker, candidateDocs, featureDir, slugify } from '../../src/stages/artifacts.js';
+import { builtinDefinition } from '../../src/workflows/index.js';
+import { bigStageOf, rubricOf, type RubricArtifactSpec } from '../../src/workflows/schema.js';
 
 const VAULT = '/Users/linhaoz/Documents/Obsidian Vault';
-const work = path.join(config.repoRoot, '.work', 'stages-lfg');
+const work = path.join(config.repoRoot, '.work', 'stages-artifacts');
 fs.rmSync(work, { recursive: true, force: true });
 fs.mkdirSync(work, { recursive: true });
 
-describe('lfg 产物：vault 中真实 feature 目录', () => {
+// dev-workflow 的 lfg 的 rubric 产物：brief、research、plan、tickets
+const specs = rubricOf(bigStageOf(builtinDefinition(), 'lfg')) ?? [];
+function spec(id: string): RubricArtifactSpec {
+  const found = specs.find((s) => s.id === id);
+  if (found === undefined) throw new Error(`dev-workflow 的 lfg 没有产物 ${id}`);
+  return found;
+}
+
+describe('rubric 产物：vault 中真实 feature 目录', () => {
   // Stage Markers 1.4 的结果（.spikes/stage-markers/out/lfg-rules-vault.txt）
   const expected: [string, string, [boolean, boolean, string | null, boolean]][] = [
     ['Magi', 'optional-mcp-install', [true, true, null, true]],
@@ -27,30 +37,31 @@ describe('lfg 产物：vault 中真实 feature 目录', () => {
   ];
 
   test.each(expected)('Project %s/%s', (product, feature, [brief, research, lock, tickets]) => {
-    const docs = lfgSnapshot(featureDir(VAULT, product, feature), feature);
-    const doc = docs.research ?? docs.design;
-    expect(docs.brief !== null).toBe(brief);
-    expect(doc !== null).toBe(research);
-    const line = docs.research?.planLockLine ?? docs.design?.planLockLine ?? null;
+    const dir = featureDir(VAULT, product, feature);
+    const present = (id: string) => candidateDocs(dir, feature, spec(id)).some((d) => d !== null);
+    expect(present('brief')).toBe(brief);
+    expect(present('research')).toBe(research);
+    // Research.md 优先，其次 System Design.md
+    const docs = candidateDocs(dir, feature, spec('research'));
+    const line = docs[0]?.planLockLine ?? docs[1]?.planLockLine ?? null;
     if (lock === null) expect(line).toBeNull();
     else expect(line?.startsWith(lock)).toBe(true);
-    expect(docs.tickets !== null).toBe(tickets);
+    expect(present('tickets')).toBe(tickets);
   });
 
   test('feature 不符的文件不算', () => {
-    const docs = lfgSnapshot(featureDir(VAULT, 'Tokun', 'model-pool'), 'other-run');
-    expect(Object.values(docs).every((d) => d === null)).toBe(true);
+    const dir = featureDir(VAULT, 'Tokun', 'model-pool');
+    expect(specs.flatMap((s) => candidateDocs(dir, 'other-run', s)).every((d) => d === null)).toBe(
+      true,
+    );
   });
 
   test('首次出现就带锁定标记只算 research，改写后才算 plan', () => {
     const src = featureDir(VAULT, 'Tokun', 'github-growth-dashboard');
     const dir = path.join(work, 'live', 'github-growth-dashboard');
     fs.mkdirSync(dir, { recursive: true });
-    const tracker = new LfgTracker(dir, 'github-growth-dashboard');
-    const present = () =>
-      Object.entries(tracker.observe())
-        .filter(([, d]) => d !== null)
-        .map(([kind]) => kind);
+    const tracker = new ArtifactTracker(dir, 'github-growth-dashboard', specs);
+    const present = () => [...tracker.observe()].filter(([, d]) => d !== null).map(([id]) => id);
 
     expect(present()).toEqual([]);
     fs.copyFileSync(path.join(src, 'Brief.md'), path.join(dir, 'Brief.md'));
@@ -61,7 +72,7 @@ describe('lfg 产物：vault 中真实 feature 目录', () => {
     fs.copyFileSync(path.join(src, 'Tickets.md'), path.join(dir, 'Tickets.md'));
     expect(present()).toEqual(['brief', 'research', 'tickets']);
     fs.appendFileSync(path.join(dir, 'Research.md'), '\n- 2026-09-29 plan locked\n');
-    expect(tracker.observe().plan?.planLockLine).toMatch(/^Status: locked/);
+    expect(tracker.observe().get('plan')?.planLockLine).toMatch(/^Status: locked/);
   });
 
   test('slugify 与 wf obsidian 一致', () => {

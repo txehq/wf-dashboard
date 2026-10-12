@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
 import type { IcCriteriaGrade } from '@wf-dashboard/server/grading/schema';
-import type { RubricArtifact } from '@wf-dashboard/server/tasks/schema';
 import type { TaskRecord } from '@wf-dashboard/server/tasks/schema';
 import { ExternalLink } from 'lucide-react';
 import { useState } from 'react';
@@ -82,20 +81,20 @@ function RunHeading({ run, variants }: { run: CompareRun; variants: SelectedVari
   );
 }
 
-function groupOf(grades: RunGrades, artifact: RubricArtifact) {
-  const group = grades.lfg?.artifacts.find((a) => a.artifact === artifact);
+function groupOf(grades: RunGrades, artifact: string) {
+  const group = grades.rubric?.artifacts.find((a) => a.artifact === artifact);
   if (group === undefined) throw new Error(`run ${grades.runId} 没有 ${artifact} 的评分`);
   return group;
 }
 
-function MarkdownPane({ runId, artifact }: { runId: string; artifact: RubricArtifact }) {
+function MarkdownPane({ runId, artifact }: { runId: string; artifact: string }) {
   const data = useQuery(runArtifactsQuery(runId));
   if (data.isPending) return <p className="text-sm text-muted-foreground">加载中…</p>;
   if (data.isError) return <p className="text-sm text-destructive">{data.error.message}</p>;
   const found = data.data.artifacts.find((a) => a.kind === artifact);
   if (found?.snapshot == null) {
     return (
-      <p className="text-sm text-muted-foreground">这次 run 没有产出 {artifactLabel[artifact]}。</p>
+      <p className="text-sm text-muted-foreground">这次 run 没有产出 {artifactLabel(artifact)}。</p>
     );
   }
   return (
@@ -113,6 +112,7 @@ function LfgSideBySide({
   right,
   runs,
   variants,
+  artifacts,
   artifact,
   onArtifact,
 }: {
@@ -120,15 +120,17 @@ function LfgSideBySide({
   right: RunGrades;
   runs: [CompareRun, CompareRun];
   variants: SelectedVariant[];
-  artifact: RubricArtifact;
-  onArtifact: (a: RubricArtifact) => void;
+  // task 的 rubric 分组，即大阶段 rubric 积木的产物
+  artifacts: string[];
+  artifact: string;
+  onArtifact: (a: string) => void;
 }) {
   const leftGroup = groupOf(left, artifact);
   const rightGroup = groupOf(right, artifact);
   return (
     <div className="flex flex-col gap-4">
       <div role="tablist" aria-label="产物" className="flex gap-1 border-b">
-        {(['brief', 'research', 'plan', 'tickets'] as const).map((a) => (
+        {artifacts.map((a) => (
           <button
             key={a}
             type="button"
@@ -142,7 +144,7 @@ function LfgSideBySide({
               onArtifact(a);
             }}
           >
-            {artifactLabel[a]}
+            {artifactLabel(a)}
           </button>
         ))}
       </div>
@@ -221,8 +223,9 @@ function IcSummary({
   run: CompareRun;
   variants: SelectedVariant[];
 }) {
-  if (grades.ic === null) throw new Error(`run ${grades.runId} 没有 ic 评分`);
-  const { detail, testsPassed, testsDeclared, reachedEnd } = grades.ic;
+  if (grades.hiddenTests === null) throw new Error(`run ${grades.runId} 没有隐藏测试评分`);
+  const { detail, testsPassed, testsDeclared } = grades.hiddenTests;
+  const reachedEnd = grades.endpoint?.reached ?? null;
   const endpoint = detail.endpoint;
   return (
     <div className="flex flex-col gap-2 rounded-lg border p-4 text-sm" data-testid="ic-summary">
@@ -245,8 +248,12 @@ function IcSummary({
         <dd className="tabular-nums">
           {testsPassed} / {testsDeclared} 通过
         </dd>
-        <dt className="text-muted-foreground">终点</dt>
-        <dd>{reachedEnd ? '已到达（ready for review 且 CI 全绿）' : '未到达'}</dd>
+        {reachedEnd !== null && (
+          <>
+            <dt className="text-muted-foreground">终点</dt>
+            <dd>{reachedEnd ? '已到达（ready for review 且 CI 全绿）' : '未到达'}</dd>
+          </>
+        )}
         {endpoint !== null && (
           <>
             <dt className="text-muted-foreground">CI</dt>
@@ -280,8 +287,8 @@ function IcSideBySide({
   runs: [CompareRun, CompareRun];
   variants: SelectedVariant[];
 }) {
-  const leftOutcomes = left.ic?.detail.outcomes ?? [];
-  const rightOutcomes = right.ic?.detail.outcomes ?? [];
+  const leftOutcomes = left.hiddenTests?.detail.outcomes ?? [];
+  const rightOutcomes = right.hiddenTests?.detail.outcomes ?? [];
   const rows = outcomeRows(leftOutcomes, rightOutcomes);
   return (
     <div className="flex flex-col gap-4">
@@ -339,9 +346,14 @@ export function ArtifactSideBySide({
 }) {
   const withRuns = tasks.filter((t) => runs.some((r) => r.taskId === t.task.id));
   const [taskId, setTaskId] = useState<string | null>(null);
-  // 产物的选择在换 run 时保留
-  const [artifact, setArtifact] = useState<RubricArtifact>('brief');
+  // 产物的选择在换 run 时保留；不在当前 task 的分组中时取第一组
+  const [chosenArtifact, setArtifact] = useState<string | null>(null);
   const task = withRuns.find((t) => t.task.id === taskId) ?? withRuns[0];
+  const rubricArtifacts = task?.task.rubric?.map((g) => g.artifact) ?? null;
+  const artifact =
+    chosenArtifact !== null && rubricArtifacts?.includes(chosenArtifact) === true
+      ? chosenArtifact
+      : (rubricArtifacts?.[0] ?? '');
   const taskRuns = runs.filter((r) => r.taskId === task?.task.id);
   // 默认左边是基线的第一次 run，右边是另一个 variant 的第一次 run
   const [picked, setPicked] = useState<{ taskId: string; left: string; right: string } | null>(
@@ -408,7 +420,7 @@ export function ArtifactSideBySide({
       </div>
       {leftRun !== undefined && rightRun !== undefined && (
         <Pair
-          kind={task.task.kind}
+          artifacts={rubricArtifacts}
           runs={[leftRun, rightRun]}
           variants={variants}
           artifact={artifact}
@@ -420,17 +432,18 @@ export function ArtifactSideBySide({
 }
 
 function Pair({
-  kind,
+  artifacts,
   runs,
   variants,
   artifact,
   onArtifact,
 }: {
-  kind: 'lfg' | 'ic';
+  // task 的 rubric 分组；没有 rubric 的 task 为空
+  artifacts: string[] | null;
   runs: [CompareRun, CompareRun];
   variants: SelectedVariant[];
-  artifact: RubricArtifact;
-  onArtifact: (a: RubricArtifact) => void;
+  artifact: string;
+  onArtifact: (a: string) => void;
 }) {
   const left = useQuery(runGradesQuery(runs[0].id));
   const right = useQuery(runGradesQuery(runs[1].id));
@@ -439,25 +452,27 @@ function Pair({
   }
   if (left.isError) return <p className="text-sm text-destructive">{left.error.message}</p>;
   if (right.isError) return <p className="text-sm text-destructive">{right.error.message}</p>;
-  if (kind === 'lfg') {
+  if (artifacts !== null) {
     return (
       <LfgSideBySide
         left={left.data}
         right={right.data}
         runs={runs}
         variants={variants}
+        artifacts={artifacts}
         artifact={artifact}
         onArtifact={onArtifact}
       />
     );
   }
-  const leftCriteria = left.data.icCriteria;
-  const rightCriteria = right.data.icCriteria;
+  const leftCriteria = left.data.criteria;
+  const rightCriteria = right.data.criteria;
   if (leftCriteria !== null && rightCriteria !== null) {
     return (
       <CriteriaSideBySide
         left={leftCriteria}
         right={rightCriteria}
+        reached={[left.data.endpoint?.reached ?? null, right.data.endpoint?.reached ?? null]}
         runs={runs}
         variants={variants}
       />
@@ -466,15 +481,17 @@ function Pair({
   return <IcSideBySide left={left.data} right={right.data} runs={runs} variants={variants} />;
 }
 
-// 没有隐藏测试的 ic task：两次 run 的验收标准逐条得分与理由
+// 没有隐藏测试的 task：两次 run 的验收标准逐条得分与理由；reached 为两次 run 的终点判定（没选 pr-endpoint 时为空）
 function CriteriaSideBySide({
   left,
   right,
+  reached,
   runs,
   variants,
 }: {
   left: IcCriteriaGrade;
   right: IcCriteriaGrade;
+  reached: [boolean | null, boolean | null];
   runs: [CompareRun, CompareRun];
   variants: SelectedVariant[];
 }) {
@@ -484,11 +501,13 @@ function CriteriaSideBySide({
         {[left, right].map((g, i) => {
           const run = runs[i];
           if (run === undefined) throw new Error('缺少对比的 run');
+          const end = reached[i] ?? null;
           return (
             <div key={run.id} className="flex flex-col gap-2 rounded-lg border p-4 text-sm">
               <RunHeading run={run} variants={variants} />
               <p className="tabular-nums">
-                验收标准 {g.score} / {g.maxScore} · {g.reachedEnd ? '已到达终点' : '未到达终点'}
+                验收标准 {g.score} / {g.maxScore}
+                {end === null ? '' : ` · ${end ? '已到达终点' : '未到达终点'}`}
               </p>
               {g.detail.pr !== null && (
                 <a

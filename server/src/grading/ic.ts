@@ -9,7 +9,7 @@ import {
   type PrInfo,
   readPr,
 } from '../external/github.js';
-import type { IcTaskWithTests } from '../tasks/schema.js';
+import type { TestsTask } from '../tasks/schema.js';
 import { runHiddenTests } from './hidden-tests.js';
 import type { IcDetail } from './schema.js';
 
@@ -26,7 +26,7 @@ export const gradingCheckout = (runId: string) =>
 // 仓库中最新的 PR：隐藏测试跑在 PR 分支的 head 上，终点判定读同一个 head；没有 PR 时测试记 0 / 声明数；
 // agent 的代码造成的失败（例如超时、npm ci 失败）记在 detail.error，测试记 0 / 声明数；signal 取消时在下一步之前抛出 signal.reason
 export async function gradeIc(
-  task: IcTaskWithTests,
+  task: TestsTask,
   runId: string,
   repo: string,
   signal: AbortSignal,
@@ -47,7 +47,7 @@ export async function gradeIc(
   );
 }
 
-export function noPrIcGrade(task: IcTaskWithTests): IcGrade {
+export function noPrIcGrade(task: TestsTask): IcGrade {
   const outcomes = Object.entries(task.hiddenTests.manifest).flatMap(([file, names]) =>
     names.map((name) => ({ file, name, outcome: 'not-run' as const })),
   );
@@ -68,7 +68,7 @@ export interface PrSource {
 
 // 已读到的 PR：checkout 到 data/runs/<runId>/grading/checkout 跑隐藏测试，再判定终点
 export async function gradeIcPr(
-  task: IcTaskWithTests,
+  task: TestsTask,
   runId: string,
   read: { pr: PrInfo; branch: string },
   source: PrSource,

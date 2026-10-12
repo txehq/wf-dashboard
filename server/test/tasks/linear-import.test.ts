@@ -11,7 +11,7 @@ import { DEFAULT_COPY_RUNNER_LABELS } from '../../src/runs/settings.js';
 import { ImportPreview, issueIdentifier } from '../../src/tasks/import-schema.js';
 import { previewLinearImport, readLinearIssue } from '../../src/tasks/linear-import.js';
 import { parseTaskYaml, serializeTask } from '../../src/tasks/loader.js';
-import { IcTaskDefinition, TaskRecord } from '../../src/tasks/schema.js';
+import { TaskDefinition, TaskRecord } from '../../src/tasks/schema.js';
 import { CALC_TICKET, CALC_TICKET_URL } from '../helpers/calc-repo.js';
 import { testRunId } from '../helpers/ic-fixture.js';
 import { IMPORT_SOURCE, NO_WORKFLOW_SOURCE } from '../helpers/import-source.js';
@@ -68,12 +68,13 @@ describe('从 Linear 导入 ic task', { timeout: 5 * 60_000 }, () => {
     expect(preview.commitSource).toEqual({ kind: 'default-branch', branch: 'main' });
     // 验收标准的确定由 criteria-draft.test.ts 以最小的正文测试，这里不调用 judge
     expect(preview.criteria).toBeNull();
-    const definition = IcTaskDefinition.parse({
+    const definition = TaskDefinition.parse({
       ...preview.task,
       ticket: { ...preview.task.ticket, acceptanceCriteria: ['页面外壳与 CI 按工单建立'] },
     });
     const back = parseTaskYaml(serializeTask(definition), 'TXE-3777.yaml');
-    expect(back.kind === 'ic' && back.ticket.body).toBe(raw.description);
+    expect(back.bigStage).toBe('ic');
+    expect(back.ticket?.body).toBe(raw.description);
   });
 
   it('requiredChecks 默认值：txe-workflow 9f2bed6 的 ci 中能在副本 PR 上运行的 job，release 不由 pull_request 触发', async () => {
@@ -178,7 +179,8 @@ describe('从 Linear 导入 ic task', { timeout: 5 * 60_000 }, () => {
       'task.yaml',
     ]);
     const record = TaskRecord.parse(saved.json());
-    expect(record.task.kind === 'ic' && record.task.ticket.body).toBe(preview.issue.description);
+    expect(record.task.bigStage).toBe('ic');
+    expect(record.task.ticket?.body).toBe(preview.issue.description);
     await app.close();
     db.$client.close();
   });

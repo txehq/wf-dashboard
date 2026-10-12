@@ -7,7 +7,7 @@ import { Readable } from 'node:stream';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { z } from 'zod';
-import type { IcTask } from '../tasks/schema.js';
+import type { TicketTask } from '../tasks/schema.js';
 
 // 与 txe-workflow 的 workflow/mcps/linear.yaml 相同的启动方式；OAuth token 由 mcp-remote 从 ~/.mcp-auth 读取
 export const LINEAR_MCP_URL = 'https://mcp.linear.app/mcp';
@@ -277,7 +277,7 @@ export interface RunTicket {
 
 const SavedIssue = z.object({ id: z.string(), uuid: z.string(), url: z.string() }).loose();
 
-export function runTicketDescription(task: IcTask, runId: string): string {
+export function runTicketDescription(task: TicketTask, runId: string): string {
   // 从 Linear 导入的 task：副本正文是 ticket.body 的全部内容（其中已有验收标准一节）加 run id；
   // 不出现来源工单编号、来源仓库与来源 PR（Contracts 第 13 节），来源只记在 task.yaml 与 run 记录
   if (task.source !== undefined) {
@@ -295,7 +295,7 @@ export function runTicketDescription(task: IcTask, runId: string): string {
   ].join('\n');
 }
 
-export async function createRunTicket(task: IcTask, runId: string): Promise<RunTicket> {
+export async function createRunTicket(task: TicketTask, runId: string): Promise<RunTicket> {
   const { projectId } = await ensureEvalContainer();
   // get_issue / save_issue 返回的 id 就是 identifier（TXE-N），数据库 id 在 uuid
   const issue = await callLinear(

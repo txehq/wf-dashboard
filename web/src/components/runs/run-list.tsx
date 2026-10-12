@@ -26,7 +26,7 @@ export function StageText({ stage }: { stage: RunSummary['currentStage'] }) {
   if (stage === null) return <span className="text-muted-foreground">—</span>;
   return (
     <span className="font-mono text-xs">
-      /{stage.workflow} · {stage.stage}
+      /{stage.bigStage} · {stage.stage}
       {stage.status === 'active' ? '' : `（${statusMeta[stage.status].label}）`}
     </span>
   );
@@ -93,7 +93,12 @@ function RunRow({ run, now }: { run: RunSummary; now: number }) {
         </Link>
         <span className="block font-mono text-xs text-muted-foreground">{run.id}</span>
       </td>
-      <td className="px-3 py-2">{run.variantName}</td>
+      <td className="px-3 py-2">
+        {run.variantName} ({run.workflowId})
+        <span className="block font-mono text-xs text-muted-foreground">
+          {run.model} · {run.effort}
+        </span>
+      </td>
       <td className="px-3 py-2 tabular-nums">第 {run.repeatIndex + 1} 次</td>
       <td className="px-3 py-2">
         <RunStatusLabel status={run.status} />

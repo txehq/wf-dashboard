@@ -49,8 +49,6 @@ ingestFile(db, copyOtherIcSession(dir));
 const variant = await variants.createBaseline({
   name: 'w31-engines',
   commit: BASE_COMMIT,
-  model: 'opus',
-  effort: 'high',
 });
 
 async function analyze(name: string, engine: 'claude' | 'codex', sessionIds: string[]) {

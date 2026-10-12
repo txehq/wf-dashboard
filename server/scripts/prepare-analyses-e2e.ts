@@ -49,8 +49,6 @@ const variants = createVariants({
 const base = await variants.createBaseline({
   name: '基线 9f2bed6',
   commit: BASE_COMMIT,
-  model: 'opus',
-  effort: 'high',
 });
 console.log(JSON.stringify({ variant: base.id }));
 db.$client.close();

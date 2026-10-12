@@ -171,7 +171,7 @@ function SessionSide({ sessionId }: { sessionId: string }) {
       </p>
     );
   }
-  const cycles = [...stages.data.lfg, ...stages.data.ic];
+  const cycles = stages.data.bigStages.flatMap((b) => b.cycles);
   return (
     <div className="flex min-w-0 flex-col gap-4" data-testid="live-side">
       {cycles.length === 0 && (

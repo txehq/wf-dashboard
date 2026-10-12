@@ -162,7 +162,7 @@ test.describe('真实运行', () => {
     });
     const variantName = `W10 e2e ${marker}`;
     const created = await request.post(`${api}/variants`, {
-      data: { name: variantName, model: 'opus', effort: 'high' },
+      data: { name: variantName },
     });
     expect(created.status()).toBe(201);
     const variant = (await created.json()) as { id: string };
@@ -180,18 +180,26 @@ test.describe('真实运行', () => {
     await expect(launch.getByRole('checkbox', { name: /导入/ }).first()).toBeDisabled();
     await expect(launch.getByText('导入的历史记录，不能运行').first()).toBeVisible();
     const draftRow = launch
-      .locator('div', { has: page.getByText(draftName, { exact: true }) })
+      .locator('div', { has: page.getByText(`${draftName} (dev-workflow)`, { exact: true }) })
       .last();
     await expect(draftRow.getByRole('checkbox')).toBeDisabled();
     await expect(draftRow.getByRole('link', { name: '去构建' })).toHaveAttribute(
       'href',
       `/variants/${draft.id}`,
     );
-    await launch.getByRole('checkbox', { name: variantName }).check();
+    await launch.getByRole('checkbox', { name: `${variantName} (dev-workflow)` }).check();
     await launch.getByRole('checkbox', { name: '课堂用的网页计算器' }).check();
     await launch.getByRole('spinbutton').fill('1');
+    // model 与 effort 在发起时选，默认取设置（Contracts 16.5）
+    const model = launch.getByTestId('launch-model');
+    const effort = launch.getByTestId('launch-effort');
+    await expect(model).toHaveValue('opus');
+    await expect(effort).toHaveValue('high');
+    await effort.selectOption('max');
+    await expect(page.getByTestId('launch-summary')).toContainText('（opus · max）');
+    await effort.selectOption('high');
     await expect(page.getByTestId('launch-summary')).toContainText(
-      '1 个 variant × 1 个 task × 1 次 = 1 个 run',
+      '1 个 variant × 1 个 task × 1 次 = 1 个 run（opus · high）',
     );
     await expect(page.getByTestId('launch-summary')).toContainText('在 txehq 建一个空仓库');
     await shot(launch, 'launch');
@@ -214,6 +222,7 @@ test.describe('真实运行', () => {
     await row.getByRole('link').first().click();
     await expect(page).toHaveURL(new RegExp(`/runs/${runId}$`));
     await expect(page.getByTestId('run-mode')).toHaveText('模拟用户回答中');
+    await expect(page.getByTestId('run-model')).toHaveText('opus · high');
     await expect(page.getByTestId('message-initial')).toContainText('/lfg 做一个计算器');
     // 本地仓库模式：仓库是 e2e 目录下的 bare 仓库，初始消息的 Repository 行写它的路径
     const localRepo = path.join(e2eLocalReposDir, `wfe-${runId}.git`);

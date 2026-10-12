@@ -10,7 +10,7 @@ import {
   resumeDefaultsQuery,
   resumeLive,
 } from '@/lib/live-api';
-import { variantsQuery } from '@/pages/variants-api';
+import { variantLabel, variantsQuery } from '@/pages/variants-api';
 
 const LOCAL = 'local';
 
@@ -102,7 +102,7 @@ function ResumeForm({
         >
           {built.map((v) => (
             <option key={v.id} value={v.id}>
-              {v.name}（{v.model} · {v.effort}）
+              {variantLabel(v)}
             </option>
           ))}
           <option value={LOCAL}>本机配置（~/.claude）</option>

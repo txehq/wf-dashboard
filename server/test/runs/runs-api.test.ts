@@ -28,8 +28,7 @@ db.insert(variants)
     baseCommit: '0'.repeat(40),
     skillsHash: 'a'.repeat(64),
     version: '0.0.0-eval.aaaaaaaa',
-    model: 'opus',
-    effort: 'high',
+    workflowId: 'dev-workflow',
   })
   .run();
 db.insert(batches).values({ id: 'b-20261009-before', repeats: 1 }).run();
@@ -48,6 +47,8 @@ for (const [i, [status, id]] of Object.entries(before).entries()) {
       taskId: 'lfg-calculator',
       variantId,
       repeatIndex: i,
+      model: 'opus',
+      effort: 'high',
       status: status as keyof typeof before,
       sessionId: randomUUID(),
       workspacePath: path.join(work, id),
@@ -64,6 +65,8 @@ db.insert(runs)
     taskId: 'lfg-calculator',
     variantId,
     repeatIndex: 8,
+    model: 'opus',
+    effort: 'high',
     status: 'cancelled',
     gradingStatus: 'running',
     sessionId: randomUUID(),
@@ -80,6 +83,8 @@ db.insert(runs)
     taskId: 'lfg-calculator',
     variantId,
     repeatIndex: 10,
+    model: 'opus',
+    effort: 'high',
     status: 'succeeded',
     humanIntervened: true,
     sessionId: randomUUID(),
@@ -169,7 +174,10 @@ describe('服务重启时的状态修正', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
       id: before.running,
-      taskKind: 'lfg',
+      workflowId: 'dev-workflow',
+      bigStage: 'lfg',
+      model: 'opus',
+      effort: 'high',
       mode: 'simulated',
       pending: null,
       stages: null,
@@ -238,6 +246,8 @@ describe('把 run 标为无效', () => {
         taskId: 'lfg-calculator',
         variantId,
         repeatIndex: 9,
+        model: 'opus',
+        effort: 'high',
         status: 'queued',
         sessionId: randomUUID(),
         workspacePath: path.join(work, queued),
@@ -277,6 +287,12 @@ describe('POST /api/batches', () => {
       payload: { variantIds: [variantId], taskIds: ['lfg-calculator'], extra: 1 },
     });
     expect(extra.statusCode).toBe(400);
+    const badEffort = await app.inject({
+      method: 'POST',
+      url: '/api/batches',
+      payload: { variantIds: [variantId], taskIds: ['lfg-calculator'], effort: 'ultra' },
+    });
+    expect(badEffort.statusCode).toBe(400);
     const unknown = await app.inject({
       method: 'POST',
       url: '/api/batches',
@@ -298,6 +314,9 @@ describe('GET / PUT /api/settings', () => {
       defaultRepeats: 2,
       models: { ...defaults.models, judge: `${defaults.models.simulatedUser}-x` },
       copyRunnerLabels: ['arc-linux-dind', 'linux-large'],
+      // 发起 batch、交互与 resume 时模型与 effort 的默认值（Contracts 16.5）
+      agentModel: 'sonnet',
+      agentEffort: 'xhigh',
     };
     const saved = await app.inject({ method: 'PUT', url: '/api/settings', payload: next });
     expect(saved.statusCode).toBe(200);

@@ -10,6 +10,7 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core';
 
+// dev-workflow 的两个大阶段：Sessions 列表的粗判与交互的启动用它（可配置的 workflow 见 workflowTable）
 export const workflows = ['lfg', 'ic'] as const;
 export type Workflow = (typeof workflows)[number];
 
@@ -42,10 +43,11 @@ export interface ParseState {
   forkToolUseId?: string;
 }
 
-// lfg 的 rubric 按产物分组，定义在 task schema 中
-import { type ArtifactRubric, type IcTaskSource, rubricArtifacts } from '../tasks/schema.js';
+// rubric 按产物分组，定义在 task schema 中
+import type { ArtifactRubric, IcTaskSource } from '../tasks/schema.js';
 export type { ArtifactRubric, RubricItem } from '../tasks/schema.js';
 import type { CrossRunRef, IcCriteriaDetail, IcDetail, SourceRef } from '../grading/schema.js';
+import type { WorkflowDefinition } from '../workflows/schema.js';
 
 const createdAt = () =>
   integer('created_at', { mode: 'timestamp_ms' })
@@ -62,12 +64,28 @@ export const sources = sqliteTable('sources', {
   createdAt: createdAt(),
 });
 
-// tasks/<id>/task.yaml 的镜像，启动时由 tasks/loader.ts 同步；lfg 与 ic 各自的字段在另一种 kind 下为空
+// workflow（Contracts 16.1）：大阶段与小阶段的定义；dev-workflow 由服务启动时从内置的 YAML 写入
+export const workflowTable = sqliteTable('workflows', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  // 新建 workflow 时作底子的 variant；dev-workflow 为最早导入的基线，还没有导入时为空
+  baseVariantId: text('base_variant_id').references((): AnySQLiteColumn => variants.id, {
+    onDelete: 'set null',
+  }),
+  // 经 WorkflowDefinition 校验后的定义
+  definition: text('definition', { mode: 'json' }).$type<WorkflowDefinition>().notNull(),
+  createdAt: createdAt(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+});
+
+// tasks/<id>/task.yaml 的镜像，启动时由 tasks/loader.ts 同步；大阶段不需要的字段为空
 export const tasks = sqliteTable(
   'tasks',
   {
     id: text('id').primaryKey(),
-    kind: text('kind', { enum: workflows }).notNull(),
+    // task 绑定的 workflow 与大阶段（Contracts 16.3）；workflow 是否存在由加载器校验
+    workflowId: text('workflow_id').notNull(),
+    bigStage: text('big_stage').notNull(),
     title: text('title').notNull(),
     persona: text('persona').notNull(),
     hiddenRequirements: text('hidden_requirements').notNull(),
@@ -97,14 +115,17 @@ export const tasks = sqliteTable(
     createdAt: createdAt(),
     updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
   },
-  (t) => [index('tasks_kind_idx').on(t.kind)],
+  (t) => [index('tasks_workflow_big_stage_idx').on(t.workflowId, t.bigStage)],
 );
 
 export const variants = sqliteTable(
   'variants',
   {
     id: text('id').primaryKey(),
-    name: text('name').notNull().unique(),
+    // 在同一 workflow 内唯一
+    name: text('name').notNull(),
+    // 所属 workflow（Contracts 16.4）；是否存在由 variants 模块校验
+    workflowId: text('workflow_id').notNull(),
     // 另存为新 variant 时指向来源
     parentId: text('parent_id').references((): AnySQLiteColumn => variants.id, {
       onDelete: 'set null',
@@ -114,8 +135,6 @@ export const variants = sqliteTable(
     skillsHash: text('skills_hash').notNull(),
     // <base>-eval.<hash8>
     version: text('version').notNull(),
-    model: text('model').notNull(),
-    effort: text('effort').notNull(),
     status: text('status', { enum: ['draft', 'frozen'] })
       .notNull()
       .default('draft'),
@@ -136,7 +155,10 @@ export const variants = sqliteTable(
     // 按 session 的 skill 新建时指向那个 session（Contracts 15.1）；session 可能尚未导入，不加外键
     sourceSessionId: text('source_session_id'),
   },
-  (t) => [index('variants_skills_hash_idx').on(t.skillsHash)],
+  (t) => [
+    index('variants_skills_hash_idx').on(t.skillsHash),
+    uniqueIndex('variants_workflow_name_idx').on(t.workflowId, t.name),
+  ],
 );
 
 export const batches = sqliteTable('batches', {
@@ -215,6 +237,9 @@ export const runs = sqliteTable(
       .references(() => variants.id, { onDelete: 'restrict' }),
     // 同一 batch 内同一 (task, variant) 的第几次重复，从 0 开始
     repeatIndex: integer('repeat_index').notNull(),
+    // claude 的 --model（别名）与 --effort：发起 batch 时选（Contracts 16.5）
+    model: text('model').notNull(),
+    effort: text('effort').notNull(),
     status: text('status', { enum: runStatuses }).notNull().default('queued'),
     humanIntervened: integer('human_intervened', { mode: 'boolean' }).notNull().default(false),
     // dashboard 生成并通过 --session-id 传给 claude；sessions 行由 Ingester 稍后写入，因此这里不加外键
@@ -302,6 +327,9 @@ export const liveProcesses = sqliteTable(
     kind: text('kind', { enum: liveProcessKinds }).notNull(),
     // 空表示"本机配置"（用户自己的 ~/.claude）
     variantId: text('variant_id').references(() => variants.id, { onDelete: 'restrict' }),
+    // 实际传给 claude 的 --model 与 --effort（Contracts 16.5）；本机配置不传，为空
+    model: text('model'),
+    effort: text('effort'),
     pid: integer('pid'),
     status: text('status', { enum: liveStatuses }).notNull().default('running'),
     exitCode: integer('exit_code'),
@@ -485,6 +513,8 @@ export const stageStates = sqliteTable('stage_states', {
   sessionId: text('session_id')
     .primaryKey()
     .references(() => sessions.id, { onDelete: 'cascade' }),
+  // 划分所用的 workflow（Contracts 16.6）；session 所用的 workflow 或其定义改变时从头重算
+  workflowId: text('workflow_id').notNull(),
   state: text('state', { mode: 'json' }).notNull(),
   foldedSeq: integer('folded_seq').notNull(),
   // folded_seq 那条请求的时间：之后的用户消息还没有折叠
@@ -492,7 +522,7 @@ export const stageStates = sqliteTable('stage_states', {
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 });
 
-// 一轮流程：同一 session 可以有多轮 /lfg 与 /ic
+// 一轮大阶段：同一 session 可以有多轮
 export const stageCycles = sqliteTable(
   'stage_cycles',
   {
@@ -500,7 +530,8 @@ export const stageCycles = sqliteTable(
     sessionId: text('session_id')
       .notNull()
       .references(() => sessions.id, { onDelete: 'cascade' }),
-    workflow: text('workflow', { enum: workflows }).notNull(),
+    // 大阶段 id
+    bigStage: text('big_stage').notNull(),
     // 从 1 开始
     cycle: integer('cycle').notNull(),
     label: text('label').notNull(),
@@ -510,7 +541,7 @@ export const stageCycles = sqliteTable(
     createdAt: createdAt(),
   },
   (t) => [
-    uniqueIndex('stage_cycles_session_workflow_cycle_idx').on(t.sessionId, t.workflow, t.cycle),
+    uniqueIndex('stage_cycles_session_big_stage_cycle_idx').on(t.sessionId, t.bigStage, t.cycle),
   ],
 );
 
@@ -521,7 +552,7 @@ export const stageSpans = sqliteTable(
     sessionId: text('session_id')
       .notNull()
       .references(() => sessions.id, { onDelete: 'cascade' }),
-    workflow: text('workflow', { enum: workflows }).notNull(),
+    bigStage: text('big_stage').notNull(),
     // 所属轮次，对应 stage_cycles.cycle
     cycle: integer('cycle').notNull(),
     stage: text('stage').notNull(),
@@ -535,9 +566,9 @@ export const stageSpans = sqliteTable(
     createdAt: createdAt(),
   },
   (t) => [
-    uniqueIndex('stage_spans_session_workflow_cycle_stage_idx').on(
+    uniqueIndex('stage_spans_session_big_stage_cycle_stage_idx').on(
       t.sessionId,
-      t.workflow,
+      t.bigStage,
       t.cycle,
       t.stage,
     ),
@@ -588,14 +619,11 @@ export const runMessages = sqliteTable(
   (t) => [uniqueIndex('run_messages_run_seq_idx').on(t.runId, t.seq)],
 );
 
-// ticket 为 ic 的 Linear 工单 identifier；friction 为被测 agent 在 txehq/txe-workflow 提的 issue 或评论，
-// 每个 run 可以有多条，其余种类每个 run 一条；acceptance 为 ic 发布到 engapp.dev 的验收报告；
+// rubric 评分的产物以 rubric 分组 id（大阶段定义中 artifacts 的 id，例如 brief、research）为 kind；
+// 其余为固定的种类：ticket 为 Linear 工单 identifier；friction 为被测 agent 在 txehq/txe-workflow 提的 issue 或评论，
+// 每个 run 可以有多条，其余种类每个 run 一条；acceptance 为发布到 engapp.dev 的验收报告；
 // pr_snapshot 为进入 grading 时 PR 的 reviews、评论与 checks（json，Contracts 15.2），location 为仓库地址
-export const artifactKinds = [
-  'brief',
-  'research',
-  'plan',
-  'tickets',
+export const fixedArtifactKinds = [
   'pr',
   'repo',
   'ticket',
@@ -603,7 +631,7 @@ export const artifactKinds = [
   'acceptance',
   'pr_snapshot',
 ] as const;
-export type ArtifactKind = (typeof artifactKinds)[number];
+export type ArtifactKind = string;
 
 export const artifacts = sqliteTable(
   'artifacts',
@@ -612,7 +640,7 @@ export const artifacts = sqliteTable(
     runId: text('run_id')
       .notNull()
       .references(() => runs.id, { onDelete: 'cascade' }),
-    kind: text('kind', { enum: artifactKinds }).notNull(),
+    kind: text('kind').notNull(),
     // 文件路径或 URL
     location: text('location').notNull(),
     snapshot: text('snapshot'),
@@ -625,8 +653,11 @@ export const artifacts = sqliteTable(
   (t) => [uniqueIndex('artifacts_run_kind_location_idx').on(t.runId, t.kind, t.location)],
 );
 
-// lfg：每个 rubric 产物一行（一次 judge 调用，产物不存在时没有调用）；ic：每个 run 一行，有隐藏测试时为测试结果与终点判定（kind ic），
-// 没有隐藏测试时为验收标准 judge 的一次调用与终点判定（kind ic_criteria，逐条得分在 grade_items）
+// rubric：每个 rubric 产物一行（一次 judge 调用，产物不存在时没有调用）；有隐藏测试时为测试结果（kind ic），
+// 按验收标准评分时为 judge 的一次调用（kind ic_criteria，逐条得分在 grade_items）；两者都没有而选了 pr-endpoint 时为
+// 终点判定（kind endpoint）。reached_end 为空表示大阶段没有选 pr-endpoint（Contracts 16.2）
+export const gradeKinds = ['rubric', 'ic', 'ic_criteria', 'endpoint'] as const;
+
 export const grades = sqliteTable(
   'grades',
   {
@@ -634,9 +665,9 @@ export const grades = sqliteTable(
     runId: text('run_id')
       .notNull()
       .references(() => runs.id, { onDelete: 'cascade' }),
-    kind: text('kind', { enum: ['rubric', 'ic', 'ic_criteria'] }).notNull(),
-    // rubric 的产物组；ic 为空
-    artifact: text('artifact', { enum: rubricArtifacts }),
+    kind: text('kind', { enum: gradeKinds }).notNull(),
+    // rubric 的产物组（rubric 分组 id）；其余为空
+    artifact: text('artifact'),
     // 评分时产物不存在则为空
     artifactId: integer('artifact_id').references(() => artifacts.id, { onDelete: 'set null' }),
     judgeModel: text('judge_model'),

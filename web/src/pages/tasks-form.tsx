@@ -23,13 +23,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  artifactLabels,
-  fromForm,
-  type IcForm,
-  type LfgForm,
-  type TaskForm,
-} from '@/lib/task-form';
+import { artifactLabel, fromForm, type IcForm, type LfgForm, type TaskForm } from '@/lib/task-form';
 import { draftRubric } from '@/lib/tasks';
 import { SourceRepoFields } from '@/pages/tasks-import';
 
@@ -102,7 +96,7 @@ function RubricGroupEditor({
   group: ArtifactRubric;
   onChange: (group: ArtifactRubric) => void;
 }) {
-  const label = artifactLabels[group.artifact];
+  const label = artifactLabel(group.artifact);
   const updateItem = (index: number, patch: Partial<ArtifactRubric['items'][number]>) => {
     onChange({
       ...group,
@@ -227,7 +221,7 @@ function DraftView({
         {draft.rubric.map((group) => (
           <div key={group.artifact} className="flex flex-col gap-1">
             <h3 className="text-sm font-semibold">
-              {artifactLabels[group.artifact]}（满分 {rubricMaxScore([group])}）
+              {artifactLabel(group.artifact)}（满分 {rubricMaxScore([group])}）
             </h3>
             <Table className="table-fixed">
               <TableBody>
@@ -253,7 +247,8 @@ function RubricEditor({ form, onChange }: { form: LfgForm; onChange: (form: LfgF
     mutationFn: () =>
       draftRubric({
         id: form.id,
-        kind: 'lfg',
+        workflow: form.workflow,
+        bigStage: form.bigStage,
         title: form.title,
         persona: form.persona,
         hiddenRequirements: form.hiddenRequirements,
@@ -429,7 +424,7 @@ function IcFields({
   const [analysis, onAnalysis] = useState(initialAnalysis);
   const declared = (() => {
     const result = fromForm(form);
-    return result.ok && result.task.kind === 'ic' && result.task.hiddenTests !== undefined
+    return result.ok && result.task.hiddenTests !== undefined
       ? Object.values(result.task.hiddenTests.manifest).flat().length
       : null;
   })();

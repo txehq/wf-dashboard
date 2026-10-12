@@ -24,10 +24,9 @@ import { initialParseState } from '../src/ingest/ingest.js';
 import { costUsd } from '../src/llm/pricing.js';
 import { scanCrossRunRefs } from '../src/runs/cross-run-refs.js';
 import { updateStages } from '../src/stages/report.js';
-import { LFG_STAGES } from '../src/stages/workflow.js';
-import { loadIcTask, loadLfgTask, syncTasks, withHiddenTests } from '../src/tasks/loader.js';
-import type { RubricArtifact } from '../src/tasks/schema.js';
+import { loadTask, syncTasks, withHiddenTests, withRubric } from '../src/tasks/loader.js';
 import { createVariants } from '../src/variants/index.js';
+import { loadBigStage } from '../src/workflows/index.js';
 
 // 用法：WFD_DATA_DIR=<e2e 数据目录> tsx scripts/seed-compare-e2e.ts
 // 清空该数据目录，写入 Compare 页面 e2e 用的数据：基线与一个修改过的 variant（真实导出与派生），
@@ -48,8 +47,9 @@ const simulatedUserModel = 'claude-sonnet-4-6';
 fs.rmSync(config.dataDir, { recursive: true, force: true });
 const db = openDatabase(config.dbPath, config.migrationsDir);
 syncTasks(db, config.tasksDir);
-const lfgTask = loadLfgTask(db, 'lfg-calculator');
-const icTask = withHiddenTests(loadIcTask(db, 'ic-money-format'));
+const lfgTask = withRubric(loadTask(db, 'lfg-calculator'));
+const icTask = withHiddenTests(loadTask(db, 'ic-money-format'));
+const LFG_STAGES = loadBigStage(db, 'dev-workflow', 'lfg').stages.map((s) => s.id);
 
 // 确定的伪随机数，每次生成相同的数据
 function rng(seed: number) {
@@ -72,11 +72,7 @@ const variantsModule = createVariants({
   repo: config.txeWorkflowRepo,
   ctxBin: config.ctxBin,
 });
-const baseline = await variantsModule.createBaseline({
-  name: '基线 v2.3.0',
-  model: 'opus',
-  effort: 'high',
-});
+const baseline = await variantsModule.createBaseline({ name: '基线 v2.3.0' });
 const modified = variantsModule.derive(baseline.id, { name: 'interview 追问边界' });
 
 function editSkill(file: string, anchor: string, insert: string) {
@@ -389,6 +385,7 @@ function insertRunRow(args: {
   repeatIndex: number;
   humanIntervened: boolean;
   github: boolean;
+  model?: string;
 }) {
   const sessionId = `00000000-0000-4000-8000-${args.id.slice(-6).padStart(12, '0')}`;
   const startedAt = clock;
@@ -400,6 +397,8 @@ function insertRunRow(args: {
       taskId: args.taskId,
       variantId: args.variantId,
       repeatIndex: args.repeatIndex,
+      model: args.model ?? 'opus',
+      effort: 'high',
       status: 'succeeded',
       humanIntervened: args.humanIntervened,
       sessionId,
@@ -471,6 +470,8 @@ function seedLfgRun(
     repeatIndex: intervened ? 0 : index,
     humanIntervened: intervened,
     github: false,
+    // 修改后的 variant 的第 3 次 lfg run 用 sonnet：Compare 按模型分组时分成两格（Contracts 16.5）
+    model: variant === 'modified' && index === 2 && !intervened ? 'sonnet' : 'opus',
   });
   const profile = lfgProfiles[variant];
   const endedAt = seedSession({
@@ -493,7 +494,7 @@ function seedLfgRun(
 
   const feature = path.join(vault, 'Project Magi Eval/Features', id);
   const research = doc(variant, 'research');
-  const snapshots: Record<RubricArtifact, { location: string; snapshot: string }> = {
+  const snapshots: Record<string, { location: string; snapshot: string }> = {
     brief: { location: path.join(feature, 'Brief.md'), snapshot: doc(variant, 'brief') },
     research: { location: path.join(feature, 'Research.md'), snapshot: research },
     plan: {
@@ -504,7 +505,9 @@ function seedLfgRun(
   };
   const base = gradeFixture[variant];
   for (const group of lfgTask.rubric) {
-    const { location, snapshot } = snapshots[group.artifact];
+    const found = snapshots[group.artifact];
+    if (found === undefined) throw new Error(`没有 ${group.artifact} 的产物快照`);
+    const { location, snapshot } = found;
     const artifact = db
       .insert(artifacts)
       .values({ runId: id, kind: group.artifact, location, snapshot })
