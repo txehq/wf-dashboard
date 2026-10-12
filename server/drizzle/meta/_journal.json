@@ -71,6 +71,13 @@
       "when": 1791791287045,
       "tag": "0009_live_items",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1791805119041,
+      "tag": "0010_live_hidden",
+      "breakpoints": true
     }
   ]
 }

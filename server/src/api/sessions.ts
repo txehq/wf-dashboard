@@ -62,6 +62,8 @@ const SessionSummary = z.object({
   runId: z.string().nullable(),
   // 交互产生或被交互 resume 的 session（Contracts 14.1），列表中标为"交互"
   liveId: z.string().nullable(),
+  // 所属的交互项已关闭（Contracts 14.5）：导入选择框中这类 session 可选，选了即恢复显示
+  liveHidden: z.boolean(),
   // 绑定的 variant 与方式（Contracts 15.1）
   variant: z.object({ id: z.string(), name: z.string() }).nullable(),
   variantBinding: z.enum(variantBindings).nullable(),
@@ -197,17 +199,21 @@ function summaries(db: Db, rows: SummaryRow[]): SessionSummary[] {
       .all()
       .map((m) => [m.sessionId, sessionTitle(m.text)]),
   );
-  // 属于交互区某一项的 session 显示该项的名字（Contracts 14.1、14.3），改名后立即生效
+  // 属于交互区某一项的 session 显示该项的名字（Contracts 14.1、14.3），改名后立即生效；另带这一项是否已关闭
   const liveIds = rows.flatMap((r) => (r.liveId === null ? [] : [r.liveId]));
-  const liveTitles = new Map(
+  const liveItems = new Map(
     liveIds.length === 0
       ? []
       : db
-          .select({ id: liveSessions.id, title: liveSessions.title })
+          .select({
+            id: liveSessions.id,
+            title: liveSessions.title,
+            hiddenAt: liveSessions.hiddenAt,
+          })
           .from(liveSessions)
           .where(inArray(liveSessions.id, liveIds))
           .all()
-          .map((l) => [l.id, l.title]),
+          .map((l) => [l.id, l]),
   );
   const variantNames = boundVariantNames(
     db,
@@ -219,10 +225,11 @@ function summaries(db: Db, rows: SummaryRow[]): SessionSummary[] {
     if (r.variantId !== null && variantName === undefined) {
       throw new Error(`session ${r.id} 绑定的 variant ${r.variantId} 不存在`);
     }
+    const item = r.liveId === null ? undefined : liveItems.get(r.liveId);
     return {
       id: r.id,
       cwd: r.cwd,
-      title: (r.liveId === null ? undefined : liveTitles.get(r.liveId)) ?? titles.get(r.id) ?? null,
+      title: item?.title ?? titles.get(r.id) ?? null,
       source: r.source,
       startedAt: r.startedAt.toISOString(),
       endedAt: r.endedAt.toISOString(),
@@ -237,6 +244,7 @@ function summaries(db: Db, rows: SummaryRow[]): SessionSummary[] {
       workflows: workflows.filter((w) => (w === 'lfg' ? r.hasLfg : r.hasIc)),
       runId: r.runId,
       liveId: r.liveId,
+      liveHidden: item !== undefined && item.hiddenAt !== null,
       variant:
         r.variantId === null || variantName === undefined
           ? null

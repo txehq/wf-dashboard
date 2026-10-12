@@ -16,6 +16,7 @@ export const gatewayTests = [
   'test/tasks/criteria-draft.test.ts',
   'test/grading/ic-criteria-judge.test.ts',
   'test/live/live.test.ts',
+  'test/live/live-trust.test.ts',
   'test/live/live-simulated.test.ts',
   'test/insights-engines.test.ts',
   'test/bindings-build.test.ts',

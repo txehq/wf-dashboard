@@ -5,7 +5,7 @@ import type { Workflow } from '@/lib/sessions-api';
 export function LiveBadge({ liveId }: { liveId: string }) {
   return (
     <Link
-      to={`/live?open=${liveId}`}
+      to={`/live?item=${liveId}`}
       className="relative z-10 rounded border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-xs font-medium text-sky-900 hover:underline"
       data-testid="live-badge"
       title={liveId}

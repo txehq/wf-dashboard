@@ -40,6 +40,8 @@ export interface SessionSummary {
   runId: string | null;
   // 交互产生或被交互 resume 的 session
   liveId: string | null;
+  // 所属的交互项已关闭
+  liveHidden: boolean;
   variant: { id: string; name: string } | null;
   variantBinding: 'run' | 'auto' | 'manual' | null;
 }
