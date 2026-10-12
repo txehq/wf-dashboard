@@ -56,6 +56,7 @@ pnpm e2e
 | `pnpm build`             | 编译服务端到 `server/dist/`，构建页面到 `web/dist/`                     |
 | `pnpm test`              | 基础档的 Vitest（见「测试」）                                           |
 | `pnpm test:real [文件…]` | 真实档的 Vitest                                                         |
+| `pnpm test:slow [文件…]` | 慢档的 Vitest                                                           |
 | `pnpm test:external`     | 在 Linear 建工单的外部系统测试                                          |
 | `pnpm e2e [文件…]`       | 基础档的 Playwright，截图写到 `.work/screenshots/`                      |
 | `pnpm e2e:real [文件…]`  | 真实档的 Playwright                                                     |
@@ -68,7 +69,7 @@ pnpm e2e
 
 ## 测试
 
-测试都使用真实服务，不使用 mock，分为两档。任何测试都不在 GitHub 上创建仓库、PR 或 ruleset（`gh` 的写操作在测试中一律报错），需要仓库的逻辑在 `.work/` 下由测试建的本地 bare 仓库上测。
+测试都使用真实服务，不使用 mock，分为三档：基础档每次改动后全部运行；慢档与真实档只运行覆盖改动的文件。任何测试都不在 GitHub 上创建仓库、PR 或 ruleset（`gh` 的写操作在测试中一律报错），需要仓库的逻辑在 `.work/` 下由测试建的本地 bare 仓库上测。
 
 ### 基础档：每次改动后全部运行
 
@@ -79,7 +80,15 @@ pnpm typecheck && pnpm lint && pnpm test && pnpm e2e
 - `pnpm test`：Vitest 的 `local` 项目（`server/vitest.config.ts`）与 web 的测试。真实 SQLite、真实 jsonl 样本、录下的真实 gateway 与 GitHub 响应、本地 fixture 仓库上的真实 vitest 与计分。
 - `pnpm e2e`：`playwright.config.ts`，种子数据与导入的真实 run，只启动这些 spec 用到的服务。可以只给文件，例如 `pnpm e2e e2e/home.spec.ts`，这时只启动这个文件所在 project 的服务。
 
-基础档不调用真实模型、claude 与 Codex，不写 Linear：运行时 PATH 最前面是 `server/test/setup/basic-bin/` 中会报错的 `claude` 与 `codex`，gateway 的地址换成不存在的域名（`server/test/setup/basic-tier.ts`），被拦下的调用记在 `.work/basic-tier/blocked.log`。页面加载时的环境检查也被拦下，状态显示为未通过。
+基础档与慢档不调用真实模型、claude 与 Codex，不写 Linear：运行时 PATH 最前面是 `server/test/setup/basic-bin/` 中会报错的 `claude` 与 `codex`，gateway 的地址换成不存在的域名（`server/test/setup/basic-tier.ts`），被拦下的调用记在 `.work/basic-tier/blocked.log`。页面加载时的环境检查也被拦下，状态显示为未通过。
+
+### 慢档：只运行覆盖改动的文件
+
+```sh
+pnpm test:slow server/test/ic-tasks.test.ts
+```
+
+- `pnpm test:slow [文件…]`：Vitest 的 `slow` 项目，不调用真实模型，但单个文件要一分钟以上的测试（清单是 `server/vitest.config.ts` 中的 `slowTests`）：在起始仓库上 `npm ci` 并运行隐藏测试、评分 sandbox 的时限与隔离、ic 评分。
 
 ### 真实档：只运行覆盖改动的文件
 
@@ -93,7 +102,7 @@ pnpm test:external
 - `pnpm e2e:real [文件…]`：`playwright.real.config.ts`，服务端真实调用 judge、claude、Codex 或 Linear MCP 的 spec 与用例，只启动选中的 spec 用到的服务。
 - `pnpm test:external`：`server/test/*.external.test.ts`，配置在 `server/vitest.external.config.ts`，在 Linear TXE team 的 "Workflow Eval" project 中建带 `eval` label 的工单，工单全部保留。需要 Linear 已登录（`~/.mcp-auth` 中有 mcp-remote 的 token）。只在修改 `server/src/external/` 后运行。
 
-真实档花时间也花钱：只运行覆盖这次改动的那几个文件，不运行整档。`pnpm test:real` 与 `pnpm e2e:real` 不给文件时运行整档，开头打印"运行整个真实档"。
+慢档与真实档花时间，真实档还花钱：只运行覆盖这次改动的那几个文件，不运行整档。`pnpm test:slow`、`pnpm test:real` 与 `pnpm e2e:real` 不给文件时运行整档，开头打印"运行整个慢档"或"运行整个真实档"。
 
 ## 目录结构
 
