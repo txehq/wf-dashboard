@@ -151,6 +151,7 @@ describe('database', () => {
       'tasks',
       'user_messages',
       'variants',
+      'workflow_drafts',
       'workflows',
     ]);
   });

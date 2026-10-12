@@ -258,24 +258,29 @@ export function createVariants({
     if (taken !== undefined) throw new HttpError(409, `名称已被使用：${name} (${workflowId})`);
   }
 
-  // 新 variant 的 src：导入的 variant 只有 src/skills，由基线导出加上它的 skills 组成
-  function copySource(source: Variant, id: string) {
+  // source 的完整 src 复制到 dest：导入的 variant 只有 src/skills，由基线导出加上它的 skills 组成
+  function copySourceTree(source: Variant, dest: string) {
     const base = layout.base(source.baseCommit);
     if (!fs.existsSync(base)) {
       throw new HttpError(409, `基线 ${source.baseCommit} 的导出不存在：${base}`);
     }
-    const dirs = layout.variant(id);
-    fs.mkdirSync(dirs.dir, { recursive: true });
     const copy = (from: string, to: string) => {
       fs.cpSync(from, to, { recursive: true, verbatimSymlinks: true });
     };
     if (source.installDir === null) {
-      copy(base, dirs.src);
-      fs.rmSync(dirs.skills, { recursive: true, force: true });
-      copy(dirsOf(source).skills, dirs.skills);
+      copy(base, dest);
+      fs.rmSync(path.join(dest, 'skills'), { recursive: true, force: true });
+      copy(dirsOf(source).skills, path.join(dest, 'skills'));
     } else {
-      copy(dirsOf(source).src, dirs.src);
+      copy(dirsOf(source).src, dest);
     }
+  }
+
+  // 新 variant 的 src
+  function copySource(source: Variant, id: string) {
+    const dirs = layout.variant(id);
+    fs.mkdirSync(dirs.dir, { recursive: true });
+    copySourceTree(source, dirs.src);
     return dirs;
   }
 
@@ -532,6 +537,73 @@ export function createVariants({
         );
       }
       return afterEdit(copy);
+    },
+
+    // Codex 草稿的 src/ 取自底子 variant 的完整 src（Contracts 17.2）
+    exportSource(id: string, dest: string) {
+      copySourceTree(get(id), dest);
+    },
+
+    // 同一 workflow 中还没有被使用的名字：name，已有时依次加" #2"、" #3"（Contracts 17.4）
+    freeName(workflowId: string, name: string): string {
+      const taken = new Set(
+        db
+          .select({ name: variants.name })
+          .from(variants)
+          .where(eq(variants.workflowId, workflowId))
+          .all()
+          .map((v) => v.name),
+      );
+      if (!taken.has(name)) return name;
+      for (let n = 2; ; n++) {
+        const candidate = `${name} #${String(n)}`;
+        if (!taken.has(candidate)) return candidate;
+      }
+    },
+
+    // 保存 Codex 草稿（Contracts 17.4）：src/ 取草稿的 src/，parent 为底子 variant，记录来源草稿；随后由调用方构建
+    createFromDraft(input: {
+      srcDir: string;
+      workflowId: string;
+      name: string;
+      parentId: string;
+      draftId: string;
+    }): Variant {
+      const parent = get(input.parentId);
+      loadWorkflow(db, input.workflowId);
+      assertNameFree(input.workflowId, input.name);
+      const id = randomUUID();
+      const dirs = layout.variant(id);
+      fs.mkdirSync(dirs.dir, { recursive: true });
+      fs.cpSync(input.srcDir, dirs.src, { recursive: true, verbatimSymlinks: true });
+      fs.writeFileSync(
+        dirs.buildLog,
+        `=== 从 Codex 草稿 ${input.draftId} 保存（底子 ${parent.name}，${parent.id}） ===\n`,
+      );
+      const hash = skillsHash(dirs.src);
+      db.insert(variants)
+        .values({
+          id,
+          name: input.name,
+          workflowId: input.workflowId,
+          parentId: parent.id,
+          baseCommit: parent.baseCommit,
+          skillsHash: hash,
+          version: versionFor(parent.baseCommit, hash),
+          installDir: dirs.dir,
+          draftId: input.draftId,
+        })
+        .run();
+      onSkillsChanged();
+      return get(id);
+    },
+
+    // 保存草稿时构建失败：删去这次建出、还没有被任何 run 或交互用过的 variant 与它的目录
+    removeUnused(id: string) {
+      const row = get(id);
+      db.delete(variants).where(eq(variants.id, id)).run();
+      fs.rmSync(dirsOf(row).dir, { recursive: true, force: true });
+      onSkillsChanged();
     },
 
     listFiles(id: string): SkillFile[] {

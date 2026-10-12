@@ -13,8 +13,8 @@ guardGithub();
 guardBasicTier({ offline: true });
 process.env.WFD_LOCAL_REPOS_DIR = e2eLocalReposDir;
 
-// 同一个 spec 中真实调用 judge 或真实运行的用例在真实档，按标题排除
-const realTests = [/让 LLM 起草 rubric/, /粘贴工单地址导入/, /真实运行/];
+// 同一个 spec 中真实调用 judge 或真实运行的用例在真实档，按标题排除；Codex 草稿的成功保存要真实构建，同样在真实档
+const realTests = [/让 LLM 起草 rubric/, /粘贴工单地址导入/, /真实运行/, /真实构建/];
 
 const projectServices: Record<string, Service[]> = {
   chromium: ['sessionsServer', 'web'],
@@ -45,6 +45,7 @@ export default defineConfig({
         'tasks-import.spec.ts',
         'variants.spec.ts',
         'workflows.spec.ts',
+        'codex-drafts.spec.ts',
         'compare-empty.spec.ts',
       ],
       use: {

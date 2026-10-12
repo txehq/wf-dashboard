@@ -34,6 +34,8 @@ import { analysisRoutes } from './analyses.js';
 import { createWorkflows } from '../workflows/index.js';
 import { workflowRoutes } from './workflows.js';
 import { openRoutes } from './open.js';
+import { createDrafts } from '../drafts/index.js';
+import { draftRoutes } from './drafts.js';
 
 export interface AppOptions {
   db: Db;
@@ -152,6 +154,11 @@ export async function buildApp({
     },
     localHome: localHome ?? os.homedir(),
     repos,
+    codex: {
+      bin: config.codexBin,
+      sources: { authPath: config.codexAuthPath, configPath: config.codexConfigPath },
+      sessionTimeoutMs: 60_000,
+    },
   });
   await app.register(liveRoutes, { live });
   app.addHook('onClose', async () => {
@@ -162,6 +169,16 @@ export async function buildApp({
   await app.register(workflowRoutes, { workflows: createWorkflows({ db, variants }) });
   // "在访达中打开"（Contracts 16.7）
   await app.register(openRoutes, { variants, live });
+  // 用 Codex 生成 workflow 或 variant（Contracts 第 17 节）
+  await app.register(draftRoutes, {
+    drafts: createDrafts({
+      db,
+      variants,
+      live,
+      draftsDir: config.workflowDraftsDir,
+      skillSources: config.codexSkillSources,
+    }),
+  });
 
   // 页面的路由在浏览器中：未匹配 /api 的路径都返回 index.html
   if (webDir !== undefined) {

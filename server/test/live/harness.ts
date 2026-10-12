@@ -12,6 +12,7 @@ import { createLive, type Live } from '../../src/live/index.js';
 import type { LiveDetail } from '../../src/live/views.js';
 import { createSettingsStore } from '../../src/runs/settings.js';
 import { createVariants, type Variant } from '../../src/variants/index.js';
+import { testCodex } from '../helpers/codex.js';
 import { testRepos } from '../helpers/local-repos.js';
 
 // 交互测试的服务：真实构建的基线 variant（wf runtime 与 cargo 缓存在 .work/test-data，跨测试运行复用）、
@@ -44,6 +45,7 @@ export async function startLiveServer(options: { localHome?: string } = {}) {
     serverUrl: () => url,
     localHome: options.localHome ?? path.join(config.dataDir, 'home'),
     repos: testRepos(),
+    codex: testCodex(),
   });
   await app.register(liveRoutes, { live });
   // Sessions 列表与详情：交互项改名后显示新名字（Contracts 14.3）

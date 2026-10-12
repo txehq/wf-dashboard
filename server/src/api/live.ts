@@ -164,6 +164,17 @@ export const liveRoutes: FastifyPluginCallbackZod<{ live: Live }> = (app, { live
     (request) => live.stop(request.params.id),
   );
 
+  // Codex 会话的 resume（Contracts 17.3）：在同一项上 codex resume <会话 id>
+  app.post(
+    '/api/live/:id/codex-resume',
+    { schema: { params: IdParams, response: { 201: LiveDetail } } },
+    async (request, reply) => {
+      const resumed = await live.resumeCodex(request.params.id);
+      void reply.code(201);
+      return resumed;
+    },
+  );
+
   // 终端：连接时先发保留的输出，之后实时转发；关掉页面不影响进程
   app.get('/api/live/:id/pty', { websocket: true }, (socket, request) => {
     const { id } = IdParams.parse(request.params);

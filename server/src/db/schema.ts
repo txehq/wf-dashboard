@@ -158,6 +158,10 @@ export const variants = sqliteTable(
     }),
     // 按 session 的 skill 新建时指向那个 session（Contracts 15.1）；session 可能尚未导入，不加外键
     sourceSessionId: text('source_session_id'),
+    // 由 Codex 草稿保存出时指向那个草稿（Contracts 17.4）
+    draftId: text('draft_id').references((): AnySQLiteColumn => workflowDrafts.id, {
+      onDelete: 'set null',
+    }),
   },
   (t) => [
     index('variants_skills_hash_idx').on(t.skillsHash),
@@ -290,6 +294,9 @@ export const liveDrivers = ['human', 'simulated'] as const;
 export type LiveDriver = (typeof liveDrivers)[number];
 export const liveStatuses = ['running', 'exited'] as const;
 export type LiveStatus = (typeof liveStatuses)[number];
+// 交互项终端中运行的程序：Claude Code，或用 Codex 生成 workflow 的会话（Contracts 17.3，只有人驾驶）
+export const liveEngines = ['claude', 'codex'] as const;
+export type LiveEngine = (typeof liveEngines)[number];
 
 // 交互（Contracts 14.1）：交互区的一项对应一个 Claude Code session，不评分、不进入对比。
 // 一项可以先后有多个进程（第一次启动、之后的每次 resume），见 live_processes。
@@ -299,7 +306,9 @@ export const liveSessions = sqliteTable(
   {
     // l-<yyyymmdd>-<6 位>：也是副本仓库、工单副本与 vault 目录的名字
     id: text('id').primaryKey(),
+    // engine 为 codex 时是 Codex 的会话 id（CODEX_HOME/sessions 下 rollout 的 session_meta.payload.id）
     claudeSessionId: text('claude_session_id').notNull().unique(),
+    engine: text('engine', { enum: liveEngines }).notNull().default('claude'),
     // 用户可改（Contracts 14.3）；默认取输入的前 40 个字，从已有 session 开始的项取该 session 的标题
     title: text('title').notNull(),
     environment: text('environment', { enum: liveEnvironments }).notNull(),
@@ -378,6 +387,44 @@ export const liveEvents = sqliteTable(
   },
   (t) => [index('live_events_live_idx').on(t.liveId, t.id)],
 );
+
+export const draftModes = ['workflow', 'variant'] as const;
+export type DraftMode = (typeof draftModes)[number];
+export const draftStatuses = ['open', 'saved'] as const;
+
+// 发起时装进草稿目录的一个 skill 的版本（Contracts 17.3）
+export interface DraftSkillVersion {
+  name: string;
+  source: string;
+  // skills-lock.json 的 computedHash
+  computedHash: string;
+  // 安装时 git ls-remote <source> HEAD
+  commit: string;
+}
+
+// 用 Codex 生成 workflow 或 variant 的草稿（Contracts 17.1）：目录 data/workflow-drafts/<id>/
+export const workflowDrafts = sqliteTable('workflow_drafts', {
+  // d-<yyyymmdd>-<6 位>
+  id: text('id').primaryKey(),
+  mode: text('mode', { enum: draftModes }).notNull(),
+  // mode 为 workflow 时是要新建的 workflow 的 id；为 variant 时是所属 workflow
+  workflowId: text('workflow_id').notNull(),
+  baseVariantId: text('base_variant_id')
+    .notNull()
+    .references(() => variants.id, { onDelete: 'restrict' }),
+  requirement: text('requirement').notNull(),
+  // Live 中的 Codex 会话；删除交互项时置空，草稿保留。不加外键：迁移重建 live_sessions 时不能连带改动这里
+  liveId: text('live_id'),
+  status: text('status', { enum: draftStatuses }).notNull().default('open'),
+  savedWorkflowId: text('saved_workflow_id'),
+  // 最近一次保存出的 variant；每次保存出的 variant 都以 variants.draft_id 指回草稿
+  savedVariantId: text('saved_variant_id'),
+  skills: text('skills', { mode: 'json' })
+    .$type<DraftSkillVersion[]>()
+    .notNull()
+    .default(sql`'[]'`),
+  createdAt: createdAt(),
+});
 
 // run：run 与交互的 session 用的 variant；auto：导入时 skill 正文与 variant 逐字节一致；manual：用户选择或解除
 export const variantBindings = ['run', 'auto', 'manual'] as const;

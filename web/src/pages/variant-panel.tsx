@@ -638,6 +638,11 @@ function Header({
           的 skill 新建
         </p>
       )}
+      {variant.draftId !== null && (
+        <p className="text-sm text-muted-foreground" data-testid="variant-draft">
+          来自 Codex 草稿 <span className="font-mono">{variant.draftId}</span>
+        </p>
+      )}
       {frozen && !imported && (
         <p className="text-sm text-muted-foreground">
           已被运行使用，内容只读。修改请另存为新 variant。

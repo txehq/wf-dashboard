@@ -24,6 +24,8 @@ export interface Variant {
   // 由分析的"另存为 variant"建出时的分析 id；按 session 的 skill 新建时的来源 session
   analysisId: string | null;
   sourceSessionId: string | null;
+  // 由 Codex 草稿保存出时的草稿 id（Contracts 17.4）
+  draftId: string | null;
 }
 
 export interface VariantOptions {

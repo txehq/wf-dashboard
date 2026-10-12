@@ -55,7 +55,7 @@ async function replaceYaml(page: Page, text: string) {
   await page.keyboard.insertText(text);
 }
 
-test('Workflows 列表：内置的 lfg、ic 在前，列出入口命令、评测类型与数量，Codex 生成先不可点', async ({
+test('Workflows 列表：内置的 lfg、ic 在前，列出入口命令、评测类型与数量，可以用 Codex 生成', async ({
   page,
 }) => {
   await page.goto('/workflows');
@@ -85,7 +85,7 @@ test('Workflows 列表：内置的 lfg、ic 在前，列出入口命令、评测
     '4',
     '1',
   ]);
-  await expect(page.getByRole('button', { name: '用 Codex 生成 workflow' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '用 Codex 生成 workflow' })).toBeEnabled();
   await page.screenshot({ path: '.work/screenshots/w41-workflows.png', animations: 'disabled' });
 
   await page.getByRole('link', { name: 'ic', exact: true }).click();
@@ -114,7 +114,7 @@ test('内置的 workflow 只读：表单与 YAML 都不能改，可以复制为�
 
   await page.getByRole('button', { name: '复制为新 workflow' }).click();
   await expect(page.getByTestId('new-workflow')).toBeVisible();
-  await expect(page.getByRole('button', { name: '用 Codex 生成 variant' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '用 Codex 生成 variant' })).toBeEnabled();
 });
 
 test('表单与 YAML 编辑同一份定义：拖动排序、勾选反映到 YAML，YAML 的修改反映到表单；写错时显示原文错误', async ({

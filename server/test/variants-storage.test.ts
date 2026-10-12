@@ -11,6 +11,7 @@ import { variants as variantsTable } from '../src/db/schema.js';
 import { createLive } from '../src/live/index.js';
 import { createSettingsStore } from '../src/runs/settings.js';
 import { createVariants } from '../src/variants/index.js';
+import { testCodex } from './helpers/codex.js';
 import { testRepos } from './helpers/local-repos.js';
 
 // Contracts 16.4：迁移拆出的两个 variant 共用目录，其中一个被编辑时复制出自己的一份；skill 目录的新增、重命名与删除。
@@ -144,6 +145,7 @@ describe('在访达中打开', () => {
     serverUrl: () => 'http://127.0.0.1:1',
     localHome: path.join(dataDir, 'home'),
     repos: testRepos(),
+    codex: testCodex(),
   });
 
   test('variant 的整个目录；目录不存在与不认识的目标 404；不接受任意路径', async () => {

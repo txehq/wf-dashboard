@@ -27,10 +27,11 @@ export default defineConfig({
   },
   projects: [
     {
-      // 真实调用 judge 的用例：起草 rubric、导入工单时确定验收标准（同一 spec 的其余用例在基础档）
+      // 真实调用 judge 的用例：起草 rubric、导入工单时确定验收标准（同一 spec 的其余用例在基础档）；
+      // Codex 草稿保存时的真实构建（不调用模型，Codex 仍是替身命令）
       name: 'chromium',
-      testMatch: ['tasks.spec.ts', 'tasks-import.spec.ts'],
-      grep: [/让 LLM 起草 rubric/, /粘贴工单地址导入/],
+      testMatch: ['tasks.spec.ts', 'tasks-import.spec.ts', 'codex-drafts.spec.ts'],
+      grep: [/让 LLM 起草 rubric/, /粘贴工单地址导入/, /真实构建/],
       use: {
         ...devices['Desktop Chrome'],
         baseURL: `http://127.0.0.1:${String(webPort)}`,

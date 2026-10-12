@@ -7,6 +7,7 @@
     "./tasks/import-schema": "./src/tasks/import-schema.ts",
     "./grading/schema": "./src/grading/schema.ts",
     "./live/views": "./src/live/views.ts",
+    "./drafts/views": "./src/drafts/views.ts",
     "./workflows/schema": "./src/workflows/schema.ts",
     "./workflows/eval-kinds": "./src/workflows/eval-kinds.ts",
     "./variants/model-names": "./src/variants/model-names.ts"
@@ -25,6 +26,7 @@
     "prepare:runs-e2e": "tsx scripts/prepare-runs-e2e.ts",
     "prepare:sessions-e2e": "tsx scripts/prepare-sessions-e2e.ts",
     "prepare:analyses-e2e": "tsx scripts/prepare-analyses-e2e.ts",
+    "prepare:codex-skills-e2e": "tsx scripts/prepare-codex-skills-e2e.ts",
     "record:gh-fixtures": "tsx scripts/record-gh-fixtures.ts"
   },
   "dependencies": {
@@ -53,6 +55,7 @@
     "picomatch": "4.0.7",
     "shell-quote": "1.12.0",
     "simple-statistics": "7.12.1",
+    "skills": "1.7.2",
     "tree-kill": "1.2.2",
     "tree-sitter-bash": "0.25.1",
     "web-tree-sitter": "0.27.1",

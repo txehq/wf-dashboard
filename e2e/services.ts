@@ -36,17 +36,30 @@ const analysesProjectsDir = path.join(root, '.work/e2e/analyses/projects');
 // 交互项 e2e 的数据目录与来源目录：每次删除重建
 export const liveItemsDir = path.join(root, '.work/e2e/live-items');
 export const liveItemsProjectsDir = path.join(liveItemsDir, 'projects');
+// Codex 草稿（Contracts 第 17 节）：skill 的来源是 prepare-codex-skills-e2e 建的本地 git 仓库，Codex 换成测试中的
+// 替身命令（只验证页面与 API）
+const codexSkillsDir = path.join(root, '.work/e2e/codex-skills');
+const codexEnv = {
+  WFD_CODEX_BIN: path.join(root, 'server/test/fixtures/codex/codex-stand-in.mjs'),
+  WFD_CODEX_SKILL_SOURCES: JSON.stringify(
+    ['find-skills', 'skill-creator', 'writing-for-agents'].map((name) => ({
+      name,
+      source: path.join(codexSkillsDir, name),
+    })),
+  ),
+};
 
 // 各 project 用到的服务。chromium 的服务端与页面继承本进程的 WFD_PORT、WFD_WEB_PORT；
 // 其余几对服务读取各自的专用数据目录，端口见 ports.ts
 export const services = {
   sessionsServer: {
-    command: `rm -rf ${dbDir} && pnpm --filter @wf-dashboard/server prepare:sessions-e2e && pnpm --filter @wf-dashboard/server dev`,
+    command: `rm -rf ${dbDir} && pnpm --filter @wf-dashboard/server prepare:sessions-e2e && pnpm --filter @wf-dashboard/server prepare:codex-skills-e2e && pnpm --filter @wf-dashboard/server dev`,
     url: `http://127.0.0.1:${String(serverPort)}/api/health`,
     env: {
       WFD_DATA_DIR: chromiumDataDir,
       WFD_DB_PATH: path.join(dbDir, 'db.sqlite'),
       WFD_CLAUDE_PROJECTS: projectsDir,
+      ...codexEnv,
     },
     reuseExistingServer: false,
   },

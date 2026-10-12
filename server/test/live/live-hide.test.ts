@@ -15,6 +15,7 @@ import { createLive } from '../../src/live/index.js';
 import type { LiveDetail, LiveSummary } from '../../src/live/views.js';
 import { createSettingsStore } from '../../src/runs/settings.js';
 import { createVariants } from '../../src/variants/index.js';
+import { testCodex } from '../helpers/codex.js';
 import { testRepos } from '../helpers/local-repos.js';
 
 // 交互项的关闭、恢复显示与删除（Contracts 14.5）：只操作数据库与 data/live/<liveId>/，不调用 claude
@@ -49,6 +50,7 @@ beforeAll(async () => {
     serverUrl: () => 'http://127.0.0.1:1',
     localHome: path.join(config.dataDir, 'home'),
     repos: testRepos(),
+    codex: testCodex(),
   });
   await app.register(liveRoutes, { live });
   await app.register(sessionsRoutes, {

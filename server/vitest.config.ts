@@ -20,6 +20,8 @@ export const gatewayTests = [
   'test/live/live-simulated.test.ts',
   'test/insights-engines.test.ts',
   'test/bindings-build.test.ts',
+  // 唯一一次真实调用 Codex（Contracts 17.5）
+  'test/drafts/drafts-codex.test.ts',
 ];
 
 // 同样属于真实档：读取真实 GitHub（只读）的测试。基础档不依赖网络，其中的 gh 一律报错
@@ -35,6 +37,8 @@ export const slowTests = [
   'test/ic-tasks.test.ts',
   'test/grading/isolation.test.ts',
   'test/grading/ic-grade.test.ts',
+  // 保存 Codex 草稿时的真实构建（wf guard、build-local、安装）
+  'test/drafts/drafts-save.test.ts',
 ];
 
 // *.external.test.ts 会在 Linear 中建工单，只由 test:external 运行

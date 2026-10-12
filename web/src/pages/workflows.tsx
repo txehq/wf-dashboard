@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
+import { CodexDraftForm } from '@/components/codex-draft';
 import { PageShell } from '@/components/page-shell';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -12,16 +13,6 @@ import {
   workflowsQuery,
 } from '@/lib/workflows-api';
 import { variantLabel, variantsQuery } from '@/pages/variants-api';
-
-// "用 Codex 生成"（Contracts 第 17 节）由 W42 接入，这里先留出位置
-export function CodexPlaceholder({ label }: { label: string }) {
-  return (
-    <Button variant="outline" disabled title="由 W42 接入（Contracts 第 17 节）">
-      <Sparkles />
-      {label}
-    </Button>
-  );
-}
 
 // 复制：选一个已有 variant 作来源，填 id 与名字，勾选是否保留评测类型（默认保留）；定义先复制来源 workflow 的定义
 export function NewWorkflowForm({
@@ -168,7 +159,7 @@ function WorkflowRow({ workflow }: { workflow: WorkflowRecord }) {
 // Contracts 16.7：Workflows 列表与新建
 export function WorkflowsPage() {
   const list = useQuery(workflowsQuery);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState<'copy' | 'codex' | null>(null);
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -179,19 +170,35 @@ export function WorkflowsPage() {
         <div className="flex gap-2">
           <Button
             onClick={() => {
-              setCreating(true);
+              setCreating('copy');
             }}
           >
             <Plus />
             新建 workflow
           </Button>
-          <CodexPlaceholder label="用 Codex 生成 workflow" />
+          <Button
+            variant="outline"
+            data-testid="codex-workflow-toggle"
+            onClick={() => {
+              setCreating('codex');
+            }}
+          >
+            <Sparkles />用 Codex 生成 workflow
+          </Button>
         </div>
       </div>
-      {creating && (
+      {creating === 'copy' && (
         <NewWorkflowForm
           onCancel={() => {
-            setCreating(false);
+            setCreating(null);
+          }}
+        />
+      )}
+      {creating === 'codex' && (
+        <CodexDraftForm
+          mode="workflow"
+          onCancel={() => {
+            setCreating(null);
           }}
         />
       )}

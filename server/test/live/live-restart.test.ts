@@ -10,6 +10,7 @@ import { type AppEvent, events } from '../../src/events.js';
 import { createLive } from '../../src/live/index.js';
 import { createSettingsStore } from '../../src/runs/settings.js';
 import { createVariants } from '../../src/variants/index.js';
+import { testCodex } from '../helpers/codex.js';
 import { testRepos } from '../helpers/local-repos.js';
 
 const dbFile = path.join(config.repoRoot, '.work', 'test-db', `${randomUUID()}.sqlite`);
@@ -68,6 +69,7 @@ test('服务重启：running 的进程变为 exited，error 为"服务重启中�
     serverUrl: () => 'http://127.0.0.1:1',
     localHome: path.join(config.dataDir, 'home'),
     repos: testRepos(),
+    codex: testCodex(),
   });
   unsubscribe();
   const byId = (id: number) =>

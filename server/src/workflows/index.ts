@@ -133,6 +133,36 @@ function assertEntryFree(db: Db, definition: WorkflowDefinition) {
   }
 }
 
+// Codex 草稿保存为新 workflow（Contracts 17.4）：id 未被使用、不与其他 workflow 的小阶段同名
+export function assertNewWorkflow(db: Db, definition: WorkflowDefinition) {
+  if (db.select().from(workflowTable).where(eq(workflowTable.id, definition.id)).get()) {
+    throw new HttpError(400, `workflow id ${definition.id} 已被使用`);
+  }
+  assertEntryFree(db, definition);
+}
+
+// 没有评测类型的新 workflow；copiedFrom 为底子 variant 所属的 workflow
+export function insertWorkflow(db: Db, definition: WorkflowDefinition, copiedFrom: string) {
+  assertNewWorkflow(db, definition);
+  db.insert(workflowTable)
+    .values({
+      id: definition.id,
+      name: definition.name,
+      evalKind: null,
+      definition,
+      copiedFrom,
+      updatedAt: new Date(),
+    })
+    .run();
+}
+
+// 保存草稿时构建失败：删去这次建出、还没有 variant 的 workflow
+export function deleteEmptyWorkflow(db: Db, id: string) {
+  const n = db.select({ n: count() }).from(variants).where(eq(variants.workflowId, id)).get();
+  if ((n?.n ?? 0) > 0) throw new Error(`workflow ${id} 还有 variant，不能删除`);
+  db.delete(workflowTable).where(eq(workflowTable.id, id)).run();
+}
+
 // Contracts 16.1 的 API 背后的服务
 export function createWorkflows({ db, variants: variantsModule }: { db: Db; variants: Variants }) {
   return {

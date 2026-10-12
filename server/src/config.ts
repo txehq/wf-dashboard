@@ -8,6 +8,12 @@ const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
 // e2e 用 WFD_DATA_DIR（相对仓库根目录或绝对路径）指向专用的数据目录
 const dataDir = path.resolve(repoRoot, process.env.WFD_DATA_DIR ?? 'data');
 
+// 一个 skill 的来源：npx skills add <source> --skill <name>；source 是 git 仓库（安装时用 git ls-remote 记下 commit）
+export const CodexSkillSources = z
+  .array(z.strictObject({ name: z.string().min(1), source: z.string().min(1) }))
+  .min(1);
+export type CodexSkillSources = z.infer<typeof CodexSkillSources>;
+
 export const config = {
   repoRoot,
   host: '127.0.0.1',
@@ -62,6 +68,21 @@ export const config = {
   ),
   // 环境检查的工作目录：Codex 检查在其中的 codex-home 下准备配置后运行 codex exec
   environmentDir: path.join(dataDir, 'environment'),
+  // 用 Codex 生成 workflow 或 variant 的草稿目录（Contracts 17.2）
+  workflowDraftsDir: path.join(dataDir, 'workflow-drafts'),
+  // Live 中 Codex 会话运行的命令；e2e 用 WFD_CODEX_BIN 换成测试中的替身命令，只验证页面与 API
+  codexBin: process.env.WFD_CODEX_BIN ?? 'codex',
+  // 草稿发起时装进 <草稿目录>/.agents/skills/ 的 skill 与来源（Contracts 17.3）；测试用 WFD_CODEX_SKILL_SOURCES
+  // （JSON 数组）换成 .work/ 下的本地 git 仓库
+  codexSkillSources: CodexSkillSources.parse(
+    process.env.WFD_CODEX_SKILL_SOURCES === undefined
+      ? [
+          { name: 'find-skills', source: 'https://github.com/vercel-labs/skills' },
+          { name: 'skill-creator', source: 'https://github.com/anthropics/skills' },
+          { name: 'writing-for-agents', source: 'https://github.com/mattpocock/skills' },
+        ]
+      : JSON.parse(process.env.WFD_CODEX_SKILL_SOURCES),
+  ),
   // 评估运行写入的 Obsidian vault 与其中的 product（wf obsidian 写到 <vault>/Project <product>/）
   vaultDir: path.join(os.homedir(), 'Documents/Obsidian Vault'),
   evalProduct: 'Magi Eval',
