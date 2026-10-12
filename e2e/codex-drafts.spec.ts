@@ -48,7 +48,9 @@ async function stopLive(page: Page, liveId: string) {
   expect([200, 409]).toContain(response.status());
 }
 
-test('用 Codex 生成 workflow：表单、跳到 Live 的 Codex 会话、保存失败时显示原文', async ({ page }) => {
+test('用 Codex 生成 workflow：表单、跳到 Live 的 Codex 会话、保存失败时显示原文', async ({
+  page,
+}) => {
   const workflowId = `hello-${marker}`;
   await page.goto('/workflows');
   await page.getByTestId('codex-workflow-toggle').click();
@@ -58,7 +60,10 @@ test('用 Codex 生成 workflow：表单、跳到 Live 的 Codex 会话、保存
   await form.getByLabel('名字').fill(`你好 ${marker}`);
   await form.getByTestId('codex-draft-base').selectOption(base.id);
   await form.getByLabel('需求').fill('做一个打招呼的 workflow：先问清楚，再写，最后检查');
-  await page.screenshot({ path: '.work/screenshots/w42-workflow-form.png', animations: 'disabled' });
+  await page.screenshot({
+    path: '.work/screenshots/w42-workflow-form.png',
+    animations: 'disabled',
+  });
 
   await form.getByTestId('codex-draft-submit').click();
   await expect(page).toHaveURL(/\/live\?item=l-\d{8}-[a-z0-9]{6}$/, { timeout: 120_000 });
@@ -92,9 +97,9 @@ test('用 Codex 生成 workflow：表单、跳到 Live 的 Codex 会话、保存
   await expect(panel.getByTestId('live-status')).toHaveAttribute('data-status', 'exited');
   await panel.getByTestId('codex-resume').click();
   await expect(panel.getByTestId('live-status')).toHaveAttribute('data-status', 'running');
-  await expect(page.locator(`[data-live="${liveId}"] [data-testid="live-resume-count"]`)).toHaveText(
-    'resume 1 次',
-  );
+  await expect(
+    page.locator(`[data-live="${liveId}"] [data-testid="live-resume-count"]`),
+  ).toHaveText('resume 1 次');
   await stopLive(page, liveId);
 });
 

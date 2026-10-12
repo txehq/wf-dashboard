@@ -25,7 +25,11 @@ function writeOldMigrations() {
     JSON.parse(fs.readFileSync(path.join(config.migrationsDir, 'meta/_journal.json'), 'utf8')),
   );
   const tags = journal.entries.map((e) => e.tag);
-  expect(tags.slice(10)).toEqual(['0010_live_hidden', '0011_workflows', '0012_workflow-instances']);
+  expect(tags.slice(10, 13)).toEqual([
+    '0010_live_hidden',
+    '0011_workflows',
+    '0012_workflow-instances',
+  ]);
   const entries = journal.entries.slice(0, 11);
   for (const e of entries) {
     fs.copyFileSync(
