@@ -32,7 +32,7 @@ export const workflowRoutes: FastifyPluginCallbackZod<{ workflows: Workflows }> 
     (request) => workflows.get(request.params.id),
   );
 
-  // 从 variantId 复制基线导出与 src/skills 作为新 workflow 的底子
+  // 复制 fromVariantId 的基线导出与 src/skills 作为新 workflow 的第一个 variant
   app.post(
     '/api/workflows',
     {
@@ -40,7 +40,8 @@ export const workflowRoutes: FastifyPluginCallbackZod<{ workflows: Workflows }> 
         body: z.strictObject({
           id: Slug,
           name: Name,
-          variantId: z.string().min(1),
+          fromVariantId: z.string().min(1),
+          keepEvalKind: z.boolean(),
           definition: Definition,
         }),
         response: { 201: WorkflowView },
@@ -52,33 +53,17 @@ export const workflowRoutes: FastifyPluginCallbackZod<{ workflows: Workflows }> 
     },
   );
 
-  // dev-workflow 返回 409
+  // 内置的 lfg、ic 返回 409
   app.put(
     '/api/workflows/:id',
     {
       schema: {
         params: IdParams,
-        body: z.strictObject({ definition: Definition }),
+        body: z.strictObject({ name: Name, definition: Definition }),
         response: { 200: WorkflowView },
       },
     },
     (request) => workflows.update(request.params.id, request.body),
-  );
-
-  // 定义先复制 :id 的定义，换掉 id 与 name
-  app.post(
-    '/api/workflows/:id/copy',
-    {
-      schema: {
-        params: IdParams,
-        body: z.strictObject({ variantId: z.string().min(1), id: Slug, name: Name }),
-        response: { 201: WorkflowView },
-      },
-    },
-    (request, reply) => {
-      void reply.code(201);
-      return workflows.copy(request.params.id, request.body);
-    },
   );
 
   done();

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { RotateCcw } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
+import { ModelEffortChoice } from '@/components/model-effort';
 import { Button } from '@/components/ui/button';
 import {
   isBuiltVariant,
@@ -10,6 +11,7 @@ import {
   resumeDefaultsQuery,
   resumeLive,
 } from '@/lib/live-api';
+import { useModelEffort } from '@/lib/model-effort';
 import { variantLabel, variantsQuery } from '@/pages/variants-api';
 
 const LOCAL = 'local';
@@ -66,6 +68,9 @@ function ResumeForm({
   const variants = useQuery(variantsQuery);
   const [variant, setVariant] = useState<string | null>(null);
   const [driver, setDriver] = useState<LiveDriver>('human');
+  const [model, setModel] = useState<string | null>(null);
+  const [effort, setEffort] = useState<string | null>(null);
+  const chosenModel = useModelEffort({ model, effort });
   const resuming = useMutation({
     mutationFn: resumeLive,
     onSuccess: async (live) => {
@@ -124,6 +129,14 @@ function ResumeForm({
         )}
       </div>
       <DriverChoice value={driver} onChange={setDriver} name={`resume-driver-${sessionId}`} />
+      {chosen !== LOCAL && (
+        <ModelEffortChoice
+          value={chosenModel}
+          onModel={setModel}
+          onEffort={setEffort}
+          testIdPrefix="resume"
+        />
+      )}
       {resuming.isError && (
         <p role="alert" className="text-sm text-destructive">
           {resuming.error.message}
@@ -134,12 +147,19 @@ function ResumeForm({
           取消
         </Button>
         <Button
-          disabled={!defaults.data.cwdExists || defaults.data.running || resuming.isPending}
+          disabled={
+            !defaults.data.cwdExists ||
+            defaults.data.running ||
+            resuming.isPending ||
+            (chosen !== LOCAL && chosenModel === null)
+          }
           onClick={() => {
+            // 本机配置不传 --model 与 --effort
             resuming.mutate({
               sessionId,
               variantId: chosen === LOCAL ? null : chosen,
               driver,
+              ...(chosen === LOCAL || chosenModel === null ? {} : chosenModel),
             });
           }}
         >

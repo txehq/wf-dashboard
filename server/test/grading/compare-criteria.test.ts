@@ -11,7 +11,7 @@ import { insertRun, insertVariant } from './seed.js';
 const { db, close } = openTestDb();
 afterAll(close);
 syncTasks(db, config.tasksDir);
-insertVariant(db, 'baseline');
+insertVariant(db, 'baseline', 'ic');
 
 // ic-money-format 去掉隐藏测试，作为没有隐藏测试的 ic task（5 条验收标准）
 const definition = withoutHiddenTests(loadTask(db, 'ic-money-format'), 'w28-compare-criteria');

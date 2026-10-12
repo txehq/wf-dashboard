@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { rubricMaxScore, type TaskRecord } from '@wf-dashboard/server/tasks/schema';
+import { type EvalKind, evalKinds } from '@wf-dashboard/server/workflows/schema';
 import { Plus } from 'lucide-react';
 import { Link } from 'react-router';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -29,29 +30,18 @@ function measure({ task }: TaskRecord) {
   return `${String(task.ticket?.acceptanceCriteria.length ?? 0)} 条验收标准`;
 }
 
-// dev-workflow 两个大阶段的说明；其他 workflow 的大阶段只显示 workflow 名
-const descriptions: Record<string, string> = {
-  'dev-workflow/lfg': '输入一个想法，模拟用户按隐藏需求回答，按 rubric 给四个产物打分。',
-  'dev-workflow/ic':
-    '一张工单加固定 commit 的起始仓库，按隐藏测试的通过率评分；没有隐藏测试时按验收标准逐条评分。',
+// 两种评测类型的说明（Contracts 16.2）
+const descriptions: Record<EvalKind, string> = {
+  lfg: '输入一个想法，模拟用户按隐藏需求回答，按 rubric 给四个产物打分。',
+  ic: '一张工单加固定 commit 的起始仓库，按隐藏测试的通过率评分；没有隐藏测试时按验收标准逐条评分。',
 };
 
-// task 按 workflow 与大阶段分组（Contracts 16.3），dev-workflow 在前
+// task 按评测类型分组（Contracts 16.3），lfg 在前
 function groupsOf(records: TaskRecord[]) {
-  const keys = [
-    'dev-workflow/lfg',
-    'dev-workflow/ic',
-    ...records.map((r) => `${r.task.workflow}/${r.task.bigStage}`),
-  ];
-  return [...new Set(keys)].map((key) => {
-    const [workflow = '', bigStage = ''] = key.split('/');
-    return {
-      key,
-      workflow,
-      bigStage,
-      records: records.filter((r) => r.task.workflow === workflow && r.task.bigStage === bigStage),
-    };
-  });
+  return evalKinds.map((kind) => ({
+    kind,
+    records: records.filter((r) => r.task.kind === kind),
+  }));
 }
 
 function TaskGroup({
@@ -135,15 +125,11 @@ export function TasksPage() {
       {tasks.isSuccess &&
         groupsOf(tasks.data).map((group) => (
           <TaskGroup
-            key={group.key}
-            title={
-              group.workflow === 'dev-workflow'
-                ? `/${group.bigStage}`
-                : `/${group.bigStage} (${group.workflow})`
-            }
-            description={descriptions[group.key] ?? `workflow ${group.workflow} 的大阶段`}
-            summaryLabel={group.bigStage === 'ic' ? '工单' : '输入'}
-            measureLabel={group.bigStage === 'ic' ? '评分依据' : 'Rubric'}
+            key={group.kind}
+            title={`/${group.kind}`}
+            description={descriptions[group.kind]}
+            summaryLabel={group.kind === 'ic' ? '工单' : '输入'}
+            measureLabel={group.kind === 'ic' ? '评分依据' : 'Rubric'}
             records={group.records}
           />
         ))}

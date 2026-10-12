@@ -1,7 +1,42 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import matter from 'gray-matter';
+import { parseDocument } from 'yaml';
 import { HttpError } from './errors.js';
+
+// skill 目录的名字即 skill 名，也是 workflow 的入口或小阶段 id
+const SKILL_NAME = /^[a-z][a-z0-9-]*$/;
+
+// skills/<name>/ 的绝对路径；名字不合规定时 400，不会落到 skills/ 以外
+export function skillDir(skillsDir: string, name: string): string {
+  if (!SKILL_NAME.test(name)) {
+    throw new HttpError(400, `skill 名只能包含小写字母、数字与连字符，以字母开头：${name}`);
+  }
+  const dir = path.join(skillsDir, name);
+  if (fs.lstatSync(dir, { throwIfNoEntry: false })?.isSymbolicLink()) {
+    throw new HttpError(400, `skill 目录是符号链接：${name}`);
+  }
+  return dir;
+}
+
+// 把 SKILL.md frontmatter 的 name 改为 name：只改这一个键（yaml Document 保留注释与格式），正文不变。
+// 没有 frontmatter 时原样返回
+export function renameFrontmatter(text: string, name: string): string {
+  // gray-matter 只用来切出 frontmatter 的原文；传入选项时不用它的缓存（缓存命中的结果没有 matter 原文）
+  const raw = matter(text, { language: 'yaml' }).matter;
+  if (raw.trim() === '') return text;
+  const doc = parseDocument(raw);
+  if (doc.errors.length > 0) {
+    throw new HttpError(
+      400,
+      `SKILL.md 的 frontmatter 不是合法的 YAML：${doc.errors.map((e) => e.message).join('；')}`,
+    );
+  }
+  doc.set('name', name);
+  const at = text.indexOf(raw);
+  return `${text.slice(0, at)}\n${doc.toString().trimEnd()}${text.slice(at + raw.length)}`;
+}
 
 // srcDir 下 skills/ 的全部文件，返回以 skills/ 开头、按字典序排列的相对路径
 export function listSkillFiles(srcDir: string): string[] {

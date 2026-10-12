@@ -28,8 +28,7 @@ function seedRun(db: Db) {
   db.insert(schema.tasks)
     .values({
       id: 'calculator',
-      workflowId: 'dev-workflow',
-      bigStage: 'lfg',
+      kind: 'lfg',
       title: '做一个计算器',
       input: '我想要一个计算器',
       persona: '产品经理',
@@ -49,7 +48,7 @@ function seedRun(db: Db) {
     .values({
       id: 'baseline',
       name: 'baseline',
-      workflowId: 'dev-workflow',
+      workflowId: 'lfg',
       baseCommit: '9f2bed6',
       skillsHash: 'a'.repeat(64),
       version: '2.3.0-eval.aaaaaaaa',

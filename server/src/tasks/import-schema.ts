@@ -108,9 +108,7 @@ export const ImportPreviewRequest = z.object({
       ctx.addIssue({ code: 'custom', message: `不是 Linear 工单地址或工单编号：${s}` });
     }
   }),
-  // 导入为哪个 workflow 的哪个大阶段的 task（Contracts 16.3）：大阶段要有 ticket-copy 与 repo-copy，保存时校验
-  workflow: z.string().min(1).default('dev-workflow'),
-  bigStage: z.string().min(1).default('ic'),
+  // 导入的 task 的评测类型为 ic（Contracts 16.3）
   // 省略时取工单关联的已合并 PR 的仓库
   repo: repoName.optional(),
   // 省略时按 Contracts 第 13 节取默认值

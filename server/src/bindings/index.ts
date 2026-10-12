@@ -66,12 +66,16 @@ export function sessionSkillLoads(db: Db, sessionId: string): SkillLoad[] {
     .filter((l) => !isBundledSkill(l.baseDir));
 }
 
-// variant 的 src/skills/<name>/SKILL.md；一次比较中缓存，同一文件只读一次
+// variant 的 src/skills/<name>/SKILL.md（目录为 data/variants/<storage_id 或 id>）；一次比较中缓存，同一文件只读一次
 function skillFileReader(dataDir: string) {
   const layout = dataLayout(dataDir);
   const cache = new Map<string, string | null>();
-  return (variantId: string, name: string): string | null => {
-    const file = path.join(layout.variant(variantId).skills, name, 'SKILL.md');
+  return (variant: Pick<Variant, 'id' | 'storageId'>, name: string): string | null => {
+    const file = path.join(
+      layout.variant(variant.storageId ?? variant.id).skills,
+      name,
+      'SKILL.md',
+    );
     let content = cache.get(file);
     if (content === undefined) {
       content = fs.existsSync(file) ? skillFileBody(fs.readFileSync(file, 'utf8')) : null;
@@ -84,10 +88,10 @@ function skillFileReader(dataDir: string) {
 function matches(
   loads: SkillLoad[],
   variant: Variant,
-  read: (variantId: string, name: string) => string | null,
+  read: (variant: Variant, name: string) => string | null,
 ): boolean {
   return loads.every((load) => {
-    const body = read(variant.id, load.name);
+    const body = read(variant, load.name);
     return body !== null && renderSkill(body, load.args) === load.text;
   });
 }

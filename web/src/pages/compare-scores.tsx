@@ -413,8 +413,8 @@ export function ScoreTable({
   sourceRef: Set<string>;
   cancelled: Set<string>;
 }) {
-  // 所选 task 同属一个大阶段（Contracts 16.5）；按评分积木的主指标分组
-  const stage = `/${result.bigStage}`;
+  // 所选 task 属于同一个 workflow 的评测类型（Contracts 16.5）；按评分积木的主指标分组
+  const stage = `/${result.workflowId}`;
   const groups = [
     {
       kind: 'lfg',

@@ -88,6 +88,7 @@ describe('本地仓库模式下的 ic run', { timeout: 900_000 }, () => {
   test('准备阶段失败：error 写明本地仓库不支持 ic run，没有仓库与工单', async () => {
     const base = await variants.createBaseline({
       name: `W32 基线 ${randomUUID().slice(0, 8)}`,
+      workflowId: 'ic',
     });
     await variants.build(base.id);
     const batch = runsModule.createBatch({

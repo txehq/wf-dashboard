@@ -3,7 +3,7 @@ import { serverPort } from '../ports.js';
 
 const pages = [
   { name: 'Sessions', path: 'sessions' },
-  { name: 'Variants', path: 'variants' },
+  { name: 'Workflows', path: 'workflows' },
   { name: 'Live', path: 'live' },
   { name: 'Tasks', path: 'tasks' },
   { name: 'Runs', path: 'runs' },

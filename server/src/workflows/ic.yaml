@@ -1,0 +1,13 @@
+# 内置的 ic workflow（Contracts 16.1）：Magi workflow 的 /ic。服务启动时以本文件为准写入 workflows 表，页面中只读
+id: ic
+name: ic
+stages:
+  - id: claim
+  - id: readiness
+  - id: implement
+  - id: acceptance
+  - id: open-pr
+  - id: fix-pr
+    repeatable: true
+    allowInside: [acceptance]
+  - id: ready-for-review

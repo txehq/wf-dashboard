@@ -3,39 +3,44 @@ import { Play } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { DriverChoice } from '@/components/live/resume-dialog';
+import { ModelEffortChoice } from '@/components/model-effort';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { createLive, isBuiltVariant, type LiveDetail, type LiveDriver } from '@/lib/live-api';
-import { tasksQuery } from '@/lib/tasks';
-import { variantLabel, variantsQuery } from '@/pages/variants-api';
+import { useModelEffort } from '@/lib/model-effort';
+import { workflowsQuery } from '@/lib/workflows-api';
+import { variantsQuery } from '@/pages/variants-api';
 
-type Workflow = 'lfg' | 'ic';
 type Environment = 'isolated' | 'real';
-const ONSITE = '';
 
-// "另存为 task"：lfg 带上想法打开新建表单，ic 带上工单地址打开第 13 节的导入表单
-function saveAsTaskHref(workflow: Workflow, input: string): string {
-  const params =
-    workflow === 'lfg'
-      ? new URLSearchParams({ mode: 'lfg', input })
-      : new URLSearchParams({ mode: 'ic-linear', issue: input });
-  return `/tasks/new?${params.toString()}`;
+// isolated 环境下按 workflow 的评测类型准备什么（Contracts 14.2）
+function isolatedNote(evalKind: 'lfg' | 'ic' | null): string {
+  if (evalKind === 'lfg') {
+    return '在 txehq 建空的副本仓库，写入 vault 的 Project Magi Eval；问题作为想法。';
+  }
+  if (evalKind === 'ic') {
+    return '问题必须是 Linear 工单地址或编号：按工单读取起始仓库与 commit，在 txehq 建仓库副本、在 Workflow Eval 建工单副本。';
+  }
+  return '没有评测类型：只建空的 workspace。';
 }
 
-// 新建交互（Contracts 14.2）
+// 新建交互（Contracts 14.2、16.7）：先选 workflow，再选它的 variant，再填一个问题；model 与 effort 在这里选
 export function NewLiveForm({ onCreated }: { onCreated: (live: LiveDetail) => void }) {
   const client = useQueryClient();
+  const workflows = useQuery(workflowsQuery);
   const variants = useQuery(variantsQuery);
-  const tasks = useQuery(tasksQuery);
-  const [workflow, setWorkflow] = useState<Workflow>('lfg');
-  const [taskId, setTaskId] = useState<string>(ONSITE);
+  const [workflowId, setWorkflowId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [variantId, setVariantId] = useState<string | null>(null);
   const [environment, setEnvironment] = useState<Environment>('isolated');
   const [cwd, setCwd] = useState('');
   const [driver, setDriver] = useState<LiveDriver>('human');
+  const [model, setModel] = useState<string | null>(null);
+  const [effort, setEffort] = useState<string | null>(null);
+  // 默认 model 与 effort 来自设置；还没有读到时不能启动
+  const chosenModel = useModelEffort({ model, effort });
   const creating = useMutation({
     mutationFn: createLive,
     onSuccess: async (live) => {
@@ -45,55 +50,59 @@ export function NewLiveForm({ onCreated }: { onCreated: (live: LiveDetail) => vo
     },
   });
 
-  const built = (variants.data ?? []).filter(isBuiltVariant);
-  const chosenVariant = variantId ?? built[0]?.id ?? null;
-  // 交互只接受 dev-workflow 的 task（可配置的大阶段由 W37 接入）
-  const ofKind = (tasks.data ?? []).filter(
-    (t) => t.task.workflow === 'dev-workflow' && t.task.bigStage === workflow,
+  const chosenWorkflow = workflows.data?.find((w) => w.id === (workflowId ?? 'lfg'));
+  const built = (variants.data ?? []).filter(
+    (v) => isBuiltVariant(v) && v.workflowId === chosenWorkflow?.id,
   );
-  const onsite = taskId === ONSITE;
+  const chosenVariant = built.find((v) => v.id === variantId)?.id ?? built[0]?.id ?? null;
   const ready =
+    chosenWorkflow !== undefined &&
     chosenVariant !== null &&
-    (!onsite || input.trim() !== '') &&
-    (environment === 'isolated' || cwd.trim() !== '') &&
-    // isolated 的 ic 从 task 建副本仓库与副本工单，粘贴的工单先另存为 task
-    !(environment === 'isolated' && workflow === 'ic' && onsite);
+    chosenModel !== null &&
+    input.trim() !== '' &&
+    (environment === 'isolated' || cwd.trim() !== '');
+  const isIc = chosenWorkflow?.evalKind === 'ic';
 
   return (
     <Card data-testid="new-live">
       <CardHeader>
         <CardTitle>新建交互</CardTitle>
         <CardDescription>
-          在真实的 Claude Code 终端中运行 /lfg 或 /ic，不评分、不进入对比。
+          在真实的 Claude Code 终端中运行一个 workflow，初始消息为 /&lt;workflow&gt;
+          &lt;问题&gt;；不评分、不进入对比。
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
         <div className="grid gap-5 lg:grid-cols-2">
-          <fieldset className="flex flex-col gap-1.5">
-            <legend className="mb-1 text-sm font-medium">workflow</legend>
-            {(['lfg', 'ic'] as const).map((w) => (
-              <label key={w} className="flex items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="live-workflow"
-                  checked={workflow === w}
-                  onChange={() => {
-                    setWorkflow(w);
-                    setTaskId(ONSITE);
-                  }}
-                />
-                /{w}
-              </label>
-            ))}
-          </fieldset>
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="font-medium">workflow</span>
+            {workflows.isError && (
+              <span className="text-destructive">{workflows.error.message}</span>
+            )}
+            <select
+              className="h-9 rounded-md border bg-background px-2"
+              data-testid="live-workflow"
+              value={chosenWorkflow?.id ?? ''}
+              onChange={(event) => {
+                setWorkflowId(event.target.value);
+                setVariantId(null);
+              }}
+            >
+              {workflows.data?.map((w) => (
+                <option key={w.id} value={w.id}>
+                  /{w.id}（{w.name}）
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="flex flex-col gap-1.5 text-sm">
             <span className="font-medium">variant</span>
             {variants.isError && <span className="text-destructive">{variants.error.message}</span>}
-            {variants.data !== undefined && built.length === 0 && (
-              <span className="text-muted-foreground">
-                没有构建成功的 variant。
-                <Link to="/variants" className="underline">
-                  去 Variants 页面构建
+            {variants.data !== undefined && chosenWorkflow !== undefined && built.length === 0 && (
+              <span className="text-muted-foreground" data-testid="live-no-variant">
+                /{chosenWorkflow.id} 还没有构建成功的 variant。
+                <Link to={`/workflows/${chosenWorkflow.id}`} className="underline">
+                  去 workflow 页面构建
                 </Link>
               </span>
             )}
@@ -108,7 +117,7 @@ export function NewLiveForm({ onCreated }: { onCreated: (live: LiveDetail) => vo
               >
                 {built.map((v) => (
                   <option key={v.id} value={v.id}>
-                    {variantLabel(v)}
+                    {v.name}
                   </option>
                 ))}
               </select>
@@ -116,62 +125,33 @@ export function NewLiveForm({ onCreated }: { onCreated: (live: LiveDetail) => vo
           </label>
         </div>
 
-        <div className="flex flex-col gap-2">
-          <label className="flex flex-col gap-1.5 text-sm">
-            <span className="font-medium">输入</span>
-            <select
-              className="h-9 rounded-md border bg-background px-2"
-              value={taskId}
-              data-testid="live-task"
+        <label className="flex flex-col gap-1.5 text-sm">
+          <span className="font-medium">问题</span>
+          {isIc ? (
+            <Input
+              aria-label="问题"
+              placeholder="https://linear.app/capso/issue/TXE-3777/… 或 TXE-3777"
+              value={input}
               onChange={(event) => {
-                setTaskId(event.target.value);
+                setInput(event.target.value);
               }}
-            >
-              <option value={ONSITE}>
-                {workflow === 'lfg' ? '现场输入想法' : '粘贴 Linear 工单地址'}
-              </option>
-              {ofKind.map((t) => (
-                <option key={t.task.id} value={t.task.id}>
-                  task：{t.task.title}
-                </option>
-              ))}
-            </select>
-          </label>
-          {onsite &&
-            (workflow === 'lfg' ? (
-              <Textarea
-                aria-label="想法"
-                placeholder="做一个计算器"
-                value={input}
-                onChange={(event) => {
-                  setInput(event.target.value);
-                }}
-              />
-            ) : (
-              <Input
-                aria-label="工单地址"
-                placeholder="https://linear.app/capso/issue/TXE-3777/… 或 TXE-3777"
-                value={input}
-                onChange={(event) => {
-                  setInput(event.target.value);
-                }}
-              />
-            ))}
-          {onsite && input.trim() !== '' && (
-            <Link
-              to={saveAsTaskHref(workflow, input.trim())}
-              className="self-start text-xs underline"
-              data-testid="save-as-task"
-            >
-              另存为 task
-            </Link>
+            />
+          ) : (
+            <Textarea
+              aria-label="问题"
+              placeholder="做一个计算器"
+              value={input}
+              onChange={(event) => {
+                setInput(event.target.value);
+              }}
+            />
           )}
-          {environment === 'isolated' && workflow === 'ic' && onsite && (
-            <p className="text-xs text-muted-foreground">
-              isolated 环境从 task 建副本仓库与副本工单：先把工单另存为 task，再选这个 task。
-            </p>
+          {chosenWorkflow !== undefined && (
+            <span className="font-mono text-xs text-muted-foreground" data-testid="live-initial">
+              /{chosenWorkflow.id} {input.trim()}
+            </span>
           )}
-        </div>
+        </label>
 
         <div className="grid gap-5 lg:grid-cols-2">
           <fieldset className="flex flex-col gap-1.5">
@@ -186,8 +166,13 @@ export function NewLiveForm({ onCreated }: { onCreated: (live: LiveDetail) => vo
                 }}
               />
               <span>
-                isolated：与评估 run 相同，在 txehq 建副本仓库、在 Workflow Eval 建副本工单，进程在
-                sandbox 中运行
+                isolated：进程在 sandbox 中运行。
+                {chosenWorkflow !== undefined && (
+                  <span className="text-muted-foreground" data-testid="live-isolated-note">
+                    {' '}
+                    {isolatedNote(chosenWorkflow.evalKind)}
+                  </span>
+                )}
               </span>
             </label>
             <label className="flex items-start gap-2 text-sm">
@@ -222,7 +207,15 @@ export function NewLiveForm({ onCreated }: { onCreated: (live: LiveDetail) => vo
               </>
             )}
           </fieldset>
-          <DriverChoice value={driver} onChange={setDriver} name="live-driver" />
+          <div className="flex flex-col gap-4">
+            <DriverChoice value={driver} onChange={setDriver} name="live-driver" />
+            <ModelEffortChoice
+              value={chosenModel}
+              onModel={setModel}
+              onEffort={setEffort}
+              testIdPrefix="live"
+            />
+          </div>
         </div>
 
         {creating.isError && (
@@ -235,21 +228,23 @@ export function NewLiveForm({ onCreated }: { onCreated: (live: LiveDetail) => vo
             disabled={!ready || creating.isPending}
             data-testid="live-start"
             onClick={() => {
-              if (chosenVariant === null) return;
+              if (chosenWorkflow === undefined || chosenVariant === null || chosenModel === null) {
+                return;
+              }
               creating.mutate({
-                workflow,
-                input: onsite ? input.trim() : null,
-                taskId: onsite ? null : taskId,
+                workflow: chosenWorkflow.id,
+                input: input.trim(),
                 variantId: chosenVariant,
                 environment,
                 cwd: environment === 'real' ? cwd.trim() : null,
                 driver,
+                ...chosenModel,
               });
             }}
           >
             <Play />
             {creating.isPending
-              ? environment === 'isolated'
+              ? environment === 'isolated' && chosenWorkflow?.evalKind !== null
                 ? '正在建副本仓库…'
                 : '正在启动…'
               : '启动'}

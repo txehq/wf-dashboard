@@ -60,7 +60,6 @@ test('variant 启动用设置的 model 与 effort 并记下；本机配置 resum
   const created = await server.api<LiveDetail>('POST', '/api/live', {
     workflow: 'lfg',
     input: '做一个计算器',
-    taskId: null,
     variantId: server.variant.id,
     environment: 'real',
     cwd,
@@ -72,6 +71,25 @@ test('variant 启动用设置的 model 与 effort 并记下；本机配置 resum
   );
   expect(processesOf(created.id)).toEqual([
     { kind: 'start', variantId: server.variant.id, model: 'sonnet', effort: 'max' },
+  ]);
+
+  // 新建时选的 model 与 effort（Contracts 16.5）
+  const chosen = await server.api<LiveDetail>('POST', '/api/live', {
+    workflow: 'lfg',
+    input: '做一个计算器',
+    variantId: server.variant.id,
+    environment: 'real',
+    cwd,
+    driver: 'human',
+    model: 'haiku',
+    effort: 'low',
+  });
+  const chosenStart = await exited(chosen.id);
+  expect(chosenStart.events.find((e) => e.kind === 'start')?.payload.argv).toEqual(
+    expect.arrayContaining(['--model', 'haiku', '--effort', 'low', '/lfg 做一个计算器']),
+  );
+  expect(processesOf(chosen.id)).toEqual([
+    { kind: 'start', variantId: server.variant.id, model: 'haiku', effort: 'low' },
   ]);
 
   ingestFile(server.db, original);

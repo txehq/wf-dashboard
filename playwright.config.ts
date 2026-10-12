@@ -44,6 +44,7 @@ export default defineConfig({
         'tasks.spec.ts',
         'tasks-import.spec.ts',
         'variants.spec.ts',
+        'workflows.spec.ts',
         'compare-empty.spec.ts',
       ],
       use: {

@@ -19,10 +19,10 @@ import {
 } from '@/lib/sessions-api';
 import { cycleName } from '@/lib/stage-status';
 
-// 每个大阶段一行（Contracts 16.6）
-const workflowTitle = (bigStage: string) => `/${bigStage} 阶段`;
+// 每个 workflow 一行（Contracts 16.6）
+const workflowTitle = (workflow: string) => `/${workflow} 阶段`;
 
-// URL 中的 stage=<大阶段>:<小阶段>
+// URL 中的 stage=<workflow>:<小阶段>
 function parseSelection(
   report: StageReport,
   value: string | null,
@@ -30,7 +30,7 @@ function parseSelection(
   if (value === null) return null;
   const [workflow, stage] = value.split(':');
   if (workflow === undefined || stage === undefined) return null;
-  if (!report.bigStages.some((b) => b.bigStage === workflow)) return null;
+  if (!report.workflows.some((w) => w.workflow === workflow)) return null;
   return { workflow, stage };
 }
 
@@ -38,7 +38,7 @@ function cycleRange(c: WorkflowCycle): string {
   return `#${String(c.startSeq)} – #${String(c.endSeq)}`;
 }
 
-// 一个大阶段的轮次切换：标签为开启这一轮的输入
+// 一个 workflow 的轮次切换：标签为开启这一轮的输入
 function CycleTabs({
   workflow,
   cycles,
@@ -101,8 +101,8 @@ function StagesSection({
     );
   };
   const cyclesIn = (workflow: string): WorkflowCycle[] =>
-    report.bigStages.find((b) => b.bigStage === workflow)?.cycles ?? [];
-  // 每个大阶段选中的轮次，默认第 1 轮
+    report.workflows.find((w) => w.workflow === workflow)?.cycles ?? [];
+  // 每个 workflow 选中的轮次，默认第 1 轮
   const cycleOf = (workflow: string): WorkflowCycle | undefined => {
     const cycles = cyclesIn(workflow);
     const index = Number(params.get(workflow) ?? '1');
@@ -131,7 +131,7 @@ function StagesSection({
       next.delete('stage');
     });
   };
-  const graphs = report.bigStages.flatMap(({ bigStage: w }) => {
+  const graphs = report.workflows.flatMap(({ workflow: w }) => {
     const cycle = cycleOf(w);
     return cycle === undefined ? [] : [{ workflow: w, cycle }];
   });
@@ -144,7 +144,8 @@ function StagesSection({
     <>
       {graphs.length === 0 && (
         <p className="rounded-lg border border-dashed px-4 py-4 text-sm text-muted-foreground">
-          这个 session 不含 {report.workflowId} 中任何大阶段的一轮，下面列出全部请求。
+          这个 session 不含 {report.workflows.map((w) => `/${w.workflow}`).join('、')}{' '}
+          任何一轮，下面列出全部请求。
         </p>
       )}
       {graphs.map(({ workflow, cycle }) => (

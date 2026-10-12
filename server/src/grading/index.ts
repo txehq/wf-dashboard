@@ -7,7 +7,7 @@ import { readIssueContent } from '../external/linear.js';
 import { inputField } from '../stages/rows.js';
 import { loadTask, withHiddenTests, withPr, withRepo, withRubric } from '../tasks/loader.js';
 import type { ArtifactRubric, RubricTask, Task } from '../tasks/schema.js';
-import { loadBigStage } from '../workflows/index.js';
+import { evalSpecOf, workflowOfVariant } from '../workflows/index.js';
 import { hasGrading, rubricOf } from '../workflows/schema.js';
 import { gradeIc } from './ic.js';
 import { gradeIcCriteria } from './ic-criteria.js';
@@ -146,7 +146,7 @@ async function gradeRubric(
   });
 }
 
-// hidden-tests 积木；endpoint 为大阶段是否选了 pr-endpoint
+// hidden-tests 积木；endpoint 为评测类型是否有 pr-endpoint
 async function gradeHiddenTests(
   db: Db,
   run: Run,
@@ -222,7 +222,7 @@ async function gradeEndpoint(db: Db, run: Run, task: Task, repo: string) {
     .run();
 }
 
-// runs 模块在进入 grading 时调用：按 task 所在大阶段的评分积木执行（Contracts 16.2）。全部评分完成后一次写入，
+// runs 模块在进入 grading 时调用：按 run 所用 variant 的 workflow 的评测类型的评分积木执行（Contracts 16.2）。全部评分完成后一次写入，
 // 任何一步失败都不留下部分结果。signal 中止（取消评分、服务关闭）时结束评分的子进程与模型请求，抛出 signal.reason，不写入
 export async function gradeRun(db: Db, runId: string, signal: AbortSignal): Promise<void> {
   const run = db.select().from(runs).where(eq(runs.id, runId)).get();
@@ -231,7 +231,7 @@ export async function gradeRun(db: Db, runId: string, signal: AbortSignal): Prom
     throw new Error(`run ${runId} 已经评分过`);
   }
   const task = loadTask(db, run.taskId);
-  const stage = loadBigStage(db, task.workflow, task.bigStage);
+  const stage = evalSpecOf(db, workflowOfVariant(db, run.variantId));
   await recordPrSnapshot(db, run);
   signal.throwIfAborted();
   const rubric = rubricOf(stage);

@@ -15,7 +15,7 @@ import {
 } from '@/lib/compare';
 import { tasksQuery } from '@/lib/tasks';
 import { cn } from '@/lib/utils';
-import { workflowsQuery } from '@/lib/workflows-api';
+import { type WorkflowRecord, workflowsQuery } from '@/lib/workflows-api';
 import { ArtifactSideBySide } from '@/pages/compare-artifacts';
 import { CostComparison } from '@/pages/compare-costs';
 import { ScoreTable } from '@/pages/compare-scores';
@@ -23,7 +23,7 @@ import { SkillDiffSection } from '@/pages/compare-skills';
 import { type Variant, variantLabel, variantsQuery } from '@/pages/variants-api';
 
 interface Selection {
-  // 对比范围：同一 workflow 的同一大阶段（Contracts 16.5），写作 <workflow>/<大阶段>
+  // 对比范围：一个有评测类型的 workflow（Contracts 16.5），写作 workflow id
   scope: string;
   // 按 variant 分组，或按 variant 与模型分组
   groupBy: CompareGrouping;
@@ -36,13 +36,29 @@ interface Selection {
   includeCancelled: boolean;
 }
 
-const scopeOf = (t: TaskRecord) => `${t.task.workflow}/${t.task.bigStage}`;
+// 范围内的 variant 与 task：这个 workflow 的 variant，kind 为它的评测类型的 task
+function scopeOf(
+  scope: string,
+  workflows: WorkflowRecord[],
+  variants: Variant[],
+  tasks: TaskRecord[],
+) {
+  const kind = workflows.find((w) => w.id === scope)?.evalKind ?? null;
+  return {
+    variants: variants.filter((v) => v.workflowId === scope),
+    tasks: kind === null ? [] : tasks.filter((t) => t.task.kind === kind),
+  };
+}
 
-// 有已评分 run 的范围，按 workflow 列表与定义中大阶段的顺序（order 为全部范围的顺序）
-function scopesOf(tasks: TaskRecord[], runs: CompareRun[], order: string[]): string[] {
-  return [
-    ...new Set(tasks.filter((t) => runs.some((r) => r.taskId === t.task.id)).map(scopeOf)),
-  ].sort((a, b) => order.indexOf(a) - order.indexOf(b));
+// 有已评分 run 的范围（有评测类型的 workflow），按 workflow 列表的顺序（内置的 lfg、ic 在前）
+function scopesOf(workflows: WorkflowRecord[], variants: Variant[], runs: CompareRun[]): string[] {
+  return workflows
+    .filter(
+      (w) =>
+        w.evalKind !== null &&
+        runs.some((r) => variants.find((v) => v.id === r.variantId)?.workflowId === w.id),
+    )
+    .map((w) => w.id);
 }
 
 function freeSlot(taken: { slot: number }[]): number {
@@ -55,6 +71,7 @@ function freeSlot(taken: { slot: number }[]): number {
 // 默认：第一个有已评分 run 的范围；其中有已评分 run 的 variant 按创建时间排序，没有 parent 的最早的一个作为基线；
 // 范围内全部有 run 的 task。换范围时保留分组与四个开关
 function defaultSelection(
+  workflows: WorkflowRecord[],
   variants: Variant[],
   tasks: TaskRecord[],
   runs: CompareRun[],
@@ -70,11 +87,14 @@ function defaultSelection(
     includeCancelled: false,
   },
 ): Selection {
-  const inScope = tasks.filter((t) => scopeOf(t) === scope);
-  const workflowId = inScope[0]?.task.workflow;
-  const scopedRuns = runs.filter((r) => inScope.some((t) => t.task.id === r.taskId));
-  const graded = variants
-    .filter((v) => v.workflowId === workflowId && scopedRuns.some((r) => r.variantId === v.id))
+  const inScope = scopeOf(scope, workflows, variants, tasks);
+  const scopedRuns = runs.filter(
+    (r) =>
+      inScope.variants.some((v) => v.id === r.variantId) &&
+      inScope.tasks.some((t) => t.task.id === r.taskId),
+  );
+  const graded = inScope.variants
+    .filter((v) => scopedRuns.some((r) => r.variantId === v.id))
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const baseline = graded.find((v) => v.parentId === null) ?? graded[0];
   const ordered = baseline === undefined ? [] : [baseline, ...graded.filter((v) => v !== baseline)];
@@ -82,7 +102,9 @@ function defaultSelection(
     ...keep,
     scope,
     variants: ordered.slice(0, MAX_VARIANTS).map((v, slot) => ({ id: v.id, slot })),
-    tasks: inScope.filter((t) => runs.some((r) => r.taskId === t.task.id)).map((t) => t.task.id),
+    tasks: inScope.tasks
+      .filter((t) => scopedRuns.some((r) => r.taskId === t.task.id))
+      .map((t) => t.task.id),
   };
 }
 
@@ -121,27 +143,30 @@ function Section({
 
 function SelectionPanel({
   selection,
+  workflows,
   variants,
   tasks,
   runs,
-  scopeOrder,
   onChange,
 }: {
   selection: Selection;
+  workflows: WorkflowRecord[];
   variants: Variant[];
   tasks: TaskRecord[];
   runs: CompareRun[];
-  scopeOrder: string[];
   onChange: (s: Selection) => void;
 }) {
-  const scopedTasks = tasks.filter((t) => scopeOf(t) === selection.scope);
-  const workflowId = scopedTasks[0]?.task.workflow;
-  const scopedRuns = runs.filter((r) => scopedTasks.some((t) => t.task.id === r.taskId));
-  const graded = variants
-    .filter((v) => v.workflowId === workflowId && scopedRuns.some((r) => r.variantId === v.id))
+  const scoped = scopeOf(selection.scope, workflows, variants, tasks);
+  const scopedRuns = runs.filter(
+    (r) =>
+      scoped.variants.some((v) => v.id === r.variantId) &&
+      scoped.tasks.some((t) => t.task.id === r.taskId),
+  );
+  const graded = scoped.variants
+    .filter((v) => scopedRuns.some((r) => r.variantId === v.id))
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  const others = variants.filter((v) => v.workflowId === workflowId).length - graded.length;
-  const gradedTasks = scopedTasks.filter((t) => runs.some((r) => r.taskId === t.task.id));
+  const others = scoped.variants.length - graded.length;
+  const gradedTasks = scoped.tasks.filter((t) => scopedRuns.some((r) => r.taskId === t.task.id));
   const inScope = (r: CompareRun) =>
     selection.variants.some((v) => v.id === r.variantId) && selection.tasks.includes(r.taskId);
   const intervenedCount = runs.filter((r) => r.humanIntervened && inScope(r)).length;
@@ -173,19 +198,19 @@ function SelectionPanel({
     <div className="flex flex-col gap-4 rounded-lg border p-4">
       <div className="flex flex-wrap gap-6">
         <fieldset className="flex flex-col gap-1" data-testid="compare-scope">
-          <legend className="mb-1 text-sm font-medium">范围（同一 workflow 的同一大阶段）</legend>
+          <legend className="mb-1 text-sm font-medium">范围（一个 workflow）</legend>
           <div className="flex flex-wrap gap-3">
-            {scopesOf(tasks, runs, scopeOrder).map((scope) => (
+            {scopesOf(workflows, variants, runs).map((scope) => (
               <label key={scope} className="flex items-center gap-2 text-sm">
                 <input
                   type="radio"
                   name="compare-scope"
                   checked={selection.scope === scope}
                   onChange={() => {
-                    onChange(defaultSelection(variants, tasks, runs, scope, selection));
+                    onChange(defaultSelection(workflows, variants, tasks, runs, scope, selection));
                   }}
                 />
-                <span className="font-mono">{scope}</span>
+                <span className="font-mono">/{scope}</span>
               </label>
             ))}
           </div>
@@ -357,11 +382,13 @@ function SelectionPanel({
 
 function CompareBody({
   selection,
+  workflows,
   variants,
   tasks,
   runs,
 }: {
   selection: Selection;
+  workflows: WorkflowRecord[];
   variants: Variant[];
   tasks: TaskRecord[];
   runs: CompareRun[];
@@ -371,8 +398,8 @@ function CompareBody({
     if (v === undefined) throw new Error(`没有 variant ${s.id}`);
     return { id: v.id, name: variantLabel(v), slot: s.slot };
   });
-  const selectedTasks = tasks.filter(
-    (t) => scopeOf(t) === selection.scope && selection.tasks.includes(t.task.id),
+  const selectedTasks = scopeOf(selection.scope, workflows, variants, tasks).tasks.filter((t) =>
+    selection.tasks.includes(t.task.id),
   );
   const ready = selectedVariants.length >= 1 && selectedTasks.length >= 1;
   const result = useQuery({
@@ -502,31 +529,29 @@ export function ComparePage() {
       </div>
     );
   }
-  // 范围的顺序：workflow 列表的顺序（dev-workflow 在前），同一 workflow 内按定义中大阶段的顺序
-  const scopeOrder = workflows.data.flatMap((w) =>
-    w.definition.bigStages.map((s) => `${w.id}/${s.id}`),
-  );
   const current =
     selection ??
     defaultSelection(
+      workflows.data,
       variants.data,
       tasks.data,
       runs.data,
-      scopesOf(tasks.data, runs.data, scopeOrder)[0] ?? '',
+      scopesOf(workflows.data, variants.data, runs.data)[0] ?? '',
     );
   return (
     <div className="flex flex-col gap-6">
       {header}
       <SelectionPanel
         selection={current}
+        workflows={workflows.data}
         variants={variants.data}
         tasks={tasks.data}
         runs={runs.data}
-        scopeOrder={scopeOrder}
         onChange={setSelection}
       />
       <CompareBody
         selection={current}
+        workflows={workflows.data}
         variants={variants.data}
         tasks={tasks.data}
         runs={runs.data}

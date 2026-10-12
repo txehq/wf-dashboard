@@ -4,18 +4,18 @@ import { EVAL_PROJECT, EVAL_TEAM } from '../external/linear.js';
 import { ORG } from '../external/github.js';
 import { models, parseStructured } from '../llm/client.js';
 import { isFiller } from '../llm/filler.js';
-import { type BigStageDefinition, hasRepo } from '../workflows/schema.js';
+import { type EvalSpec, hasRepo } from '../workflows/schema.js';
 
 // dispatch gate 的固定回答（Spikes/Stage Markers 1.5）
 export const DISPATCH_GATE_REPLY = '不派发，到此结束。';
 const GO = /\bgo\b/i;
 
-// 模拟用户看到的大阶段：入口命令、积木（评估环境的事实）、结束条件与 dispatch gate（Contracts 16.1、16.2）
-export type PersonaStage = Pick<BigStageDefinition, 'id' | 'prepare' | 'done' | 'dispatchGate'>;
+// 模拟用户看到的评测配置：入口命令（workflow id）、积木（评估环境的事实）、结束条件与 dispatch gate（Contracts 16.2）
+export type PersonaStage = Pick<EvalSpec, 'id' | 'prepare' | 'done' | 'dispatchGate'>;
 
 // 模拟用户扮演的人：run 与选了 task 的交互取 task 的字段
 export interface SimulatedPersona {
-  // 对话所在的大阶段；resume 的 session 没有大阶段时为空
+  // 对话所在 workflow 的评测配置；resume 的 session 与没有评测类型的 workflow 为空
   stage: PersonaStage | null;
   persona: string;
   // 只在被问到时透露的需求；为空字符串时没有这一节
@@ -26,7 +26,7 @@ export interface SimulatedPersona {
 export interface EvalFacts {
   // run id 或交互 id，也是 feature slug
   runId: string;
-  // txehq/wfe-<id>；大阶段没有仓库积木时为空
+  // txehq/wfe-<id>；评测类型没有仓库积木时为空
   repo: string | null;
   // 工单副本的 identifier
   ticket: string | null;
@@ -66,7 +66,7 @@ export interface SimulatedReply {
 // （/ic 的 Goal 确认问题长达数百字，模型逐字抄写会抄错或留空）。
 // 选项也用编号：gateway 上 strict tool 的自由文本字段会被填成 placeholder、空串或乱码（opus 与 sonnet 都会），
 // 要抄写 label 的字段最常出错，见 Reports/W21。
-// 有 dispatch gate 的大阶段多一个 answeringDispatchGate，排在 done 之前：模型先判断这一轮是否在回答 gate，
+// 评测类型有 dispatch gate 时多一个 answeringDispatchGate，排在 done 之前：模型先判断这一轮是否在回答 gate，
 // 再判断 done（sonnet 一步判断 done 时在 gate 这一轮给出 true，见 Reports/W40）
 const GateField = z.object({ answeringDispatchGate: z.boolean() });
 const QuestionAnswer = z.object({
@@ -272,7 +272,7 @@ export function userPrompt(transcript: TranscriptEntry[], prompt: AgentPrompt): 
   ].join('\n');
 }
 
-// 有 dispatch gate 的大阶段（Contracts 7.4）：回答中不能出现 go；回答 gate 的这一轮 done 必须为 false，
+// 评测类型有 dispatch gate 时（Contracts 7.4）：回答中不能出现 go；回答 gate 的这一轮 done 必须为 false，
 // 文字提问的回答必须是固定的那一句。不满足时以原文失败
 export function checkDispatchGate(
   stage: PersonaStage,

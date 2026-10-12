@@ -83,7 +83,7 @@ function fullResults(files: string[], ids: Set<string>): Map<string, string> {
 }
 
 function stageLabels(report: StageReport): (seq: number) => string | null {
-  const spans = report.bigStages.flatMap(({ bigStage, cycles }) =>
+  const spans = report.workflows.flatMap(({ workflow, cycles }) =>
     cycles.flatMap((cycle) =>
       cycle.stages.flatMap((s) =>
         s.startSeq === null || s.endSeq === null || s.endSeq < s.startSeq
@@ -92,7 +92,7 @@ function stageLabels(report: StageReport): (seq: number) => string | null {
               {
                 from: s.startSeq,
                 to: s.endSeq,
-                label: `${bigStage}#${String(cycle.index)} ${s.stage}`,
+                label: `${workflow}#${String(cycle.index)} ${s.stage}`,
               },
             ],
       ),
@@ -218,8 +218,7 @@ export async function exportRun(db: Db, runId: string): Promise<unknown> {
   const task = loadTask(db, run.taskId);
   const taskView = {
     id: task.id,
-    workflow: task.workflow,
-    bigStage: task.bigStage,
+    kind: task.kind,
     title: task.title,
     persona: task.persona,
     ...(task.input === undefined ? {} : { input: task.input }),

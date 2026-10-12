@@ -8,7 +8,7 @@ import { artifacts, batches, runs, variants } from '../../src/db/schema.js';
 import { RubricArtifacts } from '../../src/runs/rubric-artifacts.js';
 import { featureDir } from '../../src/stages/artifacts.js';
 import { syncTasks } from '../../src/tasks/loader.js';
-import { loadBigStage } from '../../src/workflows/index.js';
+import { EVAL_KINDS } from '../../src/workflows/eval-kinds.js';
 import { rubricOf } from '../../src/workflows/schema.js';
 import { openTestDb } from '../stages/db.js';
 
@@ -24,7 +24,7 @@ db.insert(variants)
   .values({
     id: variantId,
     name: `rubric-artifacts-${variantId.slice(0, 8)}`,
-    workflowId: 'dev-workflow',
+    workflowId: 'lfg',
     baseCommit: '0'.repeat(40),
     skillsHash: 'a'.repeat(64),
     version: '0.0.0-eval.aaaaaaaa',
@@ -58,11 +58,11 @@ const snapshot = (kind: 'brief' | 'research' | 'plan' | 'tickets') =>
     .where(and(eq(artifacts.runId, runId), eq(artifacts.kind, kind)))
     .get()?.snapshot;
 
-describe('dev-workflow lfg run 的 rubric 产物记录', () => {
+describe('lfg run 的 rubric 产物记录', () => {
   test('产物出现时写入快照；plan 锁定后 research 保留锁定前的内容', () => {
     const dir = featureDir(path.join(work, 'vault'), 'Magi Eval', runId);
-    const specs = rubricOf(loadBigStage(db, 'dev-workflow', 'lfg'));
-    if (specs === null) throw new Error('dev-workflow 的 lfg 没有 rubric 评分');
+    const specs = rubricOf(EVAL_KINDS.lfg);
+    if (specs === null) throw new Error('lfg 评测类型没有 rubric 评分');
     const recorder = new RubricArtifacts(db, runId, dir, specs);
     // feature 目录在 interview 写出 Brief.md 时才出现
     recorder.record();

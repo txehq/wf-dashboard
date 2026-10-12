@@ -11,7 +11,7 @@ import { formatTime } from '@/lib/format';
 import type { Artifact, RunDetail } from '@/lib/runs-api';
 import { cn } from '@/lib/utils';
 
-// dev-workflow 的 rubric 产物的显示名；其他 workflow 的产物显示 id
+// lfg 评测类型的 rubric 产物的显示名；其他产物显示 id
 const docLabel: Record<string, string> = {
   brief: 'Brief',
   research: 'Research',

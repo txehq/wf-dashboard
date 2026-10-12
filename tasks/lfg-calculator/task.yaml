@@ -1,6 +1,5 @@
 id: lfg-calculator
-workflow: dev-workflow
-bigStage: lfg
+kind: lfg
 title: 课堂用的网页计算器
 persona: |
   陈慧，某市第二中学的数学老师，兼管学校机房和信息课，教初一到初三。

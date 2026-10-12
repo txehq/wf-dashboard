@@ -11,6 +11,7 @@ import { type AppEvent, events } from '../src/events.js';
 import { createVariants, type Variant } from '../src/variants/index.js';
 import { wfSandboxProfile } from '../src/variants/sandbox.js';
 import { listSkillFiles } from '../src/variants/skills.js';
+import { createWorkflows, loadWorkflow } from '../src/workflows/index.js';
 
 // 真实构建：runtime 二进制与 cargo target 缓存在 .work/test-data，跨测试运行复用
 const dataDir = path.join(config.repoRoot, '.work', 'test-data');
@@ -214,6 +215,51 @@ describe('variant 构建与隔离安装', { timeout: 1_800_000 }, () => {
       status: 'built',
       step: null,
     });
+  });
+
+  // 复制 lfg 为 mylfg（Contracts 16.1）：入口 skill 改名为 mylfg，构建时登记进 registry 与 docs 名单
+  test('mylfg 的 variant 构建并安装，wf status 0 退出', async () => {
+    const source = await variants.createBaseline({ name: `mylfg 来源 ${marker}` });
+    created.push(source);
+    const workflows = createWorkflows({ db, variants });
+    workflows.create({
+      id: 'mylfg',
+      name: '我的 lfg',
+      fromVariantId: source.id,
+      keepEvalKind: true,
+      definition: { ...loadWorkflow(db, 'lfg'), id: 'mylfg', name: '我的 lfg' },
+    });
+    const copy = variants.list().find((v) => v.workflowId === 'mylfg');
+    if (copy === undefined) throw new Error('mylfg 没有 variant');
+    created.push(copy);
+    const built = await variants.build(copy.id);
+    expect(built.buildStatus).toBe('built');
+    const dirs = variants.layout(copy.id);
+    expect(fs.readFileSync(path.join(dirs.claudeDir, 'skills/mylfg/SKILL.md'), 'utf8')).toMatch(
+      /^name: mylfg$/m,
+    );
+    expect(fs.existsSync(path.join(dirs.claudeDir, 'skills/lfg'))).toBe(false);
+    const log = variants.buildLog(copy.id);
+    fs.writeFileSync(path.join(config.repoRoot, '.work', 'w41-mylfg-build.log'), log);
+    expect(log).toContain('[register-skills] 登记 mylfg；删去 lfg');
+
+    const status = await execa(
+      'sandbox-exec',
+      ['-p', wfSandboxProfile(dirs.dir), dirs.wfBin, 'status'],
+      {
+        env: {
+          PATH: z.string().parse(process.env.PATH),
+          HOME: os.homedir(),
+          WF_HOME: dirs.wfHome,
+          CLAUDE_CONFIG_DIR: dirs.claudeDir,
+          CODEX_HOME: dirs.codexHome,
+          TMPDIR: dirs.tmp,
+        },
+        extendEnv: false,
+      },
+    );
+    expect(status.exitCode).toBe(0);
+    expect(status.stdout).toContain(built.version);
   });
 
   test('用 runtimeEnv 运行 claude，加载修改过的 skill，不读入真实 CLAUDE.md', async () => {

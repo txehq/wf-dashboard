@@ -1,11 +1,13 @@
 import { z } from 'zod';
 import { displayUserText } from '../api/user-text.js';
 import type { StageStatus } from '../db/schema.js';
-import type { BigStageDefinition, WorkflowDefinition } from '../workflows/schema.js';
+import type { WorkflowDefinition } from '../workflows/schema.js';
 import { inputString } from './rows.js';
 
 // 阶段划分（Contracts 第 5 节、16.6）：按 Skill 调用与用户输入的 slash 命令把主 agent 的请求线性切块，不调用模型。
-// 切块规则读 workflow 定义：大阶段与小阶段的顺序，加上小阶段的 repeatable 与 allowInside
+// 切块规则读 workflow 定义：一组 workflow（内置的 lfg 与 ic 一起，其他 workflow 单独）的入口与小阶段的顺序，
+// 加上小阶段的 repeatable 与 allowInside
+export type Partition = readonly WorkflowDefinition[];
 
 export const markerKinds = ['skill', 'command'] as const;
 
@@ -17,7 +19,7 @@ export const Evidence = z.object({
 });
 export type Evidence = z.infer<typeof Evidence>;
 
-// 一个切块标记：name 为小阶段 id，或大阶段 id（入口命令）
+// 一个切块标记：name 为小阶段 id，或 workflow id（入口命令）
 export interface Marker {
   kind: (typeof markerKinds)[number];
   name: string;
@@ -38,7 +40,7 @@ const EnteredStage = z.object({
 });
 
 const CycleState = z.object({
-  bigStage: z.string(),
+  workflow: z.string(),
   // 开启这一轮的用户输入；由 Skill 调用开启时为空
   label: z.string().nullable(),
   startSeq: z.number(),
@@ -47,7 +49,7 @@ const CycleState = z.object({
 });
 type CycleState = z.infer<typeof CycleState>;
 
-// 折叠的状态：全部轮次按开始顺序排列，各大阶段混排，最后一轮为当前轮次
+// 折叠的状态：全部轮次按开始顺序排列，各 workflow 混排，最后一轮为当前轮次
 export const StageState = z.object({
   cycles: z.array(CycleState),
 });
@@ -71,26 +73,25 @@ function skillMarker(input: unknown): Marker | null {
   return { kind: 'skill', name, text: args === '' ? `Skill: ${name}` : `Skill: ${name} ${args}` };
 }
 
-const isBigStage = (definition: WorkflowDefinition, name: string) =>
-  definition.bigStages.some((s) => s.id === name);
+const isEntry = (partition: Partition, name: string) => partition.some((w) => w.id === name);
 
-const stageIndex = (bigStage: BigStageDefinition, name: string) =>
-  bigStage.stages.findIndex((s) => s.id === name);
+const stageIndex = (workflow: WorkflowDefinition, name: string) =>
+  workflow.stages.findIndex((s) => s.id === name);
 
-// 小阶段所在的大阶段：当前轮次的大阶段有这个小阶段时取它（不同大阶段可以有同名小阶段），否则取定义中的第一个
+// 小阶段所在的 workflow：当前轮次的 workflow 有这个小阶段时取它（不同 workflow 可以有同名小阶段），否则取第一个
 function stageOf(
-  definition: WorkflowDefinition,
+  partition: Partition,
   current: string | undefined,
   name: string,
-): { bigStage: BigStageDefinition; index: number } | null {
-  const candidates = definition.bigStages
-    .map((bigStage) => ({ bigStage, index: stageIndex(bigStage, name) }))
+): { workflow: WorkflowDefinition; index: number } | null {
+  const candidates = partition
+    .map((workflow) => ({ workflow, index: stageIndex(workflow, name) }))
     .filter((c) => c.index !== -1);
-  return candidates.find((c) => c.bigStage.id === current) ?? candidates[0] ?? null;
+  return candidates.find((c) => c.workflow.id === current) ?? candidates[0] ?? null;
 }
 
-const isMarker = (definition: WorkflowDefinition, m: Marker) =>
-  isBigStage(definition, m.name) || stageOf(definition, undefined, m.name) !== null;
+const isMarker = (partition: Partition, m: Marker) =>
+  isEntry(partition, m.name) || stageOf(partition, undefined, m.name) !== null;
 
 interface MainRequest {
   seq: number;
@@ -106,7 +107,7 @@ interface UserInput {
 
 // 每条主请求上的标记：用户消息落在它之后的第一条请求上（时间不早于消息）；最后一条请求之后的用户消息还没有请求，不产生标记
 export function stageItems(
-  definition: WorkflowDefinition,
+  partition: Partition,
   main: MainRequest[],
   users: UserInput[],
 ): StageItem[] {
@@ -115,7 +116,7 @@ export function stageItems(
   for (const m of users) {
     if (m.kind !== 'user') continue;
     const marker = commandOf(m.text);
-    if (marker === null || !isMarker(definition, marker)) continue;
+    if (marker === null || !isMarker(partition, marker)) continue;
     const at = m.timestamp.getTime();
     while (i < main.length && (main[i]?.timestamp.getTime() ?? 0) < at) i++;
     items[i]?.markers.push(marker);
@@ -124,29 +125,31 @@ export function stageItems(
     for (const call of r.toolCalls) {
       if (call.name !== 'Skill') continue;
       const marker = skillMarker(call.input);
-      if (marker !== null && isMarker(definition, marker)) items[j]?.markers.push(marker);
+      if (marker !== null && isMarker(partition, marker)) items[j]?.markers.push(marker);
     }
   }
   return items;
 }
 
-function apply(definition: WorkflowDefinition, cycles: CycleState[], seq: number, marker: Marker) {
+function apply(partition: Partition, cycles: CycleState[], seq: number, marker: Marker) {
   const evidence: Evidence = { seq, kind: marker.kind, text: marker.text };
   const label = marker.kind === 'command' ? (marker.text.split('\n')[0] ?? marker.text) : null;
-  // 大阶段的入口：开始这个大阶段的新一轮
-  if (isBigStage(definition, marker.name)) {
-    cycles.push({ bigStage: marker.name, label, startSeq: seq, stages: [] });
+  // workflow 的入口：开始这个 workflow 的新一轮
+  if (isEntry(partition, marker.name)) {
+    cycles.push({ workflow: marker.name, label, startSeq: seq, stages: [] });
     return;
   }
   const current = cycles.at(-1);
-  const found = stageOf(definition, current?.bigStage, marker.name);
-  if (found === null) throw new Error(`${marker.name} 不是 workflow ${definition.id} 的阶段`);
-  const { bigStage, index } = found;
+  const found = stageOf(partition, current?.workflow, marker.name);
+  if (found === null) {
+    throw new Error(`${marker.name} 不是 ${partition.map((w) => w.id).join('、')} 的阶段`);
+  }
+  const { workflow, index } = found;
   const entered = { stage: marker.name, startSeq: seq, entries: 1, evidence };
   const open = () => {
-    cycles.push({ bigStage: bigStage.id, label, startSeq: seq, stages: [entered] });
+    cycles.push({ workflow: workflow.id, label, startSeq: seq, stages: [entered] });
   };
-  if (current?.bigStage !== bigStage.id) {
+  if (current?.workflow !== workflow.id) {
     open();
     return;
   }
@@ -156,9 +159,9 @@ function apply(definition: WorkflowDefinition, cycles: CycleState[], seq: number
     current.stages.push(entered);
     return;
   }
-  const at = stageIndex(bigStage, last.stage);
-  const lastStage = bigStage.stages[at];
-  if (lastStage === undefined) throw new Error(`大阶段 ${bigStage.id} 没有小阶段 ${last.stage}`);
+  const at = stageIndex(workflow, last.stage);
+  const lastStage = workflow.stages[at];
+  if (lastStage === undefined) throw new Error(`workflow ${workflow.id} 没有小阶段 ${last.stage}`);
   // repeatable 的小阶段再次出现时留在当前阶段并计次（fix-pr 的修复轮数）
   if (lastStage.repeatable === true && marker.name === last.stage) {
     last.entries += 1;
@@ -173,13 +176,13 @@ function apply(definition: WorkflowDefinition, cycles: CycleState[], seq: number
 
 // 把新的请求依次折叠进状态；同一组请求一次折叠与分几次折叠的结果相同
 export function foldStages(
-  definition: WorkflowDefinition,
+  partition: Partition,
   state: StageState,
   items: StageItem[],
 ): StageState {
   const cycles = structuredClone(state.cycles);
   for (const item of items) {
-    for (const marker of item.markers) apply(definition, cycles, item.seq, marker);
+    for (const marker of item.markers) apply(partition, cycles, item.seq, marker);
   }
   return { cycles };
 }
@@ -195,8 +198,8 @@ export interface StageSpan {
 }
 
 export interface Cycle {
-  bigStage: string;
-  // 这个大阶段的第几轮，从 1 开始
+  workflow: string;
+  // 这个 workflow 的第几轮，从 1 开始
   index: number;
   label: string;
   startSeq: number;
@@ -207,7 +210,7 @@ export interface Cycle {
 // 状态在 lastSeq（主 session 的最后一条请求）时的各轮各阶段。session 中的最后一个阶段为 active；
 // finished（session 属于已到终态的 run）时为 done
 export function cyclesOf(
-  definition: WorkflowDefinition,
+  partition: Partition,
   state: StageState,
   lastSeq: number,
   finished: boolean,
@@ -215,10 +218,10 @@ export function cyclesOf(
   const counts = new Map<string, number>();
   const lastCycle = state.cycles.length - 1;
   return state.cycles.map((c, i): Cycle => {
-    const index = (counts.get(c.bigStage) ?? 0) + 1;
-    counts.set(c.bigStage, index);
-    const order = definition.bigStages.find((s) => s.id === c.bigStage)?.stages.map((s) => s.id);
-    if (order === undefined) throw new Error(`workflow ${definition.id} 没有大阶段 ${c.bigStage}`);
+    const index = (counts.get(c.workflow) ?? 0) + 1;
+    counts.set(c.workflow, index);
+    const order = partition.find((w) => w.id === c.workflow)?.stages.map((s) => s.id);
+    if (order === undefined) throw new Error(`划分所用的 workflow 中没有 ${c.workflow}`);
     const endSeq = (state.cycles[i + 1]?.startSeq ?? lastSeq + 1) - 1;
     const entered = new Map(c.stages.map((s, k) => [s.stage, k]));
     const spans = order.map((stage, position): StageSpan => {
@@ -257,7 +260,7 @@ export function cyclesOf(
       };
     });
     return {
-      bigStage: c.bigStage,
+      workflow: c.workflow,
       index,
       label: c.label ?? `第 ${String(index)} 轮`,
       startSeq: c.startSeq,

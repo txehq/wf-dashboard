@@ -21,6 +21,8 @@ const Variant = z.object({
   version: z.string(),
   status: z.enum(['draft', 'frozen']),
   installDir: z.string().nullable(),
+  // 与另一个 variant 共用的目录（迁移拆出的 lfg 与 ic，Contracts 16.4）；为空时是自己的目录
+  storageId: z.string().nullable(),
   buildStatus: z.enum(['none', 'building', 'built', 'failed']),
   builtHash: z.string().nullable(),
   buildError: z.string().nullable(),
@@ -66,11 +68,16 @@ export const variantRoutes: FastifyPluginCallbackZod<{ variants: Variants }> = (
     () => ({ models: modelChoices(), efforts: [...efforts] }),
   );
 
-  app.get('/api/variants', { schema: { response: { 200: z.array(Variant) } } }, () =>
-    variants.list(),
+  app.get(
+    '/api/variants',
+    { schema: { response: { 200: z.array(Variant.extend({ boundSessions: z.number() })) } } },
+    () => {
+      const bound = variants.boundSessions();
+      return variants.list().map((v) => ({ ...v, boundSessions: bound.get(v.id) ?? 0 }));
+    },
   );
 
-  // 从 txe-workflow 的 commit（默认 HEAD）导入基线，属于 workflowId（默认 dev-workflow）
+  // 从 txe-workflow 的 commit（默认 HEAD）导入基线，属于 workflowId（默认内置的 lfg）
   app.post(
     '/api/variants',
     {
@@ -151,6 +158,39 @@ export const variantRoutes: FastifyPluginCallbackZod<{ variants: Variants }> = (
     '/api/variants/:id/file',
     { schema: { params: IdParams, querystring: FileQuery, response: { 200: Variant } } },
     (request) => variants.deleteFile(request.params.id, request.query.path),
+  );
+
+  // skill 目录的新增、重命名与删除（Contracts 16.4）
+  app.post(
+    '/api/variants/:id/skills',
+    {
+      schema: {
+        params: IdParams,
+        body: z.object({ name: z.string() }),
+        response: { 200: Variant },
+      },
+    },
+    (request) => variants.addSkill(request.params.id, request.body.name),
+  );
+
+  app.patch(
+    '/api/variants/:id/skills/:name',
+    {
+      schema: {
+        params: IdParams.extend({ name: z.string() }),
+        body: z.object({ name: z.string() }),
+        response: { 200: Variant },
+      },
+    },
+    (request) => variants.renameSkill(request.params.id, request.params.name, request.body.name),
+  );
+
+  app.delete(
+    '/api/variants/:id/skills/:name',
+    {
+      schema: { params: IdParams.extend({ name: z.string() }), response: { 200: Variant } },
+    },
+    (request) => variants.deleteSkill(request.params.id, request.params.name),
   );
 
   app.get(

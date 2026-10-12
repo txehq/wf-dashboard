@@ -13,7 +13,7 @@ export function StageRequests({
   onShowAll,
 }: {
   sessionId: string;
-  // 大阶段 id
+  // workflow id
   workflow: string;
   cycle: WorkflowCycle | undefined;
   view: StageView;

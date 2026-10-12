@@ -8,7 +8,8 @@ import type { RunRepos } from '../external/run-repos.js';
 import { withRepo, withTicket } from '../tasks/loader.js';
 import type { Task } from '../tasks/schema.js';
 import type { RuntimeEnv } from '../variants/index.js';
-import { type BigStageDefinition, hasGrading, renderMessage } from '../workflows/schema.js';
+import { entryOf } from '../workflows/eval-kinds.js';
+import { type EvalSpec, hasGrading, renderMessage } from '../workflows/schema.js';
 import { upsertArtifact } from './records.js';
 
 type RunRow = typeof runs.$inferSelect;
@@ -20,15 +21,15 @@ export interface PrepareContext {
   product: string;
   run: RunRow;
   task: Task;
-  // task 所在的大阶段
-  stage: BigStageDefinition;
+  // run 所用 variant 的 workflow 的评测配置
+  stage: EvalSpec;
   signal: AbortSignal;
 }
 
 const PR_GRADING = ['hidden-tests', 'criteria-judge', 'pr-endpoint'] as const;
 
-// Contracts 7.2、16.2：按大阶段的准备积木依次建外部对象（仓库、工单副本、vault 目录），再建 workspace；
-// 返回按模板生成的初始消息
+// Contracts 7.2、16.2：按评测类型的准备积木依次建外部对象（仓库、工单副本、vault 目录），再建 workspace；
+// 返回按模板生成的初始消息（入口命令为 workflow 的 id）
 export async function prepareRun(ctx: PrepareContext): Promise<string> {
   const { db, repos, run, task, stage, signal } = ctx;
   const update = (values: Partial<RunRow>) => {
@@ -62,10 +63,16 @@ export async function prepareRun(ctx: PrepareContext): Promise<string> {
       fs.mkdirSync(path.join(ctx.vaultDir, `Project ${ctx.product}`), { recursive: true });
     }
   }
-  // 不需要仓库的大阶段：workspace 为空目录
+  // 不需要仓库的评测类型：workspace 为空目录
   if (repo === null) fs.mkdirSync(run.workspacePath, { recursive: true });
   else await repos.clone(repo, run.workspacePath, signal);
-  return renderMessage(stage.message, { input: task.input ?? null, runId: run.id, repo, ticket });
+  return renderMessage(stage.message, {
+    entry: entryOf(stage.id),
+    input: task.input ?? null,
+    runId: run.id,
+    repo,
+    ticket,
+  });
 }
 
 // 启动 claude 的环境与 variant 相关的参数：jsonl 固定写到 <CLAUDE_CONFIG_DIR>/projects/<runId>/<sessionId>.jsonl；
@@ -73,7 +80,7 @@ export async function prepareRun(ctx: PrepareContext): Promise<string> {
 export function launchSpec(
   runtime: RuntimeEnv,
   run: Pick<RunRow, 'id' | 'model' | 'effort'>,
-  stage: Pick<BigStageDefinition, 'prepare'>,
+  stage: Pick<EvalSpec, 'prepare'>,
   vault: { vaultDir: string; product: string },
 ): { env: Record<string, string>; variantArgs: string[] } {
   return {

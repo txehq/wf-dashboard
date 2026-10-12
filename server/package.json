@@ -7,7 +7,9 @@
     "./tasks/import-schema": "./src/tasks/import-schema.ts",
     "./grading/schema": "./src/grading/schema.ts",
     "./live/views": "./src/live/views.ts",
-    "./workflows/schema": "./src/workflows/schema.ts"
+    "./workflows/schema": "./src/workflows/schema.ts",
+    "./workflows/eval-kinds": "./src/workflows/eval-kinds.ts",
+    "./variants/model-names": "./src/variants/model-names.ts"
   },
   "scripts": {
     "dev": "tsx watch src/main.ts",

@@ -1,7 +1,6 @@
 import {
   Columns2,
   FlaskConical,
-  GitBranch,
   History,
   ListChecks,
   type LucideIcon,
@@ -9,6 +8,7 @@ import {
   Play,
   SquareTerminal,
   WandSparkles,
+  Workflow,
 } from 'lucide-react';
 
 // 左侧导航的全部项：顶层项与分组，按显示顺序。加一项、改顺序或分组只改这份数据
@@ -26,7 +26,8 @@ export interface NavGroup {
 
 export const navEntries: (NavItem | NavGroup)[] = [
   { to: '/sessions', label: 'Sessions', icon: History },
-  { to: '/variants', label: 'Variants', icon: GitBranch },
+  // variant 在它所属 workflow 的页面中，没有单独的 Variants 项（Contracts 16.7）
+  { to: '/workflows', label: 'Workflows', icon: Workflow },
   { to: '/live', label: 'Live', icon: SquareTerminal },
   {
     label: 'Evaluate',

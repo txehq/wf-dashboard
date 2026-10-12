@@ -107,8 +107,7 @@ export async function previewLinearImport(
     request.criteria === false ? null : await draftCriteria(issue.title, issue.description);
   const task: TaskDraft = {
     id: slug(issue.identifier),
-    workflow: request.workflow ?? 'dev-workflow',
-    bigStage: request.bigStage ?? 'ic',
+    kind: 'ic',
     title: issue.title,
     persona: persona(issue),
     hiddenRequirements: HIDDEN_REQUIREMENTS,

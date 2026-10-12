@@ -93,10 +93,10 @@ test('Runs 详情：点击阶段后请求明细只含该阶段，再点恢复，
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   const run = (await (await request.get(`${api}/runs/${lfgRun}`)).json()) as {
-    stages: { bigStages: { bigStage: string; cycles: { stages: StageView[] }[] }[] };
+    stages: { workflows: { workflow: string; cycles: { stages: StageView[] }[] }[] };
   };
-  const research = run.stages.bigStages
-    .find((b) => b.bigStage === 'lfg')
+  const research = run.stages.workflows
+    .find((b) => b.workflow === 'lfg')
     ?.cycles[0]?.stages.find((s) => s.stage === 'research');
   if (research?.startSeq == null || research.endSeq == null) throw new Error('research 没有区间');
 

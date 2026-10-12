@@ -1,4 +1,5 @@
 import { queryOptions, useQueryClient } from '@tanstack/react-query';
+import type { Effort, ModelAlias } from '@wf-dashboard/server/variants/model-names';
 import { requestJson } from '@/lib/http';
 import { invalidateThrottled, type LiveEventType, useLiveEvent } from '@/lib/live-events';
 import { refreshRequestsThrottled, type StageReport, type StageStatus } from '@/lib/sessions-api';
@@ -94,9 +95,9 @@ export interface RunSummary {
   id: string;
   batchId: string;
   taskId: string;
-  // task 所在的 workflow 与大阶段（Contracts 16.3）
+  // variant 所属的 workflow（Contracts 16.4）与 task 的评测类型（16.3）
   workflowId: string;
-  bigStage: string;
+  kind: 'lfg' | 'ic';
   taskTitle: string;
   variantId: string;
   variantName: string;
@@ -105,7 +106,7 @@ export interface RunSummary {
   effort: string;
   repeatIndex: number;
   status: RunStatus;
-  currentStage: { bigStage: string; stage: string; status: StageStatus } | null;
+  currentStage: { workflow: string; stage: string; status: StageStatus } | null;
   costUsd: number;
   durationMs: number | null;
   humanIntervened: boolean;
@@ -171,8 +172,8 @@ export interface Settings {
   // 副本仓库可用的自托管 runner 标签（Contracts 第 13 节）
   copyRunnerLabels: string[];
   // 发起 batch 时 model 与 effort 的默认值（Contracts 16.5）
-  agentModel: string;
-  agentEffort: string;
+  agentModel: ModelAlias;
+  agentEffort: Effort;
 }
 
 // 失败时抛出带 URL、状态码与服务端原因的错误

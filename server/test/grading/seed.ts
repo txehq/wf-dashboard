@@ -4,7 +4,8 @@ import { batches, runs, sessions, variants } from '../../src/db/schema.js';
 import type { CrossRunRef } from '../../src/grading/schema.js';
 import { initialParseState } from '../../src/ingest/ingest.js';
 
-export function insertVariant(db: Db, id: string, workflowId = 'dev-workflow') {
+// variant 属于 workflowId（默认内置的 lfg）；ic 的 run 用 ic 的 variant（Contracts 16.4）
+export function insertVariant(db: Db, id: string, workflowId = 'lfg') {
   db.insert(variants)
     .values({
       id,

@@ -85,6 +85,13 @@
       "when": 1791808394058,
       "tag": "0011_workflows",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1791827637942,
+      "tag": "0012_workflow-instances",
+      "breakpoints": true
     }
   ]
 }

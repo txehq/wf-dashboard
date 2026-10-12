@@ -12,8 +12,9 @@ import { SessionDetailPage } from '@/pages/sessions-detail';
 import { TasksPage } from '@/pages/tasks';
 import { TaskDetailPage } from '@/pages/tasks-detail';
 import { TaskNewPage } from '@/pages/tasks-new';
-import { VariantsPage } from '@/pages/variants';
-import { VariantDetailPage } from '@/pages/variants-detail';
+import { VariantRedirect, VariantsRedirect } from '@/pages/variants';
+import { WorkflowPage } from '@/pages/workflow-detail';
+import { WorkflowsPage } from '@/pages/workflows';
 
 export const router = createBrowserRouter([
   {
@@ -26,8 +27,10 @@ export const router = createBrowserRouter([
       { path: 'runs', element: <RunsPage /> },
       { path: 'runs/:id', element: <RunDetailPage /> },
       { path: 'live', element: <LivePage /> },
-      { path: 'variants', element: <VariantsPage /> },
-      { path: 'variants/:id', element: <VariantDetailPage /> },
+      { path: 'workflows', element: <WorkflowsPage /> },
+      { path: 'workflows/:id', element: <WorkflowPage /> },
+      { path: 'variants', element: <VariantsRedirect /> },
+      { path: 'variants/:id', element: <VariantRedirect /> },
       { path: 'tasks', element: <TasksPage /> },
       { path: 'tasks/new', element: <TaskNewPage /> },
       { path: 'tasks/:id', element: <TaskDetailPage /> },

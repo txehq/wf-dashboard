@@ -12,8 +12,7 @@ import { IMPORT_SOURCE } from '../helpers/import-source.js';
 function importedTask(repo: string, commit: string): TaskDefinition {
   return {
     id: 'ic-bundle-probe',
-    workflow: 'dev-workflow',
-    bigStage: 'ic',
+    kind: 'ic',
     title: 'bundle',
     persona: 'p',
     hiddenRequirements: 'h',

@@ -1,11 +1,18 @@
 import { z } from 'zod';
 
-// workflow 的定义（Contracts 16.1、16.2）；本文件只依赖 zod，web 也直接引用这里的 schema
-
-export const DEV_WORKFLOW_ID = 'dev-workflow';
+// workflow 的定义（Contracts 16.1）与评测类型的内部配置的结构（16.2）；本文件只依赖 zod，web 也直接引用这里的 schema
 
 const SLUG = /^[a-z][a-z0-9-]*$/;
 const slug = z.string().regex(SLUG, '只能包含小写字母、数字与连字符，以字母开头');
+
+// 评测类型：决定准备、初始消息、结束条件、dispatch gate 与评分；task 属于其中一种（16.3）
+export const evalKinds = ['lfg', 'ic'] as const;
+export type EvalKind = (typeof evalKinds)[number];
+
+// 内置的两个 workflow，id 与评测类型同名
+export const BUILTIN_WORKFLOWS = evalKinds;
+export const isBuiltinWorkflow = (id: string): id is EvalKind =>
+  (BUILTIN_WORKFLOWS as readonly string[]).includes(id);
 
 // 准备积木，按顺序执行
 export const prepareBricks = ['empty-repo', 'repo-copy', 'ticket-copy', 'vault-dir'] as const;
@@ -57,16 +64,7 @@ const RubricGrading = z.strictObject({
 
 const Grading = z.union([z.enum(gradingBricks), RubricGrading]);
 
-const SmallStage = z.strictObject({
-  id: slug,
-  // 再次出现只记次数（像 fix-pr）
-  repeatable: z.literal(true).optional(),
-  // 在本阶段中调用这些小阶段不算切换（像 fix-pr 中的 acceptance）
-  allowInside: z.array(slug).optional(),
-});
-export type SmallStage = z.infer<typeof SmallStage>;
-
-// task 的字段，由积木推出（16.3）
+// task 的字段，由评测类型的积木推出（16.3）
 export const taskFieldNames = [
   'input',
   'persona',
@@ -79,22 +77,9 @@ export const taskFieldNames = [
 ] as const;
 export type TaskFieldName = (typeof taskFieldNames)[number];
 
-const BigStageInput = z.strictObject({
-  // 也是入口命令 /<id>
-  id: slug,
-  title: z.string().trim().min(1),
-  prepare: z.array(z.enum(prepareBricks)),
-  message: z.string().trim().min(1),
-  // 写给模拟用户的结束条件
-  done: z.string().trim().min(1),
-  // 模拟用户的 prompt 加入 dispatch gate 一节，回答不得出现 go
-  dispatchGate: z.literal(true).optional(),
-  taskFields: z.array(z.enum(taskFieldNames)).optional(),
-  stages: z.array(SmallStage).min(1),
-  grading: z.array(Grading),
-});
-
-export type BigStageDefinition = Omit<z.output<typeof BigStageInput>, 'taskFields'>;
+function duplicates(ids: string[]): string[] {
+  return [...new Set(ids.filter((id, i) => ids.indexOf(id) !== i))];
+}
 
 const PLACEHOLDER = /\{([A-Za-z]+)\}/g;
 
@@ -103,7 +88,7 @@ export function placeholdersOf(message: string): string[] {
   return [...new Set([...message.matchAll(PLACEHOLDER)].map((m) => m[1] ?? ''))];
 }
 
-// 按模板生成初始消息；模板用到的占位没有值时抛错（保存 workflow 时已校验占位由积木提供）
+// 按模板生成初始消息；模板用到的占位没有值时抛错（内部配置的测试中已校验占位由积木提供）
 export function renderMessage(message: string, values: Record<string, string | null>): string {
   return message.replace(PLACEHOLDER, (_, name: string) => {
     const value = values[name];
@@ -112,142 +97,160 @@ export function renderMessage(message: string, values: Record<string, string | n
   });
 }
 
-export const hasRepo = (stage: Pick<BigStageDefinition, 'prepare'>) =>
-  stage.prepare.includes('empty-repo') || stage.prepare.includes('repo-copy');
+export const hasRepo = (config: Pick<EvalKindConfig, 'prepare'>) =>
+  config.prepare.includes('empty-repo') || config.prepare.includes('repo-copy');
 
-// 大阶段的积木提供的占位
-export function providedPlaceholders(stage: Pick<BigStageDefinition, 'prepare'>): string[] {
+// 积木提供的占位；{entry} 是 workflow 的入口命令
+export function providedPlaceholders(config: Pick<EvalKindConfig, 'prepare'>): string[] {
   return [
+    'entry',
     'input',
     'runId',
-    ...(hasRepo(stage) ? ['repo'] : []),
-    ...(stage.prepare.includes('ticket-copy') ? ['ticket'] : []),
+    ...(hasRepo(config) ? ['repo'] : []),
+    ...(config.prepare.includes('ticket-copy') ? ['ticket'] : []),
   ];
 }
 
-export function rubricOf(stage: Pick<BigStageDefinition, 'grading'>): RubricArtifactSpec[] | null {
-  for (const g of stage.grading) if (typeof g !== 'string') return g.rubric.artifacts;
+export function rubricOf(config: Pick<EvalKindConfig, 'grading'>): RubricArtifactSpec[] | null {
+  for (const g of config.grading) if (typeof g !== 'string') return g.rubric.artifacts;
   return null;
 }
 
-export const hasGrading = (stage: Pick<BigStageDefinition, 'grading'>, brick: GradingBrick) =>
-  stage.grading.includes(brick);
+export const hasGrading = (config: Pick<EvalKindConfig, 'grading'>, brick: GradingBrick) =>
+  config.grading.includes(brick);
 
 // 16.3：task 的字段由积木与评分推出
-export function taskFieldsOf(stage: BigStageDefinition): TaskFieldName[] {
+export function taskFieldsOf(config: EvalKindConfig): TaskFieldName[] {
   const fields: TaskFieldName[] = [];
-  if (placeholdersOf(stage.message).includes('input')) fields.push('input');
+  if (placeholdersOf(config.message).includes('input')) fields.push('input');
   fields.push('persona', 'hiddenRequirements');
-  if (rubricOf(stage) !== null) fields.push('rubric');
-  if (stage.prepare.includes('ticket-copy')) fields.push('ticket');
-  if (stage.prepare.includes('repo-copy')) fields.push('repo', 'requiredChecks');
-  if (hasGrading(stage, 'hidden-tests')) fields.push('hiddenTests');
+  if (rubricOf(config) !== null) fields.push('rubric');
+  if (config.prepare.includes('ticket-copy')) fields.push('ticket');
+  if (config.prepare.includes('repo-copy')) fields.push('repo', 'requiredChecks');
+  if (hasGrading(config, 'hidden-tests')) fields.push('hiddenTests');
   return fields;
 }
 
-const sameSet = (a: readonly string[], b: readonly string[]) =>
-  a.length === b.length && a.every((x) => b.includes(x));
-
-function duplicates(ids: string[]): string[] {
-  return [...new Set(ids.filter((id, i) => ids.indexOf(id) !== i))];
-}
-
-const BigStage = BigStageInput.superRefine((stage, ctx) => {
-  const issue = (message: string) => {
-    ctx.addIssue({ code: 'custom', message: `大阶段 ${stage.id}：${message}` });
-  };
-  const ids = stage.stages.map((s) => s.id);
-  for (const id of duplicates(ids)) issue(`小阶段 id 重复：${id}`);
-  for (const s of stage.stages) {
-    for (const inside of s.allowInside ?? []) {
-      if (!ids.includes(inside)) {
-        issue(`小阶段 ${s.id} 的 allowInside 引用了不存在的小阶段 ${inside}`);
-      }
+// 一种评测类型的内部配置（16.2）：由积木组成，用户不编辑
+export const EvalKindConfig = z
+  .strictObject({
+    kind: z.enum(evalKinds),
+    prepare: z.array(z.enum(prepareBricks)),
+    message: z.string().trim().min(1),
+    // 写给模拟用户的结束条件
+    done: z.string().trim().min(1),
+    // 模拟用户的 prompt 加入 dispatch gate 一节，回答不得出现 go
+    dispatchGate: z.literal(true).optional(),
+    grading: z.array(Grading),
+  })
+  .superRefine((config, ctx) => {
+    const issue = (message: string) => {
+      ctx.addIssue({ code: 'custom', message: `评测类型 ${config.kind}：${message}` });
+    };
+    for (const brick of duplicates(config.prepare)) issue(`准备积木重复：${brick}`);
+    if (config.prepare.includes('empty-repo') && config.prepare.includes('repo-copy')) {
+      issue('empty-repo 与 repo-copy 只能选一个');
     }
-  }
-  for (const brick of duplicates(stage.prepare)) issue(`准备积木重复：${brick}`);
-  if (stage.prepare.includes('empty-repo') && stage.prepare.includes('repo-copy')) {
-    issue('empty-repo 与 repo-copy 只能选一个');
-  }
-  const provided = providedPlaceholders(stage);
-  for (const name of placeholdersOf(stage.message)) {
-    if (!provided.includes(name)) {
-      issue(
-        `message 用了积木没有提供的占位 {${name}}（可用：${provided.map((p) => `{${p}}`).join('、')}）`,
-      );
-    }
-  }
-  const named = stage.grading.map((g) => (typeof g === 'string' ? g : 'rubric'));
-  for (const brick of duplicates(named)) issue(`评分积木重复：${brick}`);
-  for (const brick of ['hidden-tests', 'criteria-judge', 'pr-endpoint'] as const) {
-    if (named.includes(brick) && !stage.prepare.includes('repo-copy')) {
-      issue(`评分 ${brick} 要求准备积木 repo-copy`);
-    }
-  }
-  if (named.includes('criteria-judge') && !stage.prepare.includes('ticket-copy')) {
-    issue('评分 criteria-judge 要求准备积木 ticket-copy');
-  }
-  const rubric = rubricOf(stage);
-  if (rubric !== null) {
-    if (!stage.prepare.includes('vault-dir')) issue('评分 rubric 要求准备积木 vault-dir');
-    for (const id of duplicates(rubric.map((a) => a.id))) issue(`rubric 产物 id 重复：${id}`);
-    for (const a of rubric) {
-      if (reservedArtifactIds.includes(a.id)) {
+    const provided = providedPlaceholders(config);
+    for (const name of placeholdersOf(config.message)) {
+      if (!provided.includes(name)) {
         issue(
-          `rubric 产物 id ${a.id} 与 run 的固定产物种类同名（${reservedArtifactIds.join('、')}）`,
+          `message 用了积木没有提供的占位 {${name}}（可用：${provided.map((p) => `{${p}}`).join('、')}）`,
         );
       }
     }
-  }
-  if (stage.taskFields !== undefined) {
-    const derived = taskFieldsOf(stage);
-    if (!sameSet(stage.taskFields, derived)) {
-      issue(`taskFields 为 ${stage.taskFields.join(', ')}，由积木推出的是 ${derived.join(', ')}`);
+    const named = config.grading.map((g) => (typeof g === 'string' ? g : 'rubric'));
+    for (const brick of duplicates(named)) issue(`评分积木重复：${brick}`);
+    for (const brick of gradingBricks) {
+      if (named.includes(brick) && !config.prepare.includes('repo-copy')) {
+        issue(`评分 ${brick} 要求准备积木 repo-copy`);
+      }
     }
-  }
-}).transform((stage): BigStageDefinition => {
-  // taskFields 由积木推出，校验后不保存
-  const out: Partial<typeof stage> = { ...stage };
-  delete out.taskFields;
-  return out as BigStageDefinition;
+    if (named.includes('criteria-judge') && !config.prepare.includes('ticket-copy')) {
+      issue('评分 criteria-judge 要求准备积木 ticket-copy');
+    }
+    const rubric = rubricOf(config);
+    if (rubric !== null) {
+      if (!config.prepare.includes('vault-dir')) issue('评分 rubric 要求准备积木 vault-dir');
+      for (const id of duplicates(rubric.map((a) => a.id))) issue(`rubric 产物 id 重复：${id}`);
+      for (const a of rubric) {
+        if (reservedArtifactIds.includes(a.id)) {
+          issue(
+            `rubric 产物 id ${a.id} 与 run 的固定产物种类同名（${reservedArtifactIds.join('、')}）`,
+          );
+        }
+      }
+    }
+  });
+export type EvalKindConfig = z.output<typeof EvalKindConfig>;
+
+// 一个有评测类型的 workflow 运行时取用的配置：评测类型的内部配置加上 workflow 的 id（也是入口命令 /<id>）
+export type EvalSpec = EvalKindConfig & { id: string };
+
+const SmallStage = z.strictObject({
+  id: slug,
+  // 再次出现只记次数（像 fix-pr）
+  repeatable: z.literal(true).optional(),
+  // 在本阶段中调用这些小阶段不算切换（像 fix-pr 中的 acceptance）
+  allowInside: z.array(slug).optional(),
 });
+export type SmallStage = z.infer<typeof SmallStage>;
 
 export const WorkflowDefinition = z
   .strictObject({
+    // 也是入口命令 /<id> 与入口 skill 的名字
     id: slug,
     name: z.string().trim().min(1),
-    bigStages: z.array(BigStage).min(1),
+    stages: z.array(SmallStage).min(1),
   })
   .superRefine((w, ctx) => {
-    for (const id of duplicates(w.bigStages.map((s) => s.id))) {
-      ctx.addIssue({ code: 'custom', message: `大阶段 id 重复：${id}` });
+    const issue = (message: string, path: (string | number)[]) => {
+      ctx.addIssue({ code: 'custom', message, path });
+    };
+    const ids = w.stages.map((s) => s.id);
+    for (const id of duplicates(ids)) issue(`小阶段 id 重复：${id}`, ['stages']);
+    for (const [i, s] of w.stages.entries()) {
+      if (s.id === w.id) issue(`小阶段 ${s.id} 与 workflow 同名`, ['stages', i, 'id']);
+      for (const inside of s.allowInside ?? []) {
+        if (!ids.includes(inside)) {
+          issue(`小阶段 ${s.id} 的 allowInside 引用了不存在的小阶段 ${inside}`, [
+            'stages',
+            i,
+            'allowInside',
+          ]);
+        }
+      }
     }
   });
 export type WorkflowDefinition = z.output<typeof WorkflowDefinition>;
-// 写出（YAML 与 API 请求）时的形状
-export type WorkflowDefinitionInput = z.input<typeof WorkflowDefinition>;
 
-export function bigStageOf(definition: WorkflowDefinition, id: string): BigStageDefinition {
-  const stage = definition.bigStages.find((s) => s.id === id);
-  if (stage === undefined) throw new Error(`workflow ${definition.id} 没有大阶段 ${id}`);
-  return stage;
-}
-
-// workflow 要求 variant 具备的 skill：每个大阶段的入口 skill 与每个小阶段的 skill（16.1）
+// workflow 要求 variant 具备的 skill：入口 skill（与 workflow id 同名）与每个小阶段的 skill（16.1）
 export function requiredSkills(definition: WorkflowDefinition): string[] {
-  return [...new Set(definition.bigStages.flatMap((s) => [s.id, ...s.stages.map((x) => x.id)]))];
+  return [definition.id, ...definition.stages.map((s) => s.id)];
 }
 
 export const WorkflowView = z.object({
   id: z.string(),
   name: z.string(),
-  baseVariantId: z.string().nullable(),
+  evalKind: z.enum(evalKinds).nullable(),
+  copiedFrom: z.string().nullable(),
   builtin: z.boolean(),
-  definition: z.unknown(),
-  // 按大阶段：由积木推出的 task 字段
-  taskFields: z.record(z.string(), z.array(z.enum(taskFieldNames))),
+  definition: WorkflowDefinition,
   variants: z.number(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
 export type WorkflowView = z.infer<typeof WorkflowView>;
+
+// POST /api/workflows（16.1）：复制 fromVariantId 作为新 workflow 的第一个 variant
+export const NewWorkflowBody = z.object({
+  id: z.string(),
+  name: z.string(),
+  fromVariantId: z.string(),
+  keepEvalKind: z.boolean(),
+  definition: z.unknown(),
+});
+export type NewWorkflowBody = z.infer<typeof NewWorkflowBody>;
+
+export const UpdateWorkflowBody = z.object({ name: z.string(), definition: z.unknown() });
+export type UpdateWorkflowBody = z.infer<typeof UpdateWorkflowBody>;

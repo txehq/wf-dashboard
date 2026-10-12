@@ -8,8 +8,8 @@ import {
 } from '@wf-dashboard/server/tasks/schema';
 import { parseDocument, stringify } from 'yaml';
 
-// dev-workflow 的 lfg 的 rubric 分组（新的按 workflow 与大阶段生成的表单由 W37 做）
-const devRubricArtifacts = ['brief', 'research', 'plan', 'tickets'];
+// lfg 评测类型的 rubric 分组（Contracts 16.2）
+const lfgRubricArtifacts = ['brief', 'research', 'plan', 'tickets'];
 
 const artifactNames: Record<string, string> = {
   brief: 'Brief',
@@ -18,10 +18,10 @@ const artifactNames: Record<string, string> = {
   tickets: 'Tickets',
 };
 
-// rubric 分组的显示名：dev-workflow 的四组用固定名字，其他 workflow 的分组显示 id
+// rubric 分组的显示名：lfg 的四组用固定名字，其他分组显示 id
 export const artifactLabel = (artifact: string) => artifactNames[artifact] ?? artifact;
 
-// 表单状态：kind 只在表单中区分两种字段组（有 rubric 的大阶段与有工单、仓库的大阶段），保存时去掉；
+// 表单状态：按 task 的 kind 分两种字段组（有 rubric 的 lfg 与有工单、仓库的 ic）；
 // ic 的清单以 YAML 文本编辑，保存时再解析；关闭隐藏测试时表单中保留填过的内容，保存时不写入
 export type LfgForm = TaskDefinition & { kind: 'lfg'; input: string; rubric: ArtifactRubric[] };
 export type HiddenTestsForm = Omit<HiddenTests, 'manifest'> & { manifestYaml: string };
@@ -71,8 +71,10 @@ export function icFormFromDraft(draft: TaskDraft): IcForm {
 }
 
 export function toForm(task: TaskDefinition): TaskForm {
-  if (task.rubric !== undefined) {
-    if (task.input === undefined) throw new Error(`task ${task.id} 没有 input`);
+  if (task.kind === 'lfg') {
+    if (task.input === undefined || task.rubric === undefined) {
+      throw new Error(`task ${task.id} 没有 input 或 rubric`);
+    }
     return { ...task, kind: 'lfg', input: task.input, rubric: task.rubric };
   }
   const { hiddenTests: tests, ...rest } = task;
@@ -89,17 +91,10 @@ export function toForm(task: TaskDefinition): TaskForm {
 
 export type FormResult = { ok: true; task: TaskDefinition } | { ok: false; issues: string[] };
 
-// 表单的 kind 不属于 task 定义，保存前去掉
-function withoutKind<T extends { kind: string }>(value: T): Omit<T, 'kind'> {
-  const copy: Partial<T> = { ...value };
-  delete copy.kind;
-  return copy as Omit<T, 'kind'>;
-}
-
 export function fromForm(form: TaskForm): FormResult {
   let candidate: unknown;
   if (form.kind === 'ic') {
-    const { hasHiddenTests, hiddenTests: hiddenForm, ...rest } = withoutKind(form);
+    const { hasHiddenTests, hiddenTests: hiddenForm, ...rest } = form;
     if (!hasHiddenTests) {
       candidate = rest;
     } else {
@@ -112,7 +107,7 @@ export function fromForm(form: TaskForm): FormResult {
       candidate = { ...rest, hiddenTests: { ...hiddenTests, manifest: doc.toJS() as unknown } };
     }
   } else {
-    candidate = withoutKind(form);
+    candidate = form;
   }
   const result = TaskDefinition.safeParse(candidate);
   if (result.success) return { ok: true, task: result.data };
@@ -123,7 +118,7 @@ export function fromForm(form: TaskForm): FormResult {
 }
 
 export function emptyRubric(): ArtifactRubric[] {
-  return devRubricArtifacts.map((artifact) => ({
+  return lfgRubricArtifacts.map((artifact) => ({
     artifact,
     items: [{ id: `${artifact[0] ?? ''}1`, criterion: '', maxScore: 3 }],
   }));

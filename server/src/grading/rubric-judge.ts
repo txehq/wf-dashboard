@@ -3,13 +3,13 @@ import { models, parseStructured, type StructuredRequest } from '../llm/client.j
 import { isFiller } from '../llm/filler.js';
 import type { TokenUsage } from '../llm/pricing.js';
 import type { ArtifactRubric, Task } from '../tasks/schema.js';
-import type { BigStageDefinition, RubricArtifactSpec } from '../workflows/schema.js';
+import type { EvalSpec, RubricArtifactSpec } from '../workflows/schema.js';
 import { chineseCount } from '../workflows/text.js';
 import type { GradeItem } from './schema.js';
 
-// judge 看到的大阶段：入口命令与 rubric 积木列出的产物（Contracts 16.2）
+// judge 看到的评测配置：入口命令（workflow id）与 rubric 积木列出的产物（Contracts 16.2）
 export interface JudgeStage {
-  stage: Pick<BigStageDefinition, 'id'>;
+  stage: Pick<EvalSpec, 'id'>;
   artifacts: RubricArtifactSpec[];
 }
 
@@ -31,7 +31,7 @@ export const itemKey = (index: number) => `item_${String(index + 1)}`;
 function userPrompt(task: Task, judging: JudgeStage, group: ArtifactRubric, content: string) {
   const spec = judging.artifacts.find((a) => a.id === group.artifact);
   if (spec === undefined) {
-    throw new Error(`大阶段 ${judging.stage.id} 的 rubric 积木没有产物 ${group.artifact}`);
+    throw new Error(`workflow ${judging.stage.id} 的 rubric 积木没有产物 ${group.artifact}`);
   }
   const items = group.items
     .map((i, n) => `- 条目 ${String(n + 1)}（maxScore ${String(i.maxScore)}）：${i.criterion}`)

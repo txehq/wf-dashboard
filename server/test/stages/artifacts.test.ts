@@ -3,19 +3,19 @@ import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { config } from '../../src/config.js';
 import { ArtifactTracker, candidateDocs, featureDir, slugify } from '../../src/stages/artifacts.js';
-import { builtinDefinition } from '../../src/workflows/index.js';
-import { bigStageOf, rubricOf, type RubricArtifactSpec } from '../../src/workflows/schema.js';
+import { EVAL_KINDS } from '../../src/workflows/eval-kinds.js';
+import { rubricOf, type RubricArtifactSpec } from '../../src/workflows/schema.js';
 
 const VAULT = '/Users/linhaoz/Documents/Obsidian Vault';
 const work = path.join(config.repoRoot, '.work', 'stages-artifacts');
 fs.rmSync(work, { recursive: true, force: true });
 fs.mkdirSync(work, { recursive: true });
 
-// dev-workflow 的 lfg 的 rubric 产物：brief、research、plan、tickets
-const specs = rubricOf(bigStageOf(builtinDefinition(), 'lfg')) ?? [];
+// lfg 评测类型的 rubric 产物：brief、research、plan、tickets
+const specs = rubricOf(EVAL_KINDS.lfg) ?? [];
 function spec(id: string): RubricArtifactSpec {
   const found = specs.find((s) => s.id === id);
-  if (found === undefined) throw new Error(`dev-workflow 的 lfg 没有产物 ${id}`);
+  if (found === undefined) throw new Error(`lfg 评测类型没有产物 ${id}`);
   return found;
 }
 

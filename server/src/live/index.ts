@@ -16,7 +16,6 @@ import {
   subagents,
   userMessages,
   variants as variantsTable,
-  type Workflow,
 } from '../db/schema.js';
 import { events } from '../events.js';
 import { createRunTicket } from '../external/linear.js';
@@ -25,13 +24,14 @@ import { ingestFile } from '../ingest/ingest.js';
 import { newId } from '../runs/index.js';
 import type { SettingsStore } from '../runs/settings.js';
 import type { EvalFacts, SimulatedPersona } from '../runs/simulated-user.js';
-import { issueIdentifier } from '../tasks/import-schema.js';
+import { ensureImportedBundle, previewLinearImport } from '../tasks/linear-import.js';
 import { loadTask, withRepo, withTicket } from '../tasks/loader.js';
 import type { Task } from '../tasks/schema.js';
 import { HttpError } from '../variants/errors.js';
 import type { Variants } from '../variants/index.js';
-import { loadBigStage } from '../workflows/index.js';
-import { DEV_WORKFLOW_ID } from '../workflows/schema.js';
+import { entryOf, evalSpec } from '../workflows/eval-kinds.js';
+import { evalSpecOf, workflowOfVariant, workflowRow } from '../workflows/index.js';
+import type { EvalSpec } from '../workflows/schema.js';
 import { type HandBackReason, type HookPayload, LiveController } from './controller.js';
 import { LivePty } from './pty.js';
 import {
@@ -108,6 +108,9 @@ interface Launch {
   liveId: string;
   kind: LiveProcessKind;
   variantId: string | null;
+  // 新建交互与 resume 时选的模型与 effort（Contracts 16.5）；本机配置不传
+  model: string;
+  effort: string;
   environment: LiveEnvironment;
   cwd: string;
   claudeSessionId: string;
@@ -319,7 +322,7 @@ export function createLive(deps: LiveDeps) {
     claudeSessionId: string;
     title: string;
     environment: LiveEnvironment;
-    workflow: Workflow | null;
+    workflow: string | null;
     input: string | null;
     taskId: string | null;
     cwd: string;
@@ -350,10 +353,8 @@ export function createLive(deps: LiveDeps) {
       variants.trustDirectory(spec.variantId, spec.cwd);
       const runtime = variants.runtimeEnv(spec.variantId);
       env = { ...runtime.env };
-      // 模型与 effort 不再属于 variant（Contracts 16.5）：交互的选择由 W37 加入，此前用设置的默认值
-      const settings = deps.settings.get();
-      model = settings.agentModel;
-      effort = settings.agentEffort;
+      model = spec.model;
+      effort = spec.effort;
       variantArgs = ['--model', model, '--effort', effort, ...runtime.claudeArgs];
       if (spec.environment === 'isolated') {
         sandboxProfile = variants.sandboxProfile(
@@ -456,42 +457,49 @@ export function createLive(deps: LiveDeps) {
     return detail(spec.liveId);
   }
 
-  // 交互只接受 dev-workflow 的 task（Contracts 16，可配置的大阶段由 W37 接入）
-  const kindOf = (task: Task) => (task.workflow === DEV_WORKFLOW_ID ? task.bigStage : null);
-
-  const taskPersona = (task: Task): SimulatedPersona => ({
-    stage: loadBigStage(db, task.workflow, task.bigStage),
+  // 模拟用户扮演的人；stage 为 workflow 的评测配置，没有评测类型的 workflow 为空（只按通用的结束条件判断）
+  const taskPersona = (task: Task, stage: EvalSpec | null): SimulatedPersona => ({
+    stage,
     persona: task.persona,
     hiddenRequirements: task.hiddenRequirements,
   });
 
-  function personaOf(task: Task | null, workflow: Workflow): SimulatedPersona {
+  function personaOf(task: Task | null, stage: EvalSpec | null): SimulatedPersona {
     return task === null
-      ? {
-          stage: loadBigStage(db, DEV_WORKFLOW_ID, workflow),
-          persona: INPUT_PERSONA,
-          hiddenRequirements: '',
-        }
-      : taskPersona(task);
+      ? { stage, persona: INPUT_PERSONA, hiddenRequirements: '' }
+      : taskPersona(task, stage);
   }
 
-  // Contracts 14.2
+  // 有评测类型的 workflow 的评测配置；没有评测类型时为空
+  function stageOfWorkflow(workflowId: string): EvalSpec | null {
+    const workflow = workflowRow(db, workflowId);
+    return workflow.evalKind === null ? null : evalSpec(workflow.evalKind, workflow.id);
+  }
+
+  // 新建与 resume 时没有选的模型与 effort 取设置的默认值（Contracts 16.5）
+  function modelOf(body: { model?: string | undefined; effort?: string | undefined }) {
+    const { agentModel, agentEffort } = settings.get();
+    return { model: body.model ?? agentModel, effort: body.effort ?? agentEffort };
+  }
+
+  // Contracts 14.2、16.7：先选 workflow，再选它的 variant；初始消息为 /<workflow id> <问题>
   async function create(body: CreateLiveBody): Promise<LiveDetail> {
-    const task = body.taskId === null ? null : loadTask(db, body.taskId);
-    if (task !== null && kindOf(task) !== body.workflow) {
+    const stage = stageOfWorkflow(body.workflow);
+    const variant = variants.get(body.variantId);
+    if (variant.workflowId !== body.workflow) {
       throw new HttpError(
         400,
-        `task ${task.id} 属于 ${task.workflow} 的大阶段 ${task.bigStage}，不能用于 /${body.workflow}`,
+        `variant ${variant.name} 属于 workflow ${variant.workflowId}，不是 ${body.workflow} 的 variant`,
       );
     }
-    if (task === null && body.input === null) throw new HttpError(400, '没有选 task 时需要输入');
     // 构建成功才有 runtimeEnv
     variants.runtimeEnv(body.variantId);
+    const entry = entryOf(body.workflow);
     const liveId = newId('l');
     const sessionId = randomUUID();
     const dir = liveDir(liveId);
     let cwd: string;
-    let initial: string;
+    let initial = `${entry} ${body.input}`;
     let evalFacts: EvalFacts | null = null;
     let extraEnv: Record<string, string> = {};
     let start: Record<string, unknown> = {};
@@ -502,15 +510,16 @@ export function createLive(deps: LiveDeps) {
       const signal = new AbortController().signal;
       // 进程本来就在 sandbox 中，Claude Code 不再询问是否信任工作目录
       extraEnv = { CLAUDE_CODE_SANDBOXED: '1', MAGI_VAULT: deps.vaultDir };
-      if (body.workflow === 'lfg') {
-        const input = task === null ? body.input : (task.input ?? null);
-        if (input === null) throw new HttpError(400, '没有输入');
+      if (stage === null) {
+        // 没有评测类型：只建空的 workspace
+        fs.mkdirSync(cwd, { recursive: true });
+      } else if (stage.kind === 'lfg') {
         const repo = await deps.repos.createEmpty(liveId, signal);
         // wf obsidian 要求 product 目录已存在
         fs.mkdirSync(path.join(deps.vaultDir, `Project ${deps.product}`), { recursive: true });
         extraEnv.MAGI_PRODUCT = deps.product;
         initial = [
-          `/lfg ${input}`,
+          initial,
           '',
           `Product: ${deps.product}`,
           `Feature slug: ${liveId}`,
@@ -519,16 +528,17 @@ export function createLive(deps: LiveDeps) {
         evalFacts = { runId: liveId, repo: repo.repo, ticket: null, product: deps.product };
         start = { repo: repo.repo, repoUrl: repo.url };
       } else {
-        // 副本仓库与副本工单都从 task 建立（第 13 节）；粘贴的工单要先另存为 task
-        if (task === null) {
-          throw new HttpError(
-            400,
-            'isolated 环境的 ic 需要选一个 ic task；粘贴的工单先另存为 task',
-          );
-        }
+        // 问题必须是 Linear 工单：按第 13 节读取工单、取起始仓库与 commit，建仓库副本与工单副本（副本不写来源）
+        const preview = await previewLinearImport(
+          { issue: body.input, criteria: false },
+          settings.get().copyRunnerLabels,
+        );
+        const sourceDir = path.join(dir, 'source');
+        await ensureImportedBundle(preview.task, sourceDir);
+        const task: Task = { ...preview.task, dir: path.join(sourceDir, preview.task.id) };
         const repo = await deps.repos.createCopy(withRepo(task), liveId, signal);
         const ticket = await createRunTicket(withTicket(task), liveId);
-        initial = `/ic ${ticket.identifier}`;
+        initial = `${entry} ${ticket.identifier}`;
         evalFacts = {
           runId: liveId,
           repo: repo.repo,
@@ -540,28 +550,18 @@ export function createLive(deps: LiveDeps) {
           repoUrl: repo.url,
           ticket: ticket.identifier,
           ticketUrl: ticket.url,
+          source: preview.issue.identifier,
         };
       }
-      if (evalFacts.repo === null) throw new Error(`交互 ${liveId} 没有建出仓库`);
-      await deps.repos.clone(evalFacts.repo, cwd, signal);
+      if (evalFacts !== null) {
+        if (evalFacts.repo === null) throw new Error(`交互 ${liveId} 没有建出仓库`);
+        await deps.repos.clone(evalFacts.repo, cwd, signal);
+      }
     } else {
       if (body.cwd === null) throw new HttpError(400, 'real 环境需要填写工作目录');
       cwd = path.resolve(body.cwd);
       if (!fs.statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) {
         throw new HttpError(400, `工作目录不存在：${cwd}`);
-      }
-      if (body.workflow === 'lfg') {
-        const input = task === null ? body.input : (task.input ?? null);
-        if (input === null) throw new HttpError(400, '没有输入');
-        initial = `/lfg ${input}`;
-      } else {
-        const source = task === null ? body.input : (task.source?.linear.identifier ?? null);
-        if (source === null) throw new HttpError(400, `task ${body.taskId ?? ''} 没有来源工单`);
-        const identifier = issueIdentifier(source);
-        if (identifier === null) {
-          throw new HttpError(400, `不是 Linear 工单地址或工单编号：${source}`);
-        }
-        initial = `/ic ${identifier}`;
       }
     }
     // 默认名字：初始消息第一行（/lfg <想法>、/ic <工单>）的前 40 个字
@@ -572,21 +572,22 @@ export function createLive(deps: LiveDeps) {
       title: Array.from(firstLine.trim()).slice(0, DEFAULT_TITLE_LENGTH).join(''),
       environment: body.environment,
       workflow: body.workflow,
-      input: task === null ? body.input : (body.input ?? null),
-      taskId: body.taskId,
+      input: body.input,
+      taskId: null,
       cwd,
     });
     return launch({
       liveId,
       kind: 'start',
       variantId: body.variantId,
+      ...modelOf(body),
       environment: body.environment,
       cwd,
       claudeSessionId: sessionId,
       sessionArgs: ['--session-id', sessionId, initial],
       projectDirName: liveId,
       driver: body.driver,
-      persona: personaOf(task, body.workflow),
+      persona: personaOf(null, stage),
       eval: evalFacts,
       extraEnv,
       start: { ...start, initial },
@@ -609,11 +610,16 @@ export function createLive(deps: LiveDeps) {
   function resumePersona(session: typeof sessions.$inferSelect, item: ItemRow | null) {
     if (session.runId !== null) {
       const run = db.select().from(runs).where(eq(runs.id, session.runId)).get();
-      if (run !== undefined) return taskPersona(loadTask(db, run.taskId));
+      if (run !== undefined) {
+        return taskPersona(
+          loadTask(db, run.taskId),
+          evalSpecOf(db, workflowOfVariant(db, run.variantId)),
+        );
+      }
     }
-    if (item !== null) {
-      if (item.taskId !== null) return taskPersona(loadTask(db, item.taskId));
-      if (item.workflow !== null) return personaOf(null, item.workflow);
+    if (item?.workflow != null) {
+      const stage = stageOfWorkflow(item.workflow);
+      return personaOf(item.taskId === null ? null : loadTask(db, item.taskId), stage);
     }
     return {
       stage: null,
@@ -741,6 +747,7 @@ export function createLive(deps: LiveDeps) {
       liveId,
       kind: 'resume',
       variantId: body.variantId,
+      ...modelOf(body),
       environment: 'real',
       cwd,
       claudeSessionId: session.id,
@@ -929,6 +936,18 @@ export function createLive(deps: LiveDeps) {
     hide,
     unhide,
     remove,
+    // "在访达中打开"的两个目录（Contracts 14.2）：工作目录与最近一次进程的配置目录（本机配置时为 <HOME>/.claude）
+    dirs(id: string): { cwd: string; configDir: string } {
+      const r = row(id);
+      const variantId = latestProcess(id)?.variantId ?? null;
+      return {
+        cwd: r.cwd,
+        configDir:
+          variantId === null
+            ? path.join(deps.localHome, '.claude')
+            : variants.layout(variantId).claudeDir,
+      };
+    },
     hook(id: string, payload: HookPayload) {
       controllerOf(id).hook(payload);
     },

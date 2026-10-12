@@ -3,19 +3,21 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, describe, expect, test } from 'vitest';
-import { parse, stringify } from 'yaml';
 import { config } from '../../src/config.js';
 import { artifacts, batches, runs } from '../../src/db/schema.js';
+import { createRuns } from '../../src/runs/index.js';
 import { launchSpec, prepareRun } from '../../src/runs/prepare.js';
+import { createSettingsStore } from '../../src/runs/settings.js';
 import { loadTask, syncTasks } from '../../src/tasks/loader.js';
 import { createVariants } from '../../src/variants/index.js';
-import { createWorkflows, loadBigStage } from '../../src/workflows/index.js';
+import { createWorkflows, evalSpecOf, loadWorkflow } from '../../src/workflows/index.js';
 import { testRunId } from '../helpers/ic-fixture.js';
 import { testRepos } from '../helpers/local-repos.js';
 import { openTestDb } from '../stages/db.js';
 
-// Contracts 16.2：准备、初始消息与启动 claude 的参数按大阶段的积木生成；只测到启动 claude 之前。
-// dev-workflow 的 lfg 生成的初始消息与环境与改为积木之前的写法相同（runner 中原来的 lfg 分支）
+// Contracts 16.2：准备、初始消息与启动 claude 的参数按评测类型的积木生成，入口命令为 workflow 的 id；只测到启动 claude 之前。
+// 内置 lfg 生成的初始消息与环境与原来写死的格式相同；复制出的 mylfg 以 /mylfg 开始，在 lfg task 上运行；
+// 不保留评测类型的 myreview 不能发起 run
 const { db, close } = openTestDb();
 const work = path.join(config.repoRoot, '.work', 'test-prepare', randomUUID());
 const vaultDir = path.join(work, 'vault');
@@ -27,39 +29,23 @@ const variants = createVariants({
   ctxBin: config.ctxBin,
 });
 const repos = testRepos();
+const runsModule = createRuns({
+  db,
+  variants,
+  settings: createSettingsStore(db),
+  vaultDir,
+  product: config.evalProduct,
+  runsDir: path.join(work, 'runs'),
+  repos,
+});
 const created: string[] = [];
 
-afterAll(() => {
+afterAll(async () => {
+  await runsModule.shutdown();
   for (const id of created) fs.rmSync(variants.layout(id).dir, { recursive: true, force: true });
   close();
   fs.rmSync(work, { recursive: true, force: true });
 });
-
-// next-workflow 的 newlfg task（字段由积木推出：input、persona、hiddenRequirements、rubric）与 dev-workflow 的 lfg-calculator
-function writeTasks(): string {
-  const dir = path.join(work, 'tasks');
-  fs.cpSync(path.join(config.tasksDir, 'lfg-calculator'), path.join(dir, 'lfg-calculator'), {
-    recursive: true,
-  });
-  fs.mkdirSync(path.join(dir, 'next-calculator'), { recursive: true });
-  fs.writeFileSync(
-    path.join(dir, 'next-calculator', 'task.yaml'),
-    stringify({
-      id: 'next-calculator',
-      workflow: 'next-workflow',
-      bigStage: 'newlfg',
-      title: '计算器',
-      persona: '一位数学老师',
-      hiddenRequirements: '四则运算',
-      input: '做一个计算器',
-      rubric: [
-        { artifact: 'scope', items: [{ id: 's1', criterion: '写出范围', maxScore: 2 }] },
-        { artifact: 'tickets', items: [{ id: 't1', criterion: '拆出工单', maxScore: 2 }] },
-      ],
-    }),
-  );
-  return dir;
-}
 
 function insertRun(taskId: string, variantId: string, prefix: string) {
   const id = testRunId(prefix);
@@ -84,51 +70,19 @@ function insertRun(taskId: string, variantId: string, prefix: string) {
   return row;
 }
 
-describe('按积木准备与生成初始消息', { timeout: 900_000 }, () => {
-  test('dev-workflow 的 lfg 与 next-workflow 的 newlfg（prepare: [empty-repo, vault-dir]）', async () => {
-    const base = await variants.createBaseline({ name: `W36 基线 ${randomUUID().slice(0, 8)}` });
+describe('按评测类型准备与生成初始消息', { timeout: 900_000 }, () => {
+  test('内置 lfg、复制出的 mylfg（保留评测类型）与 myreview（不保留）', async () => {
+    syncTasks(db, config.tasksDir);
+    const base = await variants.createBaseline({ name: `W41 基线 ${randomUUID().slice(0, 8)}` });
     created.push(base.id);
     await variants.build(base.id);
     const workflows = createWorkflows({ db, variants });
-    const nextYaml = fs.readFileSync(
-      path.join(import.meta.dirname, '../fixtures/workflows/next-workflow.yaml'),
-      'utf8',
-    );
-    const view = workflows.create({
-      id: 'next-workflow',
-      name: 'next-workflow',
-      variantId: base.id,
-      definition: parse(nextYaml),
-    });
-    if (view.baseVariantId === null) throw new Error('next-workflow 没有底子');
-    const next = view.baseVariantId;
-    created.push(next);
-    // 新 workflow 的入口与小阶段的 skill
-    for (const skill of [
-      'newlfg',
-      'scope',
-      'spike',
-      'tickets',
-      'newic',
-      'build',
-      'ship',
-      'polish',
-    ]) {
-      variants.writeFile(
-        next,
-        `skills/${skill}/SKILL.md`,
-        `---\nname: ${skill}\ndescription: next-workflow 的 ${skill} 阶段\n---\n\n# ${skill}\n`,
-      );
-    }
-    await variants.build(next);
-    syncTasks(db, writeTasks());
-
     const vault = { vaultDir, product: config.evalProduct };
     const signal = new AbortController().signal;
 
-    // dev-workflow 的 lfg：初始消息与原来写死的格式逐字相同
-    const lfgRun = insertRun('lfg-calculator', base.id, 'w36-lfg');
-    const lfgStage = loadBigStage(db, 'dev-workflow', 'lfg');
+    // 内置 lfg：初始消息与原来写死的格式逐字相同
+    const lfgRun = insertRun('lfg-calculator', base.id, 'w41-lfg');
+    const lfgStage = evalSpecOf(db, 'lfg');
     const lfgInitial = await prepareRun({
       db,
       repos,
@@ -167,35 +121,79 @@ describe('按积木准备与生成初始消息', { timeout: 900_000 }, () => {
       CLAUDE_CONFIG_DIR: variants.runtimeEnv(base.id).env.CLAUDE_CONFIG_DIR,
     });
 
-    // next-workflow 的 newlfg：按模板生成
-    const nextRun = insertRun('next-calculator', next, 'w36-next');
-    const nextStage = loadBigStage(db, 'next-workflow', 'newlfg');
-    const nextInitial = await prepareRun({
+    // mylfg：复制 lfg 的定义、保留评测类型；第一个 variant 的入口 skill 改名为 mylfg
+    const mylfg = workflows.create({
+      id: 'mylfg',
+      name: '我的 lfg',
+      fromVariantId: base.id,
+      keepEvalKind: true,
+      definition: { ...loadWorkflow(db, 'lfg'), id: 'mylfg', name: '我的 lfg' },
+    });
+    expect(mylfg).toMatchObject({ evalKind: 'lfg', copiedFrom: 'lfg', variants: 1 });
+    const mylfgVariant = variants.list().find((v) => v.workflowId === 'mylfg');
+    if (mylfgVariant === undefined) throw new Error('mylfg 没有 variant');
+    created.push(mylfgVariant.id);
+    expect(mylfgVariant.name).toBe('基线');
+    const skills = variants.layout(mylfgVariant.id).skills;
+    expect(fs.existsSync(path.join(skills, 'mylfg', 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(skills, 'lfg'))).toBe(false);
+    expect(fs.readFileSync(path.join(skills, 'mylfg', 'SKILL.md'), 'utf8')).toMatch(
+      /^name: mylfg$/m,
+    );
+    await variants.build(mylfgVariant.id);
+    const mylfgRun = insertRun('lfg-calculator', mylfgVariant.id, 'w41-mylfg');
+    const mylfgStage = evalSpecOf(db, 'mylfg');
+    const mylfgInitial = await prepareRun({
       db,
       repos,
       ...vault,
-      run: nextRun,
-      task: loadTask(db, 'next-calculator'),
-      stage: nextStage,
+      run: mylfgRun,
+      task: loadTask(db, 'lfg-calculator'),
+      stage: mylfgStage,
       signal,
     });
-    const nextRepo = path.join(String(repos.localDir), `wfe-${nextRun.id}.git`);
-    expect(nextInitial).toBe(
-      `/newlfg 做一个计算器\n\nProduct: Magi Eval\nFeature slug: ${nextRun.id}\nRepository: ${nextRepo}`,
+    const mylfgRepo = path.join(String(repos.localDir), `wfe-${mylfgRun.id}.git`);
+    expect(mylfgInitial).toBe(
+      `/mylfg 做一个计算器\n\nProduct: Magi Eval\nFeature slug: ${mylfgRun.id}\nRepository: ${mylfgRepo}`,
     );
     const repoArtifact = db
       .select()
       .from(artifacts)
-      .where(and(eq(artifacts.runId, nextRun.id), eq(artifacts.kind, 'repo')))
+      .where(and(eq(artifacts.runId, mylfgRun.id), eq(artifacts.kind, 'repo')))
       .get();
-    expect(repoArtifact?.location).toBe(`file://${nextRepo}`);
-    const nextLaunch = launchSpec(variants.runtimeEnv(next), nextRun, nextStage, vault);
-    expect(nextLaunch.variantArgs.slice(0, 4)).toEqual(['--model', 'sonnet', '--effort', 'low']);
-    expect(nextLaunch.env.MAGI_PRODUCT).toBe(config.evalProduct);
-    expect(nextLaunch.env.CLAUDE_CONFIG_DIR).toBe(variants.runtimeEnv(next).env.CLAUDE_CONFIG_DIR);
+    expect(repoArtifact?.location).toBe(`file://${mylfgRepo}`);
+    const mylfgLaunch = launchSpec(
+      variants.runtimeEnv(mylfgVariant.id),
+      mylfgRun,
+      mylfgStage,
+      vault,
+    );
+    expect(mylfgLaunch.variantArgs.slice(0, 4)).toEqual(['--model', 'sonnet', '--effort', 'low']);
+    expect(mylfgLaunch.env.MAGI_PRODUCT).toBe(config.evalProduct);
 
-    // dev-workflow 的 ic 要 PR 评分：本地仓库模式下准备以原文失败，不建仓库
-    const icRun = insertRun('lfg-calculator', base.id, 'w36-ic');
+    // myreview：不保留评测类型，不能评测
+    workflows.create({
+      id: 'myreview',
+      name: '我的 review',
+      fromVariantId: base.id,
+      keepEvalKind: false,
+      definition: { ...loadWorkflow(db, 'lfg'), id: 'myreview', name: '我的 review' },
+    });
+    const myreviewVariant = variants.list().find((v) => v.workflowId === 'myreview');
+    if (myreviewVariant === undefined) throw new Error('myreview 没有 variant');
+    created.push(myreviewVariant.id);
+    expect(() =>
+      runsModule.createBatch({
+        variantIds: [myreviewVariant.id],
+        taskIds: ['lfg-calculator'],
+        repeats: 1,
+        model: 'opus',
+        effort: 'high',
+      }),
+    ).toThrow('workflow myreview 没有评测类型，不能评测（只用于 Live、阶段划分与分析）');
+
+    // ic 要 PR 评分：本地仓库模式下准备以原文失败，不建仓库
+    const icRun = insertRun('lfg-calculator', base.id, 'w41-ic');
     await expect(
       prepareRun({
         db,
@@ -203,7 +201,7 @@ describe('按积木准备与生成初始消息', { timeout: 900_000 }, () => {
         ...vault,
         run: icRun,
         task: loadTask(db, 'lfg-calculator'),
-        stage: loadBigStage(db, 'dev-workflow', 'ic'),
+        stage: evalSpecOf(db, 'ic'),
         signal,
       }),
     ).rejects.toThrow(

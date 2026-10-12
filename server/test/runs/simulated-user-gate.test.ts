@@ -9,14 +9,12 @@ import {
   systemPrompt,
   textOutput,
 } from '../../src/runs/simulated-user.js';
-import { builtinDefinition } from '../../src/workflows/index.js';
-import { bigStageOf } from '../../src/workflows/schema.js';
+import { evalSpec } from '../../src/workflows/eval-kinds.js';
 
 // Contracts 7.4 与 Reports/W40：回答 dispatch gate 的这一轮 done 必须为 false。prompt 按顺序逐条核对，
-// 有 dispatch gate 的大阶段在 done 之前先给出 answeringDispatchGate，代码检查两者不矛盾
-const dev = builtinDefinition();
-const lfg: PersonaStage = bigStageOf(dev, 'lfg');
-const ic: PersonaStage = bigStageOf(dev, 'ic');
+// 有 dispatch gate 的评测类型在 done 之前先给出 answeringDispatchGate，代码检查两者不矛盾
+const lfg: PersonaStage = evalSpec('lfg', 'lfg');
+const ic: PersonaStage = evalSpec('ic', 'ic');
 const gateText = {
   kind: 'text' as const,
   text: 'Reply `go` to dispatch every wave, or anything else to stop here.',

@@ -30,7 +30,7 @@ db.insert(variants)
     baseCommit: '0'.repeat(40),
     skillsHash: 'a'.repeat(64),
     version: '0.0.0-eval.aaaaaaaa',
-    workflowId: 'dev-workflow',
+    workflowId: 'lfg',
     status: 'frozen',
   })
   .run();

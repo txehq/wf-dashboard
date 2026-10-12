@@ -1,6 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { efforts, modelAliases } from '@wf-dashboard/server/variants/model-names';
 import { Settings2 } from 'lucide-react';
 import { useState } from 'react';
+import { z } from 'zod';
+import { ModelEffortChoice } from '@/components/model-effort';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -78,6 +81,19 @@ function SettingsForm({ initial }: { initial: Settings }) {
           </label>
         ))}
       </div>
+      <div className="flex flex-col gap-1 text-sm" data-testid="settings-agent">
+        <span>agent 默认的 model 与 effort（发起 batch、新建交互与 resume 时没有选就用它们）</span>
+        <ModelEffortChoice
+          value={{ model: draft.agentModel, effort: draft.agentEffort }}
+          onModel={(model) => {
+            setDraft({ ...draft, agentModel: z.enum(modelAliases).parse(model) });
+          }}
+          onEffort={(effort) => {
+            setDraft({ ...draft, agentEffort: z.enum(efforts).parse(effort) });
+          }}
+          testIdPrefix="settings"
+        />
+      </div>
       <label className="flex flex-col gap-1 text-sm">
         副本仓库可用的自托管 runner 标签（每行一个）
         <Textarea
@@ -121,8 +137,9 @@ export function RunSettings() {
         设置
         {settings.data !== undefined && (
           <span className="font-normal text-muted-foreground">
-            同时 {settings.data.runConcurrency} 个 · 模拟用户 {settings.data.models.simulatedUser} ·
-            评分 {settings.data.models.judge}
+            同时 {settings.data.runConcurrency} 个 · agent {settings.data.agentModel}/
+            {settings.data.agentEffort} · 模拟用户 {settings.data.models.simulatedUser} · 评分{' '}
+            {settings.data.models.judge}
           </span>
         )}
       </summary>

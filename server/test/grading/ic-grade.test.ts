@@ -24,7 +24,7 @@ import { openTestDb } from '../stages/db.js';
 import { insertRun, insertVariant } from './seed.js';
 
 const { db, close } = openTestDb();
-insertVariant(db, 'baseline');
+insertVariant(db, 'baseline', 'ic');
 afterAll(close);
 
 // 录下的真实 PR（scripts/record-gh-fixtures.ts）：W7 fixture 的 subtract PR，ready、ci 通过，带 review、文件评论与对话区评论；
@@ -159,7 +159,7 @@ describe('ic 评分（录下的 PR 与只读的 GitHub）', { timeout: 10 * 60_0
     ]);
     // task 中没有隐藏需求、rubric 与隐藏测试
     expect(Object.keys(exported.task).sort()).toEqual(
-      ['bigStage', 'id', 'persona', 'requiredChecks', 'ticket', 'title', 'workflow'].sort(),
+      ['id', 'kind', 'persona', 'requiredChecks', 'ticket', 'title'].sort(),
     );
 
     // 没有快照的旧 run：仓库存在时现读，仓库不存在时记为不可用

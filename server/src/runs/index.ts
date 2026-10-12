@@ -20,11 +20,11 @@ import { featureDir } from '../stages/artifacts.js';
 import {
   publishStageChanges,
   readReport,
-  sessionWorkflowId,
+  sessionPartition,
   updateStages,
 } from '../stages/report.js';
 import { HttpError } from '../variants/errors.js';
-import { loadBigStage, loadWorkflow } from '../workflows/index.js';
+import { evalSpecOf } from '../workflows/index.js';
 import { artifactView, listMessages, messageView } from './records.js';
 import { RunDriver, type RunnerDeps } from './runner.js';
 import type { BatchDetail, BatchSummary, RunDetail, RunMode, RunSummary } from './views.js';
@@ -146,11 +146,9 @@ export function createRuns(deps: RunnerDeps) {
         out.set(id, null);
         continue;
       }
-      const definition = loadWorkflow(db, sessionWorkflowId(db, id));
+      const partition = sessionPartition(db, id);
       const order = (s: (typeof own)[number]) =>
-        definition.bigStages
-          .find((b) => b.id === s.bigStage)
-          ?.stages.findIndex((x) => x.id === s.stage) ?? -1;
+        partition.find((w) => w.id === s.workflow)?.stages.findIndex((x) => x.id === s.stage) ?? -1;
       own.sort((a, b) => order(a) - order(b));
       const active = own.find((s) => s.status === 'active');
       const last = [...own].reverse().find((s) => s.status === 'done' || s.status === 'skipped');
@@ -159,7 +157,7 @@ export function createRuns(deps: RunnerDeps) {
         id,
         pick === undefined
           ? null
-          : { bigStage: pick.bigStage, stage: pick.stage, status: pick.status },
+          : { workflow: pick.workflow, stage: pick.stage, status: pick.status },
       );
     }
     return out;
@@ -194,8 +192,8 @@ export function createRuns(deps: RunnerDeps) {
         id: r.id,
         batchId: r.batchId,
         taskId: r.taskId,
-        workflowId: task.workflowId,
-        bigStage: task.bigStage,
+        workflowId: variant.workflowId,
+        kind: task.kind,
         taskTitle: task.title,
         variantId: r.variantId,
         variantName: variant.name,
@@ -263,22 +261,24 @@ export function createRuns(deps: RunnerDeps) {
       model: string;
       effort: string;
     }): BatchDetail {
-      const workflowOf = new Map<string, string>();
+      // variant 所属 workflow 的评测类型：没有评测类型的 workflow 不能评测（evalSpecOf 400 原文）
+      const kindOf = new Map<string, string>();
       for (const id of input.variantIds) {
         const v = deps.variants.get(id);
+        kindOf.set(id, evalSpecOf(db, v.workflowId).kind);
         if (v.buildStatus !== 'built' || v.builtHash !== v.skillsHash) {
           throw new HttpError(400, `variant ${v.name} 还没有按当前内容构建成功`);
         }
-        workflowOf.set(id, v.workflowId);
       }
       for (const id of input.taskIds) {
         const task = db.select().from(tasks).where(eq(tasks.id, id)).get();
         if (task === undefined) throw new HttpError(400, `task 不存在：${id}`);
-        for (const [variantId, workflowId] of workflowOf) {
-          if (task.workflowId !== workflowId) {
+        for (const [variantId, kind] of kindOf) {
+          if (task.kind !== kind) {
+            const v = deps.variants.get(variantId);
             throw new HttpError(
               400,
-              `task ${id} 属于 workflow ${task.workflowId}，variant ${deps.variants.get(variantId).name} 属于 ${workflowId}：只能在同一 workflow 内运行`,
+              `task ${id} 的评测类型是 ${task.kind}，variant ${v.name} (${v.workflowId}) 的评测类型是 ${kind}：只能在评测类型相同的 task 上运行`,
             );
           }
         }
@@ -381,8 +381,7 @@ export function createRuns(deps: RunnerDeps) {
           ticket: location('ticket'),
           pr: row.prUrl,
           vault:
-            loadBigStage(db, summary.workflowId, summary.bigStage).prepare.includes('vault-dir') &&
-            fs.existsSync(dir)
+            evalSpecOf(db, summary.workflowId).prepare.includes('vault-dir') && fs.existsSync(dir)
               ? dir
               : null,
         },

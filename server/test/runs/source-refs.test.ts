@@ -29,7 +29,7 @@ db.insert(variants)
     baseCommit: '0'.repeat(40),
     skillsHash: 'a'.repeat(64),
     version: '0.0.0-eval.aaaaaaaa',
-    workflowId: 'dev-workflow',
+    workflowId: 'ic',
   })
   .run();
 db.insert(batches).values({ id: 'b-20261011-source', repeats: 1 }).run();

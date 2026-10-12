@@ -21,8 +21,8 @@ import { loadTask } from '../tasks/loader.js';
 import type { Task } from '../tasks/schema.js';
 import { HttpError } from '../variants/errors.js';
 import type { Variants } from '../variants/index.js';
-import { loadBigStage } from '../workflows/index.js';
-import { type BigStageDefinition, rubricOf } from '../workflows/schema.js';
+import { evalSpecOf, workflowOfVariant } from '../workflows/index.js';
+import { type EvalSpec, rubricOf } from '../workflows/schema.js';
 import { recordAcceptanceReport, watchAcceptanceReport } from './acceptance-report.js';
 import { ClaudeProcess } from './claude-process.js';
 import { refreshRunCost, watchRunCost } from './cost-refresh.js';
@@ -99,8 +99,8 @@ export class RunDriver {
 
   private readonly db: Db;
   private task!: Task;
-  // task 所在的大阶段：准备、初始消息、结束条件与评分按它的积木执行（Contracts 16.2）
-  private stage!: BigStageDefinition;
+  // run 所用 variant 的 workflow 的评测配置：准备、初始消息、结束条件与评分按它的积木执行（Contracts 16.2）
+  private stage!: EvalSpec;
   private proc: ClaudeProcess | null = null;
   private rubricArtifacts: RubricArtifacts | null = null;
   private sessionWatcher: SessionWatcher | null = null;
@@ -200,7 +200,7 @@ export class RunDriver {
   private async drive() {
     const run = this.row();
     this.task = loadTask(this.db, run.taskId);
-    this.stage = loadBigStage(this.db, this.task.workflow, this.task.bigStage);
+    this.stage = evalSpecOf(this.db, workflowOfVariant(this.db, run.variantId));
     this.setStatus('preparing', { startedAt: new Date() });
     const initial = await this.prepare(run);
     // prepare 写入了仓库
@@ -318,7 +318,7 @@ export class RunDriver {
       );
       this.rubricArtifacts.record();
     }
-    // 有副本仓库的大阶段：轮询 PR，记录验收报告
+    // 有副本仓库的评测类型：轮询 PR，记录验收报告
     const tracksPr = this.stage.prepare.includes('repo-copy');
     if (tracksPr) {
       this.prTimer = setInterval(() => {
@@ -331,7 +331,7 @@ export class RunDriver {
         this.rubricArtifacts?.record();
       }
       if (event.type === 'stage.changed' && event.sessionId === run.sessionId) {
-        this.publishStage({ bigStage: event.bigStage, stage: event.stage, status: event.status });
+        this.publishStage({ workflow: event.workflow, stage: event.stage, status: event.status });
       }
     });
     const stopCost = watchRunCost(this.db, this.runId, run.sessionId, this.fail);

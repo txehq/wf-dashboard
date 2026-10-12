@@ -1,8 +1,8 @@
 import { z } from 'zod';
-import type { BigStageDefinition } from '../workflows/schema.js';
-import { rubricOf, taskFieldsOf, type TaskFieldName } from '../workflows/schema.js';
+import { EVAL_KINDS } from '../workflows/eval-kinds.js';
+import { evalKinds, rubricOf, taskFieldsOf, type TaskFieldName } from '../workflows/schema.js';
 
-// 本文件只依赖 zod，web 也直接引用这里的 schema
+// 本文件只依赖 zod（与同样只依赖 zod 的 workflows/schema、eval-kinds），web 也直接引用这里的 schema
 
 // task 目录内的相对路径：不能是绝对路径，不能经过 ..（加载与评分时按它复制文件）
 const taskPath = z
@@ -25,13 +25,13 @@ export const RubricItem = z.strictObject({
 export type RubricItem = z.infer<typeof RubricItem>;
 
 export const ArtifactRubric = z.strictObject({
-  // 大阶段 rubric 评分的产物 id（Contracts 16.2），例如 brief、research
+  // 评测类型 rubric 评分的产物 id（Contracts 16.2），例如 brief、research
   artifact: slug,
   items: z.array(RubricItem).min(1),
 });
 export type ArtifactRubric = z.infer<typeof ArtifactRubric>;
 
-// 每组只出现一次，条目 id 在整份 rubric 内唯一；分组与大阶段产物的对应在加载 task 时检查
+// 每组只出现一次，条目 id 在整份 rubric 内唯一；分组与评测类型产物的对应在加载 task 时检查
 export const Rubric = z.array(ArtifactRubric).superRefine((groups, ctx) => {
   const artifacts = groups.map((g) => g.artifact);
   for (const a of new Set(artifacts.filter((x, i) => artifacts.indexOf(x) !== i))) {
@@ -106,12 +106,11 @@ const RequiredChecks = z
   .array(z.string().trim().min(1))
   .refine((names) => new Set(names).size === names.length, 'requiredChecks 不能重复');
 
-// task.yaml 的内容（Contracts 16.3）：绑定一个 workflow 的一个大阶段，可选字段由大阶段的积木决定（checkTaskFields）；
+// task.yaml 的内容（Contracts 16.3）：属于一种评测类型，可选字段由评测类型的积木决定（taskFieldIssues）；
 // 字段顺序即文件中的书写顺序
 const taskFields = {
   id,
-  workflow: slug,
-  bigStage: slug,
+  kind: z.enum(evalKinds),
   title: z.string().trim().min(1),
   persona: z.string().trim().min(1),
   hiddenRequirements: z.string().trim().min(1),
@@ -123,7 +122,7 @@ const taskFields = {
   repo: TaskRepo.optional(),
   // 终点要求通过的 check（GitHub 报告的 check 名）；createRunRepo 以它建 ruleset，为空时不建、终点只要求 PR 不是 draft
   requiredChecks: RequiredChecks.optional(),
-  // 大阶段同时有 criteria-judge 时可以没有：judge 按验收标准逐条评分
+  // 评测类型同时有 criteria-judge 时可以没有：judge 按验收标准逐条评分
   hiddenTests: HiddenTests.optional(),
 };
 
@@ -140,7 +139,7 @@ export const TaskDraft = z.strictObject({
 });
 export type TaskDraft = z.infer<typeof TaskDraft>;
 
-// task 中按积木出现的字段（id、workflow、bigStage、title 总是有）
+// task 中按积木出现的字段（id、kind、title 总是有）
 const optionalFields: readonly (keyof TaskDefinition)[] = [
   'input',
   'persona',
@@ -153,24 +152,25 @@ const optionalFields: readonly (keyof TaskDefinition)[] = [
   'hiddenTests',
 ];
 
-// 16.3：字段按大阶段的积木校验，缺少或多出时给出原文；没有问题时为空数组
-export function taskFieldIssues(task: TaskDefinition, stage: BigStageDefinition): string[] {
-  const derived: readonly TaskFieldName[] = taskFieldsOf(stage);
+// 16.3：字段按评测类型的积木校验，缺少或多出时给出原文；没有问题时为空数组
+export function taskFieldIssues(task: TaskDefinition): string[] {
+  const config = EVAL_KINDS[task.kind];
+  const derived: readonly TaskFieldName[] = taskFieldsOf(config);
   // 同时有 criteria-judge 时隐藏测试可以没有；source 只属于有工单的 task
   const optional = new Set<string>([
-    ...(stage.grading.includes('criteria-judge') ? ['hiddenTests'] : []),
+    ...(config.grading.includes('criteria-judge') ? ['hiddenTests'] : []),
     ...(derived.includes('ticket') ? ['source'] : []),
   ]);
   const required = derived.filter((f) => !optional.has(f));
   const allowed = new Set<string>([...derived, ...optional]);
   const present = optionalFields.filter((f) => task[f] !== undefined);
-  const where = `task ${task.id}（${task.workflow} 的大阶段 ${task.bigStage}）`;
+  const where = `task ${task.id}（${task.kind}）`;
   const issues: string[] = [];
   const missing = required.filter((f) => task[f] === undefined);
   if (missing.length > 0) issues.push(`${where}缺少字段：${missing.join('、')}`);
   const extra = present.filter((f) => !allowed.has(f));
   if (extra.length > 0) issues.push(`${where}多出字段：${extra.join('、')}`);
-  const rubric = rubricOf(stage);
+  const rubric = rubricOf(config);
   if (rubric !== null && task.rubric !== undefined) {
     const expected = rubric.map((a) => a.id).join(',');
     const actual = task.rubric.map((g) => g.artifact).join(',');
@@ -202,11 +202,11 @@ export const TaskRecord = z.object({
 });
 export type TaskRecord = z.infer<typeof TaskRecord>;
 
-// 起草 rubric 的请求：页面表单中的 task 定义（rubric 可省略），大阶段必须有 rubric 评分
+// 起草 rubric 的请求：页面表单中的 task 定义（rubric 可省略），评测类型必须有 rubric 评分
 export const RubricDraftRequest = TaskDefinition;
 export type RubricDraftRequest = z.infer<typeof RubricDraftRequest>;
 
-// LLM 起草 rubric 的输出；分组限定为大阶段的产物 id。结构化输出不支持 superRefine，
+// LLM 起草 rubric 的输出；分组限定为评测类型的产物 id。结构化输出不支持 superRefine，
 // 分组的顺序与 id 唯一由调用方再用 Rubric 与 taskFieldIssues 校验。
 // id 的写法与 RubricItem 相同，每组 4 到 8 条（与起草 prompt 的要求相同），不满足时以 zod 的原文失败
 export function rubricDraftOutput(artifacts: [string, ...string[]]) {

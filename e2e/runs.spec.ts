@@ -180,14 +180,14 @@ test.describe('真实运行', () => {
     await expect(launch.getByRole('checkbox', { name: /导入/ }).first()).toBeDisabled();
     await expect(launch.getByText('导入的历史记录，不能运行').first()).toBeVisible();
     const draftRow = launch
-      .locator('div', { has: page.getByText(`${draftName} (dev-workflow)`, { exact: true }) })
+      .locator('div', { has: page.getByText(`${draftName} (lfg)`, { exact: true }) })
       .last();
     await expect(draftRow.getByRole('checkbox')).toBeDisabled();
     await expect(draftRow.getByRole('link', { name: '去构建' })).toHaveAttribute(
       'href',
-      `/variants/${draft.id}`,
+      `/workflows/lfg?variant=${draft.id}`,
     );
-    await launch.getByRole('checkbox', { name: `${variantName} (dev-workflow)` }).check();
+    await launch.getByRole('checkbox', { name: `${variantName} (lfg)` }).check();
     await launch.getByRole('checkbox', { name: '课堂用的网页计算器' }).check();
     await launch.getByRole('spinbutton').fill('1');
     // model 与 effort 在发起时选，默认取设置（Contracts 16.5）

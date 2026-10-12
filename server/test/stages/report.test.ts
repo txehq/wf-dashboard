@@ -16,7 +16,7 @@ import {
 import { ingestFile } from '../../src/ingest/ingest.js';
 import {
   readReport,
-  sessionWorkflowId,
+  sessionPartition,
   StageReport,
   stageReport as stageReportOf,
   updateStages,
@@ -36,9 +36,10 @@ const work = path.join(config.repoRoot, '.work', 'test-stage-report', randomUUID
 const { db, close } = openTestDb();
 syncTasks(db, config.tasksDir);
 insertVariant(db, 'stage-report-v');
-// 一次算出的划分用内置的 dev-workflow 定义
+// 一次算出的划分同时按内置的 lfg 与 ic（Contracts 16.6）
+const builtins = () => [loadWorkflow(db, 'lfg'), loadWorkflow(db, 'ic')];
 const stageReport = (rows: SessionRows, finished: boolean) =>
-  stageReportOf(loadWorkflow(db, 'dev-workflow'), rows, finished);
+  stageReportOf(builtins(), rows, finished);
 const app = await buildApp({
   db,
   sseHeartbeatMs: config.sseHeartbeatMs,
@@ -91,12 +92,11 @@ type Expected = [
   evidence: { seq: number; kind: string; text: string } | null,
 ];
 
-// dev-workflow 的两个大阶段：StageReport 按定义的顺序列出 lfg、ic（Contracts 16.6）
-function cyclesOf(report: StageReport, bigStage: string): WorkflowCycle[] {
-  expect(report.workflowId).toBe('dev-workflow');
-  expect(report.bigStages.map((b) => b.bigStage)).toEqual(['lfg', 'ic']);
-  const found = report.bigStages.find((b) => b.bigStage === bigStage);
-  if (found === undefined) throw new Error(`没有大阶段 ${bigStage}`);
+// 内置的 lfg 与 ic：StageReport 按 lfg、ic 的顺序列出（Contracts 16.6）
+function cyclesOf(report: StageReport, workflow: string): WorkflowCycle[] {
+  expect(report.workflows.map((w) => w.workflow)).toEqual(['lfg', 'ic']);
+  const found = report.workflows.find((w) => w.workflow === workflow);
+  if (found === undefined) throw new Error(`没有 workflow ${workflow}`);
   return found.cycles;
 }
 const lfgCycles = (report: StageReport) => cyclesOf(report, 'lfg');
@@ -384,28 +384,23 @@ describe('fix-pr 与更前面的阶段', () => {
   });
 });
 
-// 16.6：绑定到 next-workflow 的 variant 的 session 按 next-workflow 的定义切块
-describe('next-workflow 的阶段划分', () => {
-  const nextDefinition = parseDefinition(
+// 16.6：绑定到其他 workflow（myreview）的 variant 的 session 只按那个 workflow 的定义切块
+describe('myreview 的阶段划分', () => {
+  const myreview = parseDefinition(
     parse(
       fs.readFileSync(
-        path.join(import.meta.dirname, '../fixtures/workflows/next-workflow.yaml'),
+        path.join(import.meta.dirname, '../fixtures/workflows/myreview.yaml'),
         'utf8',
       ),
     ),
-    'next-workflow.yaml',
+    'myreview.yaml',
   );
   db.insert(workflowTable)
-    .values({
-      id: 'next-workflow',
-      name: 'next-workflow',
-      definition: nextDefinition,
-      updatedAt: new Date(),
-    })
+    .values({ id: 'myreview', name: myreview.name, definition: myreview, updatedAt: new Date() })
     .run();
-  insertVariant(db, 'next-v', 'next-workflow');
+  insertVariant(db, 'myreview-v', 'myreview');
 
-  test('scope、spike、tickets 一轮 newlfg；build 开启 newic，polish 中的 build 不切换、再次 polish 计次', async () => {
+  test('scan、fix 一轮；fix 中的 scan 不切换、再次 fix 计次；lfg 与 ic 的 Skill 不是标记', async () => {
     const base = loadSessionRows(db, '70e7a9b6-fdad-44c3-9b65-015ee2a0499c').main;
     const template = base.find((r) => r.toolCalls.some((c) => c.name === 'Skill'));
     const call = template?.toolCalls.find((c) => c.name === 'Skill');
@@ -413,20 +408,20 @@ describe('next-workflow 的阶段划分', () => {
     if (template === undefined || call === undefined || last === undefined) {
       throw new Error('27yz3d 没有 Skill 调用');
     }
-    const names = ['scope', 'spike', 'tickets', 'build', 'ship', 'polish', 'build', 'polish'];
+    const names = ['scan', 'fix', 'scan', 'fix', 'report'];
     const extra = names.flatMap((name, i): RequestRow[] => {
       const at = last.timestamp.getTime() + (i + 1) * 60_000;
       return [
         {
           ...template,
-          messageId: `${template.messageId}-next-${String(i)}`,
+          messageId: `${template.messageId}-review-${String(i)}`,
           seq: last.seq + 1 + i * 2,
           timestamp: new Date(at),
-          toolCalls: [{ ...call, id: `${call.id}-next-${String(i)}`, input: { skill: name } }],
+          toolCalls: [{ ...call, id: `${call.id}-review-${String(i)}`, input: { skill: name } }],
         },
         {
           ...last,
-          messageId: `${last.messageId}-next-${String(i)}-work`,
+          messageId: `${last.messageId}-review-${String(i)}-work`,
           seq: last.seq + 2 + i * 2,
           timestamp: new Date(at + 1000),
         },
@@ -434,38 +429,27 @@ describe('next-workflow 的阶段划分', () => {
     });
     const id = randomUUID();
     insertSession(db, id, [...base, ...extra], null);
-    // 先按 dev-workflow 划分（未绑定），绑定后从头按 next-workflow 重算
+    // 先按 lfg 与 ic 划分（未绑定），绑定后从头只按 myreview 重算
     updateStages(db, id);
-    expect((await stages(id)).workflowId).toBe('dev-workflow');
+    expect((await stages(id)).workflows.map((w) => w.workflow)).toEqual(['lfg', 'ic']);
     db.update(sessions)
-      .set({ variantId: 'next-v', variantBinding: 'manual' })
+      .set({ variantId: 'myreview-v', variantBinding: 'manual' })
       .where(eq(sessions.id, id))
       .run();
     const report = await stages(id);
-    expect(report.workflowId).toBe('next-workflow');
-    expect(report.bigStages.map((b) => [b.bigStage, b.title, b.cycles.length])).toEqual([
-      ['newlfg', '想法到工单', 1],
-      ['newic', '工单到 PR', 1],
-    ]);
-    const [newlfg, newic] = report.bigStages.map((b) => b.cycles[0]);
-    expect([newlfg?.label, newlfg?.startSeq, newlfg?.endSeq]).toEqual(['第 1 轮', 34, 39]);
-    // dev-workflow 的 Skill（claim、open-pr 等）不是 next-workflow 的标记
-    expect(views(newlfg).map(([stage, status, s, e, n]) => [stage, status, s, e, n])).toEqual([
-      ['scope', 'done', 34, 35, 1],
-      ['spike', 'done', 36, 37, 1],
-      ['tickets', 'done', 38, 39, 1],
-    ]);
-    expect([newic?.label, newic?.startSeq, newic?.endSeq]).toEqual(['第 1 轮', 40, 49]);
-    expect(views(newic).map(([stage, status, s, e, n]) => [stage, status, s, e, n])).toEqual([
-      ['build', 'done', 40, 41, 1],
-      ['ship', 'done', 42, 43, 1],
-      ['polish', 'active', 44, 49, 2],
+    expect(report.workflows.map((w) => [w.workflow, w.cycles.length])).toEqual([['myreview', 1]]);
+    const cycle = report.workflows[0]?.cycles[0];
+    expect([cycle?.label, cycle?.startSeq, cycle?.endSeq]).toEqual(['第 1 轮', 34, 43]);
+    expect(views(cycle).map(([stage, status, s, e, n]) => [stage, status, s, e, n])).toEqual([
+      ['scan', 'done', 34, 35, 1],
+      ['fix', 'done', 36, 41, 2],
+      ['report', 'active', 42, 43, 1],
     ]);
     expect(report.outside.mainRequests).toBe(34);
-    expect(report).toEqual(stageReportOf(nextDefinition, loadSessionRows(db, id), false));
+    expect(report).toEqual(stageReportOf([myreview], loadSessionRows(db, id), false));
   });
 
-  test('交互的 session：取该项最近一次进程所用 variant 的 workflow，本机配置的进程按 dev-workflow', () => {
+  test('交互的 session：取该项最近一次进程所用的 variant；本机配置的进程按 lfg 与 ic', () => {
     const id = randomUUID();
     const liveId = `l-${id.slice(0, 8)}`;
     const now = new Date();
@@ -493,10 +477,14 @@ describe('next-workflow 的阶段划分', () => {
         })
         .run();
     };
+    const partition = () => sessionPartition(db, id).map((w) => w.id);
     processOf(null);
-    processOf('next-v');
-    expect(sessionWorkflowId(db, id)).toBe('next-workflow');
+    processOf('myreview-v');
+    expect(partition()).toEqual(['myreview']);
     processOf(null);
-    expect(sessionWorkflowId(db, id)).toBe('dev-workflow');
+    expect(partition()).toEqual(['lfg', 'ic']);
+    // 内置 workflow 的 variant 同样按 lfg 与 ic 一起划分
+    processOf('stage-report-v');
+    expect(partition()).toEqual(['lfg', 'ic']);
   });
 });

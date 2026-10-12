@@ -206,7 +206,7 @@ export function StageGraph({
   onSelect,
   live = false,
 }: {
-  // 大阶段 id（Contracts 16.6）
+  // workflow id（Contracts 16.6）
   workflow: string;
   views: StageView[];
   selected: string | null;
