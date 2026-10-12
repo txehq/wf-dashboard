@@ -26,6 +26,8 @@ process.env.WFD_TXE_WORKFLOW = repo;
 const { config } = await import('../../src/config.js');
 const { openDatabase } = await import('../../src/db/index.js');
 const { createDrafts } = await import('../../src/drafts/index.js');
+const { copyDraftSource, draftLayout, writeDraftDocs } = await import('../../src/drafts/dir.js');
+const { loadWorkflow } = await import('../../src/workflows/index.js');
 const { createLive } = await import('../../src/live/index.js');
 const { rolloutFiles } = await import('../../src/live/codex.js');
 const { createSettingsStore } = await import('../../src/runs/settings.js');
@@ -91,20 +93,26 @@ const sleep = (ms: number) =>
 describe('Live 中的 Codex 会话（真实 Codex，一次）', { timeout: 600_000 }, () => {
   test('启动交互的 codex，在草稿目录中按一句提示写一行，然后结束', async () => {
     const base = await variants.createBaseline({ name: `codex 底子 ${randomUUID().slice(0, 6)}` });
-    const draft = drafts.open({
+    // 草稿目录只做前两步（复制 src、写说明与例子），不装 skill；Codex 的项换成一句话的提示，不跑完整的生成
+    const { draft } = drafts.open({
       mode: 'variant',
       workflowId: 'lfg',
       requirement: '测试',
       baseVariantId: base.id,
     });
+    copyDraftSource(draftLayout(draft.dir), (dest) => {
+      variants.exportSource(base.id, dest);
+    });
+    writeDraftDocs(draftLayout(draft.dir), 'variant', loadWorkflow(db, 'lfg'));
     const file = path.join(draft.dir, 'src/skills/hello-flow/SKILL.md');
     const started = Date.now();
-    const detail = await live.createCodex({
+    const item = live.createCodexItem({
       cwd: draft.dir,
       prompt: '在 src/skills/hello-flow/SKILL.md 末尾加一行 ok',
       title: 'W42 真实 Codex',
       workflow: 'lfg',
     });
+    const detail = await live.startCodex(item.id);
     expect(detail.engine).toBe('codex');
     expect(detail.status).toBe('running');
     let lines: string[] = [];
@@ -121,7 +129,7 @@ describe('Live 中的 Codex 会话（真实 Codex，一次）', { timeout: 600_0
     expect(stopped.status).toBe('exited');
     const [rollout] = rolloutFiles(path.join(draft.dir, 'codex-home'));
     if (rollout === undefined) throw new Error('没有 rollout');
-    expect(rollout.endsWith(`-${detail.claudeSessionId}.jsonl`)).toBe(true);
+    expect(rollout.endsWith(`-${detail.claudeSessionId ?? '（没有会话 id）'}.jsonl`)).toBe(true);
     const usage = fs
       .readFileSync(rollout, 'utf8')
       .split('\n')

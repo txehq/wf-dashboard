@@ -22,6 +22,7 @@ interface Draft {
   id: string;
   dir: string;
   liveId: string;
+  status: string;
 }
 
 // 导入基线要从 txe-workflow 复制 src/；发起时复制 src 与装 skill
@@ -66,11 +67,15 @@ test('用 Codex 生成 workflow：表单、跳到 Live 的 Codex 会话、保存
   });
 
   await form.getByTestId('codex-draft-submit').click();
-  await expect(page).toHaveURL(/\/live\?item=l-\d{8}-[a-z0-9]{6}$/, { timeout: 120_000 });
+  // 发起立即返回并跳到 Live；草稿在后台准备，完成后 Codex 启动
+  await expect(page).toHaveURL(/\/live\?item=l-\d{8}-[a-z0-9]{6}$/, { timeout: 5_000 });
   const liveId = new URL(page.url()).searchParams.get('item') ?? '';
   const panel = page.getByTestId('live-panel');
   await expect(panel.getByTestId('live-engine')).toHaveText('Codex');
-  await expect(panel.getByTestId('live-status')).toHaveAttribute('data-status', 'running');
+  await expect(panel.getByTestId('live-status')).toHaveAttribute('data-status', 'running', {
+    timeout: 60_000,
+  });
+  await expect(panel.getByTestId('codex-draft-progress')).toHaveCount(0);
   await expect(panel.getByTestId('live-cwd')).toContainText('workflow-drafts/d-');
   await expect(panel.getByTestId('driver-switch')).toHaveCount(0);
   await expect.poll(() => terminalText(page)).toContain('Codex 替身');
@@ -119,12 +124,70 @@ test('用 Codex 生成 variant：Workflow 页面的表单默认第一个 variant
   await form.getByLabel('需求').fill('让 interview 一次只问一个问题');
   await page.screenshot({ path: '.work/screenshots/w42-variant-form.png', animations: 'disabled' });
   await form.getByTestId('codex-draft-submit').click();
-  await expect(page).toHaveURL(/\/live\?item=/, { timeout: 120_000 });
+  await expect(page).toHaveURL(/\/live\?item=/, { timeout: 5_000 });
   const liveId = new URL(page.url()).searchParams.get('item') ?? '';
   const panel = page.getByTestId('live-panel');
   await expect(panel.getByTestId('codex-draft-save')).toHaveText('保存为 variant');
-  await expect.poll(() => terminalText(page)).toContain('让 interview 一次只问一个问题');
+  await expect
+    .poll(() => terminalText(page), { timeout: 60_000 })
+    .toContain('让 interview 一次只问一个问题');
   await stopLive(page, liveId);
+});
+
+test('准备失败：显示失败那一步的原文与"重试准备"，重试从那一步接着做，完成后启动 Codex', async ({
+  page,
+  request,
+}) => {
+  // 第三个 skill 的本地来源暂时移走（e2e/services.ts 的 WFD_CODEX_SKILL_SOURCES）
+  const source = path.join(root, '.work/e2e/codex-skills/writing-for-agents');
+  const away = `${source}.away`;
+  fs.rmSync(away, { recursive: true, force: true });
+  fs.renameSync(source, away);
+  const created = await request.post(`${api}/workflow-drafts`, {
+    data: {
+      mode: 'variant',
+      workflowId: 'lfg',
+      requirement: '准备失败的测试',
+      baseVariantId: base.id,
+    },
+  });
+  expect(created.status()).toBe(201);
+  const { draft } = (await created.json()) as { draft: Draft };
+  await page.goto(`/live?item=${draft.liveId}`);
+  const progress = page.getByTestId('codex-draft-progress');
+  await expect(progress).toHaveAttribute('data-status', 'failed', { timeout: 60_000 });
+  await expect(progress).toContainText('准备失败，草稿保留');
+  const failed = progress.locator('[data-step="skill:writing-for-agents"]');
+  await expect(failed).toHaveAttribute('data-status', 'failed');
+  await expect(failed).toContainText(`git ls-remote ${source} HEAD`);
+  for (const step of ['copy-src', 'write-docs', 'skill:find-skills', 'skill:skill-creator']) {
+    await expect(progress.locator(`[data-step="${step}"]`)).toHaveAttribute('data-status', 'done');
+  }
+  await expect(progress.locator('[data-step="start-codex"]')).toHaveAttribute(
+    'data-status',
+    'pending',
+  );
+  const panel = page.getByTestId('live-panel');
+  await expect(panel.getByTestId('codex-draft-save')).toBeDisabled();
+  await expect(panel.getByTestId('live-status')).toHaveAttribute('data-status', 'idle');
+  await page.screenshot({
+    path: '.work/screenshots/w42b-prepare-failed.png',
+    animations: 'disabled',
+  });
+
+  fs.renameSync(away, source);
+  await page.getByTestId('codex-draft-retry').click();
+  await expect(panel.getByTestId('live-status')).toHaveAttribute('data-status', 'running', {
+    timeout: 60_000,
+  });
+  await expect(progress).toHaveCount(0);
+  await expect(panel.getByTestId('codex-draft-save')).toBeEnabled();
+  await expect.poll(() => terminalText(page)).toContain('准备失败的测试');
+  await page.screenshot({
+    path: '.work/screenshots/w42b-prepare-retried.png',
+    animations: 'disabled',
+  });
+  await stopLive(page, draft.liveId);
 });
 
 // 例子 workflow 的四个 skill 写进草稿（入口 skill 改名为 workflowId），workflow.yaml 为它的定义
@@ -165,6 +228,14 @@ test('真实构建：保存为 workflow 后显示保存出的 workflow 与 varia
   });
   expect(created.status()).toBe(201);
   const { draft } = (await created.json()) as { draft: Draft };
+  // 等后台准备完成（之后写的 skill 不会被准备的步骤覆盖）
+  await expect
+    .poll(
+      async () =>
+        ((await (await request.get(`${api}/workflow-drafts/${draft.id}`)).json()) as Draft).status,
+      { timeout: 60_000 },
+    )
+    .toBe('open');
   // 测试代码直接写出 skill 文件（Contracts 17.5）
   writeExample(draft.dir, workflowId);
   await page.goto(`/live?item=${draft.liveId}`);

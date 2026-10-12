@@ -351,7 +351,8 @@ export function createLive(deps: LiveDeps) {
 
   function insertItem(values: {
     id: string;
-    claudeSessionId: string;
+    // Codex 草稿的项在 Codex 第一次启动之前为空
+    claudeSessionId: string | null;
     engine?: 'claude' | 'codex';
     title: string;
     environment: LiveEnvironment;
@@ -627,34 +628,60 @@ export function createLive(deps: LiveDeps) {
     });
   }
 
-  // Codex 会话的一个进程（Contracts 17.3）：第一次启动时等 Codex 写出会话记录、取得会话 id 后才建项；
-  // resume 在同一项上接着同一个会话
-  async function launchCodex(
-    spec:
-      | { kind: 'start'; cwd: string; prompt: string; title: string; workflow: string | null }
-      | { kind: 'resume'; liveId: string },
-  ): Promise<LiveDetail> {
-    let liveId: string;
-    let cwd: string;
-    let args: string[];
-    // resume 接着这一项的会话；第一次启动时由 Codex 写出的会话记录取得
-    let knownSession: string | null;
-    if (spec.kind === 'resume') {
-      const item = row(spec.liveId);
-      if (item.engine !== 'codex') throw new HttpError(400, `交互 ${item.id} 不是 Codex 会话`);
-      if (controllers.has(item.id) || running(item.id)) {
-        throw new HttpError(409, `交互 ${item.id} 有运行中的进程`);
-      }
-      liveId = item.id;
-      cwd = item.cwd;
-      args = codexResumeArgs(item.claudeSessionId);
-      knownSession = item.claudeSessionId;
-    } else {
-      liveId = newId('l');
-      cwd = spec.cwd;
-      args = codexStartArgs(spec.prompt);
-      knownSession = null;
+  // Codex 草稿的项（Contracts 17.1）：发起时立即建出，没有进程，也还没有会话 id；草稿准备完后由 launchCodex 启动
+  function createCodexItem(input: {
+    cwd: string;
+    prompt: string;
+    title: string;
+    workflow: string | null;
+  }): LiveDetail {
+    const liveId = newId('l');
+    insertItem({
+      id: liveId,
+      claudeSessionId: null,
+      engine: 'codex',
+      title: Array.from(input.title.trim()).slice(0, DEFAULT_TITLE_LENGTH).join(''),
+      // Codex 自己的沙箱只允许写草稿目录
+      environment: 'isolated',
+      workflow: input.workflow,
+      input: input.prompt,
+      taskId: null,
+      cwd: input.cwd,
+    });
+    events.publish({ type: 'live.updated', liveId });
+    return detail(liveId);
+  }
+
+  // 正在启动、还没有登记进 controllers 的 Codex 项
+  const launching = new Set<string>();
+
+  // Codex 会话的一个进程（Contracts 17.3）：项还没有会话 id 时以初始消息第一次启动，等 Codex 写出会话记录后记下
+  // 会话 id；已有会话 id 时 resume 接着同一个会话
+  async function launchCodex(liveId: string, kind: LiveProcessKind): Promise<LiveDetail> {
+    const item = row(liveId);
+    if (item.engine !== 'codex') throw new HttpError(400, `交互 ${item.id} 不是 Codex 会话`);
+    if (launching.has(liveId) || controllers.has(liveId) || running(liveId)) {
+      throw new HttpError(409, `交互 ${item.id} 有运行中的进程`);
     }
+    if (kind === 'resume' && item.claudeSessionId === null) {
+      throw new HttpError(409, `交互 ${item.id} 的 Codex 还没有启动过，没有可以 resume 的会话`);
+    }
+    if (kind === 'start' && item.claudeSessionId !== null) {
+      throw new HttpError(409, `交互 ${item.id} 的 Codex 已经启动过，用 resume 接着会话`);
+    }
+    launching.add(liveId);
+    return startCodexProcess(item, kind).finally(() => {
+      launching.delete(liveId);
+    });
+  }
+
+  async function startCodexProcess(item: ItemRow, kind: LiveProcessKind): Promise<LiveDetail> {
+    const liveId = item.id;
+    const cwd = item.cwd;
+    const args =
+      item.claudeSessionId === null
+        ? codexStartArgs(item.input ?? '')
+        : codexResumeArgs(item.claudeSessionId);
     const { codexHome, home } = codexDirsOf(cwd);
     const dir = liveDir(liveId);
     fs.mkdirSync(dir, { recursive: true });
@@ -679,33 +706,24 @@ export function createLive(deps: LiveDeps) {
       cols: 120,
       rows: 40,
       logFile: path.join(dir, 'pty.log'),
-      separator: separatorLine(startedAt, spec.kind, 'Codex'),
+      separator: separatorLine(startedAt, kind, 'Codex'),
     });
     const sessionId =
-      knownSession ??
+      item.claudeSessionId ??
       (await waitForSession(pty, codexHome, cwd, known, deps.codex.sessionTimeoutMs));
     const processId = db.$client.transaction(() => {
-      if (spec.kind === 'start') {
-        insertItem({
-          id: liveId,
-          claudeSessionId: sessionId,
-          engine: 'codex',
-          title: Array.from(spec.title.trim()).slice(0, DEFAULT_TITLE_LENGTH).join(''),
-          // Codex 自己的沙箱只允许写草稿目录
-          environment: 'isolated',
-          workflow: spec.workflow,
-          input: spec.prompt,
-          taskId: null,
-          cwd,
-        });
-      } else {
-        setHidden(liveId, false, { reason: 'resume' });
+      if (item.claudeSessionId === null) {
+        db.update(liveSessions)
+          .set({ claudeSessionId: sessionId })
+          .where(eq(liveSessions.id, liveId))
+          .run();
       }
+      setHidden(liveId, false, { reason: kind });
       const inserted = db
         .insert(liveProcesses)
         .values({
           liveId,
-          kind: spec.kind,
+          kind,
           variantId: null,
           model,
           effort,
@@ -721,7 +739,7 @@ export function createLive(deps: LiveDeps) {
           liveId,
           processId: inserted.id,
           at: startedAt,
-          kind: spec.kind,
+          kind,
           payload: { engine: 'codex', argv: [deps.codex.bin, ...args], codexHome, home, sessionId },
         })
         .run();
@@ -1056,7 +1074,9 @@ export function createLive(deps: LiveDeps) {
           .run();
       })();
       events.publish({ type: 'live.updated', liveId: id });
-      events.publish({ type: 'session.updated', sessionId: item.claudeSessionId });
+      if (item.claudeSessionId !== null) {
+        events.publish({ type: 'session.updated', sessionId: item.claudeSessionId });
+      }
     }
     return detail(id);
   }
@@ -1077,10 +1097,10 @@ export function createLive(deps: LiveDeps) {
     },
     get: detail,
     create,
-    // 用 Codex 生成 workflow 或 variant 的会话（Contracts 17.3），由草稿模块发起
-    createCodex: (input: { cwd: string; prompt: string; title: string; workflow: string | null }) =>
-      launchCodex({ kind: 'start', ...input }),
-    resumeCodex: (id: string) => launchCodex({ kind: 'resume', liveId: id }),
+    // 用 Codex 生成 workflow 或 variant 的会话（Contracts 17.1、17.3）：草稿模块发起时建项，准备完后启动
+    createCodexItem,
+    startCodex: (id: string) => launchCodex(id, 'start'),
+    resumeCodex: (id: string) => launchCodex(id, 'resume'),
     resume,
     resumeDefaults,
     rename,

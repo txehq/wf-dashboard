@@ -303,6 +303,9 @@ function LivePanel({
       </div>
     );
   }
+  // Claude Code 的项建出时就有 session id（只有 Codex 草稿的项会暂时为空）
+  const sessionId = data.claudeSessionId;
+  if (sessionId === null) throw new Error(`交互 ${liveId} 没有 session id`);
   return (
     <div className="flex min-w-0 flex-col gap-3" data-testid="live-panel" data-live={liveId}>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
@@ -376,7 +379,7 @@ function LivePanel({
             结束进程
           </Button>
         ) : data.process === null ? null : (
-          <ResumeButton sessionId={data.claudeSessionId} onResumed={onResumed} />
+          <ResumeButton sessionId={sessionId} onResumed={onResumed} />
         )}
         <Button
           size="sm"
@@ -410,10 +413,10 @@ function LivePanel({
               <span className="text-sm text-muted-foreground">
                 这个 session 还没有在交互区运行过，resume 后在这里接着对话。
               </span>
-              <ResumeButton sessionId={data.claudeSessionId} onResumed={onResumed} />
+              <ResumeButton sessionId={sessionId} onResumed={onResumed} />
             </div>
             <SessionConversation
-              sessionId={data.claudeSessionId}
+              sessionId={sessionId}
               onJump={() => {
                 setSide(true);
               }}
@@ -425,7 +428,7 @@ function LivePanel({
         )}
         {side && (
           <div className="max-h-[48rem] min-w-0 overflow-y-auto rounded-md border p-3">
-            <SessionSide sessionId={data.claudeSessionId} />
+            <SessionSide sessionId={sessionId} />
           </div>
         )}
       </div>

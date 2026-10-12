@@ -264,6 +264,8 @@ export class LiveController {
       .where(eq(liveSessions.id, this.liveId))
       .get();
     if (row === undefined) throw new Error(`交互 ${this.liveId} 不存在`);
+    // Claude Code 的项建出时就有 session id；只有 Codex 草稿的项会暂时为空
+    if (row.id === null) throw new Error(`交互 ${this.liveId} 没有 session id`);
     return row.id;
   }
 

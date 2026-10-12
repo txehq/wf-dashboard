@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { AnalysisStatus, RunStatus, StageStatus } from './db/schema.js';
+import type { AnalysisStatus, DraftStatus, RunStatus, StageStatus } from './db/schema.js';
 import type { ArtifactView, Pending, RunMessageView } from './runs/views.js';
 
 // 进程内事件；run.* 由 runs 模块发布（Contracts 7.6）；workflow 为 workflow id（Contracts 16.6）
@@ -33,6 +33,8 @@ export type AppEvent =
   | { type: 'run.cost'; runId: string; costUsd: number }
   // 交互 session 的状态、驾驶者、等待的输入或 hook 有变化（Contracts 14），页面重新读取详情
   | { type: 'live.updated'; liveId: string }
+  // Codex 草稿的状态或准备的进度变化（Contracts 17.1）
+  | { type: 'draft.updated'; draftId: string; status: DraftStatus }
   // 分析的状态或步骤进度变化（Contracts 15.2）
   | { type: 'analysis.updated'; analysisId: string; status: AnalysisStatus };
 

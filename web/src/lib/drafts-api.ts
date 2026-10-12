@@ -1,10 +1,14 @@
 import { queryOptions } from '@tanstack/react-query';
-import { type CreateDraftBody, DraftView } from '@wf-dashboard/server/drafts/views';
+import {
+  type CreateDraftBody,
+  type DraftStepView,
+  DraftView,
+} from '@wf-dashboard/server/drafts/views';
 import type { LiveDetail } from '@/lib/live-api';
 import { requestJson } from '@/lib/http';
 
 // 与 Contracts 第 17 节（用 Codex 生成 workflow 或 variant）的 API 对应
-export type { CreateDraftBody };
+export type { CreateDraftBody, DraftStepView };
 export type Draft = DraftView;
 
 export const draftQuery = (id: string) =>
@@ -30,4 +34,9 @@ export async function saveDraft(id: string): Promise<Draft> {
 
 export async function resumeCodex(liveId: string): Promise<LiveDetail> {
   return (await requestJson('POST', `/api/live/${liveId}/codex-resume`)) as LiveDetail;
+}
+
+// 重试准备：从失败的那一步接着做（Contracts 17.1）
+export async function retryDraft(id: string): Promise<Draft> {
+  return DraftView.parse(await requestJson('POST', `/api/workflow-drafts/${id}/retry`));
 }

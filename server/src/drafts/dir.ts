@@ -32,21 +32,25 @@ const yamlHeader: Record<DraftMode, string> = {
     '# 所属 workflow 的定义，只读副本：新 variant 只改 src/skills 中的 skill 内容，不改入口与小阶段\n',
 };
 
-// 建草稿目录：底子 variant 的 src 由 copySource 复制到 src/；workflow.yaml、PLATFORM.md 与例子 workflow
-export function prepareDraftDir(
-  dir: string,
-  input: { mode: DraftMode; definition: WorkflowDefinition; copySource: (dest: string) => void },
-): DraftLayout {
-  const layout = draftLayout(dir);
-  fs.mkdirSync(path.dirname(dir), { recursive: true });
-  // 已存在时报错，不覆盖
-  fs.mkdirSync(dir);
-  input.copySource(layout.src);
-  fs.writeFileSync(layout.workflowYaml, yamlHeader[input.mode] + stringify(input.definition));
-  if (input.mode === 'variant') fs.chmodSync(layout.workflowYaml, 0o444);
+// 准备的第一步：底子 variant 的 src 由 copySource 复制到 src/。重试时先删去上次复制了一半的 src/
+export function copyDraftSource(layout: DraftLayout, copySource: (dest: string) => void) {
+  fs.mkdirSync(layout.dir, { recursive: true });
+  fs.rmSync(layout.src, { recursive: true, force: true });
+  copySource(layout.src);
+}
+
+// 准备的第二步：workflow.yaml、PLATFORM.md 与例子 workflow；重试时整体重写
+export function writeDraftDocs(
+  layout: DraftLayout,
+  mode: DraftMode,
+  definition: WorkflowDefinition,
+) {
+  fs.rmSync(layout.workflowYaml, { force: true });
+  fs.writeFileSync(layout.workflowYaml, yamlHeader[mode] + stringify(definition));
+  if (mode === 'variant') fs.chmodSync(layout.workflowYaml, 0o444);
   fs.copyFileSync(path.join(assetsDir, 'PLATFORM.md'), layout.platform);
+  fs.rmSync(layout.example, { recursive: true, force: true });
   fs.cpSync(path.join(assetsDir, 'simple-workflow'), layout.example, { recursive: true });
-  return layout;
 }
 
 // 初始消息（Contracts 17.3）：需求原文，加读什么、写到哪里、用哪些 skill

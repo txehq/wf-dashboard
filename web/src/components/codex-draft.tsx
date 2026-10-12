@@ -1,11 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Play, Save, Sparkles } from 'lucide-react';
+import { Play, RotateCcw, Save, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { createDraft, draftQuery, resumeCodex, saveDraft } from '@/lib/drafts-api';
+import {
+  createDraft,
+  type Draft,
+  type DraftStepView,
+  draftQuery,
+  resumeCodex,
+  retryDraft,
+  saveDraft,
+} from '@/lib/drafts-api';
 import type { LiveDetail } from '@/lib/live-api';
+import { invalidateThrottled, useLiveEvent } from '@/lib/live-events';
 import { type Variant, variantHref, variantLabel, variantsQuery } from '@/pages/variants-api';
 
 // 最早建出的 variant（列表按创建时间倒序）：默认的底子
@@ -153,16 +162,11 @@ export function CodexDraftForm({
           data-testid="codex-draft-submit"
         >
           <Sparkles />
-          {create.isPending ? '准备中…' : '在 Live 中开始'}
+          {create.isPending ? '发起中…' : '在 Live 中开始'}
         </Button>
         <Button type="button" variant="ghost" onClick={onCancel}>
           取消
         </Button>
-        {create.isPending && (
-          <span role="status" className="text-sm text-muted-foreground">
-            正在复制 skill、安装 find-skills 等三个 skill 并启动 Codex，约需一分钟。
-          </span>
-        )}
       </div>
     </form>
   );
@@ -188,8 +192,19 @@ export function CodexDraftBar({
     },
   });
   const resume = useMutation({ mutationFn: () => resumeCodex(live.id), onSuccess: onResumed });
+  const retry = useMutation({
+    mutationFn: () => retryDraft(draftId ?? ''),
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: ['drafts'] });
+    },
+  });
+  // 准备的进度与状态（Contracts 17.1）
+  useLiveEvent((type) => {
+    if (type === 'draft.updated') invalidateThrottled(client, ['drafts'], 300);
+  });
   const d = draft.data;
   const label = d?.mode === 'variant' ? '保存为 variant' : '保存为 workflow';
+  const savable = d?.status === 'open' || d?.status === 'saved';
   return (
     <div className="flex flex-col gap-2" data-testid="codex-draft-bar">
       <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -203,7 +218,7 @@ export function CodexDraftBar({
             <Button
               size="sm"
               data-testid="codex-draft-save"
-              disabled={d === undefined || save.isPending}
+              disabled={!savable || save.isPending}
               onClick={() => {
                 save.mutate();
               }}
@@ -228,6 +243,15 @@ export function CodexDraftBar({
           </Button>
         )}
       </div>
+      {d !== undefined && (d.status === 'preparing' || d.status === 'failed') && (
+        <DraftProgress
+          draft={d}
+          retrying={retry.isPending}
+          onRetry={() => {
+            retry.mutate();
+          }}
+        />
+      )}
       {d !== undefined && d.savedVariants.length > 0 && (
         <p className="flex flex-wrap items-center gap-x-2 text-sm" data-testid="codex-draft-saved">
           已保存：
@@ -243,13 +267,78 @@ export function CodexDraftBar({
           ))}
         </p>
       )}
-      {(save.isError || resume.isError || draft.isError) && (
+      {(save.isError || resume.isError || retry.isError || draft.isError) && (
         <Alert variant="destructive" data-testid="codex-draft-error">
           <AlertTitle>{save.isError ? '保存失败，草稿保留' : '出错了'}</AlertTitle>
           <AlertDescription className="max-h-80 overflow-auto font-mono text-xs whitespace-pre-wrap">
-            {(save.error ?? resume.error ?? draft.error)?.message}
+            {(save.error ?? resume.error ?? retry.error ?? draft.error)?.message}
           </AlertDescription>
         </Alert>
+      )}
+    </div>
+  );
+}
+
+const stepLabel: Record<DraftStepView['status'], string> = {
+  pending: '等待',
+  running: '进行中…',
+  done: '完成',
+  failed: '失败',
+};
+
+// 草稿准备的每一步（Contracts 17.1）：失败时显示那一步的原文与"重试准备"
+function DraftProgress({
+  draft,
+  retrying,
+  onRetry,
+}: {
+  draft: Draft;
+  retrying: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <div
+      className="flex flex-col gap-2 rounded-md border p-3 text-sm"
+      data-testid="codex-draft-progress"
+      data-status={draft.status}
+    >
+      <p className="font-medium">
+        {draft.status === 'preparing'
+          ? '正在准备草稿目录，完成后启动 Codex（安装 skill 约需一分钟）'
+          : '准备失败，草稿保留'}
+      </p>
+      <ol className="flex flex-col gap-1">
+        {draft.steps.map((step) => (
+          <li
+            key={step.id}
+            data-testid="codex-draft-step"
+            data-step={step.id}
+            data-status={step.status}
+          >
+            <span className="inline-block w-16 text-muted-foreground">
+              {stepLabel[step.status]}
+            </span>
+            {step.label}
+            {step.error !== null && (
+              <pre className="mt-1 max-h-60 overflow-auto rounded bg-muted p-2 font-mono text-xs whitespace-pre-wrap text-destructive">
+                {step.error}
+              </pre>
+            )}
+          </li>
+        ))}
+      </ol>
+      {draft.status === 'failed' && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-fit"
+          data-testid="codex-draft-retry"
+          disabled={retrying}
+          onClick={onRetry}
+        >
+          <RotateCcw />
+          重试准备
+        </Button>
       )}
     </div>
   );

@@ -19,7 +19,7 @@ export const draftRoutes: FastifyPluginCallbackZod<{ drafts: Drafts }> = (
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
-  // 发起：建草稿目录、装 skill、在 Live 中建 Codex 会话
+  // 发起：立即建草稿与 Live 项并返回；草稿目录的准备（复制 src、说明与例子、安装 skill）与启动 Codex 在后台进行
   app.post(
     '/api/workflow-drafts',
     {
@@ -28,8 +28,8 @@ export const draftRoutes: FastifyPluginCallbackZod<{ drafts: Drafts }> = (
         response: { 201: z.object({ draft: DraftView, live: LiveDetail }) },
       },
     },
-    async (request, reply) => {
-      const created = await drafts.create(request.body);
+    (request, reply) => {
+      const created = drafts.create(request.body);
       void reply.code(201);
       return created;
     },
@@ -39,6 +39,13 @@ export const draftRoutes: FastifyPluginCallbackZod<{ drafts: Drafts }> = (
     '/api/workflow-drafts/:id',
     { schema: { params: IdParams, response: { 200: DraftView } } },
     (request) => drafts.get(request.params.id),
+  );
+
+  // 重试准备：从失败的那一步接着做；不是 failed 时 409
+  app.post(
+    '/api/workflow-drafts/:id/retry',
+    { schema: { params: IdParams, response: { 200: DraftView } } },
+    (request) => drafts.retry(request.params.id),
   );
 
   // 保存为 workflow / variant：校验与构建失败时 400 原文，草稿保留
