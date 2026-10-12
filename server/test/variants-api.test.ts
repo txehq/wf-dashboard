@@ -1,10 +1,29 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execaSync } from 'execa';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { buildApp } from '../src/api/app.js';
-import { config } from '../src/config.js';
-import { openDatabase } from '../src/db/index.js';
+
+// 被导出的 workflow 仓库：只有 API 用到的 skills/lfg/SKILL.md 与 Cargo.toml（版本号取自 workspace.package）的
+// 最小本地 git 仓库。
+// 导出完整的 txe-workflow（310 个文件）两次再复制一次要 0.6 秒，负载高时超过 5 秒；
+// 这里测的是 API，真实仓库的导出与构建在 variants.test.ts（真实档）。
+// config 在加载时读取 WFD_TXE_WORKFLOW，所以设置之后再加载服务端模块
+const work = path.resolve(import.meta.dirname, '../../.work/test-variants-api', randomUUID());
+const repo = path.join(work, 'txe-workflow');
+fs.mkdirSync(path.join(repo, 'skills/lfg'), { recursive: true });
+fs.writeFileSync(path.join(repo, 'skills/lfg/SKILL.md'), '---\nname: lfg\n---\n\n# lfg\n');
+fs.writeFileSync(path.join(repo, 'Cargo.toml'), '[workspace.package]\nversion = "0.1.0"\n');
+const identity = ['-c', 'user.name=wf-dashboard', '-c', 'user.email=wf@example.invalid'];
+const git = (...args: string[]) => execaSync('git', ['-C', repo, ...identity, ...args]);
+git('init', '--quiet', '--initial-branch', 'main');
+git('add', '.');
+git('commit', '--quiet', '-m', 'skills');
+process.env.WFD_TXE_WORKFLOW = repo;
+
+const { buildApp } = await import('../src/api/app.js');
+const { config } = await import('../src/config.js');
+const { openDatabase } = await import('../src/db/index.js');
 
 const dbFile = path.join(config.repoRoot, '.work', 'test-db', `${randomUUID()}.sqlite`);
 const db = openDatabase(dbFile, config.migrationsDir);
@@ -28,6 +47,7 @@ afterAll(async () => {
   for (const id of createdIds) {
     fs.rmSync(path.join(config.variantsDir, id), { recursive: true, force: true });
   }
+  fs.rmSync(work, { recursive: true, force: true });
 });
 
 interface VariantBody {

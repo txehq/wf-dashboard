@@ -22,6 +22,13 @@ export const gatewayTests = [
   'test/bindings-build.test.ts',
 ];
 
+// 同样属于真实档：读取真实 GitHub（只读）的测试。基础档不依赖网络，其中的 gh 一律报错
+export const githubReadTests = [
+  'test/tasks/repo-bundle.test.ts',
+  'test/github-pr.test.ts',
+  'test/runs/friction.test.ts',
+];
+
 // 慢档（pnpm test:slow）：不调用真实模型、claude 与 Codex，但单个文件要一分钟以上的测试
 // （在起始仓库上 npm ci 并运行隐藏测试、评分 sandbox 的时限），与基础档相同地拦截真实调用
 export const slowTests = [
@@ -41,12 +48,12 @@ export default defineConfig({
     globalSetup: ['test/setup/data-guard.ts', 'test/setup/github-guard.ts'],
     projects: [
       {
-        // 基础档（pnpm test）：会报错的 claude 与 codex、指向不存在域名的 gateway（test/setup/basic-tier.ts）
+        // 基础档（pnpm test）：会报错的 claude、codex 与 gh，指向不存在域名的 gateway（test/setup/basic-tier.ts）
         extends: true,
         test: {
           name: 'local',
           include: ['test/**/*.test.ts'],
-          exclude: [external, ...gatewayTests, ...slowTests],
+          exclude: [external, ...gatewayTests, ...githubReadTests, ...slowTests],
           setupFiles: ['test/setup/basic-tier-setup.ts'],
         },
       },
@@ -55,14 +62,14 @@ export default defineConfig({
         test: {
           name: 'slow',
           include: slowTests,
-          setupFiles: ['test/setup/basic-tier-setup.ts'],
+          setupFiles: ['test/setup/slow-tier-setup.ts'],
         },
       },
       {
         extends: true,
         test: {
           name: 'gateway',
-          include: gatewayTests,
+          include: [...gatewayTests, ...githubReadTests],
           exclude: [external],
           fileParallelism: false,
         },
