@@ -1,62 +1,20 @@
-import {
-  ChevronRight,
-  Columns2,
-  FlaskConical,
-  GitBranch,
-  History,
-  ListChecks,
-  type LucideIcon,
-  Microscope,
-  Play,
-  SquareTerminal,
-  WandSparkles,
-} from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { NavLink, useLocation } from 'react-router';
+import { type NavGroup, type NavItem, navEntries, pageTitles } from '@/app/nav-items';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-
-interface NavItem {
-  to: string;
-  label: string;
-  icon: LucideIcon;
-}
-
-interface NavGroup {
-  label: string;
-  icon: LucideIcon;
-  items: NavItem[];
-}
-
-const navEntries: (NavItem | NavGroup)[] = [
-  { to: '/sessions', label: 'Sessions', icon: History },
-  { to: '/variants', label: 'Variants', icon: GitBranch },
-  { to: '/live', label: 'Live', icon: SquareTerminal },
-  {
-    label: 'Evaluate',
-    icon: FlaskConical,
-    items: [
-      { to: '/tasks', label: 'Tasks', icon: ListChecks },
-      { to: '/runs', label: 'Runs', icon: Play },
-      { to: '/compare', label: 'Compare', icon: Columns2 },
-    ],
-  },
-  {
-    label: 'Optimize',
-    icon: WandSparkles,
-    items: [{ to: '/analyses', label: 'Analyses', icon: Microscope }],
-  },
-];
 
 const isGroup = (entry: NavItem | NavGroup): entry is NavGroup => 'items' in entry;
 
 // 路径属于某个菜单项：它本身或它下面的详情页
 const within = (pathname: string, to: string) => pathname === to || pathname.startsWith(`${to}/`);
 
-// 浏览器标签页标题：当前菜单项的名称；新建分析页另有自己的标题
+// 浏览器标签页标题：当前菜单项的名称，pageTitles 中的页面用自己的标题
 const APP_TITLE = 'Magi Workflow Dashboard';
 function pageTitle(pathname: string): string {
-  if (pathname === '/analyses/new') return 'New analysis';
+  const own = pageTitles[pathname];
+  if (own !== undefined) return own;
   const item = navEntries
     .flatMap((e) => (isGroup(e) ? e.items : [e]))
     .find((i) => within(pathname, i.to));
