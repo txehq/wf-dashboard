@@ -7,25 +7,23 @@ import { sessionsRoutes } from '../src/api/sessions.js';
 import { displayUserText, sessionTitle } from '../src/api/user-text.js';
 import { config } from '../src/config.js';
 import { openDatabase } from '../src/db/index.js';
+import { writeSessionPrefix } from './helpers/session-prefix.js';
 import { SAMPLES } from './stages/samples.js';
 
 // 真实 session：dashboard 发起的 ic run（首条用户消息是 /ic TXE-3764 的 slash 命令），
-// 以及 f0aca373（中途以 /superpowers:brainstorming 带多行参数开始一段）
+// 以及 f0aca373 中途以 /superpowers:brainstorming 带多行参数开始一段：只取到这条消息（第 595 行）与之后的
+// 第一条回复为止（37 MB 中的前 1.7 MB）
 const icRun = path.join(
   config.repoRoot,
   'server/test/fixtures/runs/40f6915a-cd31-4312-866c-dcb377515c42.jsonl',
 );
+const brainstormArgs = '你觉得这个lfg的skill如何';
 const workDir = path.join(config.repoRoot, '.work', 'test-user-text', randomUUID());
 const projectsDir = path.join(workDir, 'projects');
 const slug = '-eval-run';
 mkdirSync(path.join(projectsDir, slug), { recursive: true });
 cpSync(icRun, path.join(projectsDir, slug, path.basename(icRun)));
-cpSync(SAMPLES.icPrs, path.join(projectsDir, slug, path.basename(SAMPLES.icPrs)));
-cpSync(
-  SAMPLES.icPrs.replace(/\.jsonl$/, ''),
-  path.join(projectsDir, slug, path.basename(SAMPLES.icPrs, '.jsonl')),
-  { recursive: true },
-);
+writeSessionPrefix(SAMPLES.icPrs, path.join(projectsDir, slug), brainstormArgs);
 
 const db = openDatabase(path.join(workDir, 'db.sqlite'), config.migrationsDir);
 const app = Fastify();
@@ -88,6 +86,6 @@ test('列表标题与请求明细中的用户条目（真实 session）', async 
   const brainstorm = f0.items.find(
     (i) => i.kind === 'user' && i.text?.startsWith('/superpowers:brainstorming '),
   );
-  expect(brainstorm?.text).toContain('你觉得这个lfg的skill如何');
+  expect(brainstorm?.text).toContain(brainstormArgs);
   expect(f0.items.some((i) => i.kind === 'user' && i.text?.includes('<command-name>'))).toBe(false);
 });

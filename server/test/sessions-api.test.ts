@@ -6,13 +6,15 @@ import { afterAll, describe, expect, test } from 'vitest';
 import { sessionsRoutes } from '../src/api/sessions.js';
 import { config } from '../src/config.js';
 import { openDatabase } from '../src/db/index.js';
+import { writeSessionPrefix } from './helpers/session-prefix.js';
 
 const samplesDir = '/Users/linhaoz/orca/projects/wf-dashboard/.spikes/stage-markers/samples';
 const txe = '-Users-linhaoz-Project-txe-txe-workflow';
 const dashboard = '-Users-linhaoz-orca-projects-wf-dashboard';
 const f0 = 'f0aca373-863f-4d62-babd-f48055092328';
 const d93 = 'd93c4511-3c62-4b3b-8ee6-bf73370cd150';
-const n9f = '9f4adf2d-0730-4214-994a-4fba7f7b9161';
+// 没有 lfg 与 ic 标记的真实 session（peer 消息的样本，61 KB）
+const peer = 'b7199c56-42d6-4dda-ac96-117d3937ebdd';
 
 const workDir = path.join(config.repoRoot, '.work', 'test-sessions-api', randomUUID());
 const projectsDir = path.join(workDir, 'projects');
@@ -26,9 +28,18 @@ function copy(slug: string, id: string, targetProjects: string) {
   cpSync(path.join(samplesDir, slug, id), path.join(targetProjects, slug, id), { recursive: true });
 }
 
-// ~/.claude/projects 的副本：txe-workflow 两个 session；variant v1 的 home/claude/projects 中放 d93c4511
-copy(txe, f0, projectsDir);
-copy(txe, n9f, projectsDir);
+// ~/.claude/projects 的副本：txe-workflow 两个 session；variant v1 的 home/claude/projects 中放 d93c4511。
+// f0aca373（37 MB）只取到第一次 Skill open-pr 为止的前 14.6 MB：其中已有 /interview（lfg）、open-pr（ic）、
+// 子代理与 task-notification，导入的行数约为全文的 40%
+writeSessionPrefix(
+  path.join(samplesDir, txe, `${f0}.jsonl`),
+  path.join(projectsDir, txe),
+  '"skill":"open-pr"',
+);
+cpSync(
+  path.join(import.meta.dirname, 'fixtures/peer', `${peer}.jsonl`),
+  path.join(projectsDir, txe, `${peer}.jsonl`),
+);
 mkdirSync(path.join(projectsDir, dashboard));
 copy(dashboard, d93, path.join(variantsDir, 'v1', 'home', 'claude', 'projects'));
 
@@ -112,12 +123,12 @@ describe('sessions api', () => {
       '/api/sessions',
     );
     expect(nextCursor).toBeNull();
-    expect(sessions.map((s) => s.id).sort()).toEqual([d93, f0, n9f].sort());
+    expect(sessions.map((s) => s.id).sort()).toEqual([d93, f0, peer].sort());
     const byId = new Map(sessions.map((s) => [s.id, s]));
-    // f0aca373 含 open-pr / fix-pr / gh pr；d93c4511 含 Skill interview；9f4adf2d 两者都没有
+    // f0aca373 的前一段含 /interview 与 Skill open-pr；d93c4511 含 Skill interview；peer 样本两者都没有
     expect(byId.get(f0)?.workflows).toEqual(['lfg', 'ic']);
     expect(byId.get(d93)?.workflows).toEqual(['lfg']);
-    expect(byId.get(n9f)?.workflows).toEqual([]);
+    expect(byId.get(peer)?.workflows).toEqual([]);
     expect(byId.get(d93)?.source).toBe(
       path.join(variantsDir, 'v1', 'home', 'claude', 'projects', dashboard),
     );
@@ -132,8 +143,8 @@ describe('sessions api', () => {
     const ic = await get<{ sessions: Summary[] }>('/api/sessions?workflow=ic');
     expect(ic.sessions.map((s) => s.id)).toEqual([f0]);
 
-    const q = await get<{ sessions: Summary[] }>(`/api/sessions?q=${n9f.slice(0, 8)}`);
-    expect(q.sessions.map((s) => s.id)).toEqual([n9f]);
+    const q = await get<{ sessions: Summary[] }>(`/api/sessions?q=${peer.slice(0, 8)}`);
+    expect(q.sessions.map((s) => s.id)).toEqual([peer]);
     // W15 Low 19：% 与 _ 按字面匹配，不是通配符
     for (const wildcard of ['%', '_']) {
       const literal = await get<{ sessions: Summary[] }>(
@@ -145,7 +156,7 @@ describe('sessions api', () => {
     const source = await get<{ sessions: Summary[] }>(
       `/api/sessions?source=${encodeURIComponent(path.join(projectsDir, txe))}`,
     );
-    expect(source.sessions.map((s) => s.id).sort()).toEqual([f0, n9f].sort());
+    expect(source.sessions.map((s) => s.id).sort()).toEqual([f0, peer].sort());
 
     const seen: string[] = [];
     let cursor: string | null = null;
@@ -158,7 +169,7 @@ describe('sessions api', () => {
       seen.push(...page.sessions.map((s) => s.id));
       cursor = page.nextCursor;
     } while (cursor !== null);
-    expect(seen.sort()).toEqual([d93, f0, n9f].sort());
+    expect(seen.sort()).toEqual([d93, f0, peer].sort());
   });
 
   test('GET /api/sessions/:id 汇总子代理与 tool 调用次数', async () => {
@@ -192,7 +203,7 @@ describe('sessions api', () => {
     expect(reqs.every((r) => r.agentId === null)).toBe(true);
     expect(reqs.map((r) => r.seq)).toEqual(reqs.map((_, i) => i));
     expect(items.some((i) => i.kind === 'user')).toBe(true);
-    // f0aca373 中 fix-pr 的后台 watcher 以 task-notification 唤醒 agent
+    // f0aca373 中后台命令结束时以 task-notification 唤醒 agent
     expect(items.some((i) => i.kind === 'notice' && i.text.startsWith('<task-notification>'))).toBe(
       true,
     );

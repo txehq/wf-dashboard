@@ -19,12 +19,26 @@ import { ingestFile, truncateResult } from '../src/ingest/ingest.js';
 import { sessionConversation } from '../src/ingest/conversation.js';
 import { watchSession } from '../src/ingest/watch.js';
 
-// 真实样本在主仓库的 .spikes/ 下（gitignore），子 worktree 中用绝对路径读取
+// 真实样本在主仓库的 .spikes/ 下（gitignore），子 worktree 中用绝对路径读取。
+// 分两次增量导入的用例要把整个文件再导入两次：d93c4511（2 MB，3 个子代理）与 9f4adf2d（4 MB，多个子代理）
+// 已经覆盖主 jsonl 与子代理中途切开的情形，37 MB 的 f0aca373 不再重复这一项
 const samplesDir = '/Users/linhaoz/orca/projects/wf-dashboard/.spikes/stage-markers/samples';
 const samples = [
-  { slug: '-Users-linhaoz-Project-txe-txe-workflow', id: 'f0aca373-863f-4d62-babd-f48055092328' },
-  { slug: '-Users-linhaoz-orca-projects-wf-dashboard', id: 'd93c4511-3c62-4b3b-8ee6-bf73370cd150' },
-  { slug: '-Users-linhaoz-Project-txe-txe-workflow', id: '9f4adf2d-0730-4214-994a-4fba7f7b9161' },
+  {
+    slug: '-Users-linhaoz-Project-txe-txe-workflow',
+    id: 'f0aca373-863f-4d62-babd-f48055092328',
+    incremental: false,
+  },
+  {
+    slug: '-Users-linhaoz-orca-projects-wf-dashboard',
+    id: 'd93c4511-3c62-4b3b-8ee6-bf73370cd150',
+    incremental: true,
+  },
+  {
+    slug: '-Users-linhaoz-Project-txe-txe-workflow',
+    id: '9f4adf2d-0730-4214-994a-4fba7f7b9161',
+    incremental: true,
+  },
 ];
 
 const workDir = path.join(config.repoRoot, '.work', 'test-ingest', randomUUID());
@@ -42,7 +56,7 @@ afterAll(() => {
 });
 
 // 样本复制到 .work/ 下，增量测试会改写其中的文件
-function copySample(sample: (typeof samples)[number]) {
+function copySample(sample: { slug: string; id: string }) {
   const target = path.join(workDir, randomUUID(), sample.slug);
   const source = path.join(samplesDir, sample.slug);
   cpSync(path.join(source, `${sample.id}.jsonl`), path.join(target, `${sample.id}.jsonl`));
@@ -317,7 +331,7 @@ describe.each(samples)('ingest $id', (sample) => {
     expect(snapshot(db, sample.id)).toEqual(snap);
   });
 
-  test('前 N 行与其余行分两次增量导入，与一次导入完全相同', () => {
+  test.runIf(sample.incremental)('前 N 行与其余行分两次增量导入，与一次导入完全相同', () => {
     const incremental = openTestDb();
     const full = readFileSync(main, 'utf8');
     const { lines, at } = splitPoint(main);
