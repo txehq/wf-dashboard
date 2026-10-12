@@ -1,0 +1,41 @@
+{
+  "id": "msg_bdrk_xxqegs4ahoszt3m6sdlw5h5zkev7xg6ofmcf3vki6ijv3gxvfvlq",
+  "usage": {
+    "input_tokens": 6072,
+    "output_tokens": 293,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "cache_creation": {
+      "ephemeral_5m_input_tokens": 0,
+      "ephemeral_1h_input_tokens": 0
+    },
+    "service_tier": "standard",
+    "output_tokens_details": {
+      "thinking_tokens": 262
+    }
+  },
+  "model": "claude-opus-5-5",
+  "stop_sequence": null,
+  "content": [
+    {
+      "signature": "CAQS1wgKEggSEAEYAjgBQgh0aGlua2luZxIM9E/a109IYc+iNkEnGgz6D0Ggz94CgFZdpnciMK5gJUksEDj6PKINXv+Q2sRfqRiNmuVj11MGY8+b+XOmoGdgNkJqsvuDsUhQy3z4siryB7zIAeRJ9xScuWzLAYiXlJbooTe9NbJdNuOUB5aqY+aBQFzuP4kyjHprdLhR+fmq0RRx6He1lYE6QJM7vnJDdSmvYBp/oYsXjHMbWJaWceABasxl/QLdBFhkvJOPasD9mwxjw7cbd6kWlPWqkxRYf93wufehPX+0et9K1qmLYi3KbV51Ib5QMXn9UDyvrh1gLAbkXX/QZ/ka9WqyuFdZuFbY7JNF+9Pcr+QtJ7wjuw+/EOsihEyFsAWpIVBMIsupMb3IlJIPzfviU3ac6vwEeUwP9I3B//oGvolJR3gRE2rt+zRx6fpZLXRA9PPSuVWYXmVcIkuUbNgcRhczSTMoRJa8AfXbPEFKEqh5Uo/154siqHLv6nclHsnjc0MXMcC1TzNq1sye2sjE+sqxfMwvF7dmOwhl1fLIZBYdeZznnlpJPCwJn3n8iofhzcrE740ovki/Xhs9DDzwDtxtPo5FV6ndZaNjPU72bmNwSCjnAcVedaW2UJNCYiyeK0/cj1jThhD6QIjVRyGEStF9PgWx0/Uy9CtOnN9wQ9wcIMIaG74ePxiVTvQGvttj81zTobP2D4m3tfCjEc4Fyy854Zv1bRPL9xiPvZaIgd40wDSK24jggdkWz8fA1cpLHM2r5LDpDUREOkZprfgb59rg5+TC7x0/wzo0ydHkYeoOSprfN0MFCwl6LlF+LSj9lPpDl8LCWGhfczEgoT82PVvgb/y5DXm0nbretVPVpXZTuh71gs0CG7qy6ChbwuRA55cu93KMYAYS8ROSOmUdRhVtjdcydOUhy9W/7Ud9eaYTTepB25ucooIYk5rysJpur7RiKAb1ZJTQTUMLaTRBsQpN7zohAECBZxzNCCE4PlRoM3QHDu8xpJU3yp3L6rAb+sHuHDuPTBVt+DvYy00ydcxLuVOnPyEaZijX2Mq3BdVK/dGYoIkxU/NRKtPbauGRjQnlLgn6Y96NbphoLq6wp8Y73TVPLTdCbyTS/ecUXtZxMG2caNyrFMudk9tfxTxBk6rk8UWYZvUIjjJkEiKMQmp2qPHD1rCBAQR/aOAXbP2R466Sb/08xrjEQasgWAQPeKFbBE7mEJxt+mck56cQLnwXqX2MOZ9D7OsLs5hsArV/ANSAO4BwwsI23I/YWsUL/xR7sroQyDzGU482NVSAppTmNGQ1ApKjxI1xa5M8y5zyRCnBmEkt6jbPLnG7esyI/pYOOe0/LYnhzzHsvQqZi7K7m2X1F0NuOzjZxBZRfX2HsLLg7ilnxdPiF9+5SZ2mbE7nLdPpLdUHr7KIadptCW0ru71P0Q2eSz5Up4FKJbch/9VUzzsQH8FOJy1X2fck4z9HfWGbeONCGAE=",
+      "thinking": "I'm going through each checklist item: verifying the decision ledger has the key existence check, confirming agent-driven questioning versus workflow interaction constraints, and checking that \"done\" criteria cover syncing, repair, doctor, session start, and persistent state across the three lists.\n\nItem 4 covers that skip-unlocking only happens with explicit human request and --force doesn't bypass it, plus the unskip command — full on all three.\n\nItem 5 is about scope exclusions: not reading other apps' env header tokens, not writing into any report, and not managing or repairing anything, including not issuing mcp add — full on all three.\n\n",
+      "type": "thinking"
+    },
+    {
+      "id": "toolu_bdrk_019JKMBWrQ8DYnHpKqkqwLNg",
+      "input": {},
+      "name": "respond",
+      "type": "tool_use"
+    }
+  ],
+  "type": "message",
+  "container": null,
+  "stop_reason": "refusal",
+  "role": "assistant",
+  "stop_details": {
+    "category": "reasoning_extraction",
+    "explanation": "This request was blocked as it seems to violate Anthropic's Terms of Service restrictions on reverse engineering or duplicating model outputs. To learn more, visit https://www.anthropic.com/legal/commercial-terms.",
+    "type": "refusal"
+  }
+}

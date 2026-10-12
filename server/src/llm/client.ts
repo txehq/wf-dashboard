@@ -118,12 +118,19 @@ export function structuredRequest<T>(args: StructuredRequest<T>): MessageCreateP
   };
 }
 
-// 从响应的 respond 调用读出结构；没有调用或不符合 schema 时抛错
+// 从响应的 respond 调用读出结构；被上游拒绝、没有调用或不符合 schema 时抛错
 export function parseStructuredResponse<T>(
   response: Message,
   schema: z.ZodType<T>,
   model: string,
 ): StructuredResult<T> {
+  // 拒绝分类器可能在 respond 调用开始后拦下，那时 tool_use 的 input 为空（Reports/W31b）：先看 stop_reason
+  if (response.stop_reason === 'refusal') {
+    const details = response.stop_details;
+    throw new Error(
+      `结构化输出被上游拒绝（stop_reason=refusal）：category=${String(details?.category ?? null)}，explanation=${String(details?.explanation ?? null)}`,
+    );
+  }
   const call = response.content.find((block) => block.type === 'tool_use');
   if (call?.type !== 'tool_use') {
     throw new Error(

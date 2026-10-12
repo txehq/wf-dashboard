@@ -10,3 +10,5 @@ server/drizzle/
 tasks/
 # 模拟 agent 产物的快照，保持原样
 server/scripts/fixtures/
+# gateway 响应的原文，保持原样
+server/test/fixtures/llm/
