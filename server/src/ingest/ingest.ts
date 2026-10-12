@@ -8,9 +8,10 @@ import {
   readSync,
 } from 'node:fs';
 import path from 'node:path';
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
 import {
+  liveProcesses,
   liveSessions,
   type ParseState,
   requests,
@@ -433,14 +434,13 @@ function runIdFor(db: Db, sessionId: string): string | null {
   );
 }
 
-// 交互启动的 session（Contracts 14.1）
+// 交互区中这个 session 所属的项（Contracts 14.1，claude_session_id 唯一）
 function liveIdFor(db: Db, sessionId: string): string | null {
   return (
     db
       .select({ id: liveSessions.id })
       .from(liveSessions)
       .where(eq(liveSessions.claudeSessionId, sessionId))
-      .orderBy(desc(liveSessions.createdAt))
       .get()?.id ?? null
   );
 }
@@ -449,9 +449,10 @@ function liveIdFor(db: Db, sessionId: string): string | null {
 function resumedElsewhere(db: Db, sessionId: string): boolean {
   return (
     db
-      .select({ id: liveSessions.id })
-      .from(liveSessions)
-      .where(eq(liveSessions.resumedFrom, sessionId))
+      .select({ id: liveProcesses.id })
+      .from(liveProcesses)
+      .innerJoin(liveSessions, eq(liveSessions.id, liveProcesses.liveId))
+      .where(and(eq(liveSessions.claudeSessionId, sessionId), eq(liveProcesses.kind, 'resume')))
       .get() !== undefined
   );
 }

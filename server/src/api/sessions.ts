@@ -8,6 +8,7 @@ import {
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import {
+  liveSessions,
   requests,
   sessions,
   sources,
@@ -196,6 +197,18 @@ function summaries(db: Db, rows: SummaryRow[]): SessionSummary[] {
       .all()
       .map((m) => [m.sessionId, sessionTitle(m.text)]),
   );
+  // 属于交互区某一项的 session 显示该项的名字（Contracts 14.1、14.3），改名后立即生效
+  const liveIds = rows.flatMap((r) => (r.liveId === null ? [] : [r.liveId]));
+  const liveTitles = new Map(
+    liveIds.length === 0
+      ? []
+      : db
+          .select({ id: liveSessions.id, title: liveSessions.title })
+          .from(liveSessions)
+          .where(inArray(liveSessions.id, liveIds))
+          .all()
+          .map((l) => [l.id, l.title]),
+  );
   const variantNames = boundVariantNames(
     db,
     rows.flatMap((r) => (r.variantId === null ? [] : [r.variantId])),
@@ -209,7 +222,7 @@ function summaries(db: Db, rows: SummaryRow[]): SessionSummary[] {
     return {
       id: r.id,
       cwd: r.cwd,
-      title: titles.get(r.id) ?? null,
+      title: (r.liveId === null ? undefined : liveTitles.get(r.liveId)) ?? titles.get(r.id) ?? null,
       source: r.source,
       startedAt: r.startedAt.toISOString(),
       endedAt: r.endedAt.toISOString(),

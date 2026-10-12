@@ -3,7 +3,13 @@ import { RotateCcw } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Button } from '@/components/ui/button';
-import { isBuiltVariant, type LiveDriver, resumeDefaultsQuery, resumeLive } from '@/lib/live-api';
+import {
+  isBuiltVariant,
+  type LiveDetail,
+  type LiveDriver,
+  resumeDefaultsQuery,
+  resumeLive,
+} from '@/lib/live-api';
 import { variantsQuery } from '@/pages/variants-api';
 
 const LOCAL = 'local';
@@ -42,7 +48,18 @@ export function DriverChoice({
   );
 }
 
-function ResumeForm({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
+function ResumeForm({
+  sessionId,
+  onClose,
+  onResumed,
+  navigateAfter,
+}: {
+  sessionId: string;
+  onClose: () => void;
+  onResumed: (live: LiveDetail) => void;
+  // Sessions 详情中：resume 后打开交互区并选中这一项
+  navigateAfter: boolean;
+}) {
   const navigate = useNavigate();
   const client = useQueryClient();
   const defaults = useQuery(resumeDefaultsQuery(sessionId));
@@ -53,7 +70,8 @@ function ResumeForm({ sessionId, onClose }: { sessionId: string; onClose: () => 
     mutationFn: resumeLive,
     onSuccess: async (live) => {
       await client.invalidateQueries({ queryKey: ['live'] });
-      await navigate(`/live?open=${live.id}`);
+      onResumed(live);
+      if (navigateAfter) await navigate(`/live?open=${live.id}`);
     },
   });
   if (defaults.data === undefined || variants.data === undefined) {
@@ -116,7 +134,7 @@ function ResumeForm({ sessionId, onClose }: { sessionId: string; onClose: () => 
           取消
         </Button>
         <Button
-          disabled={!defaults.data.cwdExists || resuming.isPending}
+          disabled={!defaults.data.cwdExists || defaults.data.running || resuming.isPending}
           onClick={() => {
             resuming.mutate({
               sessionId,
@@ -133,15 +151,26 @@ function ResumeForm({ sessionId, onClose }: { sessionId: string; onClose: () => 
   );
 }
 
-// Sessions 详情与交互区的"resume"按钮（Contracts 14.5）
-export function ResumeButton({ sessionId }: { sessionId: string }) {
+// Sessions 详情与交互区的"resume"按钮（Contracts 14.5）：session 所属的项有运行中的进程时不可点。
+// onResumed 由交互区传入（选中这一项的标签页）；不传时打开交互区并选中它
+export function ResumeButton({
+  sessionId,
+  onResumed,
+}: {
+  sessionId: string;
+  onResumed?: (live: LiveDetail) => void;
+}) {
   const [open, setOpen] = useState(false);
+  const defaults = useQuery(resumeDefaultsQuery(sessionId));
+  const running = defaults.data?.running === true;
   return (
     <>
       <Button
         variant="outline"
         size="sm"
         data-testid="resume-open"
+        disabled={defaults.data === undefined || running}
+        title={running ? '这个 session 正在交互区运行' : undefined}
         onClick={() => {
           setOpen(true);
         }}
@@ -162,6 +191,11 @@ export function ResumeButton({ sessionId }: { sessionId: string }) {
             <p className="font-mono text-xs text-muted-foreground">{sessionId}</p>
             <ResumeForm
               sessionId={sessionId}
+              onResumed={(live) => {
+                setOpen(false);
+                onResumed?.(live);
+              }}
+              navigateAfter={onResumed === undefined}
               onClose={() => {
                 setOpen(false);
               }}

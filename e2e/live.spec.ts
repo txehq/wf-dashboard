@@ -1,32 +1,38 @@
+import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
 import { expect, type Page, test } from '@playwright/test';
-import type { LiveDetail } from '../server/src/live/views.js';
+import type { LiveDetail, LiveSummary } from '../server/src/live/views.js';
 import { runsServerPort } from '../ports.js';
-import { e2eLocalReposDir } from './local-repos.js';
 
-// 交互区（Contracts 14）：构建基线 variant，新建 /lfg 做一个计算器（isolated、人驾驶），在终端中输入；
-// 切到模拟用户驾驶、按键接管、交还；关掉页面重开后输出仍在；Sessions 详情的 resume 对话框。
-// 真实运行：副本仓库建在本地 bare 仓库（本地仓库模式），写 vault 的 Project Magi Eval/Features/<liveId>/
+// 交互区（Contracts 14）：用能证明行为的最少真实调用——real 环境的 /lfg 只等初始消息提交就结束进程，
+// resume 与导入后的 resume 都在启动后结束，不等模型回答。
+// 新建表单；终端中出现 Claude Code 的界面并能输入；resume 后左侧项数不变、选中原标签页；双击改名、Esc 取消、回车保存；
+// Sessions 中显示新名字；导入本机 session 的选择框与导入后 resume；关掉页面重开后输出仍在
 const api = `http://127.0.0.1:${String(runsServerPort)}/api`;
 const marker = randomUUID().slice(0, 8);
+const realCwd = path.resolve('.work/w34/e2e-real-cwd');
+// prepare-runs-e2e 导入的最短的 run session（r-20261009-27yz3d）
+const runSession = '70e7a9b6-fdad-44c3-9b65-015ee2a0499c';
 
 const shot = (page: Page, name: string) =>
-  page.screenshot({ path: `.work/screenshots/w30-${name}.png`, animations: 'disabled' });
+  page.screenshot({ path: `.work/screenshots/w34-${name}.png`, animations: 'disabled' });
 
 // xterm.js 的 DOM 渲染用不换行空格
 const terminalText = async (page: Page) =>
-  ((await page.locator('.xterm-rows').textContent()) ?? '').replaceAll(' ', ' ');
+  ((await page.locator('.xterm-rows').textContent()) ?? '').replaceAll(' ', ' ');
 
 test.describe.configure({ mode: 'serial' });
 
-test('交互：新建、终端输入、驾驶者切换与交还、重开页面、resume 对话框', async ({
+test('交互：新建、resume 在同一项、改名、Sessions 中的名字、导入本机 session 后 resume', async ({
   page,
   request,
-  browser,
 }) => {
-  test.setTimeout(3_600_000);
-  const variantName = `W30 e2e ${marker}`;
+  test.setTimeout(1_800_000);
+  fs.mkdirSync(realCwd, { recursive: true });
+  if (!fs.existsSync(path.join(realCwd, '.git'))) execFileSync('git', ['init', '-q', realCwd]);
+  const variantName = `W34 e2e ${marker}`;
   const created = await request.post(`${api}/variants`, {
     data: { name: variantName, model: 'opus', effort: 'high' },
   });
@@ -36,7 +42,10 @@ test('交互：新建、终端输入、驾驶者切换与交还、重开页面�
   expect(built.ok()).toBe(true);
   const detail = async (id: string) =>
     (await (await request.get(`${api}/live/${id}`)).json()) as LiveDetail;
+  const list = async () => (await (await request.get(`${api}/live`)).json()) as LiveSummary[];
+  const items = page.getByTestId('live-list').locator('[data-live]');
 
+  // 新建表单：real 环境的写入提示，另存为 task 的链接
   await page.goto('/live');
   await page.getByTestId('new-live-toggle').click();
   const form = page.getByTestId('new-live');
@@ -46,136 +55,144 @@ test('交互：新建、终端输入、驾驶者切换与交还、重开页面�
     'href',
     '/tasks/new?mode=lfg&input=%E5%81%9A%E4%B8%80%E4%B8%AA%E8%AE%A1%E7%AE%97%E5%99%A8',
   );
-  // real 环境的提示：会在真实目录、仓库与工单上写入
   await form.getByText('real：在你填的真实目录中运行').click();
   await expect(form.getByTestId('real-warning')).toContainText(
     '会在真实目录、真实仓库与真实工单上写入',
   );
-  await shot(page, 'new-form');
-  await form.getByText('isolated：与评估 run 相同').click();
+  await form.getByRole('textbox', { name: '工作目录' }).fill(realCwd);
   await form.getByTestId('live-start').click();
 
   const panel = page.getByTestId('live-panel');
-  await expect(panel).toBeVisible({ timeout: 300_000 });
+  await expect(panel).toBeVisible({ timeout: 120_000 });
   const id = (await panel.getAttribute('data-live')) ?? '';
   expect(id).toMatch(/^l-\d{8}-[a-z0-9]{6}$/);
   await expect(panel.getByTestId('live-variant-name')).toHaveText(variantName);
-  await expect(panel.getByText(path.join(e2eLocalReposDir, `wfe-${id}.git`))).toBeVisible();
   await expect.poll(() => terminalText(page), { timeout: 120_000 }).toContain('Claude Code');
-  await expect.poll(() => terminalText(page), { timeout: 120_000 }).toContain('/lfg 做一个计算器');
-
-  // interview 的第一次提问（Stop 或 AskUserQuestion）出现在终端中
-  await expect
-    .poll(async () => (await detail(id)).waiting !== null, { timeout: 900_000, intervals: [2000] })
-    .toBe(true);
-  await page.waitForTimeout(1500);
-  await shot(page, 'interview-question');
-
-  // 在终端中输入：文字出现在 Claude Code 的输入框
-  const waiting = (await detail(id)).waiting;
-  await page.getByTestId('live-terminal').click();
-  if (waiting?.kind === 'text') {
-    await page.keyboard.type('W30E2E');
-    await expect.poll(() => terminalText(page)).toContain('W30E2E');
-    for (const key of Array<string>('W30E2E'.length).fill('Backspace')) {
-      await page.keyboard.press(key);
-    }
-    await expect.poll(() => terminalText(page)).not.toContain('W30E2E');
-  } else {
-    // 选项菜单：↓ 移动光标
+  // 目录未被这个配置信任时 Claude Code 先询问：在终端里选 Yes 回车
+  const terminal = page.getByTestId('live-terminal');
+  if ((await terminalText(page)).includes('Yes, I trust this folder')) {
+    await terminal.click();
     await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
   }
-
-  // 驾驶者切到模拟用户：Claude Code 正在等输入，模拟用户立即回答
-  const switcher = panel.getByTestId('driver-switch');
-  await switcher.getByRole('radio', { name: '模拟用户' }).click();
-  await expect(switcher).toHaveAttribute('data-driver', 'simulated');
   await expect
     .poll(
       async () =>
         (await detail(id)).events.some(
-          (e) => e.kind === 'simulated_reply' && e.payload.written === true,
+          (e) => e.kind === 'hook' && e.payload.hook_event_name === 'UserPromptSubmit',
         ),
-      { timeout: 600_000, intervals: [2000] },
+      { timeout: 120_000, intervals: [1000] },
     )
     .toBe(true);
-  await page.waitForTimeout(1500);
-  await shot(page, 'simulated-driving');
-
-  // 下一次等待输入时按一个键：驾驶者变为人
-  await expect
-    .poll(
-      async () => {
-        const d = await detail(id);
-        return d.waiting !== null || d.driver === 'human';
-      },
-      { timeout: 900_000, intervals: [1000] },
-    )
-    .toBe(true);
-  await page.getByTestId('live-terminal').click();
-  await page.keyboard.press('ArrowDown');
-  await expect(switcher).toHaveAttribute('data-driver', 'human', { timeout: 30_000 });
-  await expect(panel.getByTestId('hand-back')).toBeEnabled();
-  await shot(page, 'taken-over');
-  const takeover = (await detail(id)).events.findLast((e) => e.kind === 'driver');
-  expect(takeover?.payload.driver).toBe('human');
-
-  // 交还给模拟用户
-  await panel.getByTestId('hand-back').click();
-  await expect(switcher).toHaveAttribute('data-driver', 'simulated');
-  expect((await detail(id)).events.findLast((e) => e.kind === 'driver')?.payload).toEqual({
-    driver: 'simulated',
-    reason: 'release',
+  await expect.poll(() => terminalText(page), { timeout: 60_000 }).toContain('/lfg 做一个计算器');
+  // 在终端中输入：文字出现在 Claude Code 的输入框
+  await terminal.click();
+  await page.keyboard.type('W34E2E');
+  await expect.poll(() => terminalText(page)).toContain('W34E2E');
+  await panel.getByRole('button', { name: '结束进程' }).click();
+  await expect(panel.getByTestId('live-status')).toHaveAttribute('data-status', 'exited', {
+    timeout: 60_000,
   });
 
-  // 关掉页面重开：进程照常运行，终端先收到保留的输出（最早的提问已滚出可见区域，另用一个连接读第一条消息）
-  const before = await terminalText(page);
-  await page.close();
-  expect((await detail(id)).status).toBe('running');
-  const reopened = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
-  await reopened.goto(`/live?open=${id}`);
-  await expect.poll(() => terminalText(reopened), { timeout: 30_000 }).toContain('⏺');
-  expect(before).toContain('⏺');
-  const replay = await reopened.evaluate(
-    (liveId) =>
-      new Promise<string>((resolve) => {
-        const socket = new WebSocket(`ws://${window.location.host}/api/live/${liveId}/pty`);
-        socket.addEventListener('message', (event: MessageEvent<string>) => {
-          socket.close();
-          resolve(event.data);
-        });
-      }),
-    id,
-  );
-  expect(replay).toContain('/lfg 做一个计算器');
-  expect(replay).toContain('Claude Code');
-
-  // 终端旁边展开这个 session 的阶段条与请求明细
-  await reopened.getByTestId('toggle-side').click();
-  const side = reopened.getByTestId('live-side');
-  await expect(side).toBeVisible({ timeout: 30_000 });
-  await expect(side.getByText('第 1 轮 · /lfg 做一个计算器')).toBeVisible();
-  await expect(side.getByText('请求明细')).toBeVisible();
-
-  await reopened.getByTestId('live-panel').getByRole('button', { name: '结束进程' }).click();
-  await expect(reopened.getByTestId('live-panel').getByTestId('live-status')).toHaveAttribute(
-    'data-status',
-    'exited',
-    { timeout: 60_000 },
-  );
-
-  // Sessions：这个 session 标为"交互"；详情中的 resume 对话框默认用这个 variant 与记录的工作目录
-  const sessionId = (await detail(id)).claudeSessionId;
-  await reopened.goto(`/sessions/${sessionId}`);
-  await expect(reopened.getByTestId('session-summary').getByTestId('live-badge')).toBeVisible();
-  await reopened.getByTestId('resume-open').click();
-  const dialog = reopened.getByTestId('resume-dialog');
-  await expect(dialog).toBeVisible();
+  // resume：左侧项数不变，仍是这一项的标签页，终端接着显示
+  const count = await items.count();
+  await expect(items.filter({ hasText: '/lfg 做一个计算器' })).toHaveCount(1);
+  await shot(page, 'list-before-resume');
+  await panel.getByTestId('resume-open').click();
+  const dialog = page.getByTestId('resume-dialog');
   await expect(dialog.getByTestId('resume-variant')).toHaveValue(variant.id);
-  await expect(dialog.getByTestId('resume-cwd')).toContainText(`live/${id}/workspace`);
-  await expect(dialog.getByRole('radio', { name: '人' })).toBeChecked();
-  await reopened.screenshot({ path: '.work/screenshots/w30-resume-dialog.png' });
-  await dialog.getByRole('button', { name: '取消' }).click();
+  await dialog.getByRole('button', { name: 'resume' }).click();
   await expect(dialog).toHaveCount(0);
-  await reopened.close();
+  await expect(panel.getByTestId('live-status')).toHaveAttribute('data-status', 'running');
+  await expect(items).toHaveCount(count);
+  const tab = page.getByTestId('live-tab').and(page.locator(`[data-live="${id}"]`));
+  await expect(tab).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('live-list').locator(`[data-live="${id}"]`)).toContainText(
+    'resume 1 次',
+  );
+  // 运行中不能再 resume
+  await expect(panel.getByTestId('resume-open')).toHaveCount(0);
+  await expect.poll(() => terminalText(page), { timeout: 60_000 }).toContain('resume');
+  await shot(page, 'list-after-resume');
+  const resumed = await detail(id);
+  expect(resumed.processes.map((p) => p.kind)).toEqual(['start', 'resume']);
+  expect((await list()).filter((l) => l.claudeSessionId === resumed.claudeSessionId)).toHaveLength(
+    1,
+  );
+  await panel.getByRole('button', { name: '结束进程' }).click();
+  await expect(panel.getByTestId('live-status')).toHaveAttribute('data-status', 'exited', {
+    timeout: 60_000,
+  });
+
+  // 改名：左侧双击，Esc 取消；标签页点铅笔图标，回车保存
+  const listTitle = page.getByTestId('live-list').locator(`[data-live="${id}"]`);
+  await listTitle.getByTestId('live-title').dblclick();
+  await listTitle.getByTestId('live-title-input').fill('不会保存的名字');
+  await listTitle.getByTestId('live-title-input').press('Escape');
+  await expect(listTitle.getByTestId('live-title')).toHaveText('/lfg 做一个计算器');
+  await tab.getByTestId('live-rename').click();
+  await tab.getByTestId('live-title-input').fill(`W34 计算器 ${marker}`);
+  await shot(page, 'renaming');
+  await tab.getByTestId('live-title-input').press('Enter');
+  await expect(tab.getByTestId('live-title')).toHaveText(`W34 计算器 ${marker}`);
+  await expect(listTitle.getByTestId('live-title')).toHaveText(`W34 计算器 ${marker}`);
+  // 空白的名字以原文报错，保持编辑
+  await listTitle.getByTestId('live-title').dblclick();
+  await listTitle.getByTestId('live-title-input').fill('   ');
+  await listTitle.getByTestId('live-title-input').press('Enter');
+  await expect(listTitle.getByRole('alert')).toContainText('名字不能为空');
+  await listTitle.getByTestId('live-title-input').press('Escape');
+
+  // Sessions 列表与详情显示新名字
+  await page.goto('/sessions');
+  await page
+    .getByRole('region', { name: 'session 列表' })
+    .getByPlaceholder('搜索标题、目录或 session id')
+    .fill(resumed.claudeSessionId);
+  const row = page
+    .getByTestId('session-row')
+    .filter({ hasText: resumed.claudeSessionId.slice(0, 8) });
+  await expect(row).toContainText(`W34 计算器 ${marker}`);
+  await expect(row.getByTestId('live-badge')).toBeVisible();
+  await shot(page, 'sessions-name');
+  await page.goto(`/sessions/${resumed.claudeSessionId}`);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(`W34 计算器 ${marker}`);
+
+  // 导入本机 session：已在交互区的不可选；导入后左侧多一项、未运行，显示对话与 resume 按钮
+  await page.goto('/live');
+  const before = await items.count();
+  await page.getByTestId('import-open').click();
+  const picker = page.getByTestId('import-dialog');
+  await picker.getByRole('textbox', { name: '搜索 session' }).fill(resumed.claudeSessionId);
+  const taken = picker.locator(`[data-session="${resumed.claudeSessionId}"]`);
+  await expect(taken.getByTestId('import-taken')).toHaveText('已在交互区');
+  await expect(taken.getByRole('checkbox')).toBeDisabled();
+  await picker.getByRole('textbox', { name: '搜索 session' }).fill(runSession);
+  await picker.locator(`[data-session="${runSession}"]`).getByRole('checkbox').check();
+  await shot(page, 'import-picker');
+  await picker.getByTestId('import-confirm').click();
+  await expect(picker).toHaveCount(0);
+  await expect(items).toHaveCount(before + 1);
+  const imported = (await list()).find((l) => l.claudeSessionId === runSession);
+  if (imported === undefined) throw new Error('没有导入');
+  expect(imported.status).toBe('idle');
+  const importedPanel = page.locator(`[data-testid="live-panel"][data-live="${imported.id}"]`);
+  await expect(importedPanel.getByTestId('live-status')).toHaveAttribute('data-status', 'idle');
+  await expect(importedPanel.getByTestId('live-idle')).toBeVisible();
+  await expect(importedPanel.getByTestId('conversation')).toBeVisible();
+  await shot(page, 'imported-idle');
+  // 从这一项 resume：仍是同一项
+  await importedPanel.getByTestId('live-idle').getByTestId('resume-open').click();
+  await page.getByTestId('resume-dialog').getByRole('button', { name: 'resume' }).click();
+  await expect(importedPanel.getByTestId('live-status')).toHaveAttribute('data-status', 'running');
+  await expect(items).toHaveCount(before + 1);
+  expect((await detail(imported.id)).processes.map((p) => p.kind)).toEqual(['resume']);
+  await importedPanel.getByRole('button', { name: '结束进程' }).click();
+  await expect(importedPanel.getByTestId('live-status')).toHaveAttribute('data-status', 'exited', {
+    timeout: 60_000,
+  });
+
+  // 关掉页面重开：这一项的输出仍在（第一个进程的输出与 resume 的分隔行）
+  await page.goto(`/live?open=${id}`);
+  await expect.poll(() => terminalText(page), { timeout: 30_000 }).toContain('resume');
 });

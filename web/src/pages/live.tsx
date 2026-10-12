@@ -2,9 +2,12 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { ChevronDown, ChevronRight, Hand, Plus, Power, Undo2, X } from 'lucide-react';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
+import { ImportSessionsButton } from '@/components/live/import-sessions';
 import { LiveTerminal } from '@/components/live/live-terminal';
+import { LiveTitle } from '@/components/live/live-title';
 import { NewLiveForm } from '@/components/live/new-live-form';
 import { ResumeButton } from '@/components/live/resume-dialog';
+import { SessionConversation } from '@/components/runs/conversation';
 import { RequestTimeline } from '@/components/sessions/request-timeline';
 import { StageBars } from '@/components/sessions/stage-bars';
 import { Badge } from '@/components/ui/badge';
@@ -25,24 +28,30 @@ import { cycleName } from '@/lib/stage-status';
 const environmentLabel = { isolated: 'isolated', real: 'real' } as const;
 const driverLabel = { human: '人', simulated: '模拟用户' } as const;
 
-function title(live: LiveSummary): string {
-  if (live.resumedFrom !== null) return `resume ${live.resumedFrom.slice(0, 8)}`;
-  return `/${live.workflow ?? ''} ${live.input ?? live.taskId ?? ''}`.trim();
-}
-
 function StatusBadge({ live }: { live: LiveSummary }) {
-  return live.status === 'running' ? (
-    <Badge data-testid="live-status" data-status="running">
-      运行中
-    </Badge>
-  ) : (
+  if (live.status === 'running') {
+    return (
+      <Badge data-testid="live-status" data-status="running">
+        运行中
+      </Badge>
+    );
+  }
+  if (live.status === 'idle') {
+    return (
+      <Badge variant="secondary" data-testid="live-status" data-status="idle">
+        未运行
+      </Badge>
+    );
+  }
+  const code = live.process?.exitCode ?? null;
+  return (
     <Badge variant="outline" data-testid="live-status" data-status="exited">
-      已退出{live.exitCode === null ? '' : `（${String(live.exitCode)}）`}
+      已退出{code === null ? '' : `（${String(code)}）`}
     </Badge>
   );
 }
 
-// 左侧列表：运行中的在前
+// 左侧列表：有运行中进程的在前，其余按最近更新；每项显示名字、状态、variant、环境与 resume 次数
 function LiveList({ onOpen, active }: { onOpen: (id: string) => void; active: string | null }) {
   const list = useQuery(liveListQuery);
   if (list.isPending) return <p className="text-sm text-muted-foreground">加载中…</p>;
@@ -57,25 +66,37 @@ function LiveList({ onOpen, active }: { onOpen: (id: string) => void; active: st
     return <p className="text-sm text-muted-foreground">还没有交互 session。</p>;
   }
   return (
-    <ul className="flex flex-col gap-1" aria-label="交互 session">
+    <ul className="flex flex-col gap-1" aria-label="交互 session" data-testid="live-list">
       {list.data.map((live) => (
         <li key={live.id}>
-          <button
-            type="button"
+          <div
+            role="button"
+            tabIndex={0}
             data-live={live.id}
             aria-current={active === live.id}
-            className="flex w-full flex-col gap-0.5 rounded-md border px-3 py-2 text-left hover:bg-muted/50 aria-[current=true]:border-foreground"
+            className="flex w-full cursor-pointer flex-col gap-0.5 rounded-md border px-3 py-2 text-left hover:bg-muted/50 aria-[current=true]:border-foreground"
             onClick={() => {
               onOpen(live.id);
             }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') onOpen(live.id);
+            }}
           >
-            <span className="line-clamp-2 text-sm font-medium">{title(live)}</span>
+            <LiveTitle
+              liveId={live.id}
+              title={live.title}
+              className="line-clamp-2 text-sm font-medium"
+            />
             <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
               <StatusBadge live={live} />
-              {environmentLabel[live.environment]} · {driverLabel[live.driver]} ·{' '}
-              {formatDateTime(new Date(live.createdAt).toISOString())}
+              <span>{live.variantName ?? '本机配置'}</span>·
+              <span>{environmentLabel[live.environment]}</span>·
+              <span data-testid="live-resume-count">resume {live.resumeCount} 次</span>
             </span>
-          </button>
+            <span className="text-xs text-muted-foreground">
+              {formatDateTime(new Date(live.updatedAt).toISOString())}
+            </span>
+          </div>
         </li>
       ))}
     </ul>
@@ -154,7 +175,14 @@ function Notices({ live }: { live: LiveDetail }) {
   );
 }
 
-function LivePanel({ liveId }: { liveId: string }) {
+function LivePanel({
+  liveId,
+  onResumed,
+}: {
+  liveId: string;
+  // resume 落在同一项（Contracts 14.5）：交互区选中它的标签页
+  onResumed: (live: LiveDetail) => void;
+}) {
   const live = useQuery(liveQuery(liveId));
   const [side, setSide] = useState(false);
   const driver = useMutation({
@@ -235,8 +263,8 @@ function LivePanel({ liveId }: { liveId: string }) {
             <Power />
             结束进程
           </Button>
-        ) : (
-          <ResumeButton sessionId={data.claudeSessionId} />
+        ) : data.process === null ? null : (
+          <ResumeButton sessionId={data.claudeSessionId} onResumed={onResumed} />
         )}
         <Button
           size="sm"
@@ -260,7 +288,29 @@ function LivePanel({ liveId }: { liveId: string }) {
       <div
         className={side ? 'grid min-w-0 gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]' : 'flex'}
       >
-        <LiveTerminal liveId={liveId} />
+        {data.process === null ? (
+          // 从本机导入、还没有运行过（Contracts 14.5）：显示这个 session 的对话与 resume 按钮
+          <div
+            className="flex min-w-0 flex-1 flex-col gap-3 rounded-md border p-4"
+            data-testid="live-idle"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-muted-foreground">
+                这个 session 还没有在交互区运行过，resume 后在这里接着对话。
+              </span>
+              <ResumeButton sessionId={data.claudeSessionId} onResumed={onResumed} />
+            </div>
+            <SessionConversation
+              sessionId={data.claudeSessionId}
+              onJump={() => {
+                setSide(true);
+              }}
+            />
+          </div>
+        ) : (
+          // resume 在同一项上起新进程：按进程重建终端，重新连接并回放这一项的输出
+          <LiveTerminal key={data.process.id} liveId={liveId} />
+        )}
         {side && (
           <div className="max-h-[48rem] min-w-0 overflow-y-auto rounded-md border p-3">
             <SessionSide sessionId={data.claudeSessionId} />
@@ -273,7 +323,11 @@ function LivePanel({ liveId }: { liveId: string }) {
 
 function TabLabel({ liveId }: { liveId: string }) {
   const live = useQuery(liveQuery(liveId));
-  return <>{live.data === undefined ? liveId : title(live.data)}</>;
+  return live.data === undefined ? (
+    <>{liveId}</>
+  ) : (
+    <LiveTitle liveId={liveId} title={live.data.title} className="truncate" />
+  );
 }
 
 // 交互区（Contracts 14.3）：左侧列表，右侧每个打开的 session 一个标签页
@@ -329,6 +383,12 @@ export function LivePage() {
       )}
       <div className="grid min-w-0 gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
         <aside className="flex min-w-0 flex-col gap-2">
+          <ImportSessionsButton
+            onImported={(items) => {
+              const last = items.at(-1);
+              if (last !== undefined) openTab(last.id);
+            }}
+          />
           <LiveList onOpen={openTab} active={active} />
         </aside>
         <section className="flex min-w-0 flex-col gap-3">
@@ -345,17 +405,22 @@ export function LivePage() {
                     className="flex items-center rounded-t-md border border-b-0 aria-selected:bg-muted"
                     aria-selected={id === active}
                   >
-                    <button
-                      type="button"
+                    <div
                       role="tab"
+                      tabIndex={0}
                       aria-selected={id === active}
-                      className="max-w-[16rem] truncate px-3 py-1.5 text-sm"
+                      data-testid="live-tab"
+                      data-live={id}
+                      className="max-w-[16rem] cursor-pointer px-3 py-1.5 text-sm"
                       onClick={() => {
                         update(tabs, id);
                       }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') update(tabs, id);
+                      }}
                     >
                       <TabLabel liveId={id} />
-                    </button>
+                    </div>
                     <button
                       type="button"
                       aria-label="关闭标签页"
@@ -369,7 +434,15 @@ export function LivePage() {
                   </div>
                 ))}
               </div>
-              {active !== null && <LivePanel key={active} liveId={active} />}
+              {active !== null && (
+                <LivePanel
+                  key={active}
+                  liveId={active}
+                  onResumed={(live) => {
+                    openTab(live.id);
+                  }}
+                />
+              )}
             </>
           )}
         </section>

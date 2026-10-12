@@ -57,6 +57,16 @@ export async function stopLive(id: string): Promise<LiveDetail> {
   return (await requestJson('POST', `/api/live/${id}/stop`)) as LiveDetail;
 }
 
+// 改名（Contracts 14.3）：空白与超过 200 字由服务端以原文报错
+export async function renameLive(id: string, title: string): Promise<LiveDetail> {
+  return (await requestJson('PATCH', `/api/live/${id}`, { title })) as LiveDetail;
+}
+
+// 导入到交互区（Contracts 14.5）：只建项，不启动进程
+export async function importLive(sessionIds: string[]): Promise<LiveSummary[]> {
+  return (await requestJson('POST', '/api/live/import', { sessionIds })) as LiveSummary[];
+}
+
 // live.updated：刷新交互列表与各 session 的详情（['live'] 前缀下的全部查询）
 export function useLiveSessionEvents() {
   const client = useQueryClient();
