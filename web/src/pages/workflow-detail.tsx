@@ -1,5 +1,5 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Copy, Plus, Save } from 'lucide-react';
+import { ArrowLeft, Copy, Plus, Save, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -26,7 +26,8 @@ import {
   variantsQuery,
 } from '@/pages/variants-api';
 import { DefinitionForm, DefinitionYamlEditor } from '@/pages/workflow-config';
-import { CodexPlaceholder, NewWorkflowForm } from '@/pages/workflows';
+import { NewWorkflowForm } from '@/pages/workflows';
+import { CodexDraftForm } from '@/components/codex-draft';
 
 type ConfigTab = 'form' | 'yaml';
 
@@ -220,6 +221,7 @@ function VariantsSection({
   const client = useQueryClient();
   const [params, setParams] = useSearchParams();
   const expanded = params.get('variant');
+  const [codexing, setCodexing] = useState(false);
   const derive = useMutation({
     mutationFn: ({ sourceId, name }: { sourceId: string; name: string }) =>
       request<Variant>('POST', `/api/variants/${sourceId}/derive`, { name }),
@@ -249,9 +251,27 @@ function VariantsSection({
             <Plus />
             新建 variant
           </Button>
-          <CodexPlaceholder label="用 Codex 生成 variant" />
+          <Button
+            size="sm"
+            variant="outline"
+            data-testid="codex-variant-toggle"
+            onClick={() => {
+              setCodexing(!codexing);
+            }}
+          >
+            <Sparkles />用 Codex 生成 variant
+          </Button>
         </div>
       </div>
+      {codexing && (
+        <CodexDraftForm
+          mode="variant"
+          workflowId={workflow.id}
+          onCancel={() => {
+            setCodexing(false);
+          }}
+        />
+      )}
       {derive.isError && <p className="text-sm text-destructive">{derive.error.message}</p>}
       <ImportBaseline workflowId={workflow.id} />
       {variants.length === 0 ? (

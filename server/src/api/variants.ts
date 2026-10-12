@@ -31,6 +31,8 @@ const Variant = z.object({
   frozenAt: z.date().nullable(),
   analysisId: z.string().nullable(),
   sourceSessionId: z.string().nullable(),
+  // 由 Codex 草稿保存出时的草稿 id（Contracts 17.4）
+  draftId: z.string().nullable(),
 });
 
 const IdParams = z.object({ id: z.string() });

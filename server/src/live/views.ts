@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   liveDrivers,
+  liveEngines,
   liveEnvironments,
   liveEventKinds,
   liveProcessKinds,
@@ -48,6 +49,10 @@ export const LiveSummary = z.object({
   id: z.string(),
   title: z.string(),
   claudeSessionId: z.string(),
+  // codex：用 Codex 生成 workflow 或 variant 的会话（Contracts 17.3），claudeSessionId 是 Codex 的会话 id
+  engine: z.enum(liveEngines),
+  // 这个 Codex 会话所属的草稿；其余为空
+  draftId: z.string().nullable(),
   environment: z.enum(liveEnvironments),
   // 新建时选的 workflow 的 id；从已有 session 开始的项为空
   workflow: z.string().nullable(),

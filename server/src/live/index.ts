@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import { sessionTitle } from '../api/user-text.js';
@@ -16,6 +17,7 @@ import {
   subagents,
   userMessages,
   variants as variantsTable,
+  workflowDrafts,
 } from '../db/schema.js';
 import { events } from '../events.js';
 import { createRunTicket } from '../external/linear.js';
@@ -27,11 +29,21 @@ import type { EvalFacts, SimulatedPersona } from '../runs/simulated-user.js';
 import { ensureImportedBundle, previewLinearImport } from '../tasks/linear-import.js';
 import { loadTask, withRepo, withTicket } from '../tasks/loader.js';
 import type { Task } from '../tasks/schema.js';
+import { type CodexSources, writeCodexHome } from '../variants/codex-home.js';
 import { HttpError } from '../variants/errors.js';
 import type { Variants } from '../variants/index.js';
 import { entryOf, evalSpec } from '../workflows/eval-kinds.js';
 import { evalSpecOf, workflowOfVariant, workflowRow } from '../workflows/index.js';
 import type { EvalSpec } from '../workflows/schema.js';
+import {
+  CodexRunner,
+  codexConfigExtra,
+  codexDirsOf,
+  codexResumeArgs,
+  codexStartArgs,
+  rolloutFiles,
+  waitForSession,
+} from './codex.js';
 import { type HandBackReason, type HookPayload, LiveController } from './controller.js';
 import { LivePty } from './pty.js';
 import {
@@ -61,6 +73,8 @@ export interface LiveDeps {
   localHome: string;
   // isolated 交互的副本仓库建在 GitHub 或本地仓库模式的目录中（Contracts 7.2、14.2）
   repos: RunRepos;
+  // Codex 会话（Contracts 17.3）：运行的命令、认证与模型配置的来源、等待会话记录出现的时限
+  codex: { bin: string; sources: CodexSources; sessionTimeoutMs: number };
 }
 
 export const LIVE_ID = /^l-\d{8}-[a-z0-9]{6}$/;
@@ -130,7 +144,7 @@ type ProcessRow = typeof liveProcesses.$inferSelect;
 
 export function createLive(deps: LiveDeps) {
   const { db, variants, settings } = deps;
-  const controllers = new Map<string, LiveController>();
+  const controllers = new Map<string, LiveController | CodexRunner>();
 
   // 上次服务退出时运行中的进程：PTY 进程随服务退出
   const interrupted = db
@@ -168,11 +182,20 @@ export function createLive(deps: LiveDeps) {
     );
   }
 
-  function controllerOf(id: string): LiveController {
+  function controllerOf(id: string): LiveController | CodexRunner {
     row(id);
     const controller = controllers.get(id);
     if (controller === undefined || latestProcess(id)?.status !== 'running') {
       throw new HttpError(409, `交互 ${id} 不在运行中`);
+    }
+    return controller;
+  }
+
+  // hook 与驾驶者只属于 Claude Code 的进程：Codex 会话只有人驾驶（Contracts 17.3）
+  function claudeControllerOf(id: string): LiveController {
+    const controller = controllerOf(id);
+    if (controller instanceof CodexRunner) {
+      throw new HttpError(409, `交互 ${id} 是 Codex 会话，只有人驾驶，没有 hook 与模拟用户`);
     }
     return controller;
   }
@@ -225,10 +248,17 @@ export function createLive(deps: LiveDeps) {
     const process = last === undefined ? null : processView(last);
     const start = startPayload(r.id);
     const controller = controllers.get(r.id);
+    const draft = db
+      .select({ id: workflowDrafts.id })
+      .from(workflowDrafts)
+      .where(eq(workflowDrafts.liveId, r.id))
+      .get();
     return {
       id: r.id,
       title: r.title,
       claudeSessionId: r.claudeSessionId,
+      engine: r.engine,
+      draftId: draft?.id ?? null,
       environment: r.environment,
       workflow: r.workflow,
       input: r.input,
@@ -236,7 +266,9 @@ export function createLive(deps: LiveDeps) {
       cwd: r.cwd,
       process,
       variantId: process?.variantId ?? null,
-      variantName: process?.variantName ?? null,
+      // Codex 会话没有 variant，显示 Codex
+      variantName:
+        process?.variantName ?? (r.engine === 'codex' && process !== null ? 'Codex' : null),
       status: process?.status ?? 'idle',
       driver: process?.driver ?? 'human',
       error: process?.error ?? null,
@@ -320,6 +352,7 @@ export function createLive(deps: LiveDeps) {
   function insertItem(values: {
     id: string;
     claudeSessionId: string;
+    engine?: 'claude' | 'codex';
     title: string;
     environment: LiveEnvironment;
     workflow: string | null;
@@ -592,6 +625,119 @@ export function createLive(deps: LiveDeps) {
       extraEnv,
       start: { ...start, initial },
     });
+  }
+
+  // Codex 会话的一个进程（Contracts 17.3）：第一次启动时等 Codex 写出会话记录、取得会话 id 后才建项；
+  // resume 在同一项上接着同一个会话
+  async function launchCodex(
+    spec:
+      | { kind: 'start'; cwd: string; prompt: string; title: string; workflow: string | null }
+      | { kind: 'resume'; liveId: string },
+  ): Promise<LiveDetail> {
+    let liveId: string;
+    let cwd: string;
+    let args: string[];
+    // resume 接着这一项的会话；第一次启动时由 Codex 写出的会话记录取得
+    let knownSession: string | null;
+    if (spec.kind === 'resume') {
+      const item = row(spec.liveId);
+      if (item.engine !== 'codex') throw new HttpError(400, `交互 ${item.id} 不是 Codex 会话`);
+      if (controllers.has(item.id) || running(item.id)) {
+        throw new HttpError(409, `交互 ${item.id} 有运行中的进程`);
+      }
+      liveId = item.id;
+      cwd = item.cwd;
+      args = codexResumeArgs(item.claudeSessionId);
+      knownSession = item.claudeSessionId;
+    } else {
+      liveId = newId('l');
+      cwd = spec.cwd;
+      args = codexStartArgs(spec.prompt);
+      knownSession = null;
+    }
+    const { codexHome, home } = codexDirsOf(cwd);
+    const dir = liveDir(liveId);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(home, { recursive: true });
+    // 每次启动前重写：认证与模型配置可能变了；Codex 自己写进 config.toml 的键随之丢弃，下次启动时重新生成
+    const { model, effort } = writeCodexHome(codexHome, deps.codex.sources, codexConfigExtra(cwd));
+    const env = {
+      ...strippedEnv(),
+      HOME: home,
+      CODEX_HOME: codexHome,
+      // npx 的缓存仍用用户自己的 ~/.npm
+      npm_config_cache: path.join(os.homedir(), '.npm'),
+      COLORTERM: 'truecolor',
+    };
+    const known = new Set(rolloutFiles(codexHome));
+    const startedAt = new Date();
+    const pty = new LivePty({
+      file: deps.codex.bin,
+      args,
+      cwd,
+      env,
+      cols: 120,
+      rows: 40,
+      logFile: path.join(dir, 'pty.log'),
+      separator: separatorLine(startedAt, spec.kind, 'Codex'),
+    });
+    const sessionId =
+      knownSession ??
+      (await waitForSession(pty, codexHome, cwd, known, deps.codex.sessionTimeoutMs));
+    const processId = db.$client.transaction(() => {
+      if (spec.kind === 'start') {
+        insertItem({
+          id: liveId,
+          claudeSessionId: sessionId,
+          engine: 'codex',
+          title: Array.from(spec.title.trim()).slice(0, DEFAULT_TITLE_LENGTH).join(''),
+          // Codex 自己的沙箱只允许写草稿目录
+          environment: 'isolated',
+          workflow: spec.workflow,
+          input: spec.prompt,
+          taskId: null,
+          cwd,
+        });
+      } else {
+        setHidden(liveId, false, { reason: 'resume' });
+      }
+      const inserted = db
+        .insert(liveProcesses)
+        .values({
+          liveId,
+          kind: spec.kind,
+          variantId: null,
+          model,
+          effort,
+          pid: pty.pid,
+          status: 'running',
+          driver: 'human',
+          startedAt,
+        })
+        .returning({ id: liveProcesses.id })
+        .get();
+      db.insert(liveEvents)
+        .values({
+          liveId,
+          processId: inserted.id,
+          at: startedAt,
+          kind: spec.kind,
+          payload: { engine: 'codex', argv: [deps.codex.bin, ...args], codexHome, home, sessionId },
+        })
+        .run();
+      db.update(liveSessions)
+        .set({ updatedAt: startedAt })
+        .where(eq(liveSessions.id, liveId))
+        .run();
+      return inserted.id;
+    })();
+    const runner = new CodexRunner(db, liveId, processId, pty);
+    controllers.set(liveId, runner);
+    void runner.exited.then(() => {
+      if (controllers.get(liveId) === runner) controllers.delete(liveId);
+    });
+    events.publish({ type: 'live.updated', liveId });
+    return detail(liveId);
   }
 
   // 目标配置的 projects/ 下这个 session 的 jsonl；没有时为空
@@ -874,6 +1020,8 @@ export function createLive(deps: LiveDeps) {
         .delete(liveProcesses)
         .where(eq(liveProcesses.liveId, id))
         .run().changes;
+      // Codex 会话的草稿保留（Contracts 17.3）
+      db.update(workflowDrafts).set({ liveId: null }).where(eq(workflowDrafts.liveId, id)).run();
       db.delete(liveSessions).where(eq(liveSessions.id, id)).run();
       return { unlinked: unlinked.map((s) => s.id), removedEvents, removedProcesses };
     })();
@@ -929,6 +1077,10 @@ export function createLive(deps: LiveDeps) {
     },
     get: detail,
     create,
+    // 用 Codex 生成 workflow 或 variant 的会话（Contracts 17.3），由草稿模块发起
+    createCodex: (input: { cwd: string; prompt: string; title: string; workflow: string | null }) =>
+      launchCodex({ kind: 'start', ...input }),
+    resumeCodex: (id: string) => launchCodex({ kind: 'resume', liveId: id }),
     resume,
     resumeDefaults,
     rename,
@@ -936,9 +1088,11 @@ export function createLive(deps: LiveDeps) {
     hide,
     unhide,
     remove,
-    // "在访达中打开"的两个目录（Contracts 14.2）：工作目录与最近一次进程的配置目录（本机配置时为 <HOME>/.claude）
+    // "在访达中打开"的两个目录（Contracts 14.2）：工作目录与最近一次进程的配置目录（本机配置时为 <HOME>/.claude，
+    // Codex 会话为草稿的 CODEX_HOME）
     dirs(id: string): { cwd: string; configDir: string } {
       const r = row(id);
+      if (r.engine === 'codex') return { cwd: r.cwd, configDir: codexDirsOf(r.cwd).codexHome };
       const variantId = latestProcess(id)?.variantId ?? null;
       return {
         cwd: r.cwd,
@@ -949,10 +1103,10 @@ export function createLive(deps: LiveDeps) {
       };
     },
     hook(id: string, payload: HookPayload) {
-      controllerOf(id).hook(payload);
+      claudeControllerOf(id).hook(payload);
     },
     setDriver(id: string, driver: LiveDriver) {
-      const controller = controllerOf(id);
+      const controller = claudeControllerOf(id);
       if (controller.driver === driver) throw new HttpError(409, `驾驶者已经是 ${driver}`);
       if (driver === 'simulated') controller.release();
       else controller.setDriver('human', 'manual' satisfies HandBackReason);
@@ -965,7 +1119,7 @@ export function createLive(deps: LiveDeps) {
       return detail(id);
     },
     // WebSocket 连接用：运行中的 controller，已退出时为空（只回放 pty.log）
-    controller(id: string): LiveController | null {
+    controller(id: string): LiveController | CodexRunner | null {
       row(id);
       return controllers.get(id) ?? null;
     },

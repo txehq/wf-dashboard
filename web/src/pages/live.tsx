@@ -2,6 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { ChevronDown, ChevronRight, Hand, Plus, Power, Undo2, X } from 'lucide-react';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
+import { CodexDraftBar } from '@/components/codex-draft';
 import { ImportSessionsButton } from '@/components/live/import-sessions';
 import { HideButton, ItemMenu, UnhideButton } from '@/components/live/item-actions';
 import { LiveTerminal } from '@/components/live/live-terminal';
@@ -262,6 +263,46 @@ function LivePanel({
   }
   const data = live.data;
   const running = data.status === 'running';
+  if (data.engine === 'codex') {
+    // 用 Codex 生成 workflow 或 variant 的会话（Contracts 17.3）：只有人驾驶，没有阶段与请求明细
+    return (
+      <div className="flex min-w-0 flex-col gap-3" data-testid="live-panel" data-live={liveId}>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+          <StatusBadge live={data} />
+          <span className="font-medium" data-testid="live-engine">
+            Codex
+          </span>
+          <span className="min-w-0 font-mono text-xs break-all" data-testid="live-cwd">
+            {data.cwd}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <OpenInFinder target={{ kind: 'live-cwd', id: liveId }} label="打开草稿目录" />
+          <OpenInFinder target={{ kind: 'live-config', id: liveId }} label="打开 CODEX_HOME" />
+          {running && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={stopping.isPending}
+              onClick={() => {
+                stopping.mutate();
+              }}
+            >
+              <Power />
+              结束进程
+            </Button>
+          )}
+        </div>
+        {stopping.isError && (
+          <p role="alert" className="text-sm text-destructive">
+            {stopping.error.message}
+          </p>
+        )}
+        <CodexDraftBar live={data} onResumed={onResumed} />
+        {data.process !== null && <LiveTerminal key={data.process.id} liveId={liveId} />}
+      </div>
+    );
+  }
   return (
     <div className="flex min-w-0 flex-col gap-3" data-testid="live-panel" data-live={liveId}>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">

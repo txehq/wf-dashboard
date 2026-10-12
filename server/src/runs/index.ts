@@ -31,8 +31,8 @@ import type { BatchDetail, BatchSummary, RunDetail, RunMode, RunSummary } from '
 
 const ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
-// r-<yyyymmdd>-<6 位小写字母数字>：本身是 slug，vault 目录、Linear 与 GitHub 名称都用它；交互为 l-
-export function newId(prefix: 'r' | 'b' | 'l', now = new Date()): string {
+// r-<yyyymmdd>-<6 位小写字母数字>：本身是 slug，vault 目录、Linear 与 GitHub 名称都用它；交互为 l-，Codex 草稿为 d-
+export function newId(prefix: 'r' | 'b' | 'l' | 'd', now = new Date()): string {
   const day = now.toISOString().slice(0, 10).replaceAll('-', '');
   const suffix = Array.from({ length: 6 }, () => ID_ALPHABET[randomInt(ID_ALPHABET.length)]).join(
     '',
