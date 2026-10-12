@@ -3,8 +3,9 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { expect, type Locator, type Page, test } from '@playwright/test';
 
-// 使用手册各步骤的截图，全部来自真实操作：数据目录中有 W4 端到端导入的真实 run；
-// 基线从 txe-workflow 真实导入，派生的 variant 真实编辑与构建，发起一个真实的 lfg run，接管回答后取消
+// 使用手册各步骤的截图，只用种子数据：数据目录中有 W4 端到端导入的已结束的 run；
+// 基线从 txe-workflow 导入，派生的 variant 编辑后在本机构建（不调用模型）。不发起 run：
+// 接管与交还的截图（guide-13、guide-14）需要一个正在运行的 run，不由这里生成
 test.describe.configure({ mode: 'serial' });
 test.setTimeout(60 * 60_000);
 
@@ -103,6 +104,11 @@ test('03 建基线 variant、派生并编辑 skill、构建', async ({ page, req
   await shot(page, '06-variant-import');
   await page.getByRole('button', { name: '导入基线' }).click();
   const panel = page.getByTestId('variant-panel');
+  // 展开的 variant 在配置与 variant 列表之下：截图前把它滚到视口顶部
+  const showPanel = () =>
+    panel.evaluate((el) => {
+      el.scrollIntoView({ block: 'start' });
+    });
   await expect(panel.getByRole('heading', { level: 2 })).toHaveText(`${baseName} (lfg)`, {
     timeout: 120_000,
   });
@@ -114,6 +120,7 @@ test('03 建基线 variant、派生并编辑 skill、构建', async ({ page, req
   await page.reload();
   await panel.getByRole('button', { name: '另存为新 variant' }).click();
   await expect(panel.getByRole('heading', { level: 2 })).toHaveText(`${modName} (lfg)`);
+  await showPanel();
   await shot(page, '07-variant-derived');
 
   // research 的评审最多两轮：在 research/SKILL.md 中加一条规则
@@ -128,17 +135,20 @@ test('03 建基线 variant、派生并编辑 skill、构建', async ({ page, req
     '\n\nReview the draft at most twice; after the second review, lock it.\n',
   );
   await expect(panel.getByText('未保存')).toBeVisible();
+  await showPanel();
   await shot(page, '08-skill-edit');
   await panel.getByRole('button', { name: '保存' }).click();
   await expect(panel.getByText('未保存')).toHaveCount(0);
 
   await panel.getByRole('tab', { name: '对比' }).click();
   await expect(panel.getByTestId('skill-diff').locator('.line-insert').first()).toBeVisible();
+  await showPanel();
   await shot(page, '09-skill-diff');
 
   await panel.getByRole('button', { name: '构建并安装' }).click();
   await expect(panel.getByTestId('build-status')).toHaveText('已构建', { timeout: 840_000 });
   await expect(panel.getByTestId('build-log')).toContainText('=== 构建完成');
+  await showPanel();
   await shot(page, '10-build-log');
 });
 
@@ -160,54 +170,11 @@ test('04 发起 batch、观察、接管与交还、取消', async ({ page }) => 
   );
   await shot(launch, '11-launch');
 
-  // 手册只真实发起其中一个：修改后的 variant × lfg-calculator × 1 次
-  await launch.getByRole('checkbox', { name: baseName }).uncheck();
-  await launch.getByRole('spinbutton').fill('1');
-  await launch.getByRole('button', { name: '发起 1 个 run' }).click();
-  await expect(page.getByTestId('launch-done')).toBeVisible();
-  const batchId = (await page.getByTestId('launch-done').locator('.font-mono').textContent()) ?? '';
-  const row = page.locator(`[data-batch="${batchId}"]`).getByTestId('run-row');
-  await expect(row.getByTestId('run-status')).toHaveAttribute('data-status', 'running', {
-    timeout: 300_000,
-  });
+  // run 列表用数据目录中导入的已结束的 run（W4 端到端），不发起新的 run
+  const rows = page.getByTestId('run-row');
+  await expect(rows.first()).toBeVisible();
+  await rows.first().scrollIntoViewIfNeeded();
   await shot(page, '12-run-list');
-
-  await row.getByRole('link').first().click();
-  await expect(page.getByTestId('run-mode')).toHaveText('模拟用户回答中');
-  await page.getByRole('button', { name: '接管' }).click();
-  await expect(page.getByTestId('run-mode')).toHaveText('人工回答中');
-  await expect(page.getByTestId('run-stages').getByTestId('stage-interview')).toHaveAttribute(
-    'data-status',
-    'active',
-    { timeout: 600_000 },
-  );
-  const reply = page.getByLabel('你的回答');
-  const choice = page.getByTestId('question-reply');
-  await expect(reply.or(choice)).toBeVisible({ timeout: 900_000 });
-  if (await reply.isVisible()) {
-    await reply.fill(
-      '使用者是初一到初三的学生，在学校机房（Windows 7、Chrome 109）和家里用，我会在投影上演示。机房经常断网，必须完全离线。其他问题请继续问。',
-    );
-    await shot(page, '13-takeover');
-    await page.getByRole('button', { name: '发送回答' }).click();
-  } else {
-    for (const fieldset of await choice.locator('fieldset').all()) {
-      await fieldset.locator('input[type=radio], input[type=checkbox]').first().check();
-    }
-    await shot(page, '13-takeover');
-    await choice.getByRole('button', { name: '提交选择' }).click();
-  }
-  await expect(page.getByTestId('message-human')).toHaveCount(1);
-  await page.getByRole('button', { name: '交还模拟用户' }).click();
-  await expect(page.getByTestId('run-mode')).toHaveText('模拟用户回答中');
-  await expect(page.getByTestId('message-system').last()).toContainText('对话交还给模拟用户');
-  await page.getByTestId('run-stages').scrollIntoViewIfNeeded();
-  await shot(page, '14-released');
-
-  await page.getByRole('button', { name: '取消运行' }).click();
-  await expect(page.getByTestId('run-status').first()).toHaveAttribute('data-status', 'cancelled', {
-    timeout: 120_000,
-  });
 });
 
 test('05 已评分的 run 与对比', async ({ page }) => {

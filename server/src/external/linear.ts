@@ -45,19 +45,32 @@ function connect(onLost: () => void): Connection {
     args: ['-y', 'mcp-remote', LINEAR_MCP_URL],
     stderr: 'pipe',
   });
-  // mcp-remote 对每次调用打印 [pid] [Local→Remote] 一类的跟踪行；其余（授权提示、错误）照常转发
+  // mcp-remote 对每次调用打印 [pid] [Local→Remote] 一类的跟踪行；其余（授权提示、错误）照常转发，
+  // 并记下来：连接没有建立时（例如 npx 找不到、mcp-remote 启动即退出）它们是失败的原文
   const stderr = transport.stderr;
   if (!(stderr instanceof Readable)) throw new Error('mcp-remote 的 stderr 没有建立管道');
+  const output: string[] = [];
   readline.createInterface({ input: stderr }).on('line', (line) => {
     if (!/^\[\d+\] \[(Local→Remote|Remote→Local)\]/.test(line)) {
       process.stderr.write(`[mcp-remote] ${line}\n`);
+      output.push(line);
     }
   });
   const c = new Client({ name: 'wf-dashboard', version: '0.0.0' });
   // mcp-remote 子进程退出、stdio 管道出错
   c.onclose = onLost;
   c.onerror = onLost;
-  return { client: c.connect(transport).then(() => c), transport };
+  // 子进程退出时 stderr 已经读完（Node 在全部 stdio 关闭后才发出 close），记下的输出是完整的
+  const client = c.connect(transport).then(
+    () => c,
+    (error: unknown) => {
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}；mcp-remote 的输出：${output.join('\n') || '（无）'}`,
+        { cause: error },
+      );
+    },
+  );
+  return { client, transport };
 }
 
 // 进程内单例：一个 mcp-remote 子进程，所有 run 共用。连接断开时丢弃这个连接，下一次调用新建：

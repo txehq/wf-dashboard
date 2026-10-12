@@ -60,7 +60,7 @@ pnpm e2e
 | `pnpm test:external`     | 在 Linear 建工单的外部系统测试                                          |
 | `pnpm e2e [文件…]`       | 基础档的 Playwright，截图写到 `.work/screenshots/`                      |
 | `pnpm e2e:real [文件…]`  | 真实档的 Playwright                                                     |
-| `pnpm e2e:guide`         | 使用手册的截图（真实发起一个 lfg run），写到 `.work/guide/screenshots/` |
+| `pnpm e2e:guide`         | 使用手册的截图（种子数据，不发起 run），写到 `.work/guide/screenshots/` |
 | `pnpm typecheck`         | 全部 TypeScript 项目的类型检查                                          |
 | `pnpm lint`              | ESLint 与 Prettier 检查                                                 |
 | `pnpm format`            | Prettier 格式化                                                         |
@@ -80,7 +80,7 @@ pnpm typecheck && pnpm lint && pnpm test && pnpm e2e
 - `pnpm test`：Vitest 的 `local` 项目（`server/vitest.config.ts`）与 web 的测试。真实 SQLite、真实 jsonl 样本、录下的真实 gateway 与 GitHub 响应、本地 fixture 仓库上的真实 vitest 与计分，不访问网络。
 - `pnpm e2e`：`playwright.config.ts`，种子数据与导入的真实 run，只启动这些 spec 用到的服务。可以只给文件，例如 `pnpm e2e e2e/home.spec.ts`，这时只启动这个文件所在 project 的服务。
 
-基础档与慢档不调用真实模型、claude 与 Codex，不写 Linear：运行时 PATH 最前面是 `server/test/setup/basic-bin/` 中会报错的 `claude` 与 `codex`，gateway 的地址换成不存在的域名（`server/test/setup/basic-tier.ts`），被拦下的调用记在 `.work/basic-tier/blocked.log`。基础档还不依赖网络：`gh` 也换成会报错的 `basic-bin/offline/gh`，读取真实 GitHub 的测试在真实档。页面加载时的环境检查也被拦下，状态显示为未通过。
+基础档与慢档不调用真实模型、claude 与 Codex，不写 Linear：运行时 PATH 最前面是 `server/test/setup/basic-bin/` 中会报错的 `claude` 与 `codex`，gateway 的地址换成不存在的域名（`server/test/setup/basic-tier.ts`），被拦下的调用记在 `.work/basic-tier/blocked.log`。基础档还不依赖网络：`gh` 也换成会报错的 `basic-bin/offline/gh`，读取真实 GitHub 的测试在真实档；`basic-bin/offline/npx` 拦下 Linear MCP 的 `npx -y mcp-remote`（其余 npx 调用照常执行）。页面加载时的环境检查也被拦下，状态显示为未通过，Linear 一项的 detail 是屏蔽的原文。
 
 ### 慢档：只运行覆盖改动的文件
 
