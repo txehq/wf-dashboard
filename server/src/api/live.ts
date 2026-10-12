@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import {
   type FastifyPluginCallbackZod,
   serializerCompiler,
@@ -8,18 +7,18 @@ import { z } from 'zod';
 import { liveDrivers } from '../db/schema.js';
 import { HookPayload } from '../live/controller.js';
 import type { Live } from '../live/index.js';
+import { readLogTail } from '../live/pty.js';
 import {
   CreateLiveBody,
+  ImportLiveBody,
   LiveDetail,
   LiveSummary,
+  RenameLiveBody,
   ResumeDefaults,
   ResumeLiveBody,
 } from '../live/views.js';
 
 const IdParams = z.object({ id: z.string().min(1) });
-
-// 已退出的 session 只回放 pty.log 的最后这么多字节（与运行中保留的输出相同）
-const REPLAY_BYTES = 4 * 1024 * 1024;
 
 // WebSocket 中客户端发来的消息（Contracts 14.3）
 const ClientMessage = z.discriminatedUnion('type', [
@@ -30,17 +29,6 @@ const ClientMessage = z.discriminatedUnion('type', [
     rows: z.number().int().min(1).max(1000),
   }),
 ]);
-
-function logTail(file: string): string {
-  if (!fs.existsSync(file)) return '';
-  const size = fs.statSync(file).size;
-  const fd = fs.openSync(file, 'r');
-  const length = Math.min(size, REPLAY_BYTES);
-  const buffer = Buffer.alloc(length);
-  fs.readSync(fd, buffer, 0, length, size - length);
-  fs.closeSync(fd);
-  return buffer.toString('utf8');
-}
 
 // Contracts 14
 export const liveRoutes: FastifyPluginCallbackZod<{ live: Live }> = (app, { live }, done) => {
@@ -53,6 +41,24 @@ export const liveRoutes: FastifyPluginCallbackZod<{ live: Live }> = (app, { live
     '/api/live/:id',
     { schema: { params: IdParams, response: { 200: LiveDetail } } },
     (request) => live.get(request.params.id),
+  );
+
+  // 改名（Contracts 14.3）：空白与超过 200 字由 live.rename 以原文报错
+  app.patch(
+    '/api/live/:id',
+    { schema: { params: IdParams, body: RenameLiveBody, response: { 200: LiveDetail } } },
+    (request) => live.rename(request.params.id, request.body.title),
+  );
+
+  // 导入到交互区（Contracts 14.5）：已有项 409、不存在 404
+  app.post(
+    '/api/live/import',
+    { schema: { body: ImportLiveBody, response: { 201: z.array(LiveSummary) } } },
+    (request, reply) => {
+      const created = live.importSessions(request.body.sessionIds);
+      void reply.code(201);
+      return created;
+    },
   );
 
   app.post(
@@ -129,7 +135,7 @@ export const liveRoutes: FastifyPluginCallbackZod<{ live: Live }> = (app, { live
       socket.send(JSON.stringify(message));
     };
     if (controller === null) {
-      send({ type: 'output', data: logTail(live.logFile(id)) });
+      send({ type: 'output', data: readLogTail(live.logFile(id)) });
       send({ type: 'exit' });
       return;
     }

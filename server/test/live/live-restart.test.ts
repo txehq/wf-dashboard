@@ -5,7 +5,7 @@ import { eq } from 'drizzle-orm';
 import { afterAll, expect, test } from 'vitest';
 import { config } from '../../src/config.js';
 import { openDatabase } from '../../src/db/index.js';
-import { liveSessions } from '../../src/db/schema.js';
+import { liveProcesses, liveSessions } from '../../src/db/schema.js';
 import { type AppEvent, events } from '../../src/events.js';
 import { createLive } from '../../src/live/index.js';
 import { createSettingsStore } from '../../src/runs/settings.js';
@@ -20,23 +20,36 @@ afterAll(() => {
   for (const suffix of ['', '-wal', '-shm']) fs.rmSync(dbFile + suffix, { force: true });
 });
 
-// Contracts 14.1：PTY 进程是服务的子进程，随服务退出；服务启动时 running 的交互一律改为 exited
-test('服务重启：running 的交互变为 exited，error 为"服务重启中断"', () => {
-  const values = {
-    variantId: null,
+// Contracts 14.1：PTY 进程是服务的子进程，随服务退出；服务启动时 running 的进程一律改为 exited
+test('服务重启：running 的进程变为 exited，error 为"服务重启中断"', () => {
+  const item = {
     environment: 'real' as const,
     workflow: 'lfg' as const,
     input: '做一个计算器',
+    title: '/lfg 做一个计算器',
     cwd: config.repoRoot,
-    claudeSessionId: randomUUID(),
-    driver: 'human' as const,
+    updatedAt: new Date(),
   };
   db.insert(liveSessions)
     .values([
-      { ...values, id: 'l-20261012-run001', status: 'running', pid: 99999 },
-      { ...values, id: 'l-20261012-exit01', status: 'exited', exitCode: 0, endedAt: new Date() },
+      { ...item, id: 'l-20261012-run001', claudeSessionId: randomUUID() },
+      { ...item, id: 'l-20261012-exit01', claudeSessionId: randomUUID() },
     ])
     .run();
+  const process = { variantId: null, driver: 'human' as const, startedAt: new Date() };
+  const [first, running, exited] = db
+    .insert(liveProcesses)
+    .values([
+      // 同一项先退出了一个进程，resume 出来的进程还在运行
+      { ...process, liveId: 'l-20261012-run001', kind: 'start', status: 'exited', exitCode: 0 },
+      { ...process, liveId: 'l-20261012-run001', kind: 'resume', status: 'running', pid: 99999 },
+      { ...process, liveId: 'l-20261012-exit01', kind: 'start', status: 'exited', exitCode: 0 },
+    ])
+    .returning({ id: liveProcesses.id })
+    .all();
+  if (first === undefined || running === undefined || exited === undefined) {
+    throw new Error('进程没有写入');
+  }
   const published: AppEvent[] = [];
   const unsubscribe = events.subscribe((e) => published.push(e));
   createLive({
@@ -57,20 +70,15 @@ test('服务重启：running 的交互变为 exited，error 为"服务重启中�
     repos: testRepos(),
   });
   unsubscribe();
-  const interrupted = db
-    .select()
-    .from(liveSessions)
-    .where(eq(liveSessions.id, 'l-20261012-run001'))
-    .get();
+  const byId = (id: number) =>
+    db.select().from(liveProcesses).where(eq(liveProcesses.id, id)).get();
+  const interrupted = byId(running.id);
   expect(interrupted?.status).toBe('exited');
   expect(interrupted?.error).toBe('服务重启中断');
   expect(interrupted?.endedAt).not.toBeNull();
-  const untouched = db
-    .select()
-    .from(liveSessions)
-    .where(eq(liveSessions.id, 'l-20261012-exit01'))
-    .get();
-  expect(untouched?.error).toBeNull();
-  expect(untouched?.exitCode).toBe(0);
+  for (const untouched of [byId(first.id), byId(exited.id)]) {
+    expect(untouched?.error).toBeNull();
+    expect(untouched?.exitCode).toBe(0);
+  }
   expect(published).toEqual([{ type: 'live.updated', liveId: 'l-20261012-run001' }]);
 });

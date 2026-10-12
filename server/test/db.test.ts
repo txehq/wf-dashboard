@@ -133,6 +133,7 @@ describe('database', () => {
       'grade_items',
       'grades',
       'live_events',
+      'live_processes',
       'live_sessions',
       'requests',
       'run_messages',
