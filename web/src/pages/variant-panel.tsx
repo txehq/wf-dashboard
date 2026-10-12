@@ -119,7 +119,7 @@ function TreeItem({
           <span className="truncate">{node.name}</span>
         </button>
         {actions !== undefined && (
-          <span className="flex shrink-0 gap-0.5 pr-1 opacity-0 group-hover:opacity-100">
+          <span className="flex shrink-0 gap-0.5 pr-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
             <Button
               size="icon-xs"
               variant="ghost"

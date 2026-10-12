@@ -6,6 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { tasksQuery } from '@/lib/tasks';
 import { cn } from '@/lib/utils';
+import { definitionYaml, parseDefinitionYaml } from '@/lib/workflow-yaml';
 import {
   evalKindLabel,
   updateWorkflow,
@@ -24,7 +25,6 @@ import {
   variantHref,
   variantsQuery,
 } from '@/pages/variants-api';
-import { definitionYaml, parseDefinitionYaml } from '@/lib/workflow-yaml';
 import { DefinitionForm, DefinitionYamlEditor } from '@/pages/workflow-config';
 import { CodexPlaceholder, NewWorkflowForm } from '@/pages/workflows';
 
@@ -37,8 +37,10 @@ function ConfigSection({ workflow, variants }: { workflow: WorkflowRecord; varia
   const [text, setText] = useState(() => definitionYaml(workflow.definition));
   const parsed = parseDefinitionYaml(text);
   const readOnly = workflow.builtin;
-  // 小阶段从这个 workflow 各 variant 的 skill 名中选
-  const files = useQueries({ queries: variants.map((v) => filesQuery(v.id)) });
+  // 小阶段从这个 workflow 各 variant 的 skill 名中选；只读时不需要
+  const files = useQueries({
+    queries: readOnly ? [] : variants.map((v) => filesQuery(v.id)),
+  });
   const skillNames = [
     ...new Set(files.flatMap((f) => f.data?.map((file) => file.path.split('/')[1] ?? '') ?? [])),
   ]
@@ -52,7 +54,9 @@ function ConfigSection({ workflow, variants }: { workflow: WorkflowRecord; varia
         definition: parsed.definition,
       });
     },
-    onSuccess: async () => {
+    onSuccess: async (saved) => {
+      // 保存后的文本是服务端定义的标准写法
+      setText(definitionYaml(saved.definition));
       await client.invalidateQueries({ queryKey: ['workflows'] });
     },
   });

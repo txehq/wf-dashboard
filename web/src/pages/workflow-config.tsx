@@ -42,7 +42,7 @@ export function DefinitionYamlEditor({
   return (
     <div className="h-96 rounded-lg border" data-testid="workflow-yaml">
       <Editor
-        defaultValue={text}
+        value={text}
         language="yaml"
         options={{
           readOnly,

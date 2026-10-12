@@ -51,7 +51,7 @@ test('交互：新建、resume 在同一项、改名、Sessions 中的名字、�
   if (!fs.existsSync(path.join(realCwd, '.git'))) execFileSync('git', ['init', '-q', realCwd]);
   const variantName = `W34 e2e ${marker}`;
   const created = await request.post(`${api}/variants`, {
-    data: { name: variantName, model: 'opus', effort: 'high' },
+    data: { name: variantName },
   });
   expect(created.ok()).toBe(true);
   const variant = (await created.json()) as { id: string };
@@ -62,16 +62,16 @@ test('交互：新建、resume 在同一项、改名、Sessions 中的名字、�
   const list = async () => (await (await request.get(`${api}/live`)).json()) as LiveSummary[];
   const items = page.getByTestId('live-list').locator('[data-live]');
 
-  // 新建表单：real 环境的写入提示，另存为 task 的链接
+  // 新建表单（Contracts 14.2）：workflow、它的 variant、一个问题、model 与 effort；real 环境的写入提示
   await page.goto('/live');
   await page.getByTestId('new-live-toggle').click();
   const form = page.getByTestId('new-live');
-  await form.getByTestId('live-variant').selectOption({ label: `${variantName}（opus · high）` });
-  await form.getByRole('textbox', { name: '想法' }).fill('做一个计算器');
-  await expect(form.getByTestId('save-as-task')).toHaveAttribute(
-    'href',
-    '/tasks/new?mode=lfg&input=%E5%81%9A%E4%B8%80%E4%B8%AA%E8%AE%A1%E7%AE%97%E5%99%A8',
-  );
+  await expect(form.getByTestId('live-workflow')).toHaveValue('lfg');
+  await form.getByTestId('live-variant').selectOption({ label: variantName });
+  await form.getByRole('textbox', { name: '问题' }).fill('做一个计算器');
+  await expect(form.getByTestId('live-initial')).toHaveText('/lfg 做一个计算器');
+  await expect(form.getByTestId('live-model')).toHaveValue('opus');
+  await expect(form.getByTestId('live-effort')).toHaveValue('high');
   await form.getByText('real：在你填的真实目录中运行').click();
   await expect(form.getByTestId('real-warning')).toContainText(
     '会在真实目录、真实仓库与真实工单上写入',

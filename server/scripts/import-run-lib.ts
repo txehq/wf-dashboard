@@ -53,8 +53,11 @@ export function repairImportedVariants(
   sourceDataDirs: string[],
 ): { variantId: string; from: string; copied: string[] }[] {
   const target = new Database(path.resolve(targetDbPath), { readonly: true, fileMustExist: true });
+  // 拆分出的 ic variant 与 lfg 的同名 variant 共用目录（Contracts 16.4）：按目录补齐，每个目录一次
   const rows = target
-    .prepare('select id, base_commit from variants where install_dir is null')
+    .prepare(
+      'select distinct coalesce(storage_id, id) as id, base_commit from variants where install_dir is null',
+    )
     .all() as { id: string; base_commit: string }[];
   target.close();
   return rows.map(({ id, base_commit }) => {

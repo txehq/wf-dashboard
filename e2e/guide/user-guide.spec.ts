@@ -95,45 +95,50 @@ test('03 建基线 variant、派生并编辑 skill、构建', async ({ page, req
   page.on('dialog', (dialog) => {
     void dialog.accept(modName);
   });
-  await page.goto('/variants');
-  await page.getByLabel('名称').fill(baseName);
+  // variant 是 workflow 的实例，在所属 workflow 的页面中（Contracts 16.7）
+  await page.goto('/workflows');
+  await shot(page, '06-workflows');
+  await page.getByRole('link', { name: 'lfg', exact: true }).click();
+  await page.getByTestId('workflow-variants').getByLabel('名称').fill(baseName);
   await shot(page, '06-variant-import');
   await page.getByRole('button', { name: '导入基线' }).click();
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText(baseName, { timeout: 120_000 });
-  const baseUrl = page.url();
+  const panel = page.getByTestId('variant-panel');
+  await expect(panel.getByRole('heading', { level: 2 })).toHaveText(`${baseName} (lfg)`, {
+    timeout: 120_000,
+  });
   // 基线本身也要构建才能运行
-  const baseId = baseUrl.split('/').at(-1) ?? '';
+  const baseId = new URL(page.url()).searchParams.get('variant') ?? '';
   const built = await request.post(`/api/variants/${baseId}/build`, { timeout: 900_000 });
   expect(((await built.json()) as { buildStatus: string }).buildStatus).toBe('built');
 
   await page.reload();
-  await page.getByRole('button', { name: '另存为新 variant' }).click();
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText(modName);
+  await panel.getByRole('button', { name: '另存为新 variant' }).click();
+  await expect(panel.getByRole('heading', { level: 2 })).toHaveText(`${modName} (lfg)`);
   await shot(page, '07-variant-derived');
 
   // research 的评审最多两轮：在 research/SKILL.md 中加一条规则
-  const tree = page.getByRole('navigation', { name: 'skills 文件' });
+  const tree = panel.getByRole('navigation', { name: 'skills 文件' });
   await tree.getByRole('button', { name: 'research', exact: true }).click();
   await tree.getByTitle('skills/research/SKILL.md').click();
-  const editor = page.getByTestId('skill-editor');
+  const editor = panel.getByTestId('skill-editor');
   await expect(editor.locator('.view-lines')).toContainText('name: research');
   await editor.locator('.view-lines').click();
   await page.keyboard.press('ControlOrMeta+End');
   await page.keyboard.type(
     '\n\nReview the draft at most twice; after the second review, lock it.\n',
   );
-  await expect(page.getByText('未保存')).toBeVisible();
+  await expect(panel.getByText('未保存')).toBeVisible();
   await shot(page, '08-skill-edit');
-  await page.getByRole('button', { name: '保存' }).click();
-  await expect(page.getByText('未保存')).toHaveCount(0);
+  await panel.getByRole('button', { name: '保存' }).click();
+  await expect(panel.getByText('未保存')).toHaveCount(0);
 
-  await page.getByRole('tab', { name: '对比' }).click();
-  await expect(page.getByTestId('skill-diff').locator('.line-insert').first()).toBeVisible();
+  await panel.getByRole('tab', { name: '对比' }).click();
+  await expect(panel.getByTestId('skill-diff').locator('.line-insert').first()).toBeVisible();
   await shot(page, '09-skill-diff');
 
-  await page.getByRole('button', { name: '构建并安装' }).click();
-  await expect(page.getByTestId('build-status')).toHaveText('已构建', { timeout: 840_000 });
-  await expect(page.getByTestId('build-log')).toContainText('=== 构建完成');
+  await panel.getByRole('button', { name: '构建并安装' }).click();
+  await expect(panel.getByTestId('build-status')).toHaveText('已构建', { timeout: 840_000 });
+  await expect(panel.getByTestId('build-log')).toContainText('=== 构建完成');
   await shot(page, '10-build-log');
 });
 
@@ -146,15 +151,17 @@ test('04 发起 batch、观察、接管与交还、取消', async ({ page }) => 
   await launch.getByRole('checkbox', { name: baseName }).check();
   await launch.getByRole('checkbox', { name: modName }).check();
   await launch.getByRole('checkbox', { name: '课堂用的网页计算器' }).check();
-  await launch.getByRole('checkbox', { name: '金额格式化：按币种小数位、负数与大金额' }).check();
+  // 只列出 kind 为 lfg 的 task：所选 variant 属于 /lfg（Contracts 16.3）
+  await expect(
+    launch.getByRole('checkbox', { name: '金额格式化：按币种小数位、负数与大金额' }),
+  ).toHaveCount(0);
   await expect(page.getByTestId('launch-summary')).toContainText(
-    '2 个 variant × 2 个 task × 3 次 = 12 个 run',
+    '2 个 variant × 1 个 task × 3 次 = 6 个 run',
   );
   await shot(launch, '11-launch');
 
   // 手册只真实发起其中一个：修改后的 variant × lfg-calculator × 1 次
   await launch.getByRole('checkbox', { name: baseName }).uncheck();
-  await launch.getByRole('checkbox', { name: '金额格式化：按币种小数位、负数与大金额' }).uncheck();
   await launch.getByRole('spinbutton').fill('1');
   await launch.getByRole('button', { name: '发起 1 个 run' }).click();
   await expect(page.getByTestId('launch-done')).toBeVisible();
