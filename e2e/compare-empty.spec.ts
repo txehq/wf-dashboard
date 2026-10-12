@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-// 空的数据目录（environment 项目每次删除重建）中没有已评分的 run：Compare 页面显示空状态
+// chromium 项目的服务端每次使用删除重建的数据库，其中没有已评分的 run：Compare 页面显示空状态
 test('没有已评分的 run 时提示先在 Runs 页面发起 batch', async ({ page, request }) => {
   const runs = (await (await request.get('/api/compare/runs')).json()) as unknown[];
   expect(runs).toEqual([]);

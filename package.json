@@ -11,8 +11,10 @@
     "build": "pnpm --recursive build",
     "start": "pnpm build && pnpm --filter @wf-dashboard/server start",
     "test": "pnpm --recursive test",
+    "test:real": "pnpm --filter @wf-dashboard/server test:real",
     "test:external": "pnpm --filter @wf-dashboard/server test:external",
-    "e2e": "playwright test",
+    "e2e": "tsx e2e/run.ts basic",
+    "e2e:real": "tsx e2e/run.ts real",
     "e2e:guide": "playwright test --config playwright.guide.config.ts",
     "typecheck": "tsc --project tsconfig.json && pnpm --recursive typecheck",
     "lint": "eslint . && prettier --check .",
@@ -27,9 +29,12 @@
     "eslint-config-prettier": "10.1.8",
     "eslint-plugin-react-hooks": "7.1.1",
     "eslint-plugin-react-refresh": "0.5.7",
+    "execa": "10.1.0",
     "globals": "17.13.0",
     "prettier": "3.9.9",
+    "tsx": "4.23.15",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.71.1"
+    "typescript-eslint": "8.71.1",
+    "zod": "4.6.5"
   }
 }

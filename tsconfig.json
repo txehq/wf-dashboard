@@ -8,5 +8,11 @@
     "lib": ["ES2023", "DOM"],
     "noEmit": true
   },
-  "include": ["e2e", "playwright.config.ts", "playwright.guide.config.ts", "ports.ts"]
+  "include": [
+    "e2e",
+    "playwright.config.ts",
+    "playwright.real.config.ts",
+    "playwright.guide.config.ts",
+    "ports.ts"
+  ]
 }
