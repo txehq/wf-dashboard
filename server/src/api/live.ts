@@ -10,6 +10,7 @@ import type { Live } from '../live/index.js';
 import { readLogTail } from '../live/pty.js';
 import {
   CreateLiveBody,
+  DeleteLiveBody,
   ImportLiveBody,
   LiveDetail,
   LiveSummary,
@@ -35,7 +36,43 @@ export const liveRoutes: FastifyPluginCallbackZod<{ live: Live }> = (app, { live
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
-  app.get('/api/live', { schema: { response: { 200: z.array(LiveSummary) } } }, () => live.list());
+  // 已关闭的项只在 includeHidden=true 时列出（Contracts 14.5）
+  app.get(
+    '/api/live',
+    {
+      schema: {
+        querystring: z.object({ includeHidden: z.enum(['true', 'false']).default('false') }),
+        response: { 200: z.array(LiveSummary) },
+      },
+    },
+    (request) => live.list(request.query.includeHidden === 'true'),
+  );
+
+  // 关闭、恢复显示与删除（Contracts 14.5）：运行中 409，删除时名字不符 400
+  app.post(
+    '/api/live/:id/hide',
+    { schema: { params: IdParams, response: { 200: LiveDetail } } },
+    (request) => live.hide(request.params.id),
+  );
+  app.post(
+    '/api/live/:id/unhide',
+    { schema: { params: IdParams, response: { 200: LiveDetail } } },
+    (request) => live.unhide(request.params.id),
+  );
+  app.delete(
+    '/api/live/:id',
+    {
+      schema: {
+        params: IdParams,
+        body: DeleteLiveBody,
+        response: { 200: z.object({ ok: z.literal(true) }) },
+      },
+    },
+    (request) => {
+      live.remove(request.params.id, request.body.confirmTitle);
+      return { ok: true as const };
+    },
+  );
 
   app.get(
     '/api/live/:id',

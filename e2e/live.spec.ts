@@ -185,11 +185,12 @@ test('交互：新建、resume 在同一项、改名、Sessions 中的名字、�
   const runSession = await importable(request);
   await page.getByTestId('import-open').click();
   const picker = page.getByTestId('import-dialog');
-  await picker.getByRole('textbox', { name: '搜索 session' }).fill(resumed.claudeSessionId);
+  const search = picker.getByPlaceholder('搜索标题、目录或 session id');
+  await search.fill(resumed.claudeSessionId);
   const taken = picker.locator(`[data-session="${resumed.claudeSessionId}"]`);
   await expect(taken.getByTestId('import-taken')).toHaveText('已在交互区');
   await expect(taken.getByRole('checkbox')).toBeDisabled();
-  await picker.getByRole('textbox', { name: '搜索 session' }).fill(runSession);
+  await search.fill(runSession);
   await picker.locator(`[data-session="${runSession}"]`).getByRole('checkbox').check();
   await shot(page, 'import-picker');
   await picker.getByTestId('import-confirm').click();
@@ -215,6 +216,6 @@ test('交互：新建、resume 在同一项、改名、Sessions 中的名字、�
   });
 
   // 关掉页面重开：这一项的输出仍在（第一个进程的输出与 resume 的分隔行）
-  await page.goto(`/live?open=${id}`);
+  await page.goto(`/live?item=${id}`);
   await expect.poll(() => terminalText(page), { timeout: 30_000 }).toContain('resume');
 });

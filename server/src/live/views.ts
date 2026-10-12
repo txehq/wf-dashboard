@@ -68,6 +68,8 @@ export const LiveSummary = z.object({
   ticket: z.string().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
+  // 在交互区关闭的时间；显示中为空
+  hiddenAt: z.number().nullable(),
 });
 export type LiveSummary = z.infer<typeof LiveSummary>;
 
@@ -99,6 +101,10 @@ export const TITLE_MAX = 200;
 // 导入到交互区（Contracts 14.5）：为每个 session 建一项，不启动进程
 export const ImportLiveBody = z.strictObject({ sessionIds: z.array(z.string().min(1)).min(1) });
 export type ImportLiveBody = z.infer<typeof ImportLiveBody>;
+
+// 删除一项：输入这一项的名字确认（Contracts 14.5）
+export const DeleteLiveBody = z.strictObject({ confirmTitle: z.string() });
+export type DeleteLiveBody = z.infer<typeof DeleteLiveBody>;
 
 export const CreateLiveBody = z.strictObject({
   workflow: z.enum(workflows),

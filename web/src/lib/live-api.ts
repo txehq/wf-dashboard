@@ -18,10 +18,17 @@ export type LiveDriver = LiveSummary['driver'];
 export const isBuiltVariant = (v: Variant) =>
   v.buildStatus === 'built' && v.builtHash === v.skillsHash;
 
-export const liveListQuery = queryOptions({
-  queryKey: ['live'],
-  queryFn: async () => (await requestJson('GET', '/api/live')) as LiveSummary[],
-});
+// 交互区的项；已关闭的只在 includeHidden 时列出
+export function liveListQuery(includeHidden: boolean) {
+  return queryOptions({
+    queryKey: ['live', 'list', includeHidden],
+    queryFn: async () =>
+      (await requestJson(
+        'GET',
+        `/api/live?includeHidden=${String(includeHidden)}`,
+      )) as LiveSummary[],
+  });
+}
 
 export function liveQuery(id: string) {
   return queryOptions({
@@ -62,9 +69,30 @@ export async function renameLive(id: string, title: string): Promise<LiveDetail>
   return (await requestJson('PATCH', `/api/live/${id}`, { title })) as LiveDetail;
 }
 
-// 导入到交互区（Contracts 14.5）：只建项，不启动进程
+// 导入到交互区（Contracts 14.5）：只建项，不启动进程；已关闭的项恢复显示
 export async function importLive(sessionIds: string[]): Promise<LiveSummary[]> {
   return (await requestJson('POST', '/api/live/import', { sessionIds })) as LiveSummary[];
+}
+
+// 关闭（"×"）、恢复显示与删除（Contracts 14.5）
+export async function hideLive(id: string): Promise<LiveDetail> {
+  return (await requestJson('POST', `/api/live/${id}/hide`)) as LiveDetail;
+}
+
+export async function unhideLive(id: string): Promise<LiveDetail> {
+  return (await requestJson('POST', `/api/live/${id}/unhide`)) as LiveDetail;
+}
+
+export async function deleteLive(id: string, confirmTitle: string): Promise<void> {
+  await requestJson('DELETE', `/api/live/${id}`, { confirmTitle });
+}
+
+// Sessions 页面的"Live"按钮：已有一项（包括已关闭的）时恢复显示并使用它，否则导入建一项；返回这一项的 id
+export async function openInLive(session: { id: string; liveId: string | null }): Promise<string> {
+  if (session.liveId !== null) return (await unhideLive(session.liveId)).id;
+  const [item] = await importLive([session.id]);
+  if (item === undefined) throw new Error(`导入 session ${session.id} 没有返回项`);
+  return item.id;
 }
 
 // live.updated：刷新交互列表与各 session 的详情（['live'] 前缀下的全部查询）

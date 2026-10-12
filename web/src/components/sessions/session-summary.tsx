@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { OpenInLiveButton } from '@/components/live/open-in-live';
 import { ResumeButton } from '@/components/live/resume-dialog';
 import { LiveBadge, WorkflowBadges } from '@/components/sessions/workflow-badges';
 import {
@@ -89,7 +90,8 @@ export function SessionSummaryPanel({
           <h1 className="text-2xl font-semibold">{session.title ?? '（没有用户消息）'}</h1>
           <WorkflowBadges workflows={session.workflows} />
           {session.liveId !== null && <LiveBadge liveId={session.liveId} />}
-          <span className="ml-auto">
+          <span className="ml-auto flex items-start gap-2">
+            <OpenInLiveButton session={session} />
             <ResumeButton sessionId={session.id} />
           </span>
         </div>

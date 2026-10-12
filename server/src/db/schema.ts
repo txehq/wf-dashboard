@@ -282,6 +282,8 @@ export const liveSessions = sqliteTable(
     createdAt: createdAt(),
     // 新建、每个进程的开始与结束、改名时更新；列表按它倒序
     updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+    // 用户在交互区关闭（"×"）的时间：只从列表隐藏，不删除任何东西（Contracts 14.5）；resume 或再次导入时清空
+    hiddenAt: integer('hidden_at', { mode: 'timestamp_ms' }),
   },
   (t) => [index('live_sessions_updated_at_idx').on(t.updatedAt)],
 );
@@ -323,6 +325,9 @@ export const liveEventKinds = [
   'exit',
   'rename',
   'import',
+  'hide',
+  'unhide',
+  'trust',
 ] as const;
 export type LiveEventKind = (typeof liveEventKinds)[number];
 
