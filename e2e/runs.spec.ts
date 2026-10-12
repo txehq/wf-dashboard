@@ -222,9 +222,9 @@ test.describe('真实运行', () => {
       page.getByTestId('run-links').getByRole('link', { name: /GitHub 仓库/ }),
     ).toHaveAttribute('href', `file://${localRepo}`);
     expect(
-      ((await (await request.get(`${api}/runs/${runId}`)).json()) as { githubRepo: string })
-        .githubRepo,
-    ).toBe(localRepo);
+      ((await (await request.get(`${api}/runs/${runId}`)).json()) as { links: { repo: string } })
+        .links.repo,
+    ).toBe(`file://${localRepo}`);
     expect(existsSync(path.join(localRepo, 'HEAD'))).toBe(true);
 
     // 在第一个提问之前接管，interview 的提问由页面回答

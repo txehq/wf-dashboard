@@ -42,7 +42,7 @@ export function localRepos(dir: string): RunRepos {
     fs.rmSync(seed, { recursive: true });
     const mainSha = (await execa('git', ['-C', repo, 'rev-parse', 'refs/heads/main'])).stdout;
     if (mainSha !== head) throw new Error(`${repo} main 在 ${mainSha}，应为 ${head}`);
-    return { repo, url: pathToFileURL(repo).href, mainSha };
+    return { repo, url: repoLocation(repo), mainSha };
   }
   return {
     localDir: dir,
@@ -62,3 +62,10 @@ export function localRepos(dir: string): RunRepos {
 
 export const runReposFor = (localDir: string | null): RunRepos =>
   localDir === null ? githubRepos : localRepos(localDir);
+
+// runs.github_repo 是本地仓库模式的 bare 仓库（绝对路径）时为 true；GitHub 仓库是 owner/name
+export const isLocalRepo = (repo: string) => path.isAbsolute(repo);
+
+// 仓库的地址：GitHub 的网页地址，或本地 bare 仓库的 file:// 地址
+export const repoLocation = (repo: string) =>
+  isLocalRepo(repo) ? pathToFileURL(repo).href : `https://github.com/${repo}`;

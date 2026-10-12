@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import { artifacts, type runs } from '../db/schema.js';
 import { PrSnapshot, readPrSnapshot } from '../external/github.js';
+import { isLocalRepo, repoLocation } from '../external/run-repos.js';
 
 type Run = typeof runs.$inferSelect;
 
@@ -12,12 +13,12 @@ export const StoredPrSnapshot = z.object({
 });
 export type StoredPrSnapshot = z.infer<typeof StoredPrSnapshot>;
 
-export const repoUrl = (repo: string) => `https://github.com/${repo}`;
-
-// run 进入 grading 时：PR 的 reviews、review thread、评论与 checks 存进 artifacts（kind pr_snapshot，Contracts 15.2）
+// run 进入 grading 时：PR 的 reviews、review thread、评论与 checks 存进 artifacts（kind pr_snapshot，Contracts 15.2）。
+// 本地仓库模式的仓库（Contracts 7.2）没有 PR，快照为 null
 export async function recordPrSnapshot(db: Db, run: Run): Promise<void> {
   if (run.githubRepo === null) return;
-  storePrSnapshot(db, run.id, run.githubRepo, await readPrSnapshot(run.githubRepo));
+  const repo = run.githubRepo;
+  storePrSnapshot(db, run.id, repo, isLocalRepo(repo) ? null : await readPrSnapshot(repo));
 }
 
 export function storePrSnapshot(db: Db, runId: string, repo: string, pr: PrSnapshot | null) {
@@ -27,7 +28,7 @@ export function storePrSnapshot(db: Db, runId: string, repo: string, pr: PrSnaps
     .values({
       runId,
       kind: 'pr_snapshot',
-      location: repoUrl(repo),
+      location: repoLocation(repo),
       snapshot: JSON.stringify(stored),
       updatedAt: now,
     })
