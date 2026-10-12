@@ -77,10 +77,10 @@ pnpm e2e
 pnpm typecheck && pnpm lint && pnpm test && pnpm e2e
 ```
 
-- `pnpm test`：Vitest 的 `local` 项目（`server/vitest.config.ts`）与 web 的测试。真实 SQLite、真实 jsonl 样本、录下的真实 gateway 与 GitHub 响应、本地 fixture 仓库上的真实 vitest 与计分。
+- `pnpm test`：Vitest 的 `local` 项目（`server/vitest.config.ts`）与 web 的测试。真实 SQLite、真实 jsonl 样本、录下的真实 gateway 与 GitHub 响应、本地 fixture 仓库上的真实 vitest 与计分，不访问网络。
 - `pnpm e2e`：`playwright.config.ts`，种子数据与导入的真实 run，只启动这些 spec 用到的服务。可以只给文件，例如 `pnpm e2e e2e/home.spec.ts`，这时只启动这个文件所在 project 的服务。
 
-基础档与慢档不调用真实模型、claude 与 Codex，不写 Linear：运行时 PATH 最前面是 `server/test/setup/basic-bin/` 中会报错的 `claude` 与 `codex`，gateway 的地址换成不存在的域名（`server/test/setup/basic-tier.ts`），被拦下的调用记在 `.work/basic-tier/blocked.log`。页面加载时的环境检查也被拦下，状态显示为未通过。
+基础档与慢档不调用真实模型、claude 与 Codex，不写 Linear：运行时 PATH 最前面是 `server/test/setup/basic-bin/` 中会报错的 `claude` 与 `codex`，gateway 的地址换成不存在的域名（`server/test/setup/basic-tier.ts`），被拦下的调用记在 `.work/basic-tier/blocked.log`。基础档还不依赖网络：`gh` 也换成会报错的 `basic-bin/offline/gh`，读取真实 GitHub 的测试在真实档。页面加载时的环境检查也被拦下，状态显示为未通过。
 
 ### 慢档：只运行覆盖改动的文件
 
@@ -98,7 +98,7 @@ pnpm e2e:real e2e/tasks-import.spec.ts
 pnpm test:external
 ```
 
-- `pnpm test:real [文件…]`：Vitest 的 `gateway` 项目，真实调用 gateway 模型、claude 或 Codex 的测试（清单是 `server/vitest.config.ts` 中的 `gatewayTests`），逐个文件顺序执行。
+- `pnpm test:real [文件…]`：Vitest 的 `gateway` 项目，逐个文件顺序执行：真实调用 gateway 模型、claude 或 Codex 的测试（`server/vitest.config.ts` 中的 `gatewayTests`），以及读取真实 GitHub 的测试（`githubReadTests`：`repo-bundle`、`github-pr`、`friction`）。
 - `pnpm e2e:real [文件…]`：`playwright.real.config.ts`，服务端真实调用 judge、claude、Codex 或 Linear MCP 的 spec 与用例，只启动选中的 spec 用到的服务。
 - `pnpm test:external`：`server/test/*.external.test.ts`，配置在 `server/vitest.external.config.ts`，在 Linear TXE team 的 "Workflow Eval" project 中建带 `eval` label 的工单，工单全部保留。需要 Linear 已登录（`~/.mcp-auth` 中有 mcp-remote 的 token）。只在修改 `server/src/external/` 后运行。
 

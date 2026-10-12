@@ -5,12 +5,12 @@ import { compareWebPort, runsWebPort, webPort } from './ports.js';
 import { guardBasicTier } from './server/test/setup/basic-tier.js';
 import { guardGithub } from './server/test/setup/github-guard.js';
 
-// 基础档的 e2e（pnpm e2e）：使用种子数据与导入的真实 run，服务端不调用真实模型、claude 与 Codex，不写 Linear。
-// 所有服务与测试进程继承这里的环境（webServer 在 globalSetup 之前启动，所以在加载配置时设置）：
-// gh 在 GitHub 上创建或修改对象的命令一律报错；claude、codex 与 gateway 的请求一律失败（页面加载时的环境检查也在其中）；
+// 基础档的 e2e（pnpm e2e）：使用种子数据与导入的真实 run，服务端不调用真实模型、claude 与 Codex，不写 Linear，
+// 不依赖网络。所有服务与测试进程继承这里的环境（webServer 在 globalSetup 之前启动，所以在加载配置时设置）：
+// claude、codex、gh 与 gateway 的请求一律失败（页面加载时的环境检查也在其中）；
 // run 与交互的仓库建在本地 bare 仓库中。其余 spec 在 playwright.real.config.ts（pnpm e2e:real）
 guardGithub();
-guardBasicTier();
+guardBasicTier({ offline: true });
 process.env.WFD_LOCAL_REPOS_DIR = e2eLocalReposDir;
 
 // 同一个 spec 中真实调用 judge 或真实运行的用例在真实档，按标题排除
