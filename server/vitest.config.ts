@@ -1,7 +1,8 @@
 import { defineConfig } from 'vitest/config';
 
-// 真实调用 gateway（模型请求或 claude CLI）的测试：在单独的项目中逐个文件顺序执行，降低对 gateway 的并发；
-// 其余测试照常并行。gateway 的错误不重试（Contracts 4），挂起的请求 10 分钟后以超时错误失败
+// 真实档（pnpm test:real）：真实调用 gateway 模型、claude 或 Codex 的测试，在单独的项目中逐个文件顺序执行，
+// 降低对 gateway 的并发；其余测试是基础档（pnpm test），照常并行。gateway 的错误不重试（Contracts 4），
+// 挂起的请求 10 分钟后以超时错误失败
 export const gatewayTests = [
   'test/environment.test.ts',
   'test/linear-reconnect.test.ts',
@@ -31,11 +32,15 @@ export default defineConfig({
     globalSetup: ['test/setup/data-guard.ts', 'test/setup/github-guard.ts'],
     projects: [
       {
+        // 基础档（pnpm test）：会报错的 claude 与 codex、指向不存在域名的 gateway（test/setup/basic-tier.ts）。
+        // 多个 worktree 同时运行测试时 CPU 排队，导入真实 jsonl 与 git clone 的用例超过默认的 5 秒
         extends: true,
         test: {
           name: 'local',
           include: ['test/**/*.test.ts'],
           exclude: [external, ...gatewayTests],
+          setupFiles: ['test/setup/basic-tier-setup.ts'],
+          testTimeout: 60_000,
         },
       },
       {
