@@ -8,3 +8,5 @@ const dir = path.join(testData, String(process.pid));
 process.env.WFD_DATA_DIR = dir;
 process.env.WFD_DB_PATH = path.join(dir, 'db.sqlite');
 process.env.WFD_PLAYWRIGHT_BROWSERS_DIR = path.join(testData, 'playwright-browsers');
+// 本地仓库模式（Contracts 7.2）：run 与交互的仓库建为这里的 bare 仓库，测试不在 GitHub 上建仓库
+process.env.WFD_LOCAL_REPOS_DIR = path.join(dir, 'repos');

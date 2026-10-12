@@ -61,12 +61,14 @@ const protectedDirs = [
 // 写——home 下只允许本 run 的目录、本 variant 的目录、vault 中本 run 的 feature 目录与工具缓存；
 // 读——整个 dashboard 仓库与数据目录都不能读，只放行本 run 的目录与本 variant 的目录（其中再禁止其他 run 的 session），
 // 也不能读其他 run 的 feature 目录。
+// 本地仓库模式（Contracts 7.2）下 localRepo 是本 run 的 bare 仓库：可读写，同目录下其他 run 的仓库不能读。
 // 读限制只拦 file-read-data（文件内容与目录列表），路径查找与 stat 照常，父目录不影响访问自己的目录。
 // SBPL 中后出现的规则优先
 export function claudeSandboxProfile(
   runId: string,
   variantId: string,
   roots: SandboxRoots = defaultRoots(),
+  localRepo: string | null = null,
 ): string {
   const runDir = path.join(roots.runsDir, runId);
   const variantDir = path.join(roots.variantsDir, variantId);
@@ -86,5 +88,11 @@ export function claudeSandboxProfile(
     `(allow file-read-data ${subpath(runDir)} ${subpath(variantDir)} ${subpath(featureDir)})`,
     `(deny file-read-data ${subpath(projectsDir)})`,
     `(allow file-read-data ${subpath(path.join(projectsDir, runId))})`,
+    ...(localRepo === null
+      ? []
+      : [
+          `(deny file-read-data ${subpath(path.dirname(localRepo))})`,
+          `(allow file-read-data file-write* ${subpath(localRepo)})`,
+        ]),
   ].join('');
 }

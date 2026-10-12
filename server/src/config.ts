@@ -25,6 +25,12 @@ export const config = {
     process.env.WFD_PLAYWRIGHT_BROWSERS_DIR ?? path.join(dataDir, 'playwright-browsers'),
   ),
   tasksDir: path.join(repoRoot, 'tasks'),
+  // 本地仓库模式（Contracts 7.2）：设置时 run 与 isolated 交互的仓库建为这个目录下的 bare 仓库，不在 GitHub 上建；
+  // 测试与 e2e 都用它
+  localReposDir:
+    process.env.WFD_LOCAL_REPOS_DIR === undefined
+      ? null
+      : path.resolve(repoRoot, process.env.WFD_LOCAL_REPOS_DIR),
   // Sessions 页面的来源目录所在处；e2e 用 WFD_CLAUDE_PROJECTS 指向由真实 session 组成的目录
   claudeProjectsDir: path.resolve(
     process.env.WFD_CLAUDE_PROJECTS ?? path.join(os.homedir(), '.claude/projects'),

@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 import { expect, type Page, test } from '@playwright/test';
 import type { LiveDetail } from '../server/src/live/views.js';
 import { runsServerPort } from '../ports.js';
+import { e2eLocalReposDir } from './local-repos.js';
 
 // 交互区（Contracts 14）：构建基线 variant，新建 /lfg 做一个计算器（isolated、人驾驶），在终端中输入；
 // 切到模拟用户驾驶、按键接管、交还；关掉页面重开后输出仍在；Sessions 详情的 resume 对话框。
-// 真实运行：在 txehq 建副本仓库、写 vault 的 Project Magi Eval/Features/<liveId>/
+// 真实运行：副本仓库建在本地 bare 仓库（本地仓库模式），写 vault 的 Project Magi Eval/Features/<liveId>/
 const api = `http://127.0.0.1:${String(runsServerPort)}/api`;
 const marker = randomUUID().slice(0, 8);
 
@@ -58,7 +60,7 @@ test('交互：新建、终端输入、驾驶者切换与交还、重开页面�
   const id = (await panel.getAttribute('data-live')) ?? '';
   expect(id).toMatch(/^l-\d{8}-[a-z0-9]{6}$/);
   await expect(panel.getByTestId('live-variant-name')).toHaveText(variantName);
-  await expect(panel.getByText(`txehq/wfe-${id}`)).toBeVisible();
+  await expect(panel.getByText(path.join(e2eLocalReposDir, `wfe-${id}.git`))).toBeVisible();
   await expect.poll(() => terminalText(page), { timeout: 120_000 }).toContain('Claude Code');
   await expect.poll(() => terminalText(page), { timeout: 120_000 }).toContain('/lfg 做一个计算器');
 

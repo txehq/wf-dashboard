@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
+import { e2eLocalReposDir } from './e2e/local-repos.js';
 import {
   analysesServerPort,
   analysesWebPort,
@@ -11,6 +12,12 @@ import {
   serverPort,
   webPort,
 } from './ports.js';
+import { guardGithub } from './server/test/setup/github-guard.js';
+
+// 所有服务与测试进程继承这里的环境：gh 在 GitHub 上创建或修改对象的命令一律报错（webServer 在 globalSetup 之前启动，
+// 所以在加载配置时设置）；run 与交互的仓库建在本地 bare 仓库中
+guardGithub();
+process.env.WFD_LOCAL_REPOS_DIR = e2eLocalReposDir;
 
 // Compare 的 e2e 数据目录，由种子脚本清空后写入
 const compareDataDir = '.work/e2e/compare-data';

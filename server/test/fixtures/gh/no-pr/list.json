@@ -1,0 +1,17 @@
+{
+  "args": [
+    "pr",
+    "list",
+    "--repo",
+    "txehq/docker-node-awscli",
+    "--state",
+    "all",
+    "--limit",
+    "100",
+    "--json",
+    "number,url,isDraft,headRefOid,state,createdAt"
+  ],
+  "exitCode": 0,
+  "stdout": "[]",
+  "stderr": ""
+}

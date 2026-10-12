@@ -1,0 +1,14 @@
+{
+  "args": [
+    "pr",
+    "view",
+    "1",
+    "--repo",
+    "txehq/wfe-test-criteria-judge-20261011221337891",
+    "--json",
+    "headRefName"
+  ],
+  "exitCode": 0,
+  "stdout": "{\"headRefName\":\"feat/test-change\"}",
+  "stderr": ""
+}

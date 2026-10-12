@@ -16,6 +16,7 @@ import {
   userMessages,
 } from '../db/schema.js';
 import { readPrSnapshot } from '../external/github.js';
+import { isLocalRepo } from '../external/run-repos.js';
 import { readRunGrades } from '../grading/index.js';
 import { StoredPrSnapshot } from '../grading/pr-snapshot.js';
 import { sessionConversation } from '../ingest/conversation.js';
@@ -245,6 +246,9 @@ export async function exportRun(db: Db, runId: string): Promise<unknown> {
     pr = { source: 'snapshot', ...StoredPrSnapshot.parse(JSON.parse(stored.snapshot)) };
   } else if (run.githubRepo === null) {
     pr = null;
+  } else if (isLocalRepo(run.githubRepo)) {
+    // 本地仓库模式的仓库（Contracts 7.2）没有 PR
+    pr = { source: 'local', pr: null };
   } else {
     const missing = await repoMissing(run.githubRepo);
     pr =

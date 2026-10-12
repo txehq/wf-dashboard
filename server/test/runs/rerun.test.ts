@@ -14,6 +14,7 @@ import { createSettingsStore } from '../../src/runs/settings.js';
 import { BatchDetail, RunSummary } from '../../src/runs/views.js';
 import { syncTasks } from '../../src/tasks/loader.js';
 import { createVariants } from '../../src/variants/index.js';
+import { testRepos } from '../helpers/local-repos.js';
 
 const work = path.join(config.repoRoot, '.work', 'test-rerun', randomUUID());
 fs.mkdirSync(work, { recursive: true });
@@ -72,6 +73,7 @@ const runsModule = createRuns({
   vaultDir: path.join(work, 'vault'),
   product: config.evalProduct,
   runsDir,
+  repos: testRepos(),
 });
 // 队列停止取出：重跑建出的 run 停在 queued，测试不启动真实的 claude 与外部对象
 await runsModule.shutdown();

@@ -7,6 +7,7 @@ import { config } from '../config.js';
 import type { Db } from '../db/index.js';
 import { events } from '../events.js';
 import { closeLinearClient } from '../external/linear.js';
+import { runReposFor } from '../external/run-repos.js';
 import { defaultSourceDirs } from '../ingest/sources.js';
 import { createLive } from '../live/index.js';
 import { createRuns } from '../runs/index.js';
@@ -87,6 +88,7 @@ export async function buildApp({
   await app.register(compareRoutes({ db, variants }));
 
   const settings = createSettingsStore(db);
+  const repos = runReposFor(config.localReposDir);
   const runs = createRuns({
     db,
     variants,
@@ -94,6 +96,7 @@ export async function buildApp({
     vaultDir: config.vaultDir,
     product: config.evalProduct,
     runsDir: config.runsDir,
+    repos,
   });
   await app.register(runRoutes, { runs, settings });
   await app.register(settingsRoutes, { settings });
@@ -145,6 +148,7 @@ export async function buildApp({
       return `http://${config.host}:${String(address.port)}`;
     },
     localHome: localHome ?? os.homedir(),
+    repos,
   });
   await app.register(liveRoutes, { live });
   app.addHook('onClose', async () => {

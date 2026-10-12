@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { eq } from 'drizzle-orm';
-import { execa } from 'execa';
 import type { Db } from '../db/index.js';
 import {
   type AskQuestion,
@@ -11,8 +10,9 @@ import {
   terminalRunStatuses,
 } from '../db/schema.js';
 import { events } from '../events.js';
-import { createEmptyRunRepo, createRunRepo, readPr } from '../external/github.js';
+import { readPr } from '../external/github.js';
 import { createRunTicket } from '../external/linear.js';
+import type { RunRepos } from '../external/run-repos.js';
 import { gradeRun } from '../grading/index.js';
 import { ingestFile } from '../ingest/ingest.js';
 import { type SessionWatcher, watchSession } from '../ingest/watch.js';
@@ -54,6 +54,8 @@ export interface RunnerDeps {
   vaultDir: string;
   product: string;
   runsDir: string;
+  // run 的仓库建在 GitHub 或本地仓库模式的目录中（Contracts 7.2）
+  repos: RunRepos;
 }
 
 // 取消与结束时等待 CLI 收尾的时间；超时后发 SIGTERM（Spikes/Claude CLI 第 7 节）
@@ -200,7 +202,8 @@ export class RunDriver {
     this.task = loadTask(this.db, run.taskId);
     this.setStatus('preparing', { startedAt: new Date() });
     const initial = await this.prepare(run);
-    this.start(run, initial);
+    // prepare 写入了仓库
+    this.start(this.row(), initial);
     const proc = this.proc;
     if (proc === null) throw new Error('claude 进程没有启动');
     const exit = await Promise.race([proc.exited, this.failed]);
@@ -262,10 +265,11 @@ export class RunDriver {
   private async prepare(run: RunRow): Promise<string> {
     fs.mkdirSync(this.runDir(), { recursive: true });
     const task = this.task;
+    const repos = this.deps.repos;
     let repo: string;
     let initial: string;
     if (task.kind === 'lfg') {
-      const created = await createEmptyRunRepo(this.runId, this.stopping.signal);
+      const created = await repos.createEmpty(this.runId, this.stopping.signal);
       repo = created.repo;
       this.update({ githubRepo: repo });
       upsertArtifact(this.db, this.runId, 'repo', created.url, null);
@@ -279,7 +283,12 @@ export class RunDriver {
         `Repository: ${repo}`,
       ].join('\n');
     } else {
-      const created = await createRunRepo(task, this.runId, this.stopping.signal);
+      if (repos.localDir !== null) {
+        throw new Error(
+          `本地仓库模式（${repos.localDir}）下不能发起 ic run：本地仓库没有 PR，不支持 ic run 的 PR 与评分`,
+        );
+      }
+      const created = await repos.createCopy(task, this.runId, this.stopping.signal);
       repo = created.repo;
       this.update({ githubRepo: repo });
       upsertArtifact(this.db, this.runId, 'repo', created.url, null);
@@ -288,9 +297,7 @@ export class RunDriver {
       upsertArtifact(this.db, this.runId, 'ticket', ticket.url, ticket.identifier);
       initial = `/ic ${ticket.identifier}`;
     }
-    await execa('gh', ['repo', 'clone', repo, run.workspacePath], {
-      cancelSignal: this.stopping.signal,
-    });
+    await repos.clone(repo, run.workspacePath, this.stopping.signal);
     return initial;
   }
 
@@ -369,6 +376,7 @@ export class RunDriver {
         run.variantId,
         this.runId,
         this.deps.runsDir,
+        this.deps.repos.localDir === null ? null : run.githubRepo,
       ),
       logDir: this.runDir(),
       onEvent: (event) => {

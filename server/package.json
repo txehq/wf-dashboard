@@ -19,7 +19,8 @@
     "seed:compare-e2e": "tsx scripts/seed-compare-e2e.ts",
     "prepare:runs-e2e": "tsx scripts/prepare-runs-e2e.ts",
     "prepare:sessions-e2e": "tsx scripts/prepare-sessions-e2e.ts",
-    "prepare:analyses-e2e": "tsx scripts/prepare-analyses-e2e.ts"
+    "prepare:analyses-e2e": "tsx scripts/prepare-analyses-e2e.ts",
+    "record:gh-fixtures": "tsx scripts/record-gh-fixtures.ts"
   },
   "dependencies": {
     "@actions/expressions": "0.3.61",
@@ -61,6 +62,7 @@
     "@types/shell-quote": "1.7.5",
     "@types/ws": "8.18.2",
     "drizzle-kit": "0.31.11",
+    "prettier": "3.9.9",
     "tsx": "4.23.15",
     "typescript": "6.0.3",
     "vitest": "5.0.3"

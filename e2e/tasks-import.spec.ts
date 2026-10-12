@@ -1,12 +1,8 @@
 import { rmSync } from 'node:fs';
 import path from 'node:path';
 import { expect, type Page, test } from '@playwright/test';
-import {
-  CALC_TICKET,
-  CALC_TICKET_URL,
-  type CalcRepo,
-  createCalcStartRepo,
-} from '../server/test/helpers/calc-repo.js';
+import { CALC_TICKET, CALC_TICKET_URL } from '../server/test/helpers/calc-repo.js';
+import { IMPORT_SOURCE } from '../server/test/helpers/import-source.js';
 
 const shot = (page: Page, name: string) =>
   page.screenshot({
@@ -15,16 +11,10 @@ const shot = (page: Page, name: string) =>
     animations: 'disabled',
   });
 
-// 真实 Linear 与 GitHub。工单为 `/lfg 做一个计算器` 建出的 TXE-3777（只读取）；起始仓库由测试新建
-// txehq/wfe-test-calc-<时间戳>（一行 README，再加 ci、self-hosted-echo、scheduled-echo），不删除。
+// 真实 Linear 与 GitHub，都只读取。工单为 `/lfg 做一个计算器` 建出的 TXE-3777；源仓库为已存在的
+// txehq/txe-workflow，固定在 9f2bed6（ci.yml 由 pull_request 触发，release.yml 由 push 与 workflow_dispatch 触发）。
 // 保存的 task 写进 tasks/，结束时删除
 const taskId = `e2e-import-${String(Date.now())}`;
-let calc: CalcRepo;
-
-test.beforeAll(async () => {
-  test.setTimeout(5 * 60_000);
-  calc = await createCalcStartRepo();
-});
 
 test.afterAll(() => {
   rmSync(path.join('tasks', taskId), { recursive: true, force: true });
@@ -38,8 +28,9 @@ test('粘贴工单地址导入：预览完整正文、验收标准、仓库与 c
   await page.getByRole('radio', { name: '/ic 从 Linear 导入' }).click();
   const panel = page.getByTestId('linear-import');
   await panel.getByLabel('工单地址或编号').fill(CALC_TICKET_URL);
-  // 工单没有关联 PR：仓库由用户填写，commit 默认取默认分支的最新 commit
-  await panel.getByLabel('GitHub 仓库（owner/name）').fill(calc.repo);
+  // 工单没有关联 PR：仓库由用户填写，commit 手动指定
+  await panel.getByLabel('GitHub 仓库（owner/name）').fill(IMPORT_SOURCE.repo);
+  await panel.getByLabel('commit').fill(IMPORT_SOURCE.commit);
   await shot(page, 'paste-address');
   await panel.getByRole('button', { name: '读取工单' }).click();
 
@@ -55,15 +46,17 @@ test('粘贴工单地址导入：预览完整正文、验收标准、仓库与 c
   await expect(criteria.first()).toContainText('正文原文：');
   await expect(preview.getByTestId('criteria-cost')).toContainText(/token · \$\d/);
   const repo = preview.getByTestId('import-repo');
-  await expect(repo).toContainText(calc.repo);
-  await expect(repo).toContainText(calc.workflowsCommit.slice(0, 12));
-  await expect(repo).toContainText('工单没有关联已合并的 PR，取默认分支 main 的最新 commit');
-  // requiredChecks 默认值：ci（GitHub 托管）与 self-hosted-echo（arc-linux-dind 在 copyRunnerLabels 中）
+  await expect(repo).toContainText(IMPORT_SOURCE.repo);
+  await expect(repo).toContainText(IMPORT_SOURCE.commit.slice(0, 12));
+  await expect(repo).toContainText('commit 来源：手动指定');
+  // requiredChecks 默认值：ci.yml 中由 PR 触发的 job（arc-linux-dind 在 copyRunnerLabels 中，macos-15 为 GitHub 托管）
   const checks = preview.getByTestId('workflow-checks');
-  await expect(checks.getByText('ci', { exact: true })).toBeVisible();
-  await expect(checks.getByText('self-hosted-echo', { exact: true })).toBeVisible();
+  await expect(checks.getByText('guard', { exact: true })).toBeVisible();
+  await expect(
+    checks.getByText('test (macos-15, aarch64-apple-darwin)', { exact: true }),
+  ).toBeVisible();
   await checks.getByText(/其他不计入终点的 job/).click();
-  await expect(checks.getByTestId('jobs-not-counted')).toContainText('scheduled-echo');
+  await expect(checks.getByTestId('jobs-not-counted')).toContainText('publish');
   await expect(checks.getByTestId('jobs-not-counted')).toContainText('不由 PR 触发');
   await shot(page, 'import-preview');
 
@@ -79,11 +72,11 @@ test('粘贴工单地址导入：预览完整正文、验收标准、仓库与 c
   await page.getByRole('textbox', { name: '验收标准第 9 条' }).fill('README 写明本地开发步骤');
   const source = page.getByTestId('source-repo');
   await expect(source).toContainText(CALC_TICKET);
-  await expect(source.getByLabel('GitHub 仓库')).toHaveValue(calc.repo);
+  await expect(source.getByLabel('GitHub 仓库')).toHaveValue(IMPORT_SOURCE.repo);
   const required = page.getByTestId('required-checks');
-  await expect(required.getByRole('textbox')).toHaveCount(2);
-  await expect(required.getByRole('textbox').nth(0)).toHaveValue('ci');
-  await expect(required.getByRole('textbox').nth(1)).toHaveValue('self-hosted-echo');
+  await expect(required.getByRole('textbox')).toHaveCount(12);
+  await expect(required.getByRole('textbox').nth(0)).toHaveValue('guard');
+  await expect(required.getByRole('textbox').nth(11)).toHaveValue('supply-chain');
   await expect(page.getByLabel('有隐藏测试')).not.toBeChecked();
   await source.scrollIntoViewIfNeeded();
   await shot(page, 'repo-checks');
@@ -100,10 +93,10 @@ test('粘贴工单地址导入：预览完整正文、验收标准、仓库与 c
       identifier: CALC_TICKET,
       url: expect.stringContaining(`https://linear.app/capso/issue/${CALC_TICKET}`) as unknown,
     },
-    github: { repo: calc.repo, prs: [] },
+    github: { repo: IMPORT_SOURCE.repo, prs: [] },
   });
-  expect(record.task.requiredChecks).toEqual(['ci', 'self-hosted-echo']);
-  expect(record.task.repo.commit).toBe(calc.workflowsCommit);
+  expect(record.task.requiredChecks).toHaveLength(12);
+  expect(record.task.repo.commit).toBe(IMPORT_SOURCE.commit);
 
   await page.goto('/tasks');
   await expect(page.getByRole('row', { name: new RegExp(taskId) })).toContainText('9 条验收标准');

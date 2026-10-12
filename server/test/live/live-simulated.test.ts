@@ -8,7 +8,7 @@ import { answerMenu, pasted } from '../../src/live/keys.js';
 import type { LiveDetail, LiveEventView } from '../../src/live/views.js';
 import { type LiveServer, sleep, startLiveServer, terminalClient, until } from './harness.js';
 
-// isolated 环境（txehq 中建副本仓库、vault 写 Project Magi Eval/Features/<liveId>/，进程在 sandbox 中）：
+// isolated 环境（本地仓库模式下的副本仓库、vault 写 Project Magi Eval/Features/<liveId>/，进程在 sandbox 中）：
 // /lfg 做一个计算器 由模拟用户驾驶 interview 的提问；中途从客户端按一个键接管，人回答一次，再交还给模拟用户
 let server: LiveServer;
 
@@ -24,7 +24,7 @@ const replies = (d: LiveDetail) => d.events.filter((e) => e.kind === 'simulated_
 const written = (d: LiveDetail) => replies(d).filter((e) => e.payload.written === true);
 const questionsOf = (e: LiveEventView) => (e.payload.questions ?? []) as AskQuestion[];
 
-describe('模拟用户驾驶与接管（真实 claude 与 GitHub）', { timeout: 3_600_000 }, () => {
+describe('模拟用户驾驶与接管（真实 claude，本地副本仓库）', { timeout: 3_600_000 }, () => {
   test('/lfg 做一个计算器：模拟用户回答 AskUserQuestion，按键接管，交还后接着回答', async () => {
     const startedAt = Date.now();
     const created = await server.api<LiveDetail>('POST', '/api/live', {
@@ -37,8 +37,7 @@ describe('模拟用户驾驶与接管（真实 claude 与 GitHub）', { timeout:
       driver: 'simulated',
     });
     const id = created.id;
-    console.log('交互', id, '副本仓库', created.repo);
-    expect(created.repo).toBe(`txehq/wfe-${id}`);
+    expect(created.repo).toBe(path.join(String(config.localReposDir), `wfe-${id}.git`));
     expect(created.events.find((e) => e.kind === 'start')?.payload.sandboxed).toBe(true);
     // 收到 SessionStart 之前驾驶者固定为人；isolated 不弹信任对话框
     expect(created.driver).toBe('human');

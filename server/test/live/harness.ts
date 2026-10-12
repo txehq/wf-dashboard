@@ -11,6 +11,7 @@ import { createLive, type Live } from '../../src/live/index.js';
 import type { LiveDetail } from '../../src/live/views.js';
 import { createSettingsStore } from '../../src/runs/settings.js';
 import { createVariants, type Variant } from '../../src/variants/index.js';
+import { testRepos } from '../helpers/local-repos.js';
 
 // 交互测试的服务：真实构建的基线 variant（wf runtime 与 cargo 缓存在 .work/test-data，跨测试运行复用）、
 // 真实 SQLite、监听随机端口（hook 命令 POST 到这里）
@@ -43,6 +44,7 @@ export async function startLiveServer(options: { localHome?: string } = {}) {
     dataDir: variantsData,
     serverUrl: () => url,
     localHome: options.localHome ?? path.join(config.dataDir, 'home'),
+    repos: testRepos(),
   });
   await app.register(liveRoutes, { live });
   app.addHook('onClose', async () => {

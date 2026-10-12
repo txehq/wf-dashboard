@@ -684,16 +684,22 @@ export function createVariants({
       };
     },
 
-    // 一个 run 的 claude 进程的 sandbox（Contracts 7.3）；runsDir 是 runs 模块存放各 run 的目录
-    sandboxProfile(id: string, runId: string, runsDir: string): string {
-      return claudeSandboxProfile(runId, id, {
-        repoRoot: config.repoRoot,
-        dataDir,
-        runsDir,
-        variantsDir: path.dirname(layout.variant(id).dir),
-        featuresDir: path.join(config.vaultDir, `Project ${config.evalProduct}`, 'Features'),
-        home: os.homedir(),
-      });
+    // 一个 run 的 claude 进程的 sandbox（Contracts 7.3）；runsDir 是 runs 模块存放各 run 的目录，
+    // localRepo 是本地仓库模式下这个 run 的 bare 仓库（GitHub 时为 null）
+    sandboxProfile(id: string, runId: string, runsDir: string, localRepo: string | null): string {
+      return claudeSandboxProfile(
+        runId,
+        id,
+        {
+          repoRoot: config.repoRoot,
+          dataDir,
+          runsDir,
+          variantsDir: path.dirname(layout.variant(id).dir),
+          featuresDir: path.join(config.vaultDir, `Project ${config.evalProduct}`, 'Features'),
+          home: os.homedir(),
+        },
+        localRepo,
+      );
     },
   };
 }
