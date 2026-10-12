@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "c508ad3c-684c-41c5-9348-610fd2c24542",
+  "id": "d8edbdcb-e0c5-4405-9838-34d75f6dddda",
   "prevId": "f6459856-7d13-477c-8351-df07e07a1054",
   "tables": {
     "analyses": {
@@ -898,20 +898,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "model": {
-          "name": "model",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "effort": {
-          "name": "effort",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "pid": {
           "name": "pid",
           "type": "integer",
@@ -1084,6 +1070,13 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "hidden_at": {
+          "name": "hidden_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         }
       },
@@ -1416,20 +1409,6 @@
         "repeat_index": {
           "name": "repeat_index",
           "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "model": {
-          "name": "model",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "effort": {
-          "name": "effort",
-          "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -2093,8 +2072,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "big_stage": {
-          "name": "big_stage",
+        "workflow": {
+          "name": "workflow",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -2138,11 +2117,11 @@
         }
       },
       "indexes": {
-        "stage_cycles_session_big_stage_cycle_idx": {
-          "name": "stage_cycles_session_big_stage_cycle_idx",
+        "stage_cycles_session_workflow_cycle_idx": {
+          "name": "stage_cycles_session_workflow_cycle_idx",
           "columns": [
             "session_id",
-            "big_stage",
+            "workflow",
             "cycle"
           ],
           "isUnique": true
@@ -2184,8 +2163,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "big_stage": {
-          "name": "big_stage",
+        "workflow": {
+          "name": "workflow",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -2251,11 +2230,11 @@
         }
       },
       "indexes": {
-        "stage_spans_session_big_stage_cycle_stage_idx": {
-          "name": "stage_spans_session_big_stage_cycle_stage_idx",
+        "stage_spans_session_workflow_cycle_stage_idx": {
+          "name": "stage_spans_session_workflow_cycle_stage_idx",
           "columns": [
             "session_id",
-            "big_stage",
+            "workflow",
             "cycle",
             "stage"
           ],
@@ -2288,13 +2267,6 @@
           "name": "session_id",
           "type": "text",
           "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "workflow_id": {
-          "name": "workflow_id",
-          "type": "text",
-          "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
@@ -2462,15 +2434,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "workflow_id": {
-          "name": "workflow_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "big_stage": {
-          "name": "big_stage",
+        "kind": {
+          "name": "kind",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -2626,11 +2591,10 @@
         }
       },
       "indexes": {
-        "tasks_workflow_big_stage_idx": {
-          "name": "tasks_workflow_big_stage_idx",
+        "tasks_kind_idx": {
+          "name": "tasks_kind_idx",
           "columns": [
-            "workflow_id",
-            "big_stage"
+            "kind"
           ],
           "isUnique": false
         }
@@ -2748,13 +2712,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "workflow_id": {
-          "name": "workflow_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
         "parent_id": {
           "name": "parent_id",
           "type": "text",
@@ -2778,6 +2735,20 @@
         },
         "version": {
           "name": "version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "effort": {
+          "name": "effort",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -2858,20 +2829,19 @@
         }
       },
       "indexes": {
+        "variants_name_unique": {
+          "name": "variants_name_unique",
+          "columns": [
+            "name"
+          ],
+          "isUnique": true
+        },
         "variants_skills_hash_idx": {
           "name": "variants_skills_hash_idx",
           "columns": [
             "skills_hash"
           ],
           "isUnique": false
-        },
-        "variants_workflow_name_idx": {
-          "name": "variants_workflow_name_idx",
-          "columns": [
-            "workflow_id",
-            "name"
-          ],
-          "isUnique": true
         }
       },
       "foreignKeys": {
@@ -2894,73 +2864,6 @@
           "tableTo": "analyses",
           "columnsFrom": [
             "analysis_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "workflows": {
-      "name": "workflows",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "base_variant_id": {
-          "name": "base_variant_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "definition": {
-          "name": "definition",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsec') * 1000 as integer))"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "workflows_base_variant_id_variants_id_fk": {
-          "name": "workflows_base_variant_id_variants_id_fk",
-          "tableFrom": "workflows",
-          "tableTo": "variants",
-          "columnsFrom": [
-            "base_variant_id"
           ],
           "columnsTo": [
             "id"

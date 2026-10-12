@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { config } from '../../src/config.js';
 import { openDatabase } from '../../src/db/index.js';
 
-// Contracts 16 的迁移（0010_workflows）：在按旧结构（0000–0009）写入的数据库上执行，现有 variant 归入 dev-workflow，
+// Contracts 16 的迁移（0011_workflows）：在按旧结构（0000–0010）写入的数据库上执行，现有 variant 归入 dev-workflow，
 // run 与交互进程的 model 与 effort 取它所用 variant 的值，task 的 kind 变为 workflow 与大阶段，引用与 session 的绑定不丢，
 // 阶段结果清空后按新形状重算
 const work = path.join(config.repoRoot, '.work', 'test-migration', randomUUID());
@@ -18,14 +18,14 @@ const dbFile = path.join(work, 'db.sqlite');
 
 const Journal = z.looseObject({ entries: z.array(z.looseObject({ tag: z.string() })) });
 
-// 只含 0000–0009 的迁移目录
+// 只含 0000–0010 的迁移目录
 function writeOldMigrations() {
   fs.mkdirSync(path.join(oldMigrations, 'meta'), { recursive: true });
   const journal = Journal.parse(
     JSON.parse(fs.readFileSync(path.join(config.migrationsDir, 'meta/_journal.json'), 'utf8')),
   );
-  const index = journal.entries.findIndex((e) => e.tag === '0010_workflows');
-  expect(index).toBe(10);
+  const index = journal.entries.findIndex((e) => e.tag === '0011_workflows');
+  expect(index).toBe(11);
   const entries = journal.entries.slice(0, index);
   for (const e of entries) {
     fs.copyFileSync(
@@ -43,7 +43,7 @@ afterAll(() => {
   fs.rmSync(work, { recursive: true, force: true });
 });
 
-describe('0010_workflows 迁移', () => {
+describe('0011_workflows 迁移', () => {
   test('旧结构的 variant、task、run、交互进程、session 与阶段结果迁移到新结构', () => {
     writeOldMigrations();
     const sqlite = new Database(dbFile);

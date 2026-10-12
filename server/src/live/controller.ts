@@ -78,7 +78,14 @@ export interface LiveControllerOptions {
   variantId: string | null;
   // variant 的数据目录，绑定模块读 skill 用
   dataDir: string;
+  // 进程的工作目录：本机配置出现信任确认时记进 trust 事件
+  cwd: string;
 }
+
+// Claude Code 询问是否信任工作目录的一屏（Reports/W30、W39 实测）
+const TRUST_PROMPT = 'Is this a project you created or one you trust?';
+const TRUST_YES = /❯.*Yes, I trust this folder/u;
+const TRUST_POLL_MS = 200;
 
 // 一个运行中的交互 session：hook 驱动的状态、模拟用户驾驶与接管（Contracts 14.4）
 export class LiveController {
@@ -110,8 +117,10 @@ export class LiveController {
     const stopBinding = events.subscribe((event) => {
       if (event.type === 'session.updated') this.bindImported();
     });
+    const stopTrust = opts.variantId === null ? this.answerTrust() : () => undefined;
     this.exited = this.pty.exited.then(async (exit) => {
       stopBinding();
+      stopTrust();
       this.generation?.abort.abort(new Error('进程已退出'));
       await this.watcher.close();
       if (fs.existsSync(this.jsonl)) ingestFile(this.db, this.jsonl);
@@ -134,6 +143,39 @@ export class LiveController {
 
   get starting(): boolean {
     return !this.started;
+  }
+
+  // "本机配置"的信任确认（Contracts 14.2）：不改用户的 ~/.claude.json；第一个 SessionStart 之前，屏幕副本上出现
+  // 信任确认时把光标移到"Yes, I trust this folder"并回车，之后由 Claude Code 自己记录信任。返回停止监视的函数
+  private answerTrust(): () => void {
+    let checking = false;
+    let answered = false;
+    const check = async () => {
+      if (checking || answered || this.started || !this.pty.alive) return;
+      checking = true;
+      const lines = await this.pty.viewport();
+      checking = false;
+      if (!lines.some((l) => l.includes(TRUST_PROMPT))) return;
+      if (lines.some((l) => TRUST_YES.test(l))) {
+        answered = true;
+        this.pty.write('\r');
+        // 回答时屏幕副本上的确认一并记下
+        this.event('trust', { cwd: this.opts.cwd, screen: lines.filter((l) => l.trim() !== '') });
+        return;
+      }
+      // 光标在别的选项上（默认是"No, exit"）：下移一行，下一次检查时再看
+      this.pty.write('\u001b[B');
+    };
+    const timer = setInterval(() => {
+      if (answered || this.started) {
+        clearInterval(timer);
+        return;
+      }
+      void check();
+    }, TRUST_POLL_MS);
+    return () => {
+      clearInterval(timer);
+    };
   }
 
   // 交互的 session 第一次导入后绑定到交互所用的 variant；本机配置不绑定。/clear 换了 session 时新的 session 同样绑定

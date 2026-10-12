@@ -1,4 +1,5 @@
 import { Link } from 'react-router';
+import { OpenInLiveButton } from '@/components/live/open-in-live';
 import { LiveBadge, WorkflowBadges } from '@/components/sessions/workflow-badges';
 import { bindingLabel } from '@/lib/analyses-api';
 import {
@@ -12,17 +13,29 @@ import {
 } from '@/lib/format';
 import type { SessionSummary } from '@/lib/sessions-api';
 
+// page：Sessions 页面，行尾有"Live"按钮；pick：导入选择框，链接在新标签页打开，不可选的行标出原因
+export type SessionTableMode = 'page' | 'pick';
+
 function Row({
   session,
+  mode,
   selected,
+  selectable,
   onToggle,
 }: {
   session: SessionSummary;
+  mode: SessionTableMode;
   selected: boolean;
+  selectable: boolean;
   onToggle: () => void;
 }) {
+  const pick = mode === 'pick';
   return (
-    <tr className="border-b align-top last:border-0 hover:bg-muted/40" data-testid="session-row">
+    <tr
+      className="border-b align-top last:border-0 hover:bg-muted/40"
+      data-testid="session-row"
+      data-session={session.id}
+    >
       <td className="py-2.5 pl-3">
         {/* 在整行链接的覆盖层之上 */}
         <input
@@ -30,12 +43,14 @@ function Row({
           className="relative z-10 size-4"
           aria-label={`选择 session ${session.id.slice(0, 8)}`}
           checked={selected}
+          disabled={!selectable}
           onChange={onToggle}
         />
       </td>
       <td className="max-w-[28rem] py-2.5 pr-4 pl-3">
         <Link
           to={`/sessions/${session.id}`}
+          target={pick ? '_blank' : undefined}
           className="line-clamp-2 font-medium after:absolute after:inset-0 hover:underline"
         >
           {session.title ?? '（没有用户消息）'}
@@ -46,6 +61,11 @@ function Row({
         >
           {session.cwd ?? '—'} · {session.id.slice(0, 8)}
         </p>
+        {pick && !selectable && (
+          <p className="mt-0.5 text-xs text-muted-foreground" data-testid="import-taken">
+            已在交互区
+          </p>
+        )}
       </td>
       <td className="py-2.5 pr-4 text-xs whitespace-nowrap tabular-nums">
         <p>{formatDateTime(session.startedAt)}</p>
@@ -82,17 +102,26 @@ function Row({
         )}
       </td>
       <td className="py-2.5 pr-3 font-mono text-xs">{session.runId ?? '—'}</td>
+      {!pick && (
+        <td className="py-2 pr-3">
+          <OpenInLiveButton session={session} className="relative z-10" />
+        </td>
+      )}
     </tr>
   );
 }
 
 export function SessionTable({
   sessions,
+  mode,
   selected,
+  isSelectable,
   onToggle,
 }: {
   sessions: SessionSummary[];
+  mode: SessionTableMode;
   selected: ReadonlySet<string>;
+  isSelectable: (session: SessionSummary) => boolean;
   onToggle: (id: string) => void;
 }) {
   return (
@@ -111,6 +140,11 @@ export function SessionTable({
             <th className="py-2 pr-4 font-medium">workflow</th>
             <th className="py-2 pr-4 font-medium">variant</th>
             <th className="py-2 pr-3 font-medium">run</th>
+            {mode === 'page' && (
+              <th className="py-2 pr-3 font-medium">
+                <span className="sr-only">交互区</span>
+              </th>
+            )}
           </tr>
         </thead>
         <tbody className="[&>tr]:relative">
@@ -118,7 +152,9 @@ export function SessionTable({
             <Row
               key={s.id}
               session={s}
+              mode={mode}
               selected={selected.has(s.id)}
+              selectable={isSelectable(s)}
               onToggle={() => {
                 onToggle(s.id);
               }}

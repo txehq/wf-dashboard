@@ -98,3 +98,26 @@ describe('refreshAuthEnv', () => {
     expect(variants.runtimeEnv(base.id).env.CLAUDE_CONFIG_DIR).toBe(path.dirname(file));
   }, 900_000);
 });
+
+const ClaudeJson = z.looseObject({
+  projects: z.record(z.string(), z.looseObject({ hasTrustDialogAccepted: z.boolean().optional() })),
+});
+
+describe('trustDirectory', () => {
+  test('交互启动前把新目录记为已信任（Contracts 14.2）：.claude.json 中其余内容不变，再调用不改文件', () => {
+    if (variantId === undefined) throw new Error('上一个用例没有构建 variant');
+    const cwd = path.join(work, 'never-trusted');
+    fs.mkdirSync(cwd);
+    const file = path.join(variants.layout(variantId).claudeDir, '.claude.json');
+    const before = z.looseObject({}).parse(JSON.parse(fs.readFileSync(file, 'utf8')));
+    variants.trustDirectory(variantId, cwd);
+    const after = ClaudeJson.parse(JSON.parse(fs.readFileSync(file, 'utf8')));
+    expect(after.projects[cwd]?.hasTrustDialogAccepted).toBe(true);
+    expect({ ...after, projects: undefined }).toEqual({ ...before, projects: undefined });
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    const written = fs.statSync(file).mtimeMs;
+    variants.trustDirectory(variantId, cwd);
+    expect(fs.statSync(file).mtimeMs).toBe(written);
+    expect(fs.readdirSync(path.dirname(file)).filter((f) => f.endsWith('.tmp'))).toEqual([]);
+  });
+});

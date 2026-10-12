@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Hand, Plus, Power, Undo2, X } from 'lucide-r
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { ImportSessionsButton } from '@/components/live/import-sessions';
+import { HideButton, ItemMenu, UnhideButton } from '@/components/live/item-actions';
 import { LiveTerminal } from '@/components/live/live-terminal';
 import { LiveTitle } from '@/components/live/live-title';
 import { NewLiveForm } from '@/components/live/new-live-form';
@@ -55,54 +56,105 @@ function StatusBadge({ live }: { live: LiveSummary }) {
   );
 }
 
-// 左侧列表：有运行中进程的在前，其余按最近更新；每项显示名字、状态、variant、环境与 resume 次数
-function LiveList({ onOpen, active }: { onOpen: (id: string) => void; active: string | null }) {
-  const list = useQuery(liveListQuery);
-  if (list.isPending) return <p className="text-sm text-muted-foreground">加载中…</p>;
-  if (list.isError) {
-    return (
+// 左侧列表：有运行中进程的在前，其余按最近更新；每项显示名字、状态、variant、环境与 resume 次数。
+// 每项可以"×"关闭（只隐藏）或从菜单删除；底部的开关列出已关闭的项（Contracts 14.5）
+function LiveList({
+  onOpen,
+  onGone,
+  active,
+}: {
+  onOpen: (id: string) => void;
+  // 关闭或删除后：关掉它的标签页
+  onGone: (id: string) => void;
+  active: string | null;
+}) {
+  const [showHidden, setShowHidden] = useState(false);
+  const list = useQuery(liveListQuery(showHidden));
+  let body;
+  if (list.isPending) body = <p className="text-sm text-muted-foreground">加载中…</p>;
+  else if (list.isError) {
+    body = (
       <p role="alert" className="text-sm text-destructive">
         {list.error.message}
       </p>
     );
-  }
-  if (list.data.length === 0) {
-    return <p className="text-sm text-muted-foreground">还没有交互 session。</p>;
+  } else if (list.data.length === 0) {
+    body = <p className="text-sm text-muted-foreground">还没有交互 session。</p>;
+  } else {
+    body = (
+      <ul className="flex flex-col gap-1" aria-label="交互 session" data-testid="live-list">
+        {list.data.map((live) => {
+          const hidden = live.hiddenAt !== null;
+          return (
+            <li key={live.id}>
+              <div
+                role="button"
+                tabIndex={0}
+                data-live={live.id}
+                data-hidden={hidden}
+                aria-current={active === live.id}
+                className="flex w-full cursor-pointer flex-col gap-0.5 rounded-md border px-3 py-2 text-left hover:bg-muted/50 aria-[current=true]:border-foreground data-[hidden=true]:border-dashed data-[hidden=true]:opacity-70"
+                onClick={() => {
+                  onOpen(live.id);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') onOpen(live.id);
+                }}
+              >
+                <span className="flex items-start gap-1">
+                  <span className="min-w-0 flex-1">
+                    <LiveTitle
+                      liveId={live.id}
+                      title={live.title}
+                      className="line-clamp-2 text-sm font-medium"
+                    />
+                  </span>
+                  <ItemMenu
+                    live={live}
+                    onDeleted={() => {
+                      onGone(live.id);
+                    }}
+                  />
+                  {!hidden && (
+                    <HideButton
+                      live={live}
+                      onHidden={() => {
+                        onGone(live.id);
+                      }}
+                    />
+                  )}
+                </span>
+                <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                  <StatusBadge live={live} />
+                  {variantLabel(live)} · {environmentLabel[live.environment]} ·{' '}
+                  <span data-testid="live-resume-count">resume {live.resumeCount} 次</span>
+                </span>
+                <span className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                  {formatDateTime(new Date(live.updatedAt).toISOString())}
+                  {hidden && <UnhideButton live={live} />}
+                </span>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    );
   }
   return (
-    <ul className="flex flex-col gap-1" aria-label="交互 session" data-testid="live-list">
-      {list.data.map((live) => (
-        <li key={live.id}>
-          <div
-            role="button"
-            tabIndex={0}
-            data-live={live.id}
-            aria-current={active === live.id}
-            className="flex w-full cursor-pointer flex-col gap-0.5 rounded-md border px-3 py-2 text-left hover:bg-muted/50 aria-[current=true]:border-foreground"
-            onClick={() => {
-              onOpen(live.id);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') onOpen(live.id);
-            }}
-          >
-            <LiveTitle
-              liveId={live.id}
-              title={live.title}
-              className="line-clamp-2 text-sm font-medium"
-            />
-            <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-              <StatusBadge live={live} />
-              {variantLabel(live)} · {environmentLabel[live.environment]} ·{' '}
-              <span data-testid="live-resume-count">resume {live.resumeCount} 次</span>
-            </span>
-            <span className="text-xs text-muted-foreground">
-              {formatDateTime(new Date(live.updatedAt).toISOString())}
-            </span>
-          </div>
-        </li>
-      ))}
-    </ul>
+    <>
+      {body}
+      <label className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+        <input
+          type="checkbox"
+          data-testid="show-hidden"
+          checked={showHidden}
+          onChange={(event) => {
+            setShowHidden(event.target.checked);
+          }}
+        />
+        显示已关闭的项
+      </label>
+    </>
   );
 }
 
@@ -340,14 +392,15 @@ export function LivePage() {
   const [params, setParams] = useSearchParams();
   const [creating, setCreating] = useState(false);
   const open = (params.get('tabs') ?? '').split(',').filter((id) => id !== '');
-  const active = params.get('open') ?? open.at(-1) ?? null;
+  // ?item=<liveId>：选中这一项的标签页（Sessions 页面的"Live"按钮、resume 与导入都跳到这里）
+  const active = params.get('item') ?? open.at(-1) ?? null;
   const tabs = active !== null && !open.includes(active) ? [...open, active] : open;
   const update = (nextTabs: string[], nextActive: string | null) => {
     setParams(
       () => {
         const next = new URLSearchParams();
         if (nextTabs.length > 0) next.set('tabs', nextTabs.join(','));
-        if (nextActive !== null) next.set('open', nextActive);
+        if (nextActive !== null) next.set('item', nextActive);
         return next;
       },
       { replace: true },
@@ -392,7 +445,7 @@ export function LivePage() {
               if (last !== undefined) openTab(last.id);
             }}
           />
-          <LiveList onOpen={openTab} active={active} />
+          <LiveList onOpen={openTab} onGone={closeTab} active={active} />
         </aside>
         <section className="flex min-w-0 flex-col gap-3">
           {tabs.length === 0 ? (

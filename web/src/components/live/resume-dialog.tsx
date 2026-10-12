@@ -71,7 +71,7 @@ function ResumeForm({
     onSuccess: async (live) => {
       await client.invalidateQueries({ queryKey: ['live'] });
       onResumed(live);
-      if (navigateAfter) await navigate(`/live?open=${live.id}`);
+      if (navigateAfter) await navigate(`/live?item=${live.id}`);
     },
   });
   if (defaults.data === undefined || variants.data === undefined) {

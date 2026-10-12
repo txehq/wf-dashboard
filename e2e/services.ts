@@ -6,6 +6,8 @@ import {
   compareServerPort,
   compareWebPort,
   environmentServerPort,
+  liveItemsServerPort,
+  liveItemsWebPort,
   runsServerPort,
   runsWebPort,
   serverPort,
@@ -31,6 +33,9 @@ const chromiumDataDir = path.join(root, '.work/e2e/chromium-data');
 // 分析页面的数据目录与来源目录：每次由 prepare-analyses-e2e 删除重建（两个真实 run 的 session 与 9f2bed6 的基线）
 const analysesDataDir = '.work/e2e/analyses-data';
 const analysesProjectsDir = path.join(root, '.work/e2e/analyses/projects');
+// 交互项 e2e 的数据目录与来源目录：每次删除重建
+export const liveItemsDir = path.join(root, '.work/e2e/live-items');
+export const liveItemsProjectsDir = path.join(liveItemsDir, 'projects');
 
 // 各 project 用到的服务。chromium 的服务端与页面继承本进程的 WFD_PORT、WFD_WEB_PORT；
 // 其余几对服务读取各自的专用数据目录，端口见 ports.ts
@@ -104,6 +109,24 @@ export const services = {
     url: `http://127.0.0.1:${String(analysesWebPort)}`,
     reuseExistingServer: false,
     env: { WFD_PORT: String(analysesServerPort), WFD_WEB_PORT: String(analysesWebPort) },
+  },
+  liveItemsServer: {
+    // 数据目录与来源目录每次删除重建；来源目录下的 session 目录由 live-items.spec 放入
+    command: `rm -rf ${liveItemsDir} && mkdir -p ${liveItemsProjectsDir} && pnpm --filter @wf-dashboard/server exec tsx src/main.ts`,
+    url: `http://127.0.0.1:${String(liveItemsServerPort)}/api/health`,
+    reuseExistingServer: false,
+    timeout: 120_000,
+    env: {
+      WFD_DATA_DIR: path.join(liveItemsDir, 'data'),
+      WFD_CLAUDE_PROJECTS: liveItemsProjectsDir,
+      WFD_PORT: String(liveItemsServerPort),
+    },
+  },
+  liveItemsWeb: {
+    command: 'pnpm --filter @wf-dashboard/web dev',
+    url: `http://127.0.0.1:${String(liveItemsWebPort)}`,
+    reuseExistingServer: false,
+    env: { WFD_PORT: String(liveItemsServerPort), WFD_WEB_PORT: String(liveItemsWebPort) },
   },
 } satisfies Record<string, WebServer>;
 

@@ -86,7 +86,13 @@ const IsolatedSettings = z.looseObject({
   claudeMdExcludes: z.array(z.string()).optional(),
 });
 
-const ClaudeState = z.looseObject({ hasCompletedOnboarding: z.boolean().optional() });
+const ClaudeState = z.looseObject({
+  hasCompletedOnboarding: z.boolean().optional(),
+  // 按目录记录的状态；信任确认记在 projects[<目录>].hasTrustDialogAccepted（Reports/W39 实测，祖先目录的信任也覆盖子目录）
+  projects: z
+    .record(z.string(), z.looseObject({ hasTrustDialogAccepted: z.boolean().optional() }))
+    .optional(),
+});
 
 function readWorkspaceVersion(srcDir: string): string {
   return CargoManifest.parse(parse(fs.readFileSync(path.join(srcDir, 'Cargo.toml'), 'utf8')))
@@ -152,6 +158,20 @@ export function createVariants({
     const tmp = `${file}.${randomUUID()}.tmp`;
     const content = `${JSON.stringify({ ...state, hasCompletedOnboarding: true }, null, 2)}\n`;
     fs.writeFileSync(tmp, content, { mode: 0o600 });
+    fs.renameSync(tmp, file);
+  }
+
+  // 交互启动与 resume 前把 cwd 记为已信任（Contracts 14.2），Claude Code 不再询问；已信任时不改动文件。
+  // cwd 经过符号链接时，原路径与真实路径都记上
+  function trustDirectory(claudeDir: string, cwd: string) {
+    const file = path.join(claudeDir, '.claude.json');
+    const state = ClaudeState.parse(JSON.parse(fs.readFileSync(file, 'utf8')));
+    const dirs = [...new Set([path.resolve(cwd), fs.realpathSync(cwd)])];
+    const projects = { ...state.projects };
+    if (dirs.every((d) => projects[d]?.hasTrustDialogAccepted === true)) return;
+    for (const d of dirs) projects[d] = { ...projects[d], hasTrustDialogAccepted: true };
+    const tmp = `${file}.${randomUUID()}.tmp`;
+    fs.writeFileSync(tmp, `${JSON.stringify({ ...state, projects }, null, 2)}\n`, { mode: 0o600 });
     fs.renameSync(tmp, file);
   }
 
@@ -709,6 +729,15 @@ export function createVariants({
       markOnboardingDone(dirs.claudeDir);
       writeCodexHome(dirs.codexHome, { authPath: codexAuthPath, configPath: codexConfigPath });
       return merged;
+    },
+
+    // 交互的进程在 cwd 中启动或 resume 前调用（Contracts 14.2）：variant 的配置目录由 dashboard 所有
+    trustDirectory(id: string, cwd: string) {
+      const row = get(id);
+      if (row.buildStatus !== 'built') {
+        throw new HttpError(409, `variant ${row.name} 还没有构建，没有 .claude.json`);
+      }
+      trustDirectory(layout.variant(id).claudeDir, cwd);
     },
 
     runtimeEnv(id: string): RuntimeEnv {

@@ -58,27 +58,12 @@ function report(name: string, startedAt: number, sessionId: string, costBefore =
   fs.appendFileSync(file, `${JSON.stringify({ name, seconds, costUsd: cost, at: new Date() })}\n`);
 }
 
-// real 环境中目录未被这个配置信任时，Claude Code 在任何 hook 之前询问；由人（这里是测试）回答
-async function acceptTrustIfAsked(
-  client: ReturnType<typeof terminalClient>,
-  id: string,
-): Promise<'asked' | 'trusted'> {
-  return until('信任对话框或 SessionStart', 120_000, async () => {
-    const screen = (await client.screen()).join('\n');
-    if (screen.includes('Yes, I trust this folder')) {
-      const detail = await server.detail(id);
-      expect(detail.starting).toBe(true);
-      // 光标移到"Yes"之后再回车；回车落在默认的"No, exit"上 Claude Code 会退出
-      client.input('\u001b[B');
-      await until('光标移到 Yes', 10_000, async () =>
-        (await client.screen()).some((l) => /❯.*Yes, I trust this folder/u.test(l)) ? true : null,
-      );
-      client.input('\r');
-      return 'asked' as const;
-    }
-    return hookNames(await server.detail(id)).includes('SessionStart')
-      ? ('trusted' as const)
-      : null;
+// variant 启动与 resume 前已把 cwd 记为已信任（Contracts 14.2）：直到 SessionStart 都不出现信任确认。
+// 出现时没有人回答，它会一直停在屏幕上
+async function noTrustPrompt(client: ReturnType<typeof terminalClient>, id: string) {
+  await until('SessionStart', 120_000, async () => {
+    expect((await client.screen()).join('\n')).not.toContain('Yes, I trust this folder');
+    return hookNames(await server.detail(id)).includes('SessionStart') ? true : null;
   });
 }
 
@@ -178,7 +163,7 @@ describe('交互：新建、退出、在同一项上 resume（真实 claude）',
     const a = terminalClient(server.url, live.id);
     const b = terminalClient(server.url, live.id);
     await Promise.all([a.opened, b.opened]);
-    await acceptTrustIfAsked(a, live.id);
+    await noTrustPrompt(a, live.id);
     expect(hookNames(await started(live.id))).toContain('SessionStart');
     await until('初始消息提交', 120_000, async () =>
       hookNames(await server.detail(live.id)).includes('UserPromptSubmit') ? true : null,
@@ -326,7 +311,7 @@ describe('交互：新建、退出、在同一项上 resume（真实 claude）',
     const replay = client.messages[0]?.data ?? '';
     expect(replay).toContain('/lfg 做一个计算器');
     expect(replay.indexOf('· start ·')).toBeLessThan(replay.indexOf('· resume ·'));
-    await acceptTrustIfAsked(client, live.id);
+    await noTrustPrompt(client, live.id);
     const resumedStart = await started(live.id);
     expect(
       resumedStart.events.find(
@@ -457,7 +442,7 @@ describe('从 Sessions resume 不属于任何项的 session（真实 claude）',
 
     const client = terminalClient(server.url, live.id);
     await client.opened;
-    await acceptTrustIfAsked(client, live.id);
+    await noTrustPrompt(client, live.id);
     const resumed = await started(live.id);
     const start = resumed.events.find(
       (e) => e.kind === 'hook' && e.payload.hook_event_name === 'SessionStart',

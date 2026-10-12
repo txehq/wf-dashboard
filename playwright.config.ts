@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 import { e2eLocalReposDir } from './e2e/local-repos.js';
 import { type Service, webServersFor } from './e2e/services.js';
-import { compareWebPort, runsWebPort, webPort } from './ports.js';
+import { compareWebPort, liveItemsWebPort, runsWebPort, webPort } from './ports.js';
 import { guardBasicTier } from './server/test/setup/basic-tier.js';
 import { guardGithub } from './server/test/setup/github-guard.js';
 
@@ -20,6 +20,7 @@ const projectServices: Record<string, Service[]> = {
   chromium: ['sessionsServer', 'web'],
   compare: ['compareServer', 'compareWeb'],
   runs: ['runsServer', 'runsWeb'],
+  'live-items': ['liveItemsServer', 'liveItemsWeb'],
 };
 
 export default defineConfig({
@@ -66,6 +67,16 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         baseURL: `http://127.0.0.1:${String(runsWebPort)}`,
+        viewport: { width: 1600, height: 1000 },
+      },
+    },
+    {
+      // 交互项的关闭、删除、导入选择框与 Sessions 的 Live 按钮：只导入不启动，不调用 claude
+      name: 'live-items',
+      testMatch: 'live-items.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: `http://127.0.0.1:${String(liveItemsWebPort)}`,
         viewport: { width: 1600, height: 1000 },
       },
     },

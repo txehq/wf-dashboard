@@ -243,6 +243,7 @@ export function createLive(deps: LiveDeps) {
       ticket: typeof start.ticket === 'string' ? start.ticket : null,
       createdAt: r.createdAt.getTime(),
       updatedAt: r.updatedAt.getTime(),
+      hiddenAt: r.hiddenAt === null ? null : r.hiddenAt.getTime(),
     };
   }
 
@@ -345,6 +346,8 @@ export function createLive(deps: LiveDeps) {
       variantArgs = [];
     } else {
       variants.refreshAuthEnv(spec.variantId);
+      // 工作目录的信任确认（Contracts 14.2）：variant 的配置目录中先记为已信任
+      variants.trustDirectory(spec.variantId, spec.cwd);
       const runtime = variants.runtimeEnv(spec.variantId);
       env = { ...runtime.env };
       // 模型与 effort 不再属于 variant（Contracts 16.5）：交互的选择由 W37 加入，此前用设置的默认值
@@ -443,6 +446,7 @@ export function createLive(deps: LiveDeps) {
       eval: spec.eval,
       variantId: spec.variantId,
       dataDir: deps.dataDir,
+      cwd: spec.cwd,
     });
     controllers.set(spec.liveId, controller);
     void controller.exited.then(() => {
@@ -714,6 +718,8 @@ export function createLive(deps: LiveDeps) {
           cwd,
         });
       }
+      // 从 Sessions 详情 resume 一个已关闭项的 session：这一项恢复显示（Contracts 14.5）
+      if (item !== null) setHidden(item.id, false, { reason: 'resume' });
       if (copied) {
         const oldDir = path.join(path.dirname(session.filePath), session.id);
         const newDir = path.join(path.dirname(target), session.id);
@@ -748,26 +754,31 @@ export function createLive(deps: LiveDeps) {
     });
   }
 
-  // Contracts 14.5"导入到交互区"：为每个 session 建一项（real 环境，cwd 为 session 记录的 cwd），不启动进程。
-  // 先检查全部：有不存在的 404，有已在交互区的 409 并列出，都不建
+  // Contracts 14.5"导入到交互区"：为每个 session 建一项（real 环境，cwd 为 session 记录的 cwd），不启动进程；
+  // 已关闭的项恢复显示。先检查全部：有不存在的 404，有显示中的项的 409 并列出，都不改动
   function importSessions(sessionIds: string[]): LiveSummary[] {
     const ids = [...new Set(sessionIds)];
     const rows = ids.map((id) => ({
       id,
       session: db.select().from(sessions).where(eq(sessions.id, id)).get(),
+      item: itemOfSession(id),
     }));
     const missing = rows.filter((r) => r.session === undefined).map((r) => r.id);
     if (missing.length > 0) throw new HttpError(404, `session 不存在：${missing.join(', ')}`);
-    const taken = ids.flatMap((id) => {
-      const item = itemOfSession(id);
-      return item === null ? [] : [`${id}（${item.id}）`];
-    });
+    // 已关闭的项不算在交互区：导入即恢复显示
+    const taken = rows.flatMap(({ id, item }) =>
+      item?.hiddenAt === null ? [`${id}（${item.id}）`] : [],
+    );
     if (taken.length > 0) throw new HttpError(409, `这些 session 已在交互区：${taken.join(', ')}`);
-    const noCwd = rows.filter((r) => r.session?.cwd == null).map((r) => r.id);
+    const noCwd = rows.filter((r) => r.item === null && r.session?.cwd == null).map((r) => r.id);
     if (noCwd.length > 0)
       throw new HttpError(400, `这些 session 没有记录工作目录：${noCwd.join(', ')}`);
-    const created = db.$client.transaction(() =>
-      rows.map(({ id, session }) => {
+    const liveIds = db.$client.transaction(() =>
+      rows.map(({ id, session, item }) => {
+        if (item !== null) {
+          setHidden(item.id, false, { reason: 'import' });
+          return item.id;
+        }
         if (session?.cwd == null) throw new Error(`session ${id} 没有记录工作目录`);
         const liveId = newId('l');
         const title = sessionListTitle(id);
@@ -794,12 +805,78 @@ export function createLive(deps: LiveDeps) {
         return liveId;
       }),
     )();
-    for (const [i, liveId] of created.entries()) {
+    for (const [i, liveId] of liveIds.entries()) {
       events.publish({ type: 'live.updated', liveId });
       const sessionId = ids[i];
       if (sessionId !== undefined) events.publish({ type: 'session.updated', sessionId });
     }
-    return created.map((liveId) => summary(row(liveId)));
+    return liveIds.map((liveId) => summary(row(liveId)));
+  }
+
+  // 关闭（"×"）与恢复显示：只改 hidden_at 并记一条事件；已经是这个状态时不记
+  function setHidden(id: string, hidden: boolean, payload: Record<string, unknown>) {
+    const item = row(id);
+    if ((item.hiddenAt !== null) === hidden) return;
+    const at = new Date();
+    db.update(liveSessions)
+      .set({ hiddenAt: hidden ? at : null })
+      .where(eq(liveSessions.id, id))
+      .run();
+    db.insert(liveEvents)
+      .values({ liveId: id, processId: null, at, kind: hidden ? 'hide' : 'unhide', payload })
+      .run();
+  }
+
+  // 有运行中进程的项不能关闭或删除，先结束进程（Contracts 14.5）
+  function requireStopped(id: string, action: string) {
+    if (controllers.has(id) || running(id)) {
+      throw new HttpError(409, `交互 ${id} 有运行中的进程，先结束进程再${action}`);
+    }
+  }
+
+  function hide(id: string): LiveDetail {
+    requireStopped(id, '关闭');
+    setHidden(id, true, { reason: 'user' });
+    events.publish({ type: 'live.updated', liveId: id });
+    return detail(id);
+  }
+
+  function unhide(id: string): LiveDetail {
+    setHidden(id, false, { reason: 'user' });
+    events.publish({ type: 'live.updated', liveId: id });
+    return detail(id);
+  }
+
+  // 删除一项（Contracts 14.5）：交互项、它的进程与事件记录、data/live/<liveId>/。session 本身不删（jsonl 与副本、
+  // Sessions 中的记录，sessions.live_id 置空），GitHub 仓库与 Linear 工单由用户处理
+  function remove(id: string, confirmTitle: string) {
+    const item = row(id);
+    requireStopped(id, '删除');
+    if (confirmTitle !== item.title) {
+      throw new HttpError(400, `输入的名字与这一项的名字不同：${JSON.stringify(confirmTitle)}`);
+    }
+    const counts = db.$client.transaction(() => {
+      const unlinked = db
+        .update(sessions)
+        .set({ liveId: null })
+        .where(eq(sessions.liveId, id))
+        .returning({ id: sessions.id })
+        .all();
+      const removedEvents = db.delete(liveEvents).where(eq(liveEvents.liveId, id)).run().changes;
+      const removedProcesses = db
+        .delete(liveProcesses)
+        .where(eq(liveProcesses.liveId, id))
+        .run().changes;
+      db.delete(liveSessions).where(eq(liveSessions.id, id)).run();
+      return { unlinked: unlinked.map((s) => s.id), removedEvents, removedProcesses };
+    })();
+    const dir = liveDir(id);
+    fs.rmSync(dir, { recursive: true, force: true });
+    console.info(
+      `[live] 删除交互 ${id}（${item.title}）：${String(counts.removedProcesses)} 个进程、${String(counts.removedEvents)} 条事件、${dir}；session ${counts.unlinked.join(', ')} 保留`,
+    );
+    events.publish({ type: 'live.updated', liveId: id });
+    for (const sessionId of counts.unlinked) events.publish({ type: 'session.updated', sessionId });
   }
 
   // Contracts 14.3：改名立即反映在标签页、Sessions 列表与详情中
@@ -830,11 +907,12 @@ export function createLive(deps: LiveDeps) {
   }
 
   return {
-    // 有运行中进程的在前，其余按 updated_at 倒序（Contracts 14.3）
-    list(): LiveSummary[] {
+    // 有运行中进程的在前，其余按 updated_at 倒序（Contracts 14.3）；已关闭的项只在 includeHidden 时列出
+    list(includeHidden = false): LiveSummary[] {
       return db
         .select()
         .from(liveSessions)
+        .where(includeHidden ? undefined : isNull(liveSessions.hiddenAt))
         .orderBy(
           sql`case when exists (select 1 from ${liveProcesses} where ${liveProcesses.liveId} = ${liveSessions.id} and ${liveProcesses.status} = 'running') then 0 else 1 end`,
           desc(liveSessions.updatedAt),
@@ -848,6 +926,9 @@ export function createLive(deps: LiveDeps) {
     resumeDefaults,
     rename,
     importSessions,
+    hide,
+    unhide,
+    remove,
     hook(id: string, payload: HookPayload) {
       controllerOf(id).hook(payload);
     },
