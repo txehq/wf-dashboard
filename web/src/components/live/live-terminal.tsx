@@ -48,17 +48,26 @@ export function LiveTerminal({ liveId }: { liveId: string }) {
       setConnection('open');
       sendSize();
     });
+    // 连接后的第一条消息是这一项保留的输出（含之前进程的）：xterm.js 处理它时会回答其中的查询（设备属性、焦点），
+    // 这些回答不是人的输入，不发给现在的进程
+    let replaying = true;
     socket.addEventListener('message', (event: MessageEvent<string>) => {
       const message = JSON.parse(event.data) as ServerMessage;
-      if (message.type === 'output') term.write(message.data);
-      else if (message.type === 'error') setError(message.message);
+      if (message.type === 'output') {
+        if (replaying) {
+          term.write(message.data, () => {
+            replaying = false;
+            term.focus();
+          });
+        } else term.write(message.data);
+      } else if (message.type === 'error') setError(message.message);
       else setConnection('exited');
     });
     socket.addEventListener('close', () => {
       setConnection((current) => (current === 'exited' ? current : 'closed'));
     });
     const input = term.onData((data) => {
-      send({ type: 'input', data });
+      if (!replaying) send({ type: 'input', data });
     });
     const resizing = term.onResize(sendSize);
     // 容器高度固定，行列只随窗口与布局变化；放到下一帧，避免在同一次布局中反复触发
@@ -70,7 +79,6 @@ export function LiveTerminal({ liveId }: { liveId: string }) {
       });
     });
     observer.observe(element);
-    term.focus();
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();

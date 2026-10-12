@@ -1,28 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
-import {
-  Columns2,
-  GitBranch,
-  History,
-  ListChecks,
-  Microscope,
-  Play,
-  SquareTerminal,
-} from 'lucide-react';
-import { NavLink, Outlet } from 'react-router';
+import { Outlet } from 'react-router';
 import { EnvironmentStatus } from '@/components/environment/environment-status';
-import { Button } from '@/components/ui/button';
+import { MainNav } from '@/components/main-nav';
 import { healthQuery } from '@/lib/api';
 import { useLiveConnection, useLiveStatus } from '@/lib/live-events';
-
-const navItems = [
-  { to: '/sessions', label: 'Sessions', icon: History },
-  { to: '/runs', label: 'Runs', icon: Play },
-  { to: '/live', label: '交互', icon: SquareTerminal },
-  { to: '/variants', label: 'Variants', icon: GitBranch },
-  { to: '/tasks', label: 'Tasks', icon: ListChecks },
-  { to: '/compare', label: 'Compare', icon: Columns2 },
-  { to: '/analyses', label: '分析', icon: Microscope },
-] as const;
 
 function ServerStatus() {
   const health = useQuery(healthQuery);
@@ -55,21 +36,7 @@ export function Layout() {
     <div className="flex min-h-svh">
       <aside className="flex w-56 shrink-0 flex-col gap-4 border-r bg-muted/40 py-4">
         <div className="px-5 text-sm font-semibold">Magi Dashboard</div>
-        <nav aria-label="主导航" className="flex flex-col gap-1 px-2">
-          {navItems.map(({ to, label, icon: Icon }) => (
-            <Button
-              key={to}
-              asChild
-              variant="ghost"
-              className="w-full justify-start aria-[current=page]:bg-background aria-[current=page]:font-semibold aria-[current=page]:shadow-xs"
-            >
-              <NavLink to={to}>
-                <Icon />
-                {label}
-              </NavLink>
-            </Button>
-          ))}
-        </nav>
+        <MainNav />
         <div className="mt-auto flex flex-col gap-2">
           <EnvironmentStatus />
           <ServerStatus />

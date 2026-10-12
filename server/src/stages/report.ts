@@ -1,8 +1,8 @@
-import { and, asc, eq, gt, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import {
-  liveSessions,
+  liveProcesses,
   requests,
   runs,
   sessions,
@@ -188,8 +188,8 @@ const variantWorkflow = (db: Db, variantId: string) =>
     .where(eq(variants.id, variantId))
     .get()?.workflowId;
 
-// 划分 session 所用的 workflow（Contracts 16.6）：run 与交互的 session 用所用 variant 的 workflow；
-// 绑定了 variant 的离线 session 用该 variant 的 workflow；其余只按 dev-workflow 划分
+// 划分 session 所用的 workflow（Contracts 16.6）：run 的 session 用所用 variant 的 workflow；交互的 session 用该项最近一次进程所用
+// variant 的 workflow；绑定了 variant 的离线 session 用该 variant 的 workflow；其余只按 dev-workflow 划分
 export function sessionWorkflowId(db: Db, sessionId: string): string {
   const session = db
     .select({ runId: sessions.runId, liveId: sessions.liveId, variantId: sessions.variantId })
@@ -205,9 +205,11 @@ export function sessionWorkflowId(db: Db, sessionId: string): string {
     session.liveId === null
       ? undefined
       : db
-          .select({ variantId: liveSessions.variantId })
-          .from(liveSessions)
-          .where(eq(liveSessions.id, session.liveId))
+          .select({ variantId: liveProcesses.variantId })
+          .from(liveProcesses)
+          .where(eq(liveProcesses.liveId, session.liveId))
+          .orderBy(desc(liveProcesses.id))
+          .limit(1)
           .get();
   const variantId = run?.variantId ?? live?.variantId ?? session.variantId;
   return (variantId === null ? undefined : variantWorkflow(db, variantId)) ?? DEV_WORKFLOW_ID;

@@ -9,9 +9,17 @@ import { ingestFile } from '../src/ingest/ingest.js';
 import { createInsights, type Insights } from '../src/insights/index.js';
 import { syncTasks } from '../src/tasks/loader.js';
 import { createVariants } from '../src/variants/index.js';
-import { BASE_COMMIT, IC, LFG, unpackSession, workDir } from './helpers/session-fixtures.js';
+import {
+  BASE_COMMIT,
+  copyOtherIcSession,
+  IC,
+  IC_OTHER,
+  unpackSession,
+  workDir,
+} from './helpers/session-fixtures.js';
 
-// Contracts 15.2：真实引擎分析真实 session（27yz3d 的 ic、dqva52 的 lfg），不 mock。
+// Contracts 15.2：真实引擎分析真实 session，不 mock。用最短的 session：27yz3d（ic，34 个主请求）；
+// 两个 session 一起分析时另加 40f6915a（ic，同一个基线）。
 // 每次分析的步骤、耗时、token 与花费写到 .work/w31/，供报告对比两种引擎
 const dir = workDir('insights-engines');
 const dataDir = path.join(dir, 'data');
@@ -37,7 +45,7 @@ afterAll(async () => {
 });
 
 ingestFile(db, unpackSession(dir, IC));
-ingestFile(db, unpackSession(dir, LFG));
+ingestFile(db, copyOtherIcSession(dir));
 const variant = await variants.createBaseline({
   name: 'w31-engines',
   commit: BASE_COMMIT,
@@ -122,9 +130,9 @@ describe('真实引擎分析真实 session', { timeout: 50 * 60_000 }, () => {
   });
 
   test('同一 variant 的两个 session 一起分析：发现中的证据来自两个 session', async () => {
-    const s = await analyze('claude-both', 'claude', [IC.sessionId, LFG.sessionId]);
+    const s = await analyze('claude-both', 'claude', [IC.sessionId, IC_OTHER.sessionId]);
     const cited = new Set(s.detail.findings.flatMap((f) => f.evidence.map((e) => e.sessionId)));
-    expect([...cited].sort()).toEqual([IC.sessionId, LFG.sessionId].sort());
+    expect([...cited].sort()).toEqual([IC.sessionId, IC_OTHER.sessionId].sort());
   });
 
   test('取消：停掉全部引擎进程，状态为已取消', async () => {
@@ -162,9 +170,9 @@ describe('真实引擎分析真实 session', { timeout: 50 * 60_000 }, () => {
     variants.writeFile(other.id, 'skills/ic/NOTE.md', 'x\n');
     db.$client
       .prepare("update sessions set variant_id = ?, variant_binding = 'manual' where id = ?")
-      .run(other.id, LFG.sessionId);
+      .run(other.id, IC_OTHER.sessionId);
     expect(() =>
-      insights.create({ sessionIds: [IC.sessionId, LFG.sessionId], engine: 'claude' }),
+      insights.create({ sessionIds: [IC.sessionId, IC_OTHER.sessionId], engine: 'claude' }),
     ).toThrow('所选 session 必须都绑定到同一个 variant');
   });
 });

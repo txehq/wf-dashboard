@@ -47,7 +47,7 @@ describe('从 Linear 导入 ic task', { timeout: 5 * 60_000 }, () => {
 
   it('TXE-3777：粘贴地址导入，ticket.body 与 get_issue 的 description 逐字节相同，写成 task.yaml 读回仍相同', async () => {
     const preview = await previewLinearImport(
-      { issue: CALC_TICKET_URL, repo },
+      { issue: CALC_TICKET_URL, repo, criteria: false },
       DEFAULT_COPY_RUNNER_LABELS,
     );
     const raw = await callLinear(
@@ -66,19 +66,15 @@ describe('从 Linear 导入 ic task', { timeout: 5 * 60_000 }, () => {
     expect(preview.issue.linkedPrs).toEqual([]);
     expect(preview.commit).toBe((await readCommit(repo, 'main')).sha);
     expect(preview.commitSource).toEqual({ kind: 'default-branch', branch: 'main' });
-    // 正文有 ## Acceptance criteria 一节，8 条；每个 quote 都是正文原文
-    const drafted = preview.criteria;
-    if (drafted === null) throw new Error('预览没有确定验收标准');
-    expect(drafted.criteria).toHaveLength(8);
-    expect(preview.task.ticket.acceptanceCriteria).toEqual(drafted.criteria.map((c) => c.text));
-    for (const c of drafted.criteria) expect(raw.description).toContain(c.quote);
-    const definition = TaskDefinition.parse(preview.task);
+    // 验收标准的确定由 criteria-draft.test.ts 以最小的正文测试，这里不调用 judge
+    expect(preview.criteria).toBeNull();
+    const definition = TaskDefinition.parse({
+      ...preview.task,
+      ticket: { ...preview.task.ticket, acceptanceCriteria: ['页面外壳与 CI 按工单建立'] },
+    });
     const back = parseTaskYaml(serializeTask(definition), 'TXE-3777.yaml');
     expect(back.bigStage).toBe('ic');
     expect(back.ticket?.body).toBe(raw.description);
-    console.log(
-      `TXE-3777 正文 ${String(raw.description.length)} 字符，验收标准 ${String(drafted.criteria.length)} 条，${drafted.model}，花费 $${drafted.costUsd.toFixed(4)}`,
-    );
   });
 
   it('requiredChecks 默认值：txe-workflow 9f2bed6 的 ci 中能在副本 PR 上运行的 job，release 不由 pull_request 触发', async () => {

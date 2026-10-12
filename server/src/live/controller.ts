@@ -7,6 +7,7 @@ import {
   type LiveDriver,
   liveEvents,
   type LiveEventKind,
+  liveProcesses,
   liveSessions,
   sessions,
 } from '../db/schema.js';
@@ -64,6 +65,8 @@ export interface LiveControllerOptions {
   db: Db;
   settings: SettingsStore;
   liveId: string;
+  // 这次运行（live_processes 的一行）
+  processId: number;
   pty: LivePty;
   // claude 写 session 的 jsonl
   jsonl: string;
@@ -81,6 +84,7 @@ export interface LiveControllerOptions {
 export class LiveController {
   private readonly db: Db;
   readonly liveId: string;
+  readonly processId: number;
   readonly pty: LivePty;
   private jsonl: string;
   private watcher: SessionWatcher;
@@ -96,6 +100,7 @@ export class LiveController {
   constructor(private readonly opts: LiveControllerOptions) {
     this.db = opts.db;
     this.liveId = opts.liveId;
+    this.processId = opts.processId;
     this.pty = opts.pty;
     this.jsonl = opts.jsonl;
     this.watcher = watchSession(this.db, this.jsonl, (error) => {
@@ -110,9 +115,17 @@ export class LiveController {
       this.generation?.abort.abort(new Error('进程已退出'));
       await this.watcher.close();
       if (fs.existsSync(this.jsonl)) ingestFile(this.db, this.jsonl);
+      // 进程很快结束时，session 第一次导入发生在上面这次：同样绑定到这次所用的 variant
+      this.bindImported();
+      const endedAt = new Date();
+      this.db
+        .update(liveProcesses)
+        .set({ status: 'exited', exitCode: exit.exitCode, endedAt })
+        .where(eq(liveProcesses.id, this.processId))
+        .run();
       this.db
         .update(liveSessions)
-        .set({ status: 'exited', exitCode: exit.exitCode, endedAt: new Date() })
+        .set({ updatedAt: endedAt })
         .where(eq(liveSessions.id, this.liveId))
         .run();
       this.event('exit', { exitCode: exit.exitCode, signal: exit.signal });
@@ -141,25 +154,29 @@ export class LiveController {
 
   get driver(): LiveDriver {
     const row = this.db
-      .select({ driver: liveSessions.driver })
-      .from(liveSessions)
-      .where(eq(liveSessions.id, this.liveId))
+      .select({ driver: liveProcesses.driver })
+      .from(liveProcesses)
+      .where(eq(liveProcesses.id, this.processId))
       .get();
-    if (row === undefined) throw new Error(`交互 ${this.liveId} 不存在`);
+    if (row === undefined)
+      throw new Error(`交互 ${this.liveId} 的进程 ${String(this.processId)} 不存在`);
     return row.driver;
   }
 
   private event(kind: LiveEventKind, payload: Record<string, unknown>) {
-    this.db.insert(liveEvents).values({ liveId: this.liveId, at: new Date(), kind, payload }).run();
+    this.db
+      .insert(liveEvents)
+      .values({ liveId: this.liveId, processId: this.processId, at: new Date(), kind, payload })
+      .run();
     events.publish({ type: 'live.updated', liveId: this.liveId });
   }
 
-  // 模拟用户与导入的错误：写进 error，交给人，进程照常运行
+  // 模拟用户与导入的错误：写进这个进程的 error，交给人，进程照常运行
   private recordError(error: Error) {
     this.db
-      .update(liveSessions)
+      .update(liveProcesses)
       .set({ error: error.message })
-      .where(eq(liveSessions.id, this.liveId))
+      .where(eq(liveProcesses.id, this.processId))
       .run();
     if (this.driver === 'simulated') this.setDriver('human', 'error');
     else events.publish({ type: 'live.updated', liveId: this.liveId });
@@ -170,7 +187,7 @@ export class LiveController {
       this.generation?.abort.abort(new Error('驾驶者变为人'));
       this.generation = null;
     }
-    this.db.update(liveSessions).set({ driver }).where(eq(liveSessions.id, this.liveId)).run();
+    this.db.update(liveProcesses).set({ driver }).where(eq(liveProcesses.id, this.processId)).run();
     this.event('driver', { driver, reason });
     if (driver === 'simulated') this.respond();
   }

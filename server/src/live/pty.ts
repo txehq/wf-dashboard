@@ -3,7 +3,21 @@ import xtermHeadless from '@xterm/headless';
 import * as pty from 'node-pty';
 
 // 每个 session 在内存中保留的输出上限（Contracts 14.3）；完整输出另写 pty.log
-const RETAINED_BYTES = 4 * 1024 * 1024;
+export const RETAINED_BYTES = 4 * 1024 * 1024;
+
+// pty.log 的最后 RETAINED_BYTES 字节；截断时从下一个换行开始，不从一个字符或一段控制序列中间开始
+export function readLogTail(file: string): string {
+  if (!fs.existsSync(file)) return '';
+  const size = fs.statSync(file).size;
+  const length = Math.min(size, RETAINED_BYTES);
+  const buffer = Buffer.alloc(length);
+  const fd = fs.openSync(file, 'r');
+  fs.readSync(fd, buffer, 0, length, size - length);
+  fs.closeSync(fd);
+  if (length === size) return buffer.toString('utf8');
+  const newline = buffer.indexOf(0x0a);
+  return newline < 0 ? '' : buffer.subarray(newline + 1).toString('utf8');
+}
 
 export interface PtyExit {
   exitCode: number;
@@ -17,10 +31,14 @@ export interface LivePtyOptions {
   env: Record<string, string>;
   cols: number;
   rows: number;
+  // 一项的全部进程共用的 pty.log（Contracts 14.5）：跨进程追加
   logFile: string;
+  // 进程开始时写进 pty.log 与保留的输出的一行分隔（时间、start 或 resume、variant）
+  separator: string;
 }
 
-// 一个交互 session 的 PTY：保留最近的输出供新连接的客户端回放，完整输出追加到 pty.log
+// 一个交互进程的 PTY：保留这一项最近的输出（之前进程的输出加这个进程的输出）供新连接的客户端回放，
+// 完整输出追加到 pty.log
 export class LivePty {
   readonly pid: number;
   readonly exited: Promise<PtyExit>;
@@ -34,7 +52,11 @@ export class LivePty {
   private readonly screen: xtermHeadless.Terminal;
 
   constructor(opts: LivePtyOptions) {
+    const before = readLogTail(opts.logFile);
+    if (before !== '') this.retain(before);
     this.log = fs.createWriteStream(opts.logFile, { flags: 'a' });
+    this.retain(opts.separator);
+    this.log.write(opts.separator);
     this.screen = new xtermHeadless.Terminal({
       cols: opts.cols,
       rows: opts.rows,

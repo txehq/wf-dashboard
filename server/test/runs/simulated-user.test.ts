@@ -26,7 +26,7 @@ function personaOf(taskId: string, bigStage: 'lfg' | 'ic'): SimulatedPersona {
   };
 }
 
-// 真实调用 gateway，用默认的模拟用户模型（opus）
+// 真实调用 gateway，用默认的模拟用户模型（sonnet）
 const file = path.join(config.tasksDir, 'lfg-calculator', 'task.yaml');
 const definition = parseTaskYaml(fs.readFileSync(file, 'utf8'), file);
 const task = personaOf('lfg-calculator', 'lfg');
@@ -51,7 +51,7 @@ describe('模拟用户（真实 gateway）', { timeout: TIMEOUT }, () => {
       kind: 'text',
       text: '在动手之前我想先确认几件事：\n1. 这个计算器主要是谁在用？在什么地方、什么设备上用？\n2. 你说的"计算器"需要做到什么程度——只要加减乘除，还是要更多功能？',
     });
-    console.log('[interview]', r.reply);
+    console.log('[interview]', r.model, r.costUsd, r.reply);
     expect(r.done).toBe(false);
     expect(r.answers).toBeUndefined();
     expect(r.costUsd).toBeGreaterThan(0);
@@ -68,7 +68,7 @@ describe('模拟用户（真实 gateway）', { timeout: TIMEOUT }, () => {
       kind: 'text',
       text: '历史记录怎么保存？\nA. 存在每台电脑自己的浏览器里，不联网也能看\nB. 存到学校服务器上，换电脑也能看\n请选 A 或 B。',
     });
-    console.log('[text options]', r.reply);
+    console.log('[text options]', r.model, r.costUsd, r.reply);
     expect(r.answers).toBeUndefined();
     expect(r.done).toBe(false);
     expect(r.reply).toMatch(/A/);
@@ -97,7 +97,7 @@ describe('模拟用户（真实 gateway）', { timeout: TIMEOUT }, () => {
 
   test('dispatch gate 的文字提问：回答不派发，且不含 go', async () => {
     const r = await simulateUser(ctx, gateHistory, { kind: 'text', text: gateText });
-    console.log('[gate text]', r.reply);
+    console.log('[gate text]', r.model, r.costUsd, r.reply);
     expect(r.done).toBe(false);
     expect(r.reply).toContain('不派发');
     expect(r.reply).not.toMatch(GO);
@@ -120,7 +120,7 @@ describe('模拟用户（真实 gateway）', { timeout: TIMEOUT }, () => {
         },
       ],
     });
-    console.log('[gate ask]', r.answers, r.reply);
+    console.log('[gate ask]', r.model, r.costUsd, r.answers, r.reply);
     expect(r.answers).toEqual({ [question]: 'Designer-only' });
     expect(r.done).toBe(false);
   });
@@ -138,7 +138,7 @@ describe('模拟用户（真实 gateway）', { timeout: TIMEOUT }, () => {
         text: 'Stopped at the dispatch gate as designer-only. Epic TXE-901 and tickets TXE-902–904 stay in Todo; Tickets.md is filed at Project Magi Eval/Features/r-20261009-simusr/Tickets.md. Nothing was dispatched.',
       },
     );
-    console.log('[after gate]', r.reply);
+    console.log('[after gate]', r.model, r.costUsd, r.reply);
     expect(r.done).toBe(true);
   });
 
@@ -160,7 +160,7 @@ describe('模拟用户（真实 gateway）', { timeout: TIMEOUT }, () => {
         text: '好的。我刚才又试了一次，Codex 的额度还没有恢复，所以这一步还在等。额度恢复以后，我会先把六个问题审好，再整理好发给你。',
       },
     );
-    console.log('[waiting]', r.reply);
+    console.log('[waiting]', r.model, r.costUsd, r.reply);
     expect(r.done).toBe(true);
   });
 
@@ -209,7 +209,7 @@ describe('模拟用户回答 /ic 的长问题（真实 gateway）', { timeout: T
         },
       ],
     });
-    console.log('[ic goal]', r.answers, r.reply);
+    console.log('[ic goal]', r.model, r.costUsd, r.answers, r.reply);
     expect(r.answers).toEqual({ [goal]: 'Yes, run it' });
     expect(r.done).toBe(false);
   });
@@ -241,7 +241,7 @@ describe('模拟用户回答 /ic 的长问题（真实 gateway）', { timeout: T
         },
       ],
     });
-    console.log('[ic two]', r.answers);
+    console.log('[ic two]', r.model, r.costUsd, r.answers);
     expect(Object.keys(r.answers ?? {}).sort()).toEqual([q1, q2].sort());
     // 没有合适的选项时 prompt 允许写自己的简短回答，这里只要求每个问题都有回答
     for (const q of [q1, q2]) expect(r.answers?.[q]).toMatch(/\S/);
@@ -330,7 +330,7 @@ describe('r-20261010-1iqzja 的 Confirm goal（真实 gateway）', () => {
           },
         ],
       });
-      console.log(`[confirm goal ${String(i + 1)}]`, r.model, r.answers, r.reply);
+      console.log(`[confirm goal ${String(i + 1)}]`, r.model, r.costUsd, r.answers, r.reply);
       expect(r.answers?.[confirmGoal]).toMatch(/\p{L}/u);
       expect(r.answers?.[confirmGoal]).not.toMatch(/placeholder/i);
       expect(r.done).toBe(false);

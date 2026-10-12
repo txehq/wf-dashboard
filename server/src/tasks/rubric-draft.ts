@@ -1,5 +1,5 @@
 import type { Db } from '../db/index.js';
-import { models, parseStructured } from '../llm/client.js';
+import { models, parseStructured, type StructuredRequest } from '../llm/client.js';
 import { HttpError } from '../variants/errors.js';
 import { loadBigStage } from '../workflows/index.js';
 import { type BigStageDefinition, rubricOf, type RubricArtifactSpec } from '../workflows/schema.js';
@@ -8,6 +8,7 @@ import {
   Rubric,
   type RubricDraft,
   rubricDraftOutput,
+  type RubricDraftOutput,
   type RubricDraftRequest,
   taskFieldIssues,
 } from './schema.js';
@@ -58,20 +59,29 @@ ${task.hiddenRequirements}
 请起草${chineseCount(groups)}组 rubric。`;
 }
 
-export async function draftRubric(db: Db, task: RubricDraftRequest): Promise<RubricDraft> {
-  const stage = loadBigStage(db, task.workflow, task.bigStage);
+// 起草请求：大阶段没有 rubric 评分时 400
+export function rubricDraftRequest(
+  stage: BigStageDefinition,
+  task: RubricDraftRequest,
+  model: string,
+): StructuredRequest<RubricDraftOutput> {
   const artifacts = rubricOf(stage);
   const [first, ...rest] = artifacts?.map((a) => a.id) ?? [];
   if (artifacts === null || first === undefined) {
     throw new HttpError(400, `${task.workflow} 的大阶段 ${task.bigStage} 没有 rubric 评分`);
   }
-  const result = await parseStructured({
-    model: models.judge,
+  return {
+    model,
     system: systemPrompt(stage, artifacts),
     user: userPrompt(stage, task, artifacts.length),
     schema: rubricDraftOutput([first, ...rest]),
     maxTokens: 8000,
-  });
+  };
+}
+
+export async function draftRubric(db: Db, task: RubricDraftRequest): Promise<RubricDraft> {
+  const stage = loadBigStage(db, task.workflow, task.bigStage);
+  const result = await parseStructured(rubricDraftRequest(stage, task, models.judge));
   const rubric = Rubric.parse(result.value.rubric);
   const issues = taskFieldIssues({ ...task, rubric }, stage).filter((i) => i.includes('rubric'));
   if (issues.length > 0) throw new Error(`起草的 rubric 不符合大阶段：${issues.join('；')}`);

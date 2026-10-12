@@ -5,10 +5,18 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { buildApp } from '../../src/api/app.js';
 import { config } from '../../src/config.js';
 import type { Db } from '../../src/db/index.js';
-import { batches, runs, sessions, workflowTable } from '../../src/db/schema.js';
+import {
+  batches,
+  liveProcesses,
+  liveSessions,
+  runs,
+  sessions,
+  workflowTable,
+} from '../../src/db/schema.js';
 import { ingestFile } from '../../src/ingest/ingest.js';
 import {
   readReport,
+  sessionWorkflowId,
   StageReport,
   stageReport as stageReportOf,
   updateStages,
@@ -455,5 +463,40 @@ describe('next-workflow 的阶段划分', () => {
     ]);
     expect(report.outside.mainRequests).toBe(34);
     expect(report).toEqual(stageReportOf(nextDefinition, loadSessionRows(db, id), false));
+  });
+
+  test('交互的 session：取该项最近一次进程所用 variant 的 workflow，本机配置的进程按 dev-workflow', () => {
+    const id = randomUUID();
+    const liveId = `l-${id.slice(0, 8)}`;
+    const now = new Date();
+    db.insert(liveSessions)
+      .values({
+        id: liveId,
+        claudeSessionId: id,
+        title: 't',
+        environment: 'real',
+        cwd: '/w',
+        updatedAt: now,
+      })
+      .run();
+    insertSession(db, id, loadSessionRows(db, '70e7a9b6-fdad-44c3-9b65-015ee2a0499c').main, null);
+    db.update(sessions).set({ liveId }).where(eq(sessions.id, id)).run();
+    const processOf = (variantId: string | null) => {
+      db.insert(liveProcesses)
+        .values({
+          liveId,
+          kind: 'resume',
+          variantId,
+          status: 'exited',
+          driver: 'human',
+          startedAt: now,
+        })
+        .run();
+    };
+    processOf(null);
+    processOf('next-v');
+    expect(sessionWorkflowId(db, id)).toBe('next-workflow');
+    processOf(null);
+    expect(sessionWorkflowId(db, id)).toBe('dev-workflow');
   });
 });

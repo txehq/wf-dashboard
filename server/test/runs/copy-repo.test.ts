@@ -54,7 +54,8 @@ const calcTask = (dir: string, commit: string): PrTask => ({
   requiredChecks: ['ci', 'self-hosted-echo'],
 });
 
-describe('副本仓库只保留 pull_request 的 workflow（本地 bare 仓库）', () => {
+// 克隆 txe-workflow 的全部历史与多次 git 推送：全量并行运行时单个用例会超过 vitest 默认的 5 秒
+describe('副本仓库只保留 pull_request 的 workflow（本地 bare 仓库）', { timeout: 60_000 }, () => {
   it('calc 仓库：scheduled-echo 删除、ci 只删去 push 两行、self-hosted-echo 原样；wf-dashboard 提交，seed 删除', async () => {
     const calc = await createCalcStartRepo({ ciOnPush: true });
     const task = calcTask(await bundleTask(calc.local, 'main', 'w29-copy'), calc.workflowsCommit);

@@ -287,48 +287,82 @@ export type LiveDriver = (typeof liveDrivers)[number];
 export const liveStatuses = ['running', 'exited'] as const;
 export type LiveStatus = (typeof liveStatuses)[number];
 
-// 交互（Contracts 14.1）：页面中的真实 Claude Code 终端，不评分、不进入对比
+// 交互（Contracts 14.1）：交互区的一项对应一个 Claude Code session，不评分、不进入对比。
+// 一项可以先后有多个进程（第一次启动、之后的每次 resume），见 live_processes。
+// 外键不级联删除：迁移重建这张表时，引用它的行要原样保留
 export const liveSessions = sqliteTable(
   'live_sessions',
   {
     // l-<yyyymmdd>-<6 位>：也是副本仓库、工单副本与 vault 目录的名字
     id: text('id').primaryKey(),
-    // 空表示"本机配置"（用户自己的 ~/.claude）
-    variantId: text('variant_id').references(() => variants.id, { onDelete: 'restrict' }),
+    claudeSessionId: text('claude_session_id').notNull().unique(),
+    // 用户可改（Contracts 14.3）；默认取输入的前 40 个字，从已有 session 开始的项取该 session 的标题
+    title: text('title').notNull(),
     environment: text('environment', { enum: liveEnvironments }).notNull(),
-    // resume 时为空
+    // 从已有 session 开始的项为空
     workflow: text('workflow', { enum: workflows }),
     input: text('input'),
     taskId: text('task_id').references(() => tasks.id, { onDelete: 'set null' }),
     cwd: text('cwd').notNull(),
-    claudeSessionId: text('claude_session_id').notNull(),
-    // 被 resume 的 session id
-    resumedFrom: text('resumed_from'),
+    createdAt: createdAt(),
+    // 新建、每个进程的开始与结束、改名时更新；列表按它倒序
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => [index('live_sessions_updated_at_idx').on(t.updatedAt)],
+);
+
+export const liveProcessKinds = ['start', 'resume'] as const;
+export type LiveProcessKind = (typeof liveProcessKinds)[number];
+
+// 一项的每次运行；同一项同一时间最多一个 running 的进程
+export const liveProcesses = sqliteTable(
+  'live_processes',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    liveId: text('live_id')
+      .notNull()
+      .references(() => liveSessions.id),
+    kind: text('kind', { enum: liveProcessKinds }).notNull(),
+    // 空表示"本机配置"（用户自己的 ~/.claude）
+    variantId: text('variant_id').references(() => variants.id, { onDelete: 'restrict' }),
+    // 实际传给 claude 的 --model 与 --effort（Contracts 16.5）；本机配置不传，为空
+    model: text('model'),
+    effort: text('effort'),
     pid: integer('pid'),
     status: text('status', { enum: liveStatuses }).notNull().default('running'),
     exitCode: integer('exit_code'),
     error: text('error'),
     driver: text('driver', { enum: liveDrivers }).notNull(),
-    createdAt: createdAt(),
+    startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
     endedAt: integer('ended_at', { mode: 'timestamp_ms' }),
   },
   (t) => [
-    index('live_sessions_status_idx').on(t.status),
-    index('live_sessions_claude_session_idx').on(t.claudeSessionId),
+    index('live_processes_live_idx').on(t.liveId, t.id),
+    index('live_processes_status_idx').on(t.status),
   ],
 );
 
-export const liveEventKinds = ['start', 'driver', 'hook', 'simulated_reply', 'exit'] as const;
+export const liveEventKinds = [
+  'start',
+  'resume',
+  'driver',
+  'hook',
+  'simulated_reply',
+  'exit',
+  'rename',
+  'import',
+] as const;
 export type LiveEventKind = (typeof liveEventKinds)[number];
 
-// 驾驶者的每次切换、每次 hook、模拟用户的每次回答（含花费）
+// 驾驶者的每次切换、每次 hook、模拟用户的每次回答（含花费）、每次改名与导入；改名与导入不属于某个进程，process_id 为空
 export const liveEvents = sqliteTable(
   'live_events',
   {
     id: integer('id').primaryKey({ autoIncrement: true }),
     liveId: text('live_id')
       .notNull()
-      .references(() => liveSessions.id, { onDelete: 'cascade' }),
+      .references(() => liveSessions.id),
+    processId: integer('process_id').references(() => liveProcesses.id),
     at: integer('at', { mode: 'timestamp_ms' }).notNull(),
     kind: text('kind', { enum: liveEventKinds }).notNull(),
     payload: text('payload', { mode: 'json' }).$type<Record<string, unknown>>().notNull(),

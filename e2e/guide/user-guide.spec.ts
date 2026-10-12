@@ -24,6 +24,21 @@ const shot = (target: Page | Locator, name: string) =>
     animations: 'disabled',
   });
 
+test('00 导航', async ({ page }) => {
+  await page.goto('/runs');
+  await page.evaluate(() => {
+    localStorage.clear();
+  });
+  await page.reload();
+  const nav = page.getByRole('navigation', { name: '主导航' });
+  await expect(nav.getByRole('button', { name: 'Evaluate', exact: true })).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  );
+  await expect(nav.getByRole('link', { name: 'Runs' })).toHaveAttribute('aria-current', 'page');
+  await shot(page.getByRole('complementary'), '00-navigation');
+});
+
 test('01 环境检查', async ({ page }) => {
   await page.goto('/sessions');
   const status = page.getByTestId('environment-status');

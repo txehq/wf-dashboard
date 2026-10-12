@@ -5,6 +5,7 @@ import fastifyWebsocket from '@fastify/websocket';
 import xtermHeadless from '@xterm/headless';
 import Fastify from 'fastify';
 import { liveRoutes } from '../../src/api/live.js';
+import { sessionsRoutes } from '../../src/api/sessions.js';
 import { config } from '../../src/config.js';
 import { openDatabase } from '../../src/db/index.js';
 import { createLive, type Live } from '../../src/live/index.js';
@@ -45,6 +46,15 @@ export async function startLiveServer(options: { localHome?: string } = {}) {
     repos: testRepos(),
   });
   await app.register(liveRoutes, { live });
+  // Sessions 列表与详情：交互项改名后显示新名字（Contracts 14.3）
+  await app.register(sessionsRoutes, {
+    prefix: '/api',
+    db,
+    dirs: {
+      projectsDir: path.join(config.dataDir, 'home-projects'),
+      variantsDir: path.join(variantsData, 'variants'),
+    },
+  });
   app.addHook('onClose', async () => {
     await live.shutdown();
   });
@@ -53,16 +63,20 @@ export async function startLiveServer(options: { localHome?: string } = {}) {
   if (address === null || typeof address === 'string') throw new Error('没有监听端口');
   const url = `http://${config.host}:${String(address.port)}`;
 
-  const api = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
+  const request = async (method: string, route: string, body?: unknown) => {
     const response = await fetch(`${url}${route}`, {
       method,
       ...(body === undefined
         ? {}
         : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
     });
-    const text = await response.text();
-    if (!response.ok)
-      throw new Error(`${method} ${route} 返回 ${String(response.status)}：${text}`);
+    return { status: response.status, text: await response.text() };
+  };
+
+  const api = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
+    const { status, text } = await request(method, route, body);
+    if (status < 200 || status >= 300)
+      throw new Error(`${method} ${route} 返回 ${String(status)}：${text}`);
     return JSON.parse(text) as T;
   };
 
@@ -73,7 +87,10 @@ export async function startLiveServer(options: { localHome?: string } = {}) {
     variants,
     variant,
     live,
+    settings,
     api,
+    // 状态码与原文：校验错误的测试用
+    request,
     detail: (id: string) => api<LiveDetail>('GET', `/api/live/${id}`),
     async close() {
       await app.close();
@@ -161,3 +178,9 @@ export async function until<T>(
 
 export const hookNames = (detail: LiveDetail) =>
   detail.events.filter((e) => e.kind === 'hook').map((e) => String(e.payload.hook_event_name));
+
+// 最近的进程；还没有运行过的项（从本机导入）报错
+export function processOf(detail: LiveDetail): NonNullable<LiveDetail['process']> {
+  if (detail.process === null) throw new Error(`交互 ${detail.id} 没有进程`);
+  return detail.process;
+}

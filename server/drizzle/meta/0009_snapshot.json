@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "30c65f9d-2d74-4307-bf61-1cc75df58a66",
+  "id": "f6459856-7d13-477c-8351-df07e07a1054",
   "prevId": "a4672160-2869-4014-a09e-8d73708e5e46",
   "tables": {
     "analyses": {
@@ -796,6 +796,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "process_id": {
+          "name": "process_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "at": {
           "name": "at",
           "type": "integer",
@@ -839,7 +846,20 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "live_events_process_id_live_processes_id_fk": {
+          "name": "live_events_process_id_live_processes_id_fk",
+          "tableFrom": "live_events",
+          "tableTo": "live_processes",
+          "columnsFrom": [
+            "process_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -847,67 +867,32 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "live_sessions": {
-      "name": "live_sessions",
+    "live_processes": {
+      "name": "live_processes",
       "columns": {
         "id": {
           "name": "id",
-          "type": "text",
+          "type": "integer",
           "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "live_id": {
+          "name": "live_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
         "variant_id": {
           "name": "variant_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "environment": {
-          "name": "environment",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "workflow": {
-          "name": "workflow",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "input": {
-          "name": "input",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "task_id": {
-          "name": "task_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "cwd": {
-          "name": "cwd",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "claude_session_id": {
-          "name": "claude_session_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "resumed_from": {
-          "name": "resumed_from",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -949,13 +934,12 @@
           "notNull": true,
           "autoincrement": false
         },
-        "created_at": {
-          "name": "created_at",
+        "started_at": {
+          "name": "started_at",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsec') * 1000 as integer))"
+          "autoincrement": false
         },
         "ended_at": {
           "name": "ended_at",
@@ -966,25 +950,39 @@
         }
       },
       "indexes": {
-        "live_sessions_status_idx": {
-          "name": "live_sessions_status_idx",
+        "live_processes_live_idx": {
+          "name": "live_processes_live_idx",
           "columns": [
-            "status"
+            "live_id",
+            "id"
           ],
           "isUnique": false
         },
-        "live_sessions_claude_session_idx": {
-          "name": "live_sessions_claude_session_idx",
+        "live_processes_status_idx": {
+          "name": "live_processes_status_idx",
           "columns": [
-            "claude_session_id"
+            "status"
           ],
           "isUnique": false
         }
       },
       "foreignKeys": {
-        "live_sessions_variant_id_variants_id_fk": {
-          "name": "live_sessions_variant_id_variants_id_fk",
-          "tableFrom": "live_sessions",
+        "live_processes_live_id_live_sessions_id_fk": {
+          "name": "live_processes_live_id_live_sessions_id_fk",
+          "tableFrom": "live_processes",
+          "tableTo": "live_sessions",
+          "columnsFrom": [
+            "live_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "live_processes_variant_id_variants_id_fk": {
+          "name": "live_processes_variant_id_variants_id_fk",
+          "tableFrom": "live_processes",
           "tableTo": "variants",
           "columnsFrom": [
             "variant_id"
@@ -994,7 +992,104 @@
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "live_sessions": {
+      "name": "live_sessions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
         },
+        "claude_session_id": {
+          "name": "claude_session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "environment": {
+          "name": "environment",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "workflow": {
+          "name": "workflow",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "input": {
+          "name": "input",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "task_id": {
+          "name": "task_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cwd": {
+          "name": "cwd",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsec') * 1000 as integer))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "live_sessions_claude_session_id_unique": {
+          "name": "live_sessions_claude_session_id_unique",
+          "columns": [
+            "claude_session_id"
+          ],
+          "isUnique": true
+        },
+        "live_sessions_updated_at_idx": {
+          "name": "live_sessions_updated_at_idx",
+          "columns": [
+            "updated_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
         "live_sessions_task_id_tasks_id_fk": {
           "name": "live_sessions_task_id_tasks_id_fk",
           "tableFrom": "live_sessions",
@@ -1307,20 +1402,6 @@
         "repeat_index": {
           "name": "repeat_index",
           "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "model": {
-          "name": "model",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "effort": {
-          "name": "effort",
-          "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -1984,8 +2065,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "big_stage": {
-          "name": "big_stage",
+        "workflow": {
+          "name": "workflow",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -2029,11 +2110,11 @@
         }
       },
       "indexes": {
-        "stage_cycles_session_big_stage_cycle_idx": {
-          "name": "stage_cycles_session_big_stage_cycle_idx",
+        "stage_cycles_session_workflow_cycle_idx": {
+          "name": "stage_cycles_session_workflow_cycle_idx",
           "columns": [
             "session_id",
-            "big_stage",
+            "workflow",
             "cycle"
           ],
           "isUnique": true
@@ -2075,8 +2156,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "big_stage": {
-          "name": "big_stage",
+        "workflow": {
+          "name": "workflow",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -2142,11 +2223,11 @@
         }
       },
       "indexes": {
-        "stage_spans_session_big_stage_cycle_stage_idx": {
-          "name": "stage_spans_session_big_stage_cycle_stage_idx",
+        "stage_spans_session_workflow_cycle_stage_idx": {
+          "name": "stage_spans_session_workflow_cycle_stage_idx",
           "columns": [
             "session_id",
-            "big_stage",
+            "workflow",
             "cycle",
             "stage"
           ],
@@ -2179,13 +2260,6 @@
           "name": "session_id",
           "type": "text",
           "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "workflow_id": {
-          "name": "workflow_id",
-          "type": "text",
-          "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
@@ -2353,15 +2427,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "workflow_id": {
-          "name": "workflow_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "big_stage": {
-          "name": "big_stage",
+        "kind": {
+          "name": "kind",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -2517,11 +2584,10 @@
         }
       },
       "indexes": {
-        "tasks_workflow_big_stage_idx": {
-          "name": "tasks_workflow_big_stage_idx",
+        "tasks_kind_idx": {
+          "name": "tasks_kind_idx",
           "columns": [
-            "workflow_id",
-            "big_stage"
+            "kind"
           ],
           "isUnique": false
         }
@@ -2639,13 +2705,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "workflow_id": {
-          "name": "workflow_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
         "parent_id": {
           "name": "parent_id",
           "type": "text",
@@ -2669,6 +2728,20 @@
         },
         "version": {
           "name": "version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "effort": {
+          "name": "effort",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -2749,20 +2822,19 @@
         }
       },
       "indexes": {
+        "variants_name_unique": {
+          "name": "variants_name_unique",
+          "columns": [
+            "name"
+          ],
+          "isUnique": true
+        },
         "variants_skills_hash_idx": {
           "name": "variants_skills_hash_idx",
           "columns": [
             "skills_hash"
           ],
           "isUnique": false
-        },
-        "variants_workflow_name_idx": {
-          "name": "variants_workflow_name_idx",
-          "columns": [
-            "workflow_id",
-            "name"
-          ],
-          "isUnique": true
         }
       },
       "foreignKeys": {
@@ -2785,73 +2857,6 @@
           "tableTo": "analyses",
           "columnsFrom": [
             "analysis_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "workflows": {
-      "name": "workflows",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "base_variant_id": {
-          "name": "base_variant_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "definition": {
-          "name": "definition",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsec') * 1000 as integer))"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "workflows_base_variant_id_variants_id_fk": {
-          "name": "workflows_base_variant_id_variants_id_fk",
-          "tableFrom": "workflows",
-          "tableTo": "variants",
-          "columnsFrom": [
-            "base_variant_id"
           ],
           "columnsTo": [
             "id"

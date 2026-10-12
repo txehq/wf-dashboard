@@ -1,3 +1,6 @@
+import type { RootContent } from 'mdast';
+import { fromMarkdown } from 'mdast-util-from-markdown';
+import { toString } from 'mdast-util-to-string';
 import { z } from 'zod';
 import { models, parseStructured, type StructuredRequest } from '../llm/client.js';
 import { isFiller } from '../llm/filler.js';
@@ -30,6 +33,40 @@ export interface CriteriaDraft {
   costUsd: number;
 }
 
+// 与 prompt 中"明确的验收标准一节"相同的标题：标题行，或整段只有加粗文字的段落标题（可带冒号）
+const SECTION_TITLE = /^(?:验收标准|验收条件|acceptance criteria|acceptance)\s*[:：]?$/i;
+
+const isBoldTitle = (node: RootContent) =>
+  node.type === 'paragraph' && node.children.length === 1 && node.children[0]?.type === 'strong';
+
+const isSectionTitle = (node: RootContent) =>
+  (node.type === 'heading' || isBoldTitle(node)) && SECTION_TITLE.test(toString(node).trim());
+
+// 正文中验收标准一节的列表项数：该节到下一个同级或更高的标题（加粗标题时到下一个标题或加粗标题）为止，
+// 其中各个列表的顶层列表项之和。没有这一节、或这一节中没有列表时为 null；有两个这样的节时抛错
+export function criteriaSectionItemCount(body: string): number | null {
+  const nodes = fromMarkdown(body).children;
+  const starts = nodes.flatMap((node, i) => (isSectionTitle(node) ? [i] : []));
+  if (starts.length > 1) {
+    throw new Error(`正文中有 ${String(starts.length)} 个验收标准一节，不能确定以哪一节为准`);
+  }
+  const start = starts[0];
+  if (start === undefined) return null;
+  const title = nodes[start];
+  if (title === undefined) return null;
+  let count = 0;
+  let lists = 0;
+  for (const node of nodes.slice(start + 1)) {
+    if (node.type === 'heading' && (title.type !== 'heading' || node.depth <= title.depth)) break;
+    if (title.type !== 'heading' && isBoldTitle(node)) break;
+    if (node.type === 'list') {
+      lists += 1;
+      count += node.children.length;
+    }
+  }
+  return lists === 0 ? null : count;
+}
+
 export function criteriaDraftRequest(
   title: string,
   body: string,
@@ -44,8 +81,14 @@ export function criteriaDraftRequest(
   };
 }
 
-// quote 不是正文的子串、text 是占位内容时以原文抛错
+// quote 不是正文的子串、text 是占位内容、或正文有验收标准一节而条数与该节的列表项数不同时以原文抛错
 export function readCriteriaDraft(body: string, output: Output): DraftedCriterion[] {
+  const expected = criteriaSectionItemCount(body);
+  if (expected !== null && output.criteria.length !== expected) {
+    throw new Error(
+      `judge 给出 ${String(output.criteria.length)} 条验收标准，正文的验收标准一节有 ${String(expected)} 个列表项`,
+    );
+  }
   return output.criteria.map((c, i) => {
     const n = String(i + 1);
     if (isFiller(c.text)) {

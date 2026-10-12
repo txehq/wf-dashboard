@@ -9,8 +9,8 @@ import { z } from 'zod';
 import { config } from '../../src/config.js';
 import { openDatabase } from '../../src/db/index.js';
 
-// Contracts 16 的迁移（0009_workflows）：在按旧结构（0000–0008）写入的数据库上执行，现有 variant 归入 dev-workflow，
-// run 的 model 与 effort 取它所用 variant 的值，task 的 kind 变为 workflow 与大阶段，引用与 session 的绑定不丢，
+// Contracts 16 的迁移（0010_workflows）：在按旧结构（0000–0009）写入的数据库上执行，现有 variant 归入 dev-workflow，
+// run 与交互进程的 model 与 effort 取它所用 variant 的值，task 的 kind 变为 workflow 与大阶段，引用与 session 的绑定不丢，
 // 阶段结果清空后按新形状重算
 const work = path.join(config.repoRoot, '.work', 'test-migration', randomUUID());
 const oldMigrations = path.join(work, 'drizzle');
@@ -18,14 +18,14 @@ const dbFile = path.join(work, 'db.sqlite');
 
 const Journal = z.looseObject({ entries: z.array(z.looseObject({ tag: z.string() })) });
 
-// 只含 0000–0008 的迁移目录
+// 只含 0000–0009 的迁移目录
 function writeOldMigrations() {
   fs.mkdirSync(path.join(oldMigrations, 'meta'), { recursive: true });
   const journal = Journal.parse(
     JSON.parse(fs.readFileSync(path.join(config.migrationsDir, 'meta/_journal.json'), 'utf8')),
   );
-  const index = journal.entries.findIndex((e) => e.tag === '0009_workflows');
-  expect(index).toBe(9);
+  const index = journal.entries.findIndex((e) => e.tag === '0010_workflows');
+  expect(index).toBe(10);
   const entries = journal.entries.slice(0, index);
   for (const e of entries) {
     fs.copyFileSync(
@@ -43,8 +43,8 @@ afterAll(() => {
   fs.rmSync(work, { recursive: true, force: true });
 });
 
-describe('0009_workflows 迁移', () => {
-  test('旧结构的 variant、task、run、session 与阶段结果迁移到新结构', () => {
+describe('0010_workflows 迁移', () => {
+  test('旧结构的 variant、task、run、交互进程、session 与阶段结果迁移到新结构', () => {
     writeOldMigrations();
     const sqlite = new Database(dbFile);
     sqlite.pragma('foreign_keys = ON');
@@ -81,6 +81,19 @@ describe('0009_workflows 迁移', () => {
       now,
       now,
     );
+    // 交互区的一项：先用 v-mod 启动，再以本机配置 resume
+    run(
+      `insert into live_sessions (id, claude_session_id, title, environment, cwd, updated_at)
+       values ('l-1', 's-4', 't', 'real', '/w4', ?)`,
+      now,
+    );
+    run(
+      `insert into live_processes (id, live_id, kind, variant_id, status, driver, started_at)
+       values (1, 'l-1', 'start', 'v-mod', 'exited', 'human', ?),
+              (2, 'l-1', 'resume', null, 'exited', 'human', ?)`,
+      now,
+      now + 1,
+    );
     run(
       `insert into stage_states (session_id, state, folded_seq, updated_at) values ('s-1', '{"cycles":[]}', 3, ?)`,
       now,
@@ -113,6 +126,11 @@ describe('0009_workflows 迁移', () => {
     expect(all('select id, workflow_id, big_stage from tasks order by id')).toEqual([
       { id: 'ic-money-format', workflow_id: 'dev-workflow', big_stage: 'ic' },
       { id: 'lfg-calculator', workflow_id: 'dev-workflow', big_stage: 'lfg' },
+    ]);
+    // 本机配置的进程没有传 --model 与 --effort，保持为空
+    expect(all('select id, variant_id, model, effort from live_processes order by id')).toEqual([
+      { id: 1, variant_id: 'v-mod', model: 'sonnet', effort: 'max' },
+      { id: 2, variant_id: null, model: null, effort: null },
     ]);
     // session 的绑定与 run 引用不因迁移被置空
     expect(all('select id, run_id, variant_id, variant_binding from sessions order by id')).toEqual(
