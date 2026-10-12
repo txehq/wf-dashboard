@@ -250,6 +250,62 @@ export const runs = sqliteTable(
   ],
 );
 
+export const liveEnvironments = ['isolated', 'real'] as const;
+export type LiveEnvironment = (typeof liveEnvironments)[number];
+export const liveDrivers = ['human', 'simulated'] as const;
+export type LiveDriver = (typeof liveDrivers)[number];
+export const liveStatuses = ['running', 'exited'] as const;
+export type LiveStatus = (typeof liveStatuses)[number];
+
+// 交互（Contracts 14.1）：页面中的真实 Claude Code 终端，不评分、不进入对比
+export const liveSessions = sqliteTable(
+  'live_sessions',
+  {
+    // l-<yyyymmdd>-<6 位>：也是副本仓库、工单副本与 vault 目录的名字
+    id: text('id').primaryKey(),
+    // 空表示"本机配置"（用户自己的 ~/.claude）
+    variantId: text('variant_id').references(() => variants.id, { onDelete: 'restrict' }),
+    environment: text('environment', { enum: liveEnvironments }).notNull(),
+    // resume 时为空
+    workflow: text('workflow', { enum: workflows }),
+    input: text('input'),
+    taskId: text('task_id').references(() => tasks.id, { onDelete: 'set null' }),
+    cwd: text('cwd').notNull(),
+    claudeSessionId: text('claude_session_id').notNull(),
+    // 被 resume 的 session id
+    resumedFrom: text('resumed_from'),
+    pid: integer('pid'),
+    status: text('status', { enum: liveStatuses }).notNull().default('running'),
+    exitCode: integer('exit_code'),
+    error: text('error'),
+    driver: text('driver', { enum: liveDrivers }).notNull(),
+    createdAt: createdAt(),
+    endedAt: integer('ended_at', { mode: 'timestamp_ms' }),
+  },
+  (t) => [
+    index('live_sessions_status_idx').on(t.status),
+    index('live_sessions_claude_session_idx').on(t.claudeSessionId),
+  ],
+);
+
+export const liveEventKinds = ['start', 'driver', 'hook', 'simulated_reply', 'exit'] as const;
+export type LiveEventKind = (typeof liveEventKinds)[number];
+
+// 驾驶者的每次切换、每次 hook、模拟用户的每次回答（含花费）
+export const liveEvents = sqliteTable(
+  'live_events',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    liveId: text('live_id')
+      .notNull()
+      .references(() => liveSessions.id, { onDelete: 'cascade' }),
+    at: integer('at', { mode: 'timestamp_ms' }).notNull(),
+    kind: text('kind', { enum: liveEventKinds }).notNull(),
+    payload: text('payload', { mode: 'json' }).$type<Record<string, unknown>>().notNull(),
+  },
+  (t) => [index('live_events_live_idx').on(t.liveId, t.id)],
+);
+
 // run：run 与交互的 session 用的 variant；auto：导入时 skill 正文与 variant 逐字节一致；manual：用户选择或解除
 export const variantBindings = ['run', 'auto', 'manual'] as const;
 export type VariantBinding = (typeof variantBindings)[number];
@@ -262,6 +318,8 @@ export const sessions = sqliteTable(
     // dashboard 发起的运行不属于任何勾选的来源，为空
     sourceId: integer('source_id').references(() => sources.id, { onDelete: 'cascade' }),
     runId: text('run_id').references(() => runs.id, { onDelete: 'set null' }),
+    // 交互产生（或被交互 resume）的 session 指向最近一次交互
+    liveId: text('live_id').references(() => liveSessions.id, { onDelete: 'set null' }),
     filePath: text('file_path').notNull().unique(),
     cwd: text('cwd'),
     // 首条用户消息的前 80 字

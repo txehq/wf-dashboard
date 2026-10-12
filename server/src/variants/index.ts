@@ -84,6 +84,8 @@ const IsolatedSettings = z.looseObject({
   claudeMdExcludes: z.array(z.string()).optional(),
 });
 
+const ClaudeState = z.looseObject({ hasCompletedOnboarding: z.boolean().optional() });
+
 function readWorkspaceVersion(srcDir: string): string {
   return CargoManifest.parse(parse(fs.readFileSync(path.join(srcDir, 'Cargo.toml'), 'utf8')))
     .workspace.package.version;
@@ -135,6 +137,20 @@ export function createVariants({
     fs.writeFileSync(tmp, `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600 });
     fs.renameSync(tmp, file);
     return Object.keys(sourceEnv);
+  }
+
+  // Claude Code 的首次引导（主题、安全提示）只在交互启动时出现，状态记在 <CLAUDE_CONFIG_DIR>/.claude.json；
+  // variant 的配置目录由 dashboard 所有，写入引导已完成（Contracts 14.2）。已经写过时不改动文件
+  function markOnboardingDone(claudeDir: string) {
+    const file = path.join(claudeDir, '.claude.json');
+    const state = fs.existsSync(file)
+      ? ClaudeState.parse(JSON.parse(fs.readFileSync(file, 'utf8')))
+      : {};
+    if (state.hasCompletedOnboarding === true) return;
+    const tmp = `${file}.${randomUUID()}.tmp`;
+    const content = `${JSON.stringify({ ...state, hasCompletedOnboarding: true }, null, 2)}\n`;
+    fs.writeFileSync(tmp, content, { mode: 0o600 });
+    fs.renameSync(tmp, file);
   }
 
   // 上次服务退出时仍在构建的 variant 不会再完成
@@ -567,6 +583,9 @@ export function createVariants({
         started,
         `合并键 ${merged.join(', ')}；claudeMdExcludes ${excludes.join(', ')}`,
       );
+      started = performance.now();
+      markOnboardingDone(dirs.claudeDir);
+      log.note('mark-onboarding-done', started, path.join(dirs.claudeDir, '.claude.json'));
 
       // wf 只从 lock 固定的 ctx 提供 wf-history，隔离目录里没有；改由 --mcp-config 直接启动真实 ctx
       fs.writeFileSync(
@@ -637,6 +656,8 @@ export function createVariants({
       }
       const dirs = layout.variant(id);
       const merged = writeIsolatedSettings(dirs.claudeDir);
+      // 这一步之前构建的 variant 在这里补写一次
+      markOnboardingDone(dirs.claudeDir);
       writeCodexHome(dirs.codexHome, { authPath: codexAuthPath, configPath: codexConfigPath });
       return merged;
     },

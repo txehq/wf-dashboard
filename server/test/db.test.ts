@@ -132,6 +132,8 @@ describe('database', () => {
       'batches',
       'grade_items',
       'grades',
+      'live_events',
+      'live_sessions',
       'requests',
       'run_messages',
       'runs',

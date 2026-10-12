@@ -14,7 +14,8 @@ export default defineConfig({
     port: webPort,
     strictPort: true,
     proxy: {
-      '/api': `http://127.0.0.1:${String(serverPort)}`,
+      // ws：交互区的终端经 WebSocket 连接 /api/live/:id/pty
+      '/api': { target: `http://127.0.0.1:${String(serverPort)}`, ws: true },
     },
   },
 });

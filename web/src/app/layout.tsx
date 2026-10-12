@@ -1,5 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
-import { Columns2, GitBranch, History, ListChecks, Microscope, Play } from 'lucide-react';
+import {
+  Columns2,
+  GitBranch,
+  History,
+  ListChecks,
+  Microscope,
+  Play,
+  SquareTerminal,
+} from 'lucide-react';
 import { NavLink, Outlet } from 'react-router';
 import { EnvironmentStatus } from '@/components/environment/environment-status';
 import { Button } from '@/components/ui/button';
@@ -9,6 +17,7 @@ import { useLiveConnection, useLiveStatus } from '@/lib/live-events';
 const navItems = [
   { to: '/sessions', label: 'Sessions', icon: History },
   { to: '/runs', label: 'Runs', icon: Play },
+  { to: '/live', label: '交互', icon: SquareTerminal },
   { to: '/variants', label: 'Variants', icon: GitBranch },
   { to: '/tasks', label: 'Tasks', icon: ListChecks },
   { to: '/compare', label: 'Compare', icon: Columns2 },

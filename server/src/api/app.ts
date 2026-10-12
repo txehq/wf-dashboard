@@ -1,11 +1,14 @@
+import os from 'node:os';
 import { fastifySSE } from '@fastify/sse';
 import fastifyStatic from '@fastify/static';
+import fastifyWebsocket from '@fastify/websocket';
 import Fastify from 'fastify';
 import { config } from '../config.js';
 import type { Db } from '../db/index.js';
 import { events } from '../events.js';
 import { closeLinearClient } from '../external/linear.js';
 import { defaultSourceDirs } from '../ingest/sources.js';
+import { createLive } from '../live/index.js';
 import { createRuns } from '../runs/index.js';
 import { createSettingsStore } from '../runs/settings.js';
 import { createVariants } from '../variants/index.js';
@@ -21,6 +24,7 @@ import { gradeRoutes } from './grades.js';
 import { createEnvironment } from '../environment.js';
 import { models } from '../llm/client.js';
 import { environmentRoutes } from './environment.js';
+import { liveRoutes } from './live.js';
 import { backfillSkillLoads } from '../ingest/ingest.js';
 import { bindRunSessions, rebindAll } from '../bindings/index.js';
 import { createInsights } from '../insights/index.js';
@@ -34,9 +38,18 @@ export interface AppOptions {
   tasksDir: string;
   // pnpm start：构建好的页面目录（web/dist），由同一个进程提供
   webDir?: string | undefined;
+  // 交互"本机配置"的 HOME，默认真实 HOME；测试用 .work/ 下的目录
+  localHome?: string | undefined;
 }
 
-export async function buildApp({ db, sseHeartbeatMs, logger, tasksDir, webDir }: AppOptions) {
+export async function buildApp({
+  db,
+  sseHeartbeatMs,
+  logger,
+  tasksDir,
+  webDir,
+  localHome,
+}: AppOptions) {
   const app = Fastify({ logger });
   await app.register(fastifySSE, { heartbeatInterval: sseHeartbeatMs });
 
@@ -112,6 +125,30 @@ export async function buildApp({ db, sseHeartbeatMs, logger, tasksDir, webDir }:
   await app.register(analysisRoutes, { insights });
   app.addHook('onClose', async () => {
     await insights.shutdown();
+  });
+
+  // 交互（Contracts 14）：hook 命令 POST 到服务实际监听的地址
+  await app.register(fastifyWebsocket);
+  const live = createLive({
+    db,
+    variants,
+    settings,
+    vaultDir: config.vaultDir,
+    product: config.evalProduct,
+    liveDir: config.liveDir,
+    dataDir: config.dataDir,
+    serverUrl: () => {
+      const address = app.server.address();
+      if (address === null || typeof address === 'string') {
+        throw new Error(`HTTP 服务没有监听 TCP 端口：${String(address)}`);
+      }
+      return `http://${config.host}:${String(address.port)}`;
+    },
+    localHome: localHome ?? os.homedir(),
+  });
+  await app.register(liveRoutes, { live });
+  app.addHook('onClose', async () => {
+    await live.shutdown();
   });
 
   // 页面的路由在浏览器中：未匹配 /api 的路径都返回 index.html

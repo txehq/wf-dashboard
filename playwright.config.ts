@@ -46,6 +46,7 @@ export default defineConfig({
         'runs.spec.ts',
         'variants-imported.spec.ts',
         'details.spec.ts',
+        'live.spec.ts',
         'environment.spec.ts',
         'compare-empty.spec.ts',
         'analyses.spec.ts',
@@ -67,7 +68,7 @@ export default defineConfig({
     },
     {
       name: 'runs',
-      testMatch: ['runs.spec.ts', 'variants-imported.spec.ts', 'details.spec.ts'],
+      testMatch: ['runs.spec.ts', 'variants-imported.spec.ts', 'details.spec.ts', 'live.spec.ts'],
       use: {
         ...devices['Desktop Chrome'],
         baseURL: `http://127.0.0.1:${String(runsWebPort)}`,

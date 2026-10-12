@@ -31,6 +31,8 @@ export type AppEvent =
     }
   | { type: 'run.artifact'; runId: string; artifact: ArtifactView }
   | { type: 'run.cost'; runId: string; costUsd: number }
+  // 交互 session 的状态、驾驶者、等待的输入或 hook 有变化（Contracts 14），页面重新读取详情
+  | { type: 'live.updated'; liveId: string }
   // 分析的状态或步骤进度变化（Contracts 15.2）
   | { type: 'analysis.updated'; analysisId: string; status: AnalysisStatus };
 
