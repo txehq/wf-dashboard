@@ -12,6 +12,7 @@
     "start": "pnpm build && pnpm --filter @wf-dashboard/server start",
     "test": "pnpm --recursive test",
     "test:real": "pnpm --filter @wf-dashboard/server test:real",
+    "test:slow": "pnpm --filter @wf-dashboard/server test:slow",
     "test:external": "pnpm --filter @wf-dashboard/server test:external",
     "e2e": "tsx e2e/run.ts basic",
     "e2e:real": "tsx e2e/run.ts real",
