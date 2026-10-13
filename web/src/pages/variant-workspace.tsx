@@ -12,22 +12,40 @@ import {
   Save,
   Trash2,
 } from 'lucide-react';
-import { type PointerEvent, type RefObject, useEffect, useRef, useState } from 'react';
+import {
+  type PointerEvent,
+  type RefObject,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import type { ViewType } from 'react-diff-view';
 import { useSearchParams } from 'react-router';
+import {
+  type DiffFile,
+  DiffView,
+  DiffViewTypeToggle,
+  parseUnifiedDiff,
+  useDiffViewType,
+} from '@/components/diff';
 import {
   FullscreenArea,
   FullscreenButton,
   type Fullscreen,
   useFullscreenLayout,
 } from '@/components/fullscreen';
-import { SkillDiffEditor } from '@/components/skill-diff-editor';
+import { Markdown } from '@/components/markdown';
 import { Button } from '@/components/ui/button';
 import { formatDateTime } from '@/lib/format';
 import { languageOf } from '@/lib/language';
 import { cn } from '@/lib/utils';
+import { isMarkdown, type MdView, useMdView } from '@/pages/variant-md-view';
 import {
   buildLogQuery,
   diffQuery,
+  type FileDiff,
   fileQuery,
   filesQuery,
   importedLabel,
@@ -170,24 +188,76 @@ export interface EditorStatus {
 
 const cleanStatus: EditorStatus = { dirty: false, saving: false, error: null };
 
+// 并排时编辑器与预览按比例同步滚动；被带动的一侧随后的滚动不再带动回去
+function useEditorPreviewSync(
+  editor: MonacoEditor | null,
+  preview: RefObject<HTMLDivElement | null>,
+  active: boolean,
+) {
+  useEffect(() => {
+    const target = preview.current;
+    if (editor === null || target === null || !active) return;
+    let follower: 'editor' | 'preview' | null = null;
+    let release = 0;
+    const hold = (who: 'editor' | 'preview') => {
+      follower = who;
+      window.clearTimeout(release);
+      release = window.setTimeout(() => {
+        follower = null;
+      }, 80);
+    };
+    const fromEditor = editor.onDidScrollChange((event) => {
+      if (!event.scrollTopChanged || follower === 'editor') return;
+      const range = event.scrollHeight - editor.getLayoutInfo().height;
+      const ratio = range <= 0 ? 0 : event.scrollTop / range;
+      hold('preview');
+      target.scrollTop = ratio * (target.scrollHeight - target.clientHeight);
+    });
+    const fromPreview = () => {
+      if (follower === 'preview') return;
+      const range = target.scrollHeight - target.clientHeight;
+      const ratio = range <= 0 ? 0 : target.scrollTop / range;
+      hold('editor');
+      editor.setScrollTop(ratio * (editor.getScrollHeight() - editor.getLayoutInfo().height));
+    };
+    target.addEventListener('scroll', fromPreview, { passive: true });
+    return () => {
+      window.clearTimeout(release);
+      fromEditor.dispose();
+      target.removeEventListener('scroll', fromPreview);
+    };
+  }, [editor, preview, active]);
+}
+
 function FileEditor({
   variant,
   path,
   readOnly,
+  view,
   saveRef,
   onStatus,
+  onOpenFile,
 }: {
   variant: Variant;
   path: string;
   readOnly: boolean;
+  // .md 文件的"编辑 / 预览 / 并排"；其他文件总是 edit
+  view: MdView;
   // 工具栏的"保存"与 ⌘S 调用它
   saveRef: RefObject<() => void>;
   onStatus: (status: EditorStatus) => void;
+  // 预览中指向 variant 内其他文件的链接
+  onOpenFile: (path: string) => void;
 }) {
   const queryClient = useQueryClient();
   const file = useQuery(fileQuery(variant.id, path));
   const [draft, setDraft] = useState<string | null>(null);
   const editorRef = useRef<MonacoEditor | null>(null);
+  const [editor, setEditor] = useState<MonacoEditor | null>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+  // 预览跟着编辑实时更新；输入很快时渲染可以落后几个字
+  const previewContent = useDeferredValue(draft ?? file.data?.content ?? '');
+  useEditorPreviewSync(editor, previewRef, view === 'split');
   const dirty = draft !== null && draft !== file.data?.content;
   const save = useMutation({
     mutationFn: (content: string) =>
@@ -223,47 +293,89 @@ function FileEditor({
       />
     );
   }
+  // 预览时编辑器只隐藏不卸载：未保存的内容、光标与选区在切回编辑后不变
   return (
-    <div className="min-h-0 min-w-0 flex-1" data-testid="skill-editor">
-      <Editor
-        key={path}
-        defaultValue={file.data.content}
-        language={languageOf(path)}
-        theme={MONACO_THEME}
-        options={{
-          readOnly,
-          minimap: { enabled: false },
-          wordWrap: 'on',
-          fontSize: 13,
-          scrollBeyondLastLine: false,
-          // 拖动文件树宽度、收起面板时跟着容器重新排版
-          automaticLayout: true,
-        }}
-        onChange={(value) => {
-          setDraft(value ?? '');
-        }}
-        onMount={(editor) => {
-          editorRef.current = editor;
-          editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-            saveRef.current();
-          });
-        }}
-      />
+    <div className="flex min-h-0 min-w-0 flex-1" data-testid="file-view" data-view={view}>
+      <div
+        className={cn('min-h-0 min-w-0 flex-1', view === 'preview' && 'hidden')}
+        data-testid="skill-editor"
+      >
+        <Editor
+          key={path}
+          defaultValue={file.data.content}
+          language={languageOf(path)}
+          theme={MONACO_THEME}
+          options={{
+            readOnly,
+            minimap: { enabled: false },
+            wordWrap: 'on',
+            fontSize: 13,
+            scrollBeyondLastLine: false,
+            // 拖动文件树宽度、收起面板时跟着容器重新排版
+            automaticLayout: true,
+          }}
+          onChange={(value) => {
+            setDraft(value ?? '');
+          }}
+          onMount={(mounted) => {
+            editorRef.current = mounted;
+            setEditor(mounted);
+            mounted.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+              saveRef.current();
+            });
+          }}
+        />
+      </div>
+      {view !== 'edit' && (
+        <div
+          ref={previewRef}
+          className={cn('min-h-0 min-w-0 flex-1 overflow-auto', view === 'split' && 'border-l')}
+          data-testid="md-preview"
+        >
+          <Markdown
+            className="mx-auto max-w-[980px] px-8 py-6"
+            content={previewContent}
+            filePath={path}
+            fileHref={(target) => `?file=${encodeURIComponent(target)}`}
+            onOpenFile={onOpenFile}
+          />
+        </div>
+      )}
     </div>
   );
 }
 
 const diffStatusLabel = { added: '新增', removed: '删除', modified: '修改' } as const;
 
-// 对比：左侧是改过的文件，右侧是 diff 编辑器
-function DiffPane({ variant }: { variant: Variant }) {
+// 服务端给出的一个文件的 unified diff 转成共用的 diff 显示的数据；新增的空文件没有 hunk
+function diffFileOf(f: FileDiff): DiffFile {
+  return (
+    parseUnifiedDiff(f.patch)[0] ?? {
+      path: f.path,
+      status: f.status,
+      hunks: [],
+      additions: 0,
+      deletions: 0,
+    }
+  );
+}
+
+// 对比（Contracts 21.3）：左侧是改过的文件，右侧是这些文件的 diff，点左侧的文件滚动到它
+function DiffPane({ variant, viewType }: { variant: Variant; viewType: ViewType }) {
   // 任意 workflow 的 variant 没有基线（Contracts 18.6），只能与来源对比
   const hasBase = variant.baseCommit !== '';
   const [against, setAgainst] = useState<'base' | 'parent'>(hasBase ? 'base' : 'parent');
   const comparable = hasBase || variant.parentId !== null;
   const diff = useQuery({ ...diffQuery(variant.id, against), enabled: comparable });
   const [selected, setSelected] = useState<string | null>(null);
-  const file = diff.data?.files.find((f) => f.path === selected) ?? diff.data?.files[0];
+  const files = useMemo(() => (diff.data?.files ?? []).map(diffFileOf), [diff.data]);
+  const listRef = useRef<HTMLDivElement>(null);
+  const open = (path: string) => {
+    setSelected(path);
+    listRef.current
+      ?.querySelector(`[data-path="${CSS.escape(path)}"]`)
+      ?.scrollIntoView({ block: 'start' });
+  };
 
   if (!comparable) {
     return (
@@ -323,10 +435,10 @@ function DiffPane({ variant }: { variant: Variant }) {
               type="button"
               className={cn(
                 'flex w-full flex-col items-start px-3 py-1 text-left hover:bg-accent',
-                f.path === file?.path && 'bg-accent',
+                f.path === selected && 'bg-accent',
               )}
               onClick={() => {
-                setSelected(f.path);
+                open(f.path);
               }}
             >
               <span className="w-full truncate font-mono text-xs">{f.path}</span>
@@ -335,8 +447,17 @@ function DiffPane({ variant }: { variant: Variant }) {
           ))}
         </nav>
       </div>
-      <div className="min-h-0 min-w-0 flex-1" data-testid="skill-diff">
-        {file !== undefined && <SkillDiffEditor key={`${against}:${file.path}`} file={file} />}
+      <div
+        ref={listRef}
+        className="min-h-0 min-w-0 flex-1 overflow-auto p-3"
+        data-testid="skill-diff"
+      >
+        <DiffView
+          key={against}
+          files={files}
+          viewType={viewType}
+          sources={Object.fromEntries((diff.data?.files ?? []).map((f) => [f.path, f.oldContent]))}
+        />
       </div>
     </div>
   );
@@ -461,6 +582,8 @@ export function VariantWorkspace({
   const queryClient = useQueryClient();
   const files = useQuery(filesQuery(variant.id));
   const [mode, setMode] = useState<Mode>('edit');
+  const [mdView, setMdView] = useMdView();
+  const [viewType] = useDiffViewType();
   // 打开的文件写在地址的 ?file= 中：刷新（包括全屏时）后仍打开它
   const [params, setParams] = useSearchParams();
   const selected = params.get('file');
@@ -633,6 +756,36 @@ export function VariantWorkspace({
           </span>
         )}
         <div className="ml-auto flex shrink-0 items-center gap-1">
+          {mode === 'edit' && current !== null && isMarkdown(current) && (
+            <div
+              role="group"
+              aria-label="Markdown 的显示"
+              className="mr-1 flex rounded-md border p-0.5"
+              data-testid="md-view"
+              data-view={mdView}
+            >
+              {(
+                [
+                  ['edit', '编辑'],
+                  ['preview', '预览'],
+                  ['split', '并排'],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  aria-pressed={mdView === id}
+                  className="rounded px-2 py-0.5 text-xs aria-pressed:bg-foreground aria-pressed:text-background"
+                  onClick={() => {
+                    setMdView(id);
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          {mode === 'diff' && <DiffViewTypeToggle className="mr-1" />}
           {mode === 'edit' && editable && current !== null && (
             <>
               <Button
@@ -754,14 +907,16 @@ export function VariantWorkspace({
             variant={variant}
             path={current}
             readOnly={!editable}
+            view={isMarkdown(current) ? mdView : 'edit'}
             saveRef={saveRef}
             onStatus={setStatus}
+            onOpenFile={select}
           />
         )}
       </div>
       {mode === 'diff' && (
         <div className="flex min-h-0 flex-1">
-          <DiffPane variant={variant} />
+          <DiffPane variant={variant} viewType={viewType} />
         </div>
       )}
 

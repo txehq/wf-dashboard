@@ -392,8 +392,9 @@ export const liveEvents = sqliteTable(
   (t) => [index('live_events_live_idx').on(t.liveId, t.id)],
 );
 
-// variant 的历史（Contracts 16.4、17.4）：改名记旧名与新名；覆盖与恢复前把原来的 src/ 存进
-// data/variant-history/<variantId>/<snapshot>/，payload 记快照目录名与来源
+// variant 的历史（Contracts 16.4、17.4）：一张表承载两种记录，kind 区分——改名（rename）记旧名与新名；
+// 覆盖与恢复（overwrite、restore）前把原来的 src/ 存进 data/variant-history/<variantId>/<snapshot>/，
+// payload 记快照目录名与来源。kind 与 payload 在 SQLite 中都是 text，新增的 kind 不需要迁移
 export const variantEventKinds = ['rename', 'overwrite', 'restore'] as const;
 export type VariantEventKind = (typeof variantEventKinds)[number];
 export type VariantEventPayload =

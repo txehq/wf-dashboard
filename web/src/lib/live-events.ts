@@ -128,21 +128,15 @@ export function invalidateThrottled(client: QueryClient, queryKey: QueryKey, ms:
 }
 
 // 布局挂载：建立连接；variant.build 刷新 variant 的列表与该 variant 的详情和构建日志（离开 Variants 页面再回来时
-// 状态是最新的，Runs 的发起列表在构建完成时可选）。文件内容不刷新，编辑中的修改不受影响
+// 状态是最新的，Runs 的发起列表在构建完成时可选）。文件内容不刷新，编辑中的修改不受影响。
+// variant.updated（改名、被覆盖或恢复，Contracts 16.4、17.4）：variant 的名字与状态出现在各个页面的查询中（Workflows、
+// Sessions 的绑定、Live、Runs、Compare、Analyses、草稿、历史），全部重新读取；编辑器只在打开文件时读内容，编辑中的修改不受影响
 export function useLiveConnection() {
   const client = useQueryClient();
   useEffect(() => connectLiveEvents(client), [client]);
   useLiveEvent((type, data) => {
-    // variant 改名、被覆盖或恢复（Contracts 16.4、17.4）：刷新名字、状态与历史，编辑中的文件内容不动
     if (type === 'variant.updated') {
-      const { variantId } = data as { variantId: string };
-      for (const queryKey of [
-        ['variants'],
-        ['variants', variantId],
-        ['variants', variantId, 'history'],
-      ]) {
-        void client.invalidateQueries({ queryKey, exact: true });
-      }
+      void client.invalidateQueries();
       return;
     }
     if (type !== 'variant.build') return;

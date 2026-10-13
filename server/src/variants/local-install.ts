@@ -7,9 +7,9 @@ import { HttpError } from './errors.js';
 // 任意 workflow 的 variant 安装到本机（Contracts 18.6）：skill 复制进用户自己的 ~/.claude/skills（Claude Code）
 // 与 ~/.agents/skills（Codex），清单写在 data/installs/<variantId>.json。同一 workflow 同一时间只装一个 variant
 
+// 清单不记 variant 的名字（Contracts 16.4，改名后按 id 取当前名字）；旧清单中的 variantName 读入时丢弃
 export const InstallManifest = z.object({
   variantId: z.string(),
-  variantName: z.string(),
   workflowId: z.string(),
   installedAt: z.number(),
   // 两个目标目录
@@ -20,6 +20,10 @@ export const InstallManifest = z.object({
   files: z.array(z.object({ path: z.string(), sha256: z.string() })),
 });
 export type InstallManifest = z.infer<typeof InstallManifest>;
+
+// 接口返回的清单：加上 variant 当前的名字
+export const InstallView = InstallManifest.extend({ variantName: z.string() });
+export type InstallView = z.infer<typeof InstallView>;
 
 const sha256 = (file: string) => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 
@@ -91,7 +95,7 @@ export function createLocalInstalls({ installsDir, home }: { installsDir: string
 
     // skillsDir 中每个 skill 目录复制到两个目标目录。目标中已有同名目录、且不是为同一 workflow 装的：拒绝并列出；
     // 同一 workflow 已经装了 variant（含这一个）时先按它的清单卸载
-    install(variant: { id: string; name: string; workflowId: string }, skillsDir: string) {
+    install(variant: { id: string; workflowId: string }, skillsDir: string) {
       const names = fs
         .readdirSync(skillsDir, { withFileTypes: true })
         .filter((entry) => entry.isDirectory())
@@ -126,7 +130,6 @@ export function createLocalInstalls({ installsDir, home }: { installsDir: string
       }
       const manifest: InstallManifest = {
         variantId: variant.id,
-        variantName: variant.name,
         workflowId: variant.workflowId,
         installedAt: Date.now(),
         targets,

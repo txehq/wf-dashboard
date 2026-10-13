@@ -24,7 +24,7 @@ import { BuildLog } from './build-log.js';
 import { writeCodexHome } from './codex-home.js';
 import { HttpError } from './errors.js';
 import { dataLayout, type VariantLayout } from './layout.js';
-import { createLocalInstalls } from './local-install.js';
+import { createLocalInstalls, type InstallManifest, type InstallView } from './local-install.js';
 import { claudeSandboxProfile, wfSandboxProfile } from './sandbox.js';
 import { REGISTRY_FILES, registerSkills } from './skill-registry.js';
 import {
@@ -236,6 +236,12 @@ export function createVariants({
     if (row === undefined) throw new HttpError(404, `variant 不存在：${id}`);
     return row;
   }
+
+  // 安装清单的显示：variant 的名字按 id 取当前的（Contracts 16.4）
+  const installView = (manifest: InstallManifest): InstallView => ({
+    ...manifest,
+    variantName: get(manifest.variantId).name,
+  });
 
   // variant 的目录：data/variants/<storage_id>，storage_id 为空时是自己的 id
   const storageOf = (row: Pick<Variant, 'id' | 'storageId'>) => row.storageId ?? row.id;
@@ -801,7 +807,8 @@ export function createVariants({
       return get(id);
     },
 
-    // 改名（Contracts 16.4）：任何 variant 都可以改；历史中记旧名、新名与时间
+    // 改名（Contracts 16.4）：任何 variant 都可以改，包括导入的、已冻结的与内置 workflow 的基线；
+    // 其他地方都按 id 取名字，改这一处即全局生效。历史中记旧名、新名与时间，页面经 variant.updated 刷新
     rename(id: string, name: string): Variant {
       const row = get(id);
       const next = checkName(name);
@@ -1257,18 +1264,20 @@ export function createVariants({
           `variant ${row.name} 还没有按当前内容构建，构建通过后才能安装到本机`,
         );
       }
-      return installs.install(row, dirsOf(row).skills);
+      const { manifest, replaced } = installs.install(row, dirsOf(row).skills);
+      return { manifest: installView(manifest), replaced: replaced.map(installView) };
     },
 
     uninstallLocal(id: string) {
       get(id);
-      return installs.uninstall(id);
+      return installView(installs.uninstall(id));
     },
 
     // 装在本机时为安装清单，没有装时为 null
     localInstall(id: string) {
       get(id);
-      return installs.status(id);
+      const manifest = installs.status(id);
+      return manifest === null ? null : installView(manifest);
     },
 
     // 交互的进程在 cwd 中启动或 resume 前调用（Contracts 14.2）：variant 的配置目录由 dashboard 所有
