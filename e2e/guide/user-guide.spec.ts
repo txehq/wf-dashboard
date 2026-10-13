@@ -75,6 +75,10 @@ test('02 离线分析：来源目录、session 列表、阶段图与请求明细
   await expect(page.getByTestId('session-row')).toHaveCount(1);
   await imported.getByRole('link').click();
   await expect(page.getByTestId('cycles-ic').getByRole('tab')).toHaveCount(3);
+  // 截图从阶段图开始：/lfg 的一轮与 /ic 的三轮
+  await page.getByTestId('workflow-lfg').evaluate((el) => {
+    el.scrollIntoView({ block: 'start' });
+  });
   await shot(page, '03-session-stages');
 
   // dashboard 发起的运行边运行边判定：W4 的 lfg run
