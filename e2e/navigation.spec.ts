@@ -1,7 +1,10 @@
+import { randomUUID } from 'node:crypto';
 import { expect, type Page, test } from '@playwright/test';
+import { serverPort } from '../ports.js';
 
-// W35：导航的分组、展开与收起、键盘操作
+// W35：导航的分组、展开与收起、键盘操作；W44b：variant 页面属于 Workflows
 const shots = '.work/screenshots';
+const api = `http://127.0.0.1:${String(serverPort)}/api`;
 
 const nav = (page: Page) => page.getByRole('navigation', { name: '主导航' });
 const groupButton = (page: Page, name: string) =>
@@ -13,7 +16,7 @@ test('导航的结构与顺序：顶层三项，Evaluate 与 Optimize 两个分�
   // 菜单项与分组标题按出现的顺序
   await expect(n.locator('a, button')).toHaveText([
     'Sessions',
-    'Variants',
+    'Workflows',
     'Live',
     'Evaluate',
     'Tasks',
@@ -87,7 +90,7 @@ test('键盘：Tab 到分组标题，Enter 展开，Tab 进入子项，Enter 打
   await groupButton(page, 'Evaluate').click();
   await expect(groupButton(page, 'Evaluate')).toHaveAttribute('aria-expanded', 'false');
   await page.getByRole('link', { name: 'Sessions' }).focus();
-  // Sessions → Variants → Live → Evaluate
+  // Sessions → Workflows → Live → Evaluate
   for (let i = 0; i < 3; i += 1) await page.keyboard.press('Tab');
   await expect(groupButton(page, 'Evaluate')).toBeFocused();
   await page.keyboard.press('Enter');
@@ -105,4 +108,41 @@ test('键盘：Tab 到分组标题，Enter 展开，Tab 进入子项，Enter 打
   await page.evaluate(() => {
     localStorage.clear();
   });
+});
+
+test('Workflows 与 variant 页面：/workflows、/workflows/:id 与 /variants/:id 时 Workflows 为当前项', async ({
+  page,
+  request,
+}) => {
+  // 从空白新建一个 workflow，它的第一个 variant「初稿」不需要导入或构建
+  const id = `nav-${randomUUID().slice(0, 8)}`;
+  const created = await request.post(`${api}/workflows`, {
+    data: {
+      id,
+      name: id,
+      description: '',
+      definition: { id, name: id, stages: [{ id: `${id}-stage` }] },
+    },
+  });
+  expect(created.status()).toBe(201);
+  const variants = (await (await request.get(`${api}/variants`)).json()) as {
+    id: string;
+    workflowId: string;
+  }[];
+  const variant = variants.find((v) => v.workflowId === id);
+  if (variant === undefined) throw new Error(`${id} 没有 variant`);
+
+  for (const url of ['/workflows', `/workflows/${id}`, `/variants/${variant.id}`]) {
+    await page.goto(url);
+    await expect(nav(page).getByRole('link', { name: 'Workflows' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    for (const other of ['Sessions', 'Live', 'Runs']) {
+      await expect(nav(page).getByRole('link', { name: other })).not.toHaveAttribute(
+        'aria-current',
+      );
+    }
+    await expect(page).toHaveTitle('Workflows · Magi Workflow Dashboard');
+  }
 });

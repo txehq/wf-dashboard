@@ -40,6 +40,7 @@ export default defineConfig({
       // compare-empty 用这里每次删除重建的数据库：其中没有已评分的 run
       testMatch: [
         'home.spec.ts',
+        'navigation.spec.ts',
         'sessions.spec.ts',
         'tasks.spec.ts',
         'tasks-import.spec.ts',
