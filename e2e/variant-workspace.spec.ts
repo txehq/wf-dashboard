@@ -34,7 +34,7 @@ async function ownWorkflow(request: APIRequestContext) {
 }
 
 // 只有一个按钮的一行（Contracts 20.2）：按钮所在的水平带上，按钮之外没有别的文字或控件。
-// 文件树、对比的文件列表（nav）、标签与 Monaco 内部的按钮是列表项，不算
+// 文件树、对比的文件列表（nav）、标签、Monaco 内部与 diff 中"展开未改动的行"的按钮是内容的一部分，不算
 async function singleButtonRows(page: Page): Promise<string[]> {
   return page.evaluate(() => {
     const visible = (el: Element) => {
@@ -51,7 +51,9 @@ async function singleButtonRows(page: Page): Promise<string[]> {
         (el.matches(controls) || (el.children.length === 0 && el.textContent.trim() !== '')),
     );
     return [...root.querySelectorAll('button')]
-      .filter((b) => visible(b) && b.closest('nav, [role="tablist"], .monaco-editor') === null)
+      .filter(
+        (b) => visible(b) && b.closest('nav, [role="tablist"], .monaco-editor, .wfd-diff') === null,
+      )
       .filter((b) => {
         const r = b.getBoundingClientRect();
         const middle = r.top + r.height / 2;
@@ -107,8 +109,8 @@ test('variant 页面：头部一行是面包屑、名字与四个操作，两种
     }
     expect(await singleButtonRows(page)).toEqual([]);
     expect(await horizontalScroll(page)).toBe(false);
-    // 编辑器占页面高度的大部分
-    expect(await height(page, 'skill-editor')).toBeGreaterThan(size.height * 0.6);
+    // 编辑区（.md 文件默认预览）占页面高度的大部分
+    expect(await height(page, 'file-view')).toBeGreaterThan(size.height * 0.6);
     await page.screenshot({
       path: `${shots}/w46-page-${String(size.width)}.png`,
       animations: 'disabled',
@@ -173,6 +175,8 @@ test('全屏编辑 skill：按钮与 ⌃⇧F 进入退出，Esc 不退出，刷�
   await tree.getByRole('button', { name: stage, exact: true }).click();
   await tree.getByTitle(`skills/${stage}/SKILL.md`).click();
   await expect(workspace.getByTestId('current-file')).toHaveText(`skills/${stage}/SKILL.md`);
+  // .md 文件默认预览，点"编辑"进入编辑
+  await workspace.getByTestId('md-view').getByRole('button', { name: '编辑' }).click();
   await expect(lines).toContainText('在这里写这个阶段做什么。');
   await lines.click();
   await page.keyboard.press('ControlOrMeta+End');
@@ -260,9 +264,9 @@ test('全屏编辑 skill：按钮与 ⌃⇧F 进入退出，Esc 不退出，刷�
   // 全屏时与来源对比：列出刚保存的修改；回到编辑
   await workspace.getByRole('tab', { name: '对比' }).click();
   await expect(workspace.getByRole('button', { name: '与来源对比' })).toBeVisible();
-  await expect(workspace.getByTestId('skill-diff').locator('.modified .view-lines')).toContainText(
-    `W46${marker}abcQS`,
-  );
+  await expect(
+    workspace.getByTestId('skill-diff').locator('td.diff-code-insert').last(),
+  ).toContainText(`W46${marker}abcQS`);
   expect(await singleButtonRows(page)).toEqual([]);
   await workspace.getByRole('tab', { name: '编辑' }).click();
   await expect(lines).toBeVisible();
@@ -304,4 +308,205 @@ test('全屏编辑 skill：按钮与 ⌃⇧F 进入退出，Esc 不退出，刷�
   await expectFullscreen(false);
   await expect(page.getByTestId('variant-actions')).toBeVisible();
   expect(pageErrors).toEqual([]);
+});
+
+// 一份长的 Markdown：frontmatter、表格、代码、mermaid、指向同一 variant 中另一个文件的链接
+function longMarkdown(stage: string, marker: string): string {
+  const sections = Array.from(
+    { length: 30 },
+    (_, i) => `## 第 ${String(i + 1)} 节\n\n这一节的说明 ${String(i + 1)}。\n`,
+  );
+  return [
+    '---',
+    `name: ${stage}`,
+    'description: 逐个文件扫描',
+    '---',
+    '',
+    `# 扫描 ${marker}`,
+    '',
+    '| 输入 | 输出 |',
+    '| --- | --- |',
+    '| 文件 | 发现 |',
+    '',
+    '```ts',
+    'const files = await list();',
+    '```',
+    '',
+    '```mermaid',
+    'flowchart LR',
+    '  A[列出] --> B[扫描]',
+    '```',
+    '',
+    '见 [检查清单](checklist.md)。',
+    '',
+    ...sections,
+    `最后一行 ${marker}`,
+    '',
+  ].join('\n');
+}
+
+test('variant 页面的 .md 文件：默认预览，编辑 / 预览 / 并排，并排时实时更新与滚动同步，全屏中同样可用；对比用共用的 diff', async ({
+  page,
+  request,
+}) => {
+  const { marker, stage, first } = await ownWorkflow(request);
+  const derived = (await (
+    await request.post(`${api}/variants/${first}/derive`, { data: { name: `W50 ${marker}` } })
+  ).json()) as { id: string };
+  const skill = `skills/${stage}/SKILL.md`;
+  const write = async (path: string, content: string) => {
+    const response = await request.put(`${api}/variants/${derived.id}/file`, {
+      data: { path, content },
+    });
+    expect(response.status()).toBe(200);
+  };
+  await write(skill, longMarkdown(stage, marker));
+  await write(`skills/${stage}/checklist.md`, `# 检查清单 ${marker}\n\n- [ ] 每个文件都看过\n`);
+  await write(`skills/${stage}/scan.sh`, 'echo scan\n');
+
+  await page.setViewportSize(sizes[0]);
+  await page.goto(`/variants/${derived.id}?file=${encodeURIComponent(skill)}`);
+  const workspace = page.getByTestId('skill-workspace');
+  const view = workspace.getByTestId('md-view');
+  const fileView = workspace.getByTestId('file-view');
+  const preview = workspace.getByTestId('md-preview');
+  const editor = workspace.getByTestId('skill-editor');
+  const lines = editor.locator('.view-lines');
+
+  // 默认预览：21.1 的渲染，编辑器隐藏
+  await expect(view).toHaveAttribute('data-view', 'preview');
+  await expect(fileView).toHaveAttribute('data-view', 'preview');
+  await expect(editor).toBeHidden();
+  const article = preview.getByTestId('markdown');
+  await expect(article.getByRole('heading', { level: 1 })).toHaveText(`扫描 ${marker}`);
+  await expect(article.locator('table.frontmatter th')).toHaveText(['name', 'description']);
+  await expect(article.locator('pre code.hljs.language-ts .hljs-keyword').first()).toHaveText(
+    'const',
+  );
+  await expect(article.getByTestId('mermaid').locator('svg')).toBeVisible();
+  for (const size of sizes) {
+    await page.setViewportSize(size);
+    expect(await height(page, 'md-preview')).toBeGreaterThan(size.height * 0.6);
+    expect(await singleButtonRows(page)).toEqual([]);
+    expect(await horizontalScroll(page)).toBe(false);
+    await page.screenshot({
+      path: `${shots}/w50-variant-preview-${String(size.width)}.png`,
+      animations: 'disabled',
+    });
+  }
+
+  // 并排：左编辑、右预览，编辑时预览实时更新，未保存
+  await view.getByRole('button', { name: '并排' }).click();
+  await expect(fileView).toHaveAttribute('data-view', 'split');
+  await expect(editor).toBeVisible();
+  await expect(lines).toContainText(`扫描 ${marker}`);
+  const editorBox = await editor.boundingBox();
+  const previewBox = await preview.boundingBox();
+  if (editorBox === null || previewBox === null) throw new Error('并排的两侧不可见');
+  expect(editorBox.x + editorBox.width).toBeLessThanOrEqual(previewBox.x + 1);
+  expect(Math.abs(editorBox.width - previewBox.width)).toBeLessThan(4);
+  // 在一级标题之后加一段（macOS 上 Meta 组合键到不了 Monaco，用鼠标放光标、End 到行末）
+  await lines.getByText(`# 扫描 ${marker}`).click();
+  await page.keyboard.press('End');
+  await page.keyboard.type(`\n\n新加的一段 ${marker}`);
+  await expect(article.locator('h1 + p')).toHaveText(`新加的一段 ${marker}`);
+  await expect(workspace.getByTestId('save-state')).toHaveText('未保存');
+
+  // 滚动同步：编辑器向下翻页，预览跟着向下；翻回顶，预览回顶；预览滚到底，编辑器跟到最后一行
+  const previewTop = () => preview.evaluate((el) => el.scrollTop);
+  for (let i = 0; i < 3; i += 1) await page.keyboard.press('PageDown');
+  await expect.poll(previewTop).toBeGreaterThan(0);
+  for (let i = 0; i < 6; i += 1) await page.keyboard.press('PageUp');
+  await expect.poll(previewTop).toBe(0);
+  await page.waitForTimeout(150);
+  await preview.evaluate((el) => {
+    el.scrollTop = el.scrollHeight;
+  });
+  await expect(lines).toContainText(`最后一行 ${marker}`);
+  await expect(lines.getByText(`# 扫描 ${marker}`)).toHaveCount(0);
+  for (const size of sizes) {
+    await page.setViewportSize(size);
+    await page.screenshot({
+      path: `${shots}/w50-variant-split-${String(size.width)}.png`,
+      animations: 'disabled',
+    });
+  }
+
+  // 选择记在浏览器中：刷新后仍是并排；未保存的修改先保存
+  await workspace.getByRole('button', { name: '保存', exact: true }).click();
+  await expect(workspace.getByTestId('save-state')).toHaveText('已保存');
+  await page.reload();
+  await expect(fileView).toHaveAttribute('data-view', 'split');
+  await expect(article).toContainText(`新加的一段 ${marker}`);
+
+  // 全屏中同样可用：切到预览，铺满窗口
+  await workspace.getByTestId('fullscreen-toggle').click();
+  await expect(workspace).toHaveAttribute('data-fullscreen', 'true');
+  await view.getByRole('button', { name: '预览' }).click();
+  await expect(editor).toBeHidden();
+  await expect(article.getByRole('heading', { level: 1 })).toHaveText(`扫描 ${marker}`);
+  for (const size of sizes) {
+    await page.setViewportSize(size);
+    expect(await height(page, 'md-preview')).toBeGreaterThan(size.height * 0.85);
+    expect(await singleButtonRows(page)).toEqual([]);
+    await page.screenshot({
+      path: `${shots}/w50-variant-fullscreen-preview-${String(size.width)}.png`,
+      animations: 'disabled',
+    });
+  }
+  await view.getByRole('button', { name: '并排' }).click();
+  await expect(editor).toBeVisible();
+  await expect(preview).toBeVisible();
+  await page.screenshot({
+    path: `${shots}/w50-variant-fullscreen-split.png`,
+    animations: 'disabled',
+  });
+  await view.getByRole('button', { name: '预览' }).click();
+
+  // 预览中指向另一个 .md 的链接在工作区中打开它
+  await article.getByRole('link', { name: '检查清单' }).click();
+  await expect(workspace.getByTestId('current-file')).toHaveText(`skills/${stage}/checklist.md`);
+  await expect(article.getByRole('heading', { level: 1 })).toHaveText(`检查清单 ${marker}`);
+
+  // 其他类型的文件只有编辑
+  await page.goto(`/variants/${derived.id}?file=${encodeURIComponent(`skills/${stage}/scan.sh`)}`);
+  await expect(lines).toContainText('echo scan');
+  await expect(view).toHaveCount(0);
+  await expect(preview).toHaveCount(0);
+
+  // 对比：与来源对比，共用的 diff（红绿、行号、统一与并排），每个文件一个可折叠的标题
+  await workspace.getByRole('tab', { name: '对比' }).click();
+  const diff = workspace.getByTestId('skill-diff');
+  const files = diff.getByTestId('diff-file');
+  await expect(files).toHaveCount(3);
+  const card = diff.locator(`[data-path="${skill}"]`);
+  await expect(
+    card.locator('td.diff-code-insert').filter({ hasText: `新加的一段 ${marker}` }),
+  ).toBeVisible();
+  await expect(card.locator('td.diff-code-delete').first()).toHaveCSS(
+    'background-color',
+    'rgb(255, 235, 233)',
+  );
+  await expect(diff.locator(`[data-path="skills/${stage}/scan.sh"]`)).toContainText('新增');
+  const typeToggle = workspace.getByTestId('diff-view-type');
+  for (const type of ['unified', 'split'] as const) {
+    await typeToggle.getByRole('button', { name: type === 'unified' ? '统一' : '并排' }).click();
+    await expect(diff.locator(`table.diff-${type}`).first()).toBeVisible();
+    for (const size of sizes) {
+      await page.setViewportSize(size);
+      expect(await singleButtonRows(page)).toEqual([]);
+      await page.screenshot({
+        path: `${shots}/w50-variant-diff-${type}-${String(size.width)}.png`,
+        animations: 'disabled',
+      });
+    }
+  }
+  await typeToggle.getByRole('button', { name: '统一' }).click();
+  // 点左侧的文件滚动到它；文件标题可以收起
+  await workspace
+    .getByRole('navigation', { name: '改过的文件' })
+    .getByRole('button', { name: new RegExp(`skills/${stage}/scan\\.sh`) })
+    .click();
+  await card.getByRole('button', { name: skill }).click();
+  await expect(card.locator('table')).toHaveCount(0);
 });
