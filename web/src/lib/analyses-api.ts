@@ -263,9 +263,10 @@ export function cancelAnalysis(id: string) {
   return call<{ id: string }>('POST', `/api/analyses/${id}/cancel`);
 }
 
+// 另存为 variant（Contracts 15.3、19.3）：名字与描述必填，不构建
 export function saveAnalysisVariant(
   id: string,
-  body: { name: string; files: { path: string; content: string }[] },
+  body: { name: string; description: string; files: { path: string; content: string }[] },
 ) {
   return call<Named>('POST', `/api/analyses/${id}/variant`, body);
 }

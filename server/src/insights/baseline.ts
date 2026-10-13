@@ -39,6 +39,7 @@ export async function ensureAnalysisBaseline(db: Db, variants: Variants): Promis
       srcDir: analysisBaselineSrc,
       workflowId: ANALYSIS_WORKFLOW,
       name: variants.freeName(ANALYSIS_WORKFLOW, '基线'),
+      description: null,
       parentId: null,
       draftId: null,
       analysisId: null,

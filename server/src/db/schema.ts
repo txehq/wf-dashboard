@@ -392,8 +392,15 @@ export const liveEvents = sqliteTable(
   (t) => [index('live_events_live_idx').on(t.liveId, t.id)],
 );
 
-// variant 的历史（Contracts 16.4）：改名时记一条，payload 为 { from, to }
-export const variantEventKinds = ['rename'] as const;
+// variant 的历史（Contracts 16.4、17.4）：一张表承载两种记录，kind 区分——改名（rename）记旧名与新名；
+// 覆盖与恢复（overwrite、restore）前把原来的 src/ 存进 data/variant-history/<variantId>/<snapshot>/，
+// payload 记快照目录名与来源。kind 与 payload 在 SQLite 中都是 text，新增的 kind 不需要迁移
+export const variantEventKinds = ['rename', 'overwrite', 'restore'] as const;
+export type VariantEventKind = (typeof variantEventKinds)[number];
+export type VariantEventPayload =
+  | { from: string; to: string }
+  | { snapshot: string; draftId: string; analysisId: string | null }
+  | { snapshot: string; restoredEventId: number };
 export const variantEvents = sqliteTable(
   'variant_events',
   {
@@ -403,7 +410,7 @@ export const variantEvents = sqliteTable(
       .references(() => variants.id),
     at: integer('at', { mode: 'timestamp_ms' }).notNull(),
     kind: text('kind', { enum: variantEventKinds }).notNull(),
-    payload: text('payload', { mode: 'json' }).$type<{ from: string; to: string }>().notNull(),
+    payload: text('payload', { mode: 'json' }).$type<VariantEventPayload>().notNull(),
   },
   (t) => [index('variant_events_variant_idx').on(t.variantId, t.id)],
 );

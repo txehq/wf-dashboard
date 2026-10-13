@@ -141,6 +141,7 @@ test('新建分析、报告、证据链接、按 hunk 接受与拒绝、编辑�
 
   const name = `w31 e2e ${id}`;
   await review.getByLabel('新 variant 的名称').fill(name);
+  await review.getByLabel('新 variant 的描述').fill('按分析的发现修改');
   await review.getByRole('button', { name: '另存为 variant' }).click();
   // 新 variant 的页面（Contracts 18.3）
   await expect(page).toHaveURL(/\/variants\/[0-9a-f-]{36}$/);

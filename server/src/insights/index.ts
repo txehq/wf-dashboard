@@ -706,13 +706,16 @@ export function createInsights({
       }
     },
 
-    // 另存为 variant（Contracts 15.3）：从绑定的 variant 派生草稿，写入接受的修改与编辑后的内容，记录 parent 与 analysis_id
+    // 另存为 variant（Contracts 15.3、19.3）：从绑定的 variant 派生草稿，写入接受的修改与编辑后的内容，记录 parent
+    // 与 analysis_id；名字与描述必填，不构建，状态为 draft
     saveVariant(
       id: string,
-      input: { name: string; files: { path: string; content: string }[] },
+      input: { name: string; description: string; files: { path: string; content: string }[] },
     ): Variant {
       const row = get(id);
       if (row.status !== 'succeeded') throw new HttpError(409, `分析 ${id} 还没有成功完成`);
+      const name = variants.checkName(input.name);
+      const description = variants.checkDescription(input.description);
       const proposals = new Set(
         (
           JSON.parse(
@@ -727,10 +730,10 @@ export function createInsights({
           `这些文件不在修改建议中：${outside.map((f) => f.path).join('、')}`,
         );
       }
-      const created = variants.derive(row.variantId, { name: input.name });
+      const created = variants.derive(row.variantId, { name });
       for (const f of input.files) variants.writeFile(created.id, f.path, f.content);
       db.update(variantsTable)
-        .set({ analysisId: id })
+        .set({ analysisId: id, description })
         .where(eq(variantsTable.id, created.id))
         .run();
       return variants.get(created.id);

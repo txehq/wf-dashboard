@@ -13,9 +13,9 @@ import { testCodex } from '../helpers/codex.js';
 import { makeSkillSources } from '../helpers/codex-skills.js';
 import { testRepos } from '../helpers/local-repos.js';
 
-// 慢档（Contracts 17.4）：lfg、ic 之下"用 Codex 生成 variant"的保存仍是 txe-workflow 导出与 wf 构建。
+// 慢档（Contracts 17.4）：lfg、ic 之下"用 Codex 生成 variant"的保存不构建，保存出的 variant 由用户构建时用 wf。
 // 测试代码直接改草稿中的 skill 后保存，不需要 Codex；wf runtime 与 cargo 缓存在 .work/test-data，跨测试运行复用。
-// 从空白开始的新 workflow 草稿用自有管理器构建，见 drafts-blank.test.ts（基础档）
+// 新建与覆盖两条路径与校验见 drafts-save-target.test.ts（基础档）
 const variantsData = path.join(config.repoRoot, '.work', 'test-data');
 const dbFile = path.join(config.repoRoot, '.work', 'test-db', `${randomUUID()}.sqlite`);
 const db = openDatabase(dbFile, config.migrationsDir);
@@ -69,8 +69,8 @@ async function openReady(body: CreateDraftBody): Promise<DraftView> {
   return ready;
 }
 
-describe('保存 lfg 的 Codex 草稿：真实的 wf 构建', { timeout: 1_800_000 }, () => {
-  test('mode variant：src 是底子的 txe-workflow 导出，在 lfg 下建新 variant，parent 为底子，wf status 0 退出', async () => {
+describe('保存 lfg 的 Codex 草稿后构建：真实的 wf 构建', { timeout: 1_800_000 }, () => {
+  test('mode variant：src 是底子的 txe-workflow 导出，在 lfg 下建未构建的新 variant，parent 为底子，构建时 wf status 0 退出', async () => {
     const base = await variants.createBaseline({ name: `草稿底子 ${marker}` });
     created.push(base);
     const draft = await openReady({
@@ -86,12 +86,17 @@ describe('保存 lfg 的 Codex 草稿：真实的 wf 构建', { timeout: 1_800_0
       path.join(draft.dir, 'src/skills/interview/SKILL.md'),
       '\n先说明这次访谈的目的。\n',
     );
-    const saved = await drafts.save(draft.id);
+    const saved = drafts.save(draft.id, {
+      target: { kind: 'new', name: `访谈先说目的 ${marker}`, description: '先说明访谈的目的' },
+    });
     const v = variants.get(saved.savedVariantId ?? '');
     created.push(v);
-    expect([v.buildStatus, v.builtHash]).toEqual(['built', v.skillsHash]);
+    // 保存不构建；构建由用户在 variant 页面发起
+    expect([v.status, v.buildStatus, v.builtHash]).toEqual(['draft', 'none', null]);
+    const built = await variants.build(v.id);
+    expect([built.buildStatus, built.builtHash]).toEqual(['built', v.skillsHash]);
     expect(variants.buildLog(v.id)).toMatch(/\[status\] exit 0,/);
-    expect(v.name).toBe(`Codex ${draft.id}`);
+    expect(v.name).toBe(`访谈先说目的 ${marker}`);
     expect(v.workflowId).toBe('lfg');
     expect(v.parentId).toBe(base.id);
     expect(v.draftId).toBe(draft.id);

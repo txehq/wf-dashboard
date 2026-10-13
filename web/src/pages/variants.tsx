@@ -7,6 +7,7 @@ import { VariantName } from '@/components/variant-name';
 import { OpenInFinder } from '@/components/open-in-finder';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { VariantHistoryButton } from '@/components/variant-history';
 import { formatDateTime } from '@/lib/format';
 import { type WorkflowRecord, workflowsQuery } from '@/lib/workflows-api';
 import { VariantWorkspace } from '@/pages/variant-workspace';
@@ -112,6 +113,7 @@ function HeaderActions({
         {imported ? '派生为可运行的 variant' : '派生新 variant'}
       </Button>
       <OpenInFinder target={{ kind: 'variant', id: variant.id }} label="在访达中打开" />
+      <VariantHistoryButton variant={variant} />
       {/* 安装到本机只对不用 wf 管理的 workflow（Contracts 18.6） */}
       {!workflow.wf && (
         <span className="contents" data-testid="local-install">

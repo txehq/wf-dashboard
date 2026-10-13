@@ -322,7 +322,7 @@ describe('交给 Codex 优化（Contracts 19.3）', { timeout: 120_000 }, () => 
     const skill = path.join(draft.dir, 'optimize/src/skills', stepId, 'SKILL.md');
     fs.appendFileSync(skill, '\n先读输入再回答。\n');
     // 保存前的改动预览（Contracts 21.3）：optimize/src 相对被分析的 variant
-    const preview = drafts.diff(draft.id);
+    const preview = drafts.diff(draft.id, undefined);
     expect(preview.base).toEqual({ id: analysed.id, name: analysed.name });
     expect(preview.files.map((f) => [f.path, f.status])).toEqual([
       [`skills/${stepId}/SKILL.md`, 'modified'],
@@ -331,17 +331,36 @@ describe('交给 Codex 优化（Contracts 19.3）', { timeout: 120_000 }, () => 
       variants.readFile(analysed.id, `skills/${stepId}/SKILL.md`),
     );
     expect(preview.files[0]?.patch).toContain('\n+\n+先读输入再回答。\n');
-    const saved = await drafts.save(draft.id);
+    // 保存到原 workflow：新建 variant 或覆盖其中的 variant（Contracts 19.3）
+    const plan = drafts.savePlan(draft.id);
+    expect(plan).toMatchObject({
+      kind: 'variant',
+      workflowId: flowId,
+      parent: { id: analysed.id, name: analysed.name },
+    });
+    expect(() =>
+      drafts.save(draft.id, {
+        target: { kind: 'new', name: `优化 ${marker}`, description: '' },
+      }),
+    ).toThrow('variant 的描述不能为空');
+    const saved = drafts.save(draft.id, {
+      target: { kind: 'new', name: `优化 ${marker}`, description: '先读输入再回答' },
+    });
     const v = variants.get(saved.savedVariantId ?? '');
     createdVariants.push(v.id);
+    // 保存不构建，状态为 draft
     expect(v).toMatchObject({
       workflowId: flowId,
       parentId: analysed.id,
       analysisId,
       draftId: draft.id,
-      name: `Codex ${draft.id}`,
-      buildStatus: 'built',
+      name: `优化 ${marker}`,
+      description: '先读输入再回答',
+      status: 'draft',
+      buildStatus: 'none',
+      builtHash: null,
     });
+    expect(fs.existsSync(variants.layout(v.id).dist)).toBe(false);
     expect(saved.savedWorkflowId).toBe(flowId);
     expect(variants.readFile(v.id, `skills/${stepId}/SKILL.md`)).toContain('先读输入再回答。');
   });
@@ -369,37 +388,97 @@ describe('交给 Codex 优化（Contracts 19.3）', { timeout: 120_000 }, () => 
       path.join(check, 'SKILL.md'),
       `---\nname: w45-check-${marker}\ndescription: 检查回答\n---\n\n检查回答是否只有"记住了"。\n`,
     );
-    const saved = await drafts.save(draft.id);
+    // 第一次保存为新 workflow：workflow 与第一个 variant 的名字与描述都必填
+    expect(drafts.savePlan(draft.id)).toEqual({
+      kind: 'new-workflow',
+      workflowId: newId,
+      workflowName: definition.name,
+      workflowDescription: `由 Codex 按分析 ${analysisId} 的报告，从 workflow ${flowId} 改出`,
+      variantName: '初稿',
+    });
+    const first = { kind: 'new' as const, name: '初稿', description: '加上检查阶段' };
+    expect(() => drafts.save(draft.id, { target: first })).toThrow(
+      `第一次保存为新 workflow ${newId}，要填 workflow 的名字与描述`,
+    );
+    expect(() =>
+      drafts.save(draft.id, { target: first, workflow: { name: '  ', description: 'x' } }),
+    ).toThrow('workflow 的名字不能为空');
+    expect(workflows.list().some((w) => w.id === newId)).toBe(false);
+    const saved = drafts.save(draft.id, {
+      target: first,
+      workflow: { name: `W45 新流程 ${marker}`, description: '回答后再检查一遍' },
+    });
     const v = variants.get(saved.savedVariantId ?? '');
     createdVariants.push(v.id);
     expect(saved.savedWorkflowId).toBe(newId);
-    expect(loadWorkflow(db, newId)).toEqual(definition);
+    expect(loadWorkflow(db, newId)).toEqual({ ...definition, name: `W45 新流程 ${marker}` });
     expect(workflows.get(newId)).toMatchObject({
       evalKind: null,
-      description: `由 Codex 按分析 ${analysisId} 的报告，从 workflow ${flowId} 改出`,
+      description: '回答后再检查一遍',
     });
     expect(v).toMatchObject({
       workflowId: newId,
-      name: '基线',
+      name: '初稿',
+      description: '加上检查阶段',
       parentId: null,
       analysisId,
-      buildStatus: 'built',
+      buildStatus: 'none',
     });
 
-    // 再次保存：定义不变时在新 workflow 下再建一个 variant；改了定义时以原文失败
-    const again = await drafts.save(draft.id);
+    // 再次保存：入口与小阶段不变时（名字可以不同）保存到新 workflow 中；改了小阶段时以原文失败
+    expect(drafts.savePlan(draft.id)).toMatchObject({ kind: 'variant', workflowId: newId });
+    const again = drafts.save(draft.id, {
+      target: { kind: 'new', name: '第二稿', description: '同样的阶段' },
+    });
     createdVariants.push(again.savedVariantId ?? '');
     expect(variants.get(again.savedVariantId ?? '')).toMatchObject({
       workflowId: newId,
-      name: `Codex ${draft.id}`,
+      name: '第二稿',
+      parentId: null,
     });
     fs.writeFileSync(
       path.join(draft.dir, 'optimize/workflow.yaml'),
-      stringify({ ...definition, name: '又改了' }),
+      stringify({ ...definition, stages: [...definition.stages, { id: 'publish' }] }),
     );
-    await expect(drafts.save(draft.id)).rejects.toThrow(
-      `workflow.yaml 与已保存的 workflow ${newId} 的定义不同`,
+    expect(() =>
+      drafts.save(draft.id, { target: { kind: 'new', name: '第三稿', description: 'x' } }),
+    ).toThrow(`workflow.yaml 与已保存的 workflow ${newId} 的定义不同`);
+  });
+
+  test('按 hunk 接受后另存为 variant（Contracts 15.3）：名字与描述必填，不构建，记录 parent 与分析', () => {
+    const analysisId = succeededAnalysis();
+    const file = `skills/${stepId}/SKILL.md`;
+    const original = variants.readFile(analysed.id, file);
+    const files = [{ path: file, content: `${original}\n先读输入再回答。\n` }];
+    fs.writeFileSync(
+      analysisLayout(dataDir, analysisId).proposals,
+      `${JSON.stringify([{ path: file, original, proposed: files[0]?.content, hunks: [] }])}\n`,
     );
+    expect(() =>
+      insights.saveVariant(analysisId, { name: ' ', description: '先读输入', files }),
+    ).toThrow('variant 的名字不能为空');
+    expect(() =>
+      insights.saveVariant(analysisId, { name: `另存 ${marker}`, description: '', files }),
+    ).toThrow('variant 的描述不能为空');
+    const v = insights.saveVariant(analysisId, {
+      name: `另存 ${marker}`,
+      description: '先读输入',
+      files,
+    });
+    createdVariants.push(v.id);
+    expect(v).toMatchObject({
+      workflowId: flowId,
+      parentId: analysed.id,
+      analysisId,
+      description: '先读输入',
+      status: 'draft',
+      buildStatus: 'none',
+      builtHash: null,
+    });
+    expect(variants.readFile(v.id, file)).toContain('先读输入再回答。');
+    expect(() =>
+      insights.saveVariant(analysisId, { name: `另存 ${marker}`, description: '再存', files }),
+    ).toThrow(`名称已被使用：另存 ${marker} (${flowId})`);
   });
 
   test('分析没有成功完成时不能交给 Codex', () => {

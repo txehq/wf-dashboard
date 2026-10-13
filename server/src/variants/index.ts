@@ -9,7 +9,13 @@ import { execa } from 'execa';
 import { z } from 'zod';
 import { config } from '../config.js';
 import type { Db } from '../db/index.js';
-import { sessions, variantEvents, variants } from '../db/schema.js';
+import {
+  sessions,
+  type VariantEventKind,
+  type VariantEventPayload,
+  variantEvents,
+  variants,
+} from '../db/schema.js';
 import { events } from '../events.js';
 import { claudeSettingsEnv } from '../llm/client.js';
 import { loadWorkflow } from '../workflows/index.js';
@@ -104,6 +110,37 @@ const ClaudeState = z.looseObject({
     .record(z.string(), z.looseObject({ hasTrustDialogAccepted: z.boolean().optional() }))
     .optional(),
 });
+
+// variant 历史的一条（Contracts 16.4、17.4）：覆盖与恢复的 snapshot 是存下的原来的 src/
+export const VariantHistoryEntry = z.discriminatedUnion('kind', [
+  z.object({
+    id: z.number(),
+    at: z.number(),
+    kind: z.literal('rename'),
+    from: z.string(),
+    to: z.string(),
+  }),
+  z.object({
+    id: z.number(),
+    at: z.number(),
+    kind: z.literal('overwrite'),
+    snapshot: z.string(),
+    draftId: z.string(),
+    analysisId: z.string().nullable(),
+  }),
+  z.object({
+    id: z.number(),
+    at: z.number(),
+    kind: z.literal('restore'),
+    snapshot: z.string(),
+    restoredEventId: z.number(),
+  }),
+]);
+export type VariantHistoryEntry = z.infer<typeof VariantHistoryEntry>;
+
+function historyEntry(e: typeof variantEvents.$inferSelect): VariantHistoryEntry {
+  return VariantHistoryEntry.parse({ id: e.id, at: e.at.getTime(), kind: e.kind, ...e.payload });
+}
 
 function readWorkspaceVersion(srcDir: string): string {
   return CargoManifest.parse(parse(fs.readFileSync(path.join(srcDir, 'Cargo.toml'), 'utf8')))
@@ -269,6 +306,88 @@ export function createVariants({
       .where(and(eq(variants.workflowId, workflowId), eq(variants.name, name)))
       .get();
     if (taken !== undefined) throw new HttpError(409, `名称已被使用：${name} (${workflowId})`);
+  }
+
+  // 改名的校验（Contracts 16.4）：去掉首尾空白后非空、最多 100 字
+  function checkName(name: string): string {
+    const next = name.trim();
+    if (next === '') throw new HttpError(400, 'variant 的名字不能为空');
+    if (next.length > 100) {
+      throw new HttpError(400, `variant 的名字最多 100 字，现在是 ${String(next.length)} 字`);
+    }
+    return next;
+  }
+
+  // 保存草稿与分析的另存时描述必填（Contracts 17.4、19.3）
+  function checkDescription(description: string): string {
+    const next = description.trim();
+    if (next === '') throw new HttpError(400, 'variant 的描述不能为空');
+    if (next.length > 2000) {
+      throw new HttpError(400, `variant 的描述最多 2000 字，现在是 ${String(next.length)} 字`);
+    }
+    return next;
+  }
+
+  // 覆盖与恢复只改可以编辑的 variant：导入的与已冻结的不能（Contracts 17.4）。可以时为 null，不能时为原因
+  function replaceBlocker(row: Variant): string | null {
+    if (row.installDir === null) return '导入的 variant 只有 skill 内容，不能被覆盖';
+    if (row.status === 'frozen') return '已冻结（用于 batch），内容只读';
+    if (row.buildStatus === 'building') return '正在构建，构建结束后才能覆盖';
+    return null;
+  }
+
+  function assertReplaceable(row: Variant) {
+    const reason = replaceBlocker(row);
+    if (reason !== null) throw new HttpError(409, `variant ${row.name}：${reason}`);
+  }
+
+  // 把 variant 现在的 src/ 存进历史，返回快照目录名
+  function snapshotSource(row: Variant): string {
+    const snapshot = `${new Date().toISOString().replaceAll(':', '-')}-${randomUUID().slice(0, 8)}`;
+    const dest = layout.historySrc(row.id, snapshot);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.cpSync(dirsOf(row).src, dest, { recursive: true, verbatimSymlinks: true });
+    return snapshot;
+  }
+
+  // 用 from 替换 variant 的 src/：构建产物删去，状态为未构建（Contracts 17.4）
+  function replaceSource(row: Variant, from: string, note: string) {
+    const dirs = dirsOf(row);
+    fs.rmSync(dirs.src, { recursive: true, force: true });
+    fs.cpSync(from, dirs.src, { recursive: true, verbatimSymlinks: true });
+    fs.rmSync(dirs.dist, { recursive: true, force: true });
+    fs.rmSync(dirs.manifest, { force: true });
+    fs.appendFileSync(dirs.buildLog, `\n=== ${note}，需要构建 ===\n`);
+    const hash = skillsHash(dirs.src);
+    return {
+      skillsHash: hash,
+      version: versionFor(row.baseCommit, hash),
+      buildStatus: 'none' as const,
+      builtHash: null,
+      builtAt: null,
+      buildError: null,
+    };
+  }
+
+  function addEvent(variantId: string, kind: VariantEventKind, payload: VariantEventPayload) {
+    db.insert(variantEvents).values({ variantId, at: new Date(), kind, payload }).run();
+  }
+
+  // 历史中一条覆盖或恢复记下的快照目录名；改名没有快照
+  function snapshotOf(variantId: string, eventId: number): string {
+    const event = db
+      .select()
+      .from(variantEvents)
+      .where(and(eq(variantEvents.id, eventId), eq(variantEvents.variantId, variantId)))
+      .get();
+    if (event === undefined) {
+      throw new HttpError(404, `variant ${variantId} 的历史中没有 #${String(eventId)}`);
+    }
+    const entry = historyEntry(event);
+    if (entry.kind === 'rename') {
+      throw new HttpError(400, `历史 #${String(eventId)} 是改名，没有可以查看或恢复的 src`);
+    }
+    return entry.snapshot;
   }
 
   // source 的完整 src 复制到 dest 时依次复制的目录（每一层先删去目标再复制）：
@@ -692,38 +811,15 @@ export function createVariants({
     // 其他地方都按 id 取名字，改这一处即全局生效。历史中记旧名、新名与时间，页面经 variant.updated 刷新
     rename(id: string, name: string): Variant {
       const row = get(id);
-      const next = name.trim();
-      if (next === '') throw new HttpError(400, 'variant 的名字不能为空');
-      if (next.length > 100) {
-        throw new HttpError(400, `variant 的名字最多 100 字，现在是 ${String(next.length)} 字`);
-      }
+      const next = checkName(name);
       if (next === row.name) return row;
       assertNameFree(row.workflowId, next);
       db.$client.transaction(() => {
         db.update(variants).set({ name: next }).where(eq(variants.id, id)).run();
-        db.insert(variantEvents)
-          .values({
-            variantId: id,
-            at: new Date(),
-            kind: 'rename',
-            payload: { from: row.name, to: next },
-          })
-          .run();
+        addEvent(id, 'rename', { from: row.name, to: next });
       })();
       events.publish({ type: 'variant.updated', variantId: id });
       return get(id);
-    },
-
-    // variant 的历史，按时间先后
-    history(id: string) {
-      get(id);
-      return db
-        .select()
-        .from(variantEvents)
-        .where(eq(variantEvents.variantId, id))
-        .orderBy(asc(variantEvents.id))
-        .all()
-        .map((e) => ({ at: e.at.getTime(), kind: e.kind, from: e.payload.from, to: e.payload.to }));
     },
 
     // Codex 草稿的 src/ 取自底子 variant 的完整 src（Contracts 17.2）
@@ -752,12 +848,13 @@ export function createVariants({
       }
     },
 
-    // 从一份 src/ 建 variant，随后由调用方构建：保存 Codex 草稿（Contracts 17.4、19.3：src/ 取草稿的 src/，
-    // parent 为底子 variant，记录来源草稿与分析）与 session-analysis 的基线（19.2：src/ 取仓库中的 skill）
+    // 从一份 src/ 建 variant，状态为未构建：保存 Codex 草稿与分析的优化（Contracts 17.4、19.3：src/ 取草稿的
+    // src/，parent 为底子 variant，记录来源草稿与分析）与 session-analysis 的基线（19.2：src/ 取仓库中的 skill）
     createFromSource(input: {
       srcDir: string;
       workflowId: string;
       name: string;
+      description: string | null;
       parentId: string | null;
       draftId: string | null;
       analysisId: string | null;
@@ -766,7 +863,9 @@ export function createVariants({
     }): Variant {
       const parent = input.parentId === null ? null : get(input.parentId);
       loadWorkflow(db, input.workflowId);
-      assertNameFree(input.workflowId, input.name);
+      const name = checkName(input.name);
+      const description = input.description === null ? null : checkDescription(input.description);
+      assertNameFree(input.workflowId, name);
       const id = randomUUID();
       const dirs = layout.variant(id);
       fs.mkdirSync(dirs.dir, { recursive: true });
@@ -777,7 +876,8 @@ export function createVariants({
       db.insert(variants)
         .values({
           id,
-          name: input.name,
+          name,
+          description,
           workflowId: input.workflowId,
           parentId: parent?.id ?? null,
           baseCommit,
@@ -792,14 +892,94 @@ export function createVariants({
       return get(id);
     },
 
-    // 保存草稿时构建失败：删去这次建出、还没有被任何 run 或交互用过的 variant 与它的目录
-    removeUnused(id: string) {
-      const row = get(id);
-      db.delete(variantEvents).where(eq(variantEvents.variantId, id)).run();
-      db.delete(variants).where(eq(variants.id, id)).run();
-      fs.rmSync(dirsOf(row).dir, { recursive: true, force: true });
+    // 覆盖已有 variant（Contracts 17.4）：原来的 src/ 先存进历史，再换成草稿的 src/；名字与描述一并更新，
+    // 状态为未构建，记录来源草稿与分析，parent 不变。导入的与已冻结的不能覆盖
+    overwriteFromSource(
+      id: string,
+      input: {
+        srcDir: string;
+        name: string;
+        description: string;
+        draftId: string;
+        analysisId: string | null;
+      },
+    ): Variant {
+      const before = get(id);
+      assertReplaceable(before);
+      const name = checkName(input.name);
+      const description = checkDescription(input.description);
+      if (name !== before.name) assertNameFree(before.workflowId, name);
+      const row = ownStorage(before);
+      const snapshot = snapshotSource(row);
+      const build = replaceSource(
+        row,
+        input.srcDir,
+        `由 Codex 草稿 ${input.draftId} 覆盖 src（原来的 src 存进历史 ${snapshot}）`,
+      );
+      db.$client.transaction(() => {
+        db.update(variants)
+          .set({
+            ...build,
+            name,
+            description,
+            draftId: input.draftId,
+            analysisId: input.analysisId,
+          })
+          .where(eq(variants.id, id))
+          .run();
+        if (name !== before.name) addEvent(id, 'rename', { from: before.name, to: name });
+        addEvent(id, 'overwrite', {
+          snapshot,
+          draftId: input.draftId,
+          analysisId: input.analysisId,
+        });
+      })();
       onSkillsChanged();
+      events.publish({ type: 'variant.updated', variantId: id });
+      return get(id);
     },
+
+    // 恢复历史中的一份 src/（Contracts 17.4）：恢复前现在的 src/ 同样存进历史，恢复也可以撤回
+    restore(id: string, eventId: number): Variant {
+      const before = get(id);
+      assertReplaceable(before);
+      const from = layout.historySrc(id, snapshotOf(id, eventId));
+      const row = ownStorage(before);
+      const snapshot = snapshotSource(row);
+      const build = replaceSource(
+        row,
+        from,
+        `恢复历史 #${String(eventId)} 的 src（恢复前的 src 存进历史 ${snapshot}）`,
+      );
+      db.$client.transaction(() => {
+        db.update(variants).set(build).where(eq(variants.id, id)).run();
+        addEvent(id, 'restore', { snapshot, restoredEventId: eventId });
+      })();
+      onSkillsChanged();
+      events.publish({ type: 'variant.updated', variantId: id });
+      return get(id);
+    },
+
+    // 查看历史中的一份 src/：现在的内容恢复成它时逐文件的改动
+    historyDiff(id: string, eventId: number): FileDiff[] {
+      return diffTrees(dirsOf(get(id)).src, layout.historySrc(id, snapshotOf(id, eventId)));
+    },
+
+    // variant 的历史，按时间先后：改名、覆盖与恢复
+    history(id: string): VariantHistoryEntry[] {
+      get(id);
+      return db
+        .select()
+        .from(variantEvents)
+        .where(eq(variantEvents.variantId, id))
+        .orderBy(asc(variantEvents.id))
+        .all()
+        .map((e) => historyEntry(e));
+    },
+
+    checkName,
+    checkDescription,
+    replaceBlocker,
 
     listFiles(id: string): SkillFile[] {
       const src = dirsOf(get(id)).src;

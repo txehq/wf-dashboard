@@ -257,8 +257,14 @@ test('修改建议：红绿 diff、统一与并排、展开未改动的行、按
 
   const name = `w50 e2e ${id}`;
   await review.getByLabel('新 variant 的名称').fill(name);
-  await review.getByRole('button', { name: '另存为 variant' }).click();
+  // 名字与描述都必填（Contracts 19.3）
+  const saveAs = review.getByRole('button', { name: '另存为 variant' });
+  await expect(saveAs).toBeDisabled();
+  await review.getByLabel('新 variant 的描述').fill('按请求的语言回答');
+  await saveAs.click();
   await expect(page).toHaveURL(/\/variants\/[0-9a-f-]{36}$/);
+  // 另存不构建
+  await expect(page.getByTestId('build-status')).toHaveText('未构建');
   const variantId = page.url().split('/').at(-1) ?? '';
   const saved = (
     (await (
@@ -303,10 +309,13 @@ test('交给 Codex 优化：跳到 Live 的 Codex 项，准备完成后保存为
     '\n记住后只回答"记住了"。\n',
   );
   await save.click();
-  // 保存前的改动预览（Contracts 21.3）：optimize/src 相对被分析的 variant 的 diff，确认后才保存
-  const preview = page.getByTestId('codex-save-preview');
-  await expect(preview).toContainText('相对底子 初稿');
-  const changed = preview.getByTestId('diff-file');
+  // 保存对话框（Contracts 19.3、17.4）：optimize/workflow.yaml 没有改，保存到原 workflow；默认新建，
+  // 预览为 optimize/src 相对被分析的 variant 的 diff
+  const dialog = page.getByTestId('codex-save-dialog');
+  await expect(dialog).toContainText('保存到 workflow');
+  await expect(dialog.getByTestId('codex-save-kind-new')).toBeChecked();
+  await expect(dialog.getByTestId('codex-save-against')).toHaveText('相对底子 初稿');
+  const changed = dialog.getByTestId('diff-file');
   await expect(changed).toHaveCount(1);
   await expect(changed).toHaveAttribute('data-path', 'skills/remember/SKILL.md');
   await expect(changed.getByTestId('diff-counts')).toHaveText('+2 −0');
@@ -320,15 +329,20 @@ test('交给 Codex 优化：跳到 Live 的 Codex 项，准备完成后保存为
     });
   }
   // 取消后没有保存
-  await preview.getByRole('button', { name: '取消' }).click();
-  await expect(preview).toHaveCount(0);
+  await dialog.getByRole('button', { name: '取消' }).click();
+  await expect(dialog).toHaveCount(0);
   await expect(bar.getByTestId('codex-draft-saved')).toHaveCount(0);
   await save.click();
-  await preview.getByTestId('codex-draft-confirm').click();
-  await expect(preview).toHaveCount(0);
-  const saved = bar.getByTestId('codex-draft-saved');
-  await expect(saved).toContainText(`Codex ${draftId}`, { timeout: 60_000 });
-  await page.screenshot({ path: `${shots}/w45-saved.png`, animations: 'disabled' });
+  // 名字与描述都必填
+  await expect(dialog.getByTestId('codex-save-confirm')).toBeDisabled();
+  await dialog.getByTestId('codex-save-name').fill(`只答记住了 ${id}`);
+  await dialog.getByTestId('codex-save-description').fill('记住后只回答"记住了"');
+  await dialog.getByTestId('codex-save-confirm').click();
+  // 保存不构建：跳到 variant 页面，显示未构建
+  await expect(page).toHaveURL(/\/variants\/[0-9a-f-]{36}$/);
+  await expect(page.getByTestId('build-status')).toHaveText('未构建');
+  await expect(page.getByTestId('variant-analysis')).toContainText(id);
+  await page.screenshot({ path: `${shots}/w52-optimize-saved.png`, animations: 'disabled' });
   const result = (await (await request.get(`${api}/workflow-drafts/${draftId}`)).json()) as {
     savedWorkflowId: string;
   };
