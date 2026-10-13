@@ -52,7 +52,7 @@ export default defineConfig({
     {
       // 真实 claude 的交互终端与模拟用户驾驶
       name: 'live',
-      testMatch: 'live.spec.ts',
+      testMatch: ['live.spec.ts', 'live-interrupt.spec.ts'],
       use: {
         ...devices['Desktop Chrome'],
         baseURL: `http://127.0.0.1:${String(runsWebPort)}`,

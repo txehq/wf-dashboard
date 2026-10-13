@@ -1,7 +1,13 @@
 import { defineConfig, devices } from '@playwright/test';
 import { e2eLocalReposDir } from './e2e/local-repos.js';
 import { type Service, webServersFor } from './e2e/services.js';
-import { compareWebPort, liveItemsWebPort, runsWebPort, webPort } from './ports.js';
+import {
+  compareWebPort,
+  liveFullscreenWebPort,
+  liveItemsWebPort,
+  runsWebPort,
+  webPort,
+} from './ports.js';
 import { guardBasicTier } from './server/test/setup/basic-tier.js';
 import { guardGithub } from './server/test/setup/github-guard.js';
 
@@ -21,6 +27,7 @@ const projectServices: Record<string, Service[]> = {
   compare: ['compareServer', 'compareWeb'],
   runs: ['runsServer', 'runsWeb'],
   'live-items': ['liveItemsServer', 'liveItemsWeb'],
+  'live-fullscreen': ['liveFullscreenServer', 'liveFullscreenWeb'],
 };
 
 export default defineConfig({
@@ -81,10 +88,20 @@ export default defineConfig({
     {
       // 交互项的关闭、删除、导入选择框与 Sessions 的 Live 按钮：只导入不启动，不调用 claude
       name: 'live-items',
-      testMatch: ['live-items.spec.ts', 'live-fullscreen.spec.ts'],
+      testMatch: 'live-items.spec.ts',
       use: {
         ...devices['Desktop Chrome'],
         baseURL: `http://127.0.0.1:${String(liveItemsWebPort)}`,
+        viewport: { width: 1600, height: 1000 },
+      },
+    },
+    {
+      // Live 的全屏（Contracts 20.3）：Claude Code 换成回显按键与终端尺寸的替身，不调用 claude
+      name: 'live-fullscreen',
+      testMatch: 'live-fullscreen.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: `http://127.0.0.1:${String(liveFullscreenWebPort)}`,
         viewport: { width: 1600, height: 1000 },
       },
     },

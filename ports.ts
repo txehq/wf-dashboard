@@ -32,3 +32,7 @@ export const analysesWebPort = webPort + 5000;
 // 交互项的关闭、删除与导入选择框的 e2e：专用数据目录与来源目录，另起一对服务，端口加 6000
 export const liveItemsServerPort = serverPort + 6000;
 export const liveItemsWebPort = webPort + 6000;
+
+// Live 全屏的 e2e：Claude Code 换成替身的一对服务，端口加 7000
+export const liveFullscreenServerPort = serverPort + 7000;
+export const liveFullscreenWebPort = webPort + 7000;

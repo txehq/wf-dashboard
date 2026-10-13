@@ -2,7 +2,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { useEffect, useRef, useState } from 'react';
-import { cn } from '@/lib/utils';
+import { useFullscreenLayout } from '@/components/fullscreen';
 
 type ServerMessage =
   { type: 'output'; data: string } | { type: 'exit' } | { type: 'error'; message: string };
@@ -18,16 +18,8 @@ const connectionLabel: Record<Connection, string> = {
 
 // 一个交互 session 的终端（Contracts 14.3）：连接时先收到服务端保留的输出，之后实时转发；
 // 键盘输入与尺寸变化发给服务端。关掉页面只关闭连接，进程继续运行。
-// fill：终端占满父元素的高度（全屏时，Contracts 20.3）；否则为固定高度。focusKey 变化时重新计算尺寸并获得焦点
-export function LiveTerminal({
-  liveId,
-  fill,
-  focusKey,
-}: {
-  liveId: string;
-  fill: boolean;
-  focusKey: unknown;
-}) {
+// 终端占满父元素（父元素的高度是定值）；全屏时同一个终端随之铺满窗口（Contracts 20.3）
+export function LiveTerminal({ liveId }: { liveId: string }) {
   const container = useRef<HTMLDivElement>(null);
   const handle = useRef<{ term: Terminal; fit: FitAddon } | null>(null);
   const [connection, setConnection] = useState<Connection>('connecting');
@@ -102,27 +94,19 @@ export function LiveTerminal({
     };
   }, [liveId]);
 
-  // 进入与退出全屏：等新的布局生效后重新计算行列（变化时发给 PTY），终端获得焦点
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => {
-      if (handle.current === null) return;
-      handle.current.fit.fit();
-      handle.current.term.focus();
-    });
-    return () => {
-      cancelAnimationFrame(frame);
-    };
-  }, [focusKey]);
+  // 进入与退出全屏后的下一帧：重新计算行列（变化时发给 PTY），终端获得焦点
+  useFullscreenLayout(() => {
+    if (handle.current === null) return;
+    handle.current.fit.fit();
+    handle.current.term.focus();
+  });
 
   return (
-    <div className={cn('flex min-w-0 flex-1 flex-col gap-1', fill && 'min-h-0')}>
-      {/* 高度由外层决定：xterm.js 按容器大小算行数，容器随内容长高会让行数不断增加 */}
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-1">
+      {/* 高度由外层的定值决定（占满父元素）：xterm.js 按容器大小算行数，容器随内容长高会让行数不断增加 */}
       <div
         ref={container}
-        className={cn(
-          'overflow-hidden rounded-md bg-[#0b0d10] p-2',
-          fill ? 'min-h-0 flex-1' : 'h-[calc(100vh-15rem)] min-h-[28rem]',
-        )}
+        className="min-h-0 flex-1 overflow-hidden rounded-md bg-[#0b0d10] p-2"
         data-testid="live-terminal"
         data-connection={connection}
       />

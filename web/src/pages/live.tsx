@@ -1,15 +1,17 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ChevronDown, ChevronRight, Hand, Plus, Power, Undo2, X } from 'lucide-react';
-import { useState } from 'react';
+import { ChevronsLeftRight, Hand, Plus, Power, Undo2, X } from 'lucide-react';
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { CodexDraftBar } from '@/components/codex-draft';
+import { FullscreenArea, FullscreenButton, useFullscreen } from '@/components/fullscreen';
+import { FinderMenu } from '@/components/live/finder-menu';
 import { ImportSessionsButton } from '@/components/live/import-sessions';
 import { HideButton, ItemMenu, UnhideButton } from '@/components/live/item-actions';
 import { LiveTerminal } from '@/components/live/live-terminal';
 import { LiveTitle } from '@/components/live/live-title';
 import { NewLiveForm } from '@/components/live/new-live-form';
 import { ResumeButton } from '@/components/live/resume-dialog';
-import { OpenInFinder } from '@/components/open-in-finder';
+import { SideDrawer } from '@/components/live/side-drawer';
 import { SessionConversation } from '@/components/runs/conversation';
 import { RequestTimeline } from '@/components/sessions/request-timeline';
 import { StageBars } from '@/components/sessions/stage-bars';
@@ -27,9 +29,21 @@ import {
 } from '@/lib/live-api';
 import { sessionQuery, stagesQuery, useSessionEvents } from '@/lib/sessions-api';
 import { cycleName } from '@/lib/stage-status';
+import { cn } from '@/lib/utils';
 
 const environmentLabel = { isolated: 'isolated', real: 'real' } as const;
 const driverLabel = { human: '人', simulated: '模拟用户' } as const;
+
+// 全屏中切换交互项的快捷键（Contracts 20.3）：⌃⇧[ 上一项、⌃⇧] 下一项（macOS 上的 Control，不是 Command）。
+// 与全屏的 ⌃⇧F 一样在 window 的捕获阶段拦下，终端收不到。终端本来就发不出这个组合（Control+[ 即 Esc，
+// 加 Shift 也一样），Claude Code 与 Codex 都不会用到它；macOS 上的 Chrome 没有 Control+Shift+[ 与 ]
+const SWITCH_SHORTCUT_LABEL = '⌃⇧[ / ⌃⇧]';
+function switchDirection(event: KeyboardEvent): -1 | 1 | null {
+  if (!event.ctrlKey || !event.shiftKey || event.metaKey || event.altKey) return null;
+  if (event.code === 'BracketLeft') return -1;
+  if (event.code === 'BracketRight') return 1;
+  return null;
+}
 
 // 最近一次运行所用的配置；还没有运行过的项（从本机导入）没有
 const variantLabel = (live: LiveSummary) =>
@@ -160,7 +174,7 @@ function LiveList({
   );
 }
 
-// 终端旁边可展开的阶段条与请求明细（复用 Sessions 详情的组件）
+// 终端旁边的阶段条与请求明细（复用 Sessions 详情的组件）
 function SessionSide({ sessionId }: { sessionId: string }) {
   const session = useQuery(sessionQuery(sessionId));
   const stages = useQuery(stagesQuery(sessionId));
@@ -205,32 +219,26 @@ function SessionSide({ sessionId }: { sessionId: string }) {
 }
 
 function Notices({ live }: { live: LiveDetail }) {
+  const notice = 'rounded-md border px-3 py-1 text-sm';
   return (
     <>
       {live.starting && (
-        <p
-          role="status"
-          className="rounded-md border px-3 py-2 text-sm"
-          data-testid="live-starting"
-        >
+        <p role="status" className={notice} data-testid="live-starting">
           启动中，终端中的确认由你回答。
         </p>
       )}
       {live.handedBack === 'done' && (
-        <p role="status" className="rounded-md border px-3 py-2 text-sm" data-testid="live-done">
+        <p role="status" className={notice} data-testid="live-done">
           模拟用户认为已结束。
         </p>
       )}
       {live.handedBack === 'max-turns' && (
-        <p role="status" className="rounded-md border px-3 py-2 text-sm">
+        <p role="status" className={notice}>
           模拟用户回答次数达到上限，已交给你。
         </p>
       )}
       {live.error !== null && (
-        <p
-          role="alert"
-          className="rounded-md border border-destructive px-3 py-2 text-sm text-destructive"
-        >
+        <p role="alert" className={cn(notice, 'border-destructive text-destructive')}>
           {live.error}
         </p>
       )}
@@ -238,13 +246,30 @@ function Notices({ live }: { live: LiveDetail }) {
   );
 }
 
+// 终端（或还没运行过的项的对话）与右侧的抽屉占一行，占满工具栏以下的空间（不全屏时为页面剩下的高度）
+function WorkRow({ fullscreen, children }: { fullscreen: boolean; children: ReactNode }) {
+  return (
+    <div
+      className={cn('flex min-w-0 flex-1 gap-3', fullscreen ? 'min-h-0' : 'min-h-[16rem]')}
+      data-testid="live-work"
+    >
+      {children}
+    </div>
+  );
+}
+
 function LivePanel({
   liveId,
   onResumed,
+  fullscreen,
+  extra,
 }: {
   liveId: string;
   // resume 落在同一项（Contracts 14.5）：交互区选中它的标签页
   onResumed: (live: LiveDetail) => void;
+  fullscreen: boolean;
+  // 工具栏最右边：全屏中切换交互项的下拉与全屏按钮
+  extra: ReactNode;
 }) {
   const live = useQuery(liveQuery(liveId));
   const [side, setSide] = useState(false);
@@ -263,73 +288,70 @@ function LivePanel({
   }
   const data = live.data;
   const running = data.status === 'running';
+  const stopButton = (
+    <Button
+      size="sm"
+      variant="outline"
+      disabled={stopping.isPending}
+      onClick={() => {
+        stopping.mutate();
+      }}
+    >
+      <Power />
+      结束进程
+    </Button>
+  );
+  const errors = (driver.isError || stopping.isError) && (
+    <p role="alert" className="text-sm text-destructive">
+      {(driver.error ?? stopping.error)?.message}
+    </p>
+  );
+  const panelClass = 'flex min-h-0 min-w-0 flex-1 flex-col gap-2';
   if (data.engine === 'codex') {
     // 用 Codex 生成 workflow 或 variant 的会话（Contracts 17.3）：只有人驾驶，没有阶段与请求明细
     return (
-      <div className="flex min-w-0 flex-col gap-3" data-testid="live-panel" data-live={liveId}>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+      <div className={panelClass} data-testid="live-panel" data-live={liveId}>
+        <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="live-toolbar">
           <StatusBadge live={data} />
           <span className="font-medium" data-testid="live-engine">
             Codex
           </span>
-          <span className="min-w-0 font-mono text-xs break-all" data-testid="live-cwd">
+          {running && stopButton}
+          <FinderMenu
+            items={[
+              { label: '草稿目录', target: { kind: 'live-cwd', id: liveId } },
+              { label: 'CODEX_HOME', target: { kind: 'live-config', id: liveId } },
+            ]}
+          />
+          <span
+            className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground"
+            title={data.cwd}
+            data-testid="live-cwd"
+          >
             {data.cwd}
           </span>
+          {extra}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <OpenInFinder target={{ kind: 'live-cwd', id: liveId }} label="打开草稿目录" />
-          <OpenInFinder target={{ kind: 'live-config', id: liveId }} label="打开 CODEX_HOME" />
-          {running && (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={stopping.isPending}
-              onClick={() => {
-                stopping.mutate();
-              }}
-            >
-              <Power />
-              结束进程
-            </Button>
-          )}
-        </div>
-        {stopping.isError && (
-          <p role="alert" className="text-sm text-destructive">
-            {stopping.error.message}
-          </p>
-        )}
+        {errors}
         <CodexDraftBar live={data} onResumed={onResumed} />
-        {data.process !== null && <LiveTerminal key={data.process.id} liveId={liveId} />}
+        {data.process !== null && (
+          <WorkRow fullscreen={fullscreen}>
+            <LiveTerminal key={data.process.id} liveId={liveId} />
+          </WorkRow>
+        )}
       </div>
     );
   }
   // Claude Code 的项建出时就有 session id（只有 Codex 草稿的项会暂时为空）
   const sessionId = data.claudeSessionId;
   if (sessionId === null) throw new Error(`交互 ${liveId} 没有 session id`);
+  const model = data.process?.model ?? null;
+  const effort = data.process?.effort ?? null;
   return (
-    <div className="flex min-w-0 flex-col gap-3" data-testid="live-panel" data-live={liveId}>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+    <div className={panelClass} data-testid="live-panel" data-live={liveId}>
+      {/* 工具栏（Contracts 20.3、20.4）：全部按钮在同一行，全屏时同样保留 */}
+      <div className="flex flex-wrap items-center gap-2" data-testid="live-toolbar">
         <StatusBadge live={data} />
-        {data.workflow !== null && (
-          <span className="font-mono" data-testid="live-workflow-name">
-            /{data.workflow}
-          </span>
-        )}
-        <span>
-          variant：<span data-testid="live-variant-name">{variantLabel(data)}</span>
-        </span>
-        <span>环境：{environmentLabel[data.environment]}</span>
-        <span className="min-w-0 font-mono text-xs break-all" data-testid="live-cwd">
-          {data.cwd}
-        </span>
-        {data.repo !== null && <span className="font-mono text-xs">{data.repo}</span>}
-        {data.ticket !== null && <span className="font-mono text-xs">{data.ticket}</span>}
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <OpenInFinder target={{ kind: 'live-cwd', id: liveId }} label="打开工作目录" />
-        <OpenInFinder target={{ kind: 'live-config', id: liveId }} label="打开配置目录" />
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
         <div
           role="radiogroup"
           aria-label="驾驶者"
@@ -344,7 +366,7 @@ function LivePanel({
               role="radio"
               aria-checked={data.driver === d}
               disabled={!running || data.starting || driver.isPending || data.driver === d}
-              className="rounded px-3 py-1 text-sm aria-checked:bg-foreground aria-checked:text-background disabled:cursor-not-allowed"
+              className="rounded px-2.5 py-0.5 text-sm aria-checked:bg-foreground aria-checked:text-background disabled:cursor-not-allowed"
               onClick={() => {
                 driver.mutate(d);
               }}
@@ -358,55 +380,66 @@ function LivePanel({
           size="sm"
           variant="outline"
           data-testid="hand-back"
+          title="交还给模拟用户"
           disabled={!running || data.starting || data.driver === 'simulated' || driver.isPending}
           onClick={() => {
             driver.mutate('simulated');
           }}
         >
           <Undo2 />
-          交还给模拟用户
+          交还
         </Button>
-        {running ? (
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={stopping.isPending}
-            onClick={() => {
-              stopping.mutate();
-            }}
-          >
-            <Power />
-            结束进程
-          </Button>
-        ) : data.process === null ? null : (
-          <ResumeButton sessionId={sessionId} onResumed={onResumed} />
+        {running
+          ? stopButton
+          : data.process !== null && <ResumeButton sessionId={sessionId} onResumed={onResumed} />}
+        {model !== null && (
+          <span className="text-xs text-muted-foreground" data-testid="live-model">
+            {model} · {effort}
+          </span>
         )}
+        <FinderMenu
+          items={[
+            { label: '工作目录', target: { kind: 'live-cwd', id: liveId } },
+            { label: '配置目录', target: { kind: 'live-config', id: liveId } },
+          ]}
+        />
         <Button
           size="sm"
-          variant="ghost"
-          aria-expanded={side}
+          variant={side ? 'secondary' : 'ghost'}
+          aria-pressed={side}
           data-testid="toggle-side"
           onClick={() => {
             setSide(!side);
           }}
         >
-          {side ? <ChevronDown /> : <ChevronRight />}
+          <ChevronsLeftRight />
           阶段与请求
         </Button>
+        <span className="ml-auto flex items-center gap-2">{extra}</span>
       </div>
-      {(driver.isError || stopping.isError) && (
-        <p role="alert" className="text-sm text-destructive">
-          {(driver.error ?? stopping.error)?.message}
-        </p>
-      )}
+      <p className="flex min-w-0 flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
+        {data.workflow !== null && (
+          <span className="font-mono" data-testid="live-workflow-name">
+            /{data.workflow}
+          </span>
+        )}
+        <span>
+          variant <span data-testid="live-variant-name">{variantLabel(data)}</span>
+        </span>
+        <span>{environmentLabel[data.environment]}</span>
+        <span className="min-w-0 truncate font-mono" title={data.cwd} data-testid="live-cwd">
+          {data.cwd}
+        </span>
+        {data.repo !== null && <span className="font-mono">{data.repo}</span>}
+        {data.ticket !== null && <span className="font-mono">{data.ticket}</span>}
+      </p>
+      {errors}
       <Notices live={data} />
-      <div
-        className={side ? 'grid min-w-0 gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]' : 'flex'}
-      >
+      <WorkRow fullscreen={fullscreen}>
         {data.process === null ? (
           // 从本机导入、还没有运行过（Contracts 14.5）：显示这个 session 的对话与 resume 按钮
           <div
-            className="flex min-w-0 flex-1 flex-col gap-3 rounded-md border p-4"
+            className="flex min-w-0 flex-1 flex-col gap-3 overflow-y-auto rounded-md border p-4"
             data-testid="live-idle"
           >
             <div className="flex items-center gap-3">
@@ -427,11 +460,16 @@ function LivePanel({
           <LiveTerminal key={data.process.id} liveId={liveId} />
         )}
         {side && (
-          <div className="max-h-[48rem] min-w-0 overflow-y-auto rounded-md border p-3">
+          <SideDrawer
+            title="阶段与请求"
+            onClose={() => {
+              setSide(false);
+            }}
+          >
             <SessionSide sessionId={sessionId} />
-          </div>
+          </SideDrawer>
         )}
-      </div>
+      </WorkRow>
     </div>
   );
 }
@@ -445,22 +483,57 @@ function TabLabel({ liveId }: { liveId: string }) {
   );
 }
 
-// 交互区（Contracts 14.3）：左侧列表，右侧每个打开的 session 一个标签页
+// 全屏中切换交互项的下拉（Contracts 20.3）：列出左侧列表中的项
+function ItemSwitcher({
+  items,
+  active,
+  onSwitch,
+}: {
+  items: LiveSummary[];
+  active: string;
+  onSwitch: (id: string) => void;
+}) {
+  return (
+    <select
+      aria-label="切换交互项"
+      title={`切换交互项（${SWITCH_SHORTCUT_LABEL}）`}
+      className="h-8 max-w-[16rem] truncate rounded-md border bg-background px-2 text-sm"
+      data-testid="live-switcher"
+      value={active}
+      onChange={(event) => {
+        onSwitch(event.target.value);
+      }}
+    >
+      {items.map((item) => (
+        <option key={item.id} value={item.id}>
+          {item.title}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+// 交互区（Contracts 14.3）：左侧列表，右侧每个打开的 session 一个标签页；终端可以全屏（Contracts 20.3）
 export function LivePage() {
   useLiveSessionEvents();
   useSessionEvents();
+  const fullscreen = useFullscreen();
   const [params, setParams] = useSearchParams();
   const [creating, setCreating] = useState(false);
+  const items = useQuery(liveListQuery(false));
   const open = (params.get('tabs') ?? '').split(',').filter((id) => id !== '');
   // ?item=<liveId>：选中这一项的标签页（Sessions 页面的"Live"按钮、resume 与导入都跳到这里）
   const active = params.get('item') ?? open.at(-1) ?? null;
   const tabs = active !== null && !open.includes(active) ? [...open, active] : open;
+  // 只改标签页与选中的项，保留地址中的其他参数（?fullscreen=1）
   const update = (nextTabs: string[], nextActive: string | null) => {
     setParams(
-      () => {
-        const next = new URLSearchParams();
+      (current) => {
+        const next = new URLSearchParams(current);
         if (nextTabs.length > 0) next.set('tabs', nextTabs.join(','));
+        else next.delete('tabs');
         if (nextActive !== null) next.set('item', nextActive);
+        else next.delete('item');
         return next;
       },
       { replace: true },
@@ -475,11 +548,61 @@ export function LivePage() {
     update(rest, active === id ? (rest.at(-1) ?? null) : active);
   };
 
+  // 没有选中的项时没有可以全屏的终端
+  const { active: isFullscreen, exit } = fullscreen;
+  useEffect(() => {
+    if (isFullscreen && active === null) exit();
+  }, [isFullscreen, active, exit]);
+
+  // 全屏中的 ⌃⇧[ 与 ⌃⇧]：按左侧列表的顺序切换到上一项或下一项，保持全屏
+  const switchRef = useRef<(direction: -1 | 1) => void>(() => undefined);
+  useLayoutEffect(() => {
+    switchRef.current = (direction) => {
+      const list = items.data ?? [];
+      if (list.length === 0) return;
+      const at = list.findIndex((l) => l.id === active);
+      const next = list[(at + direction + list.length) % list.length];
+      if (next !== undefined) openTab(next.id);
+    };
+  });
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const onKey = (event: KeyboardEvent) => {
+      const direction = switchDirection(event);
+      if (direction === null) return;
+      event.preventDefault();
+      event.stopPropagation();
+      switchRef.current(direction);
+    };
+    window.addEventListener('keydown', onKey, { capture: true });
+    return () => {
+      window.removeEventListener('keydown', onKey, { capture: true });
+    };
+  }, [isFullscreen]);
+
+  const extra = (
+    <>
+      {isFullscreen && active !== null && items.data !== undefined && (
+        <ItemSwitcher items={items.data} active={active} onSwitch={openTab} />
+      )}
+      <FullscreenButton active={isFullscreen} onToggle={fullscreen.toggle} />
+    </>
+  );
+
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-4">
-        <h1 className="text-xl font-semibold">Live</h1>
+    // 高度固定为窗口的高度（main 上下各 2rem 的边距），终端占其中剩下的部分（Contracts 20.4）。
+    // 高度必须是定值：xterm.js 按容器大小算行数，容器随内容长高会让行数不断增加
+    <div className="flex h-[calc(100vh-4rem)] flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <h1 className="mr-auto text-xl font-semibold">Live</h1>
+        <ImportSessionsButton
+          onImported={(imported) => {
+            const last = imported.at(-1);
+            if (last !== undefined) openTab(last.id);
+          }}
+        />
         <Button
+          size="sm"
           variant={creating ? 'secondary' : 'default'}
           data-testid="new-live-toggle"
           onClick={() => {
@@ -497,17 +620,11 @@ export function LivePage() {
           }}
         />
       )}
-      <div className="grid min-w-0 gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
-        <aside className="flex min-w-0 flex-col gap-2">
-          <ImportSessionsButton
-            onImported={(items) => {
-              const last = items.at(-1);
-              if (last !== undefined) openTab(last.id);
-            }}
-          />
+      <div className="grid min-h-0 min-w-0 flex-1 gap-4 lg:grid-cols-[15rem_minmax(0,1fr)]">
+        <aside className="flex min-h-0 min-w-0 flex-col gap-2 overflow-y-auto">
           <LiveList onOpen={openTab} onGone={closeTab} active={active} />
         </aside>
-        <section className="flex min-w-0 flex-col gap-3">
+        <section className="flex min-h-0 min-w-0 flex-col gap-2 overflow-y-auto">
           {tabs.length === 0 ? (
             <p className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
               从左侧打开一个交互 session，或新建一个。
@@ -551,13 +668,23 @@ export function LivePage() {
                 ))}
               </div>
               {active !== null && (
-                <LivePanel
-                  key={active}
-                  liveId={active}
-                  onResumed={(live) => {
-                    openTab(live.id);
-                  }}
-                />
+                // 全屏与不全屏是同一个元素：终端不重新挂载，内容与光标不变
+                <FullscreenArea
+                  active={isFullscreen}
+                  className="flex min-h-0 min-w-0 flex-1 flex-col"
+                  activeClassName="gap-2 p-3"
+                  testId="live-fullscreen"
+                >
+                  <LivePanel
+                    key={active}
+                    liveId={active}
+                    fullscreen={isFullscreen}
+                    extra={extra}
+                    onResumed={(live) => {
+                      openTab(live.id);
+                    }}
+                  />
+                </FullscreenArea>
               )}
             </>
           )}
