@@ -6,13 +6,13 @@ import { draftModes, draftStatuses } from '../db/schema.js';
 const Slug = z.string().regex(/^[a-z][a-z0-9-]*$/, '只能包含小写字母、数字与连字符，以字母开头');
 
 export const CreateDraftBody = z.discriminatedUnion('mode', [
-  // Workflows 列表的"用 Codex 生成 workflow"：新 workflow 的 id、名字、需求与底子 variant
+  // Workflows 列表的"用 Codex 生成 workflow"：新 workflow 的 id、名字、描述与需求，草稿从空白骨架开始（18.5）
   z.strictObject({
     mode: z.literal('workflow'),
     workflowId: Slug,
     name: z.string().trim().min(1).max(100),
+    description: z.string().max(2000),
     requirement: z.string().trim().min(1),
-    baseVariantId: z.string().min(1),
   }),
   // Workflow 页面的"用 Codex 生成 variant"：只改 skill 内容，不改入口与小阶段
   z.strictObject({
@@ -46,9 +46,11 @@ export const DraftView = z.object({
   id: z.string(),
   mode: z.enum(draftModes),
   workflowId: z.string(),
-  // mode 为 workflow 时新 workflow 的名字
+  // mode 为 workflow 时新 workflow 的名字与描述
   name: z.string().nullable(),
-  baseVariantId: z.string(),
+  description: z.string().nullable(),
+  // mode 为 variant 时的底子 variant；mode 为 workflow 时为空
+  baseVariantId: z.string().nullable(),
   requirement: z.string(),
   liveId: z.string().nullable(),
   // preparing 时后台在准备草稿目录；failed 时 error 为失败那一步的原文，可以重试

@@ -442,24 +442,36 @@ function EditTab({ variant }: { variant: Variant }) {
 const diffStatusLabel = { added: '新增', removed: '删除', modified: '修改' } as const;
 
 function DiffTab({ variant }: { variant: Variant }) {
-  const [against, setAgainst] = useState<'base' | 'parent'>('base');
-  const diff = useQuery(diffQuery(variant.id, against));
+  // 任意 workflow 的 variant 没有基线（Contracts 18.6），只能与来源对比
+  const hasBase = variant.baseCommit !== '';
+  const [against, setAgainst] = useState<'base' | 'parent'>(hasBase ? 'base' : 'parent');
+  const comparable = hasBase || variant.parentId !== null;
+  const diff = useQuery({ ...diffQuery(variant.id, against), enabled: comparable });
   const [selected, setSelected] = useState<string | null>(null);
   const file = diff.data?.files.find((f) => f.path === selected) ?? diff.data?.files[0];
 
+  if (!comparable) {
+    return (
+      <p className="rounded-lg border px-4 py-8 text-center text-sm text-muted-foreground">
+        这个 variant 没有基线，也不是从别的 variant 派生的，没有可以对比的内容。
+      </p>
+    );
+  }
   return (
     <div className="flex h-[calc(100svh-15rem)] min-h-96 rounded-lg border">
       <div className="flex w-64 shrink-0 flex-col border-r text-sm">
         <div className="flex gap-1 border-b p-2">
-          <Button
-            size="xs"
-            variant={against === 'base' ? 'secondary' : 'ghost'}
-            onClick={() => {
-              setAgainst('base');
-            }}
-          >
-            与基线对比
-          </Button>
+          {hasBase && (
+            <Button
+              size="xs"
+              variant={against === 'base' ? 'secondary' : 'ghost'}
+              onClick={() => {
+                setAgainst('base');
+              }}
+            >
+              与基线对比
+            </Button>
+          )}
           {variant.parentId !== null && (
             <Button
               size="xs"
@@ -593,13 +605,13 @@ function Header({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 className="text-xl font-semibold">{variantLabel(variant)}</h2>
         <span className="rounded-md border px-2 py-0.5 text-xs">{statusLabel[variant.status]}</span>
         <span className="rounded-md border px-2 py-0.5 text-xs" data-testid="build-status">
           {imported ? importedLabel : buildLabel(variant)}
         </span>
-        <span className="font-mono text-xs text-muted-foreground">
-          {variant.version} · 基线 {variant.baseCommit.slice(0, 7)}
+        <span className="font-mono text-xs text-muted-foreground" data-testid="variant-version">
+          {variant.version}
+          {variant.baseCommit !== '' && ` · 基线 ${variant.baseCommit.slice(0, 7)}`}
         </span>
         <OpenInFinder target={{ kind: 'variant', id: variant.id }} label="在访达中打开" />
       </div>
@@ -679,7 +691,7 @@ const tabs: { id: Tab; label: string }[] = [
   { id: 'log', label: '构建日志' },
 ];
 
-// 原 variant 详情的全部内容，在它所属 workflow 的页面中展开（Contracts 16.7）
+// variant 页面的主体（Contracts 18.3）：状态、来源、构建与派生，编辑、对比与构建日志三个标签页
 export function VariantPanel({ id }: { id: string }) {
   const queryClient = useQueryClient();
   const variant = useQuery(variantQuery(id));

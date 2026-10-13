@@ -5,6 +5,7 @@ import {
 } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { Variants } from '../variants/index.js';
+import { InstallManifest } from '../variants/local-install.js';
 import { efforts, modelAliases, modelChoices } from '../variants/models.js';
 
 const ModelAlias = z.enum(modelAliases);
@@ -13,6 +14,8 @@ const Effort = z.enum(efforts);
 const Variant = z.object({
   id: z.string(),
   name: z.string(),
+  // 基本描述（Contracts 18.3）
+  description: z.string().nullable(),
   // 所属 workflow（Contracts 16.4）；页面显示为 名字 (workflow)
   workflowId: z.string(),
   parentId: z.string().nullable(),
@@ -79,7 +82,7 @@ export const variantRoutes: FastifyPluginCallbackZod<{ variants: Variants }> = (
     },
   );
 
-  // 从 txe-workflow 的 commit（默认 HEAD）导入基线，属于 workflowId（默认内置的 lfg）
+  // 从 txe-workflow 的 commit（默认 HEAD）导入基线，属于内置的 workflowId（默认 lfg）
   app.post(
     '/api/variants',
     {
@@ -228,6 +231,56 @@ export const variantRoutes: FastifyPluginCallbackZod<{ variants: Variants }> = (
     { schema: { params: IdParams, response: { 200: z.string() } } },
     async (request, reply) =>
       reply.type('text/plain; charset=utf-8').send(variants.buildLog(request.params.id)),
+  );
+
+  // 基本描述（Contracts 18.3）
+  app.patch(
+    '/api/variants/:id',
+    {
+      schema: {
+        params: IdParams,
+        body: z.strictObject({ description: z.string().max(2000) }),
+        response: { 200: Variant },
+      },
+    },
+    (request) => variants.setDescription(request.params.id, request.body.description),
+  );
+
+  // 安装到本机（Contracts 18.6）：没有装时 installed 为 null
+  app.get(
+    '/api/variants/:id/install',
+    {
+      schema: {
+        params: IdParams,
+        response: { 200: z.object({ installed: InstallManifest.nullable() }) },
+      },
+    },
+    (request) => ({ installed: variants.localInstall(request.params.id) }),
+  );
+
+  // 同一 workflow 已装的 variant 先卸载，replaced 列出这些
+  app.post(
+    '/api/variants/:id/install',
+    {
+      schema: {
+        params: IdParams,
+        response: {
+          200: z.object({ installed: InstallManifest, replaced: z.array(InstallManifest) }),
+        },
+      },
+    },
+    (request) => {
+      const { manifest, replaced } = variants.installLocal(request.params.id);
+      return { installed: manifest, replaced };
+    },
+  );
+
+  app.delete(
+    '/api/variants/:id/install',
+    {
+      schema: { params: IdParams, response: { 200: z.object({ uninstalled: InstallManifest }) } },
+    },
+    (request) => ({ uninstalled: variants.uninstallLocal(request.params.id) }),
   );
 
   done();

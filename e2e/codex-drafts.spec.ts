@@ -7,7 +7,7 @@ import { serverPort } from '../ports.js';
 
 // 用 Codex 生成 workflow 或 variant（Contracts 第 17 节）：两个入口的表单、跳到 Live 的 Codex 会话、保存按钮。
 // 服务端的 Codex 是测试中的替身命令（e2e/services.ts），只验证页面与 API，不验证 Codex 本身；skill 来源是本地仓库。
-// 成功保存要真实构建，在真实档（pnpm e2e:real e2e/codex-drafts.spec.ts，标题含"真实构建"）
+// 新 workflow 的草稿从空白骨架开始，保存时用自有管理器构建（Contracts 18.5、18.6），很快，在基础档
 const api = `http://127.0.0.1:${String(serverPort)}/api`;
 const marker = randomUUID().slice(0, 6);
 const root = path.resolve(import.meta.dirname, '..');
@@ -59,7 +59,9 @@ test('用 Codex 生成 workflow：表单、跳到 Live 的 Codex 会话、保存
   await expect(form.getByRole('heading')).toHaveText('用 Codex 生成 workflow');
   await form.getByLabel('id（入口命令 /id）').fill(workflowId);
   await form.getByLabel('名字').fill(`你好 ${marker}`);
-  await form.getByTestId('codex-draft-base').selectOption(base.id);
+  // 从空白骨架开始：没有底子 variant
+  await expect(form.getByTestId('codex-draft-base')).toHaveCount(0);
+  await form.getByLabel('描述').fill('先问清楚，再写，最后检查');
   await form.getByLabel('需求').fill('做一个打招呼的 workflow：先问清楚，再写，最后检查');
   await page.screenshot({
     path: '.work/screenshots/w42-workflow-form.png',
@@ -87,13 +89,20 @@ test('用 Codex 生成 workflow：表单、跳到 Live 的 Codex 会话、保存
   await expect(page.locator(`[data-live="${liveId}"]`).first()).toBeVisible();
   await page.screenshot({ path: '.work/screenshots/w42-live-codex.png', animations: 'disabled' });
 
-  // 还没有写 skill 时保存：以原文失败，草稿保留
+  // workflow.yaml 多了一个还没有 skill 的小阶段时保存：以原文失败，草稿保留
+  const { cwd } = (await (await page.request.get(`${api}/live/${liveId}`)).json()) as {
+    cwd: string;
+  };
+  expect(fs.readdirSync(path.join(cwd, 'src/skills')).sort()).toEqual(
+    [workflowId, 'stage-1'].sort(),
+  );
+  fs.appendFileSync(path.join(cwd, 'workflow.yaml'), '  - id: review\n');
   const save = panel.getByTestId('codex-draft-save');
   await expect(save).toHaveText('保存为 workflow');
   await save.click();
   const error = panel.getByTestId('codex-draft-error');
   await expect(error).toContainText('保存失败，草稿保留');
-  await expect(error).toContainText(`缺少 workflow ${workflowId} 要求的 skill：${workflowId}`);
+  await expect(error).toContainText(`缺少 workflow ${workflowId} 要求的 skill：review`);
   await expect(panel.getByTestId('codex-draft-saved')).toHaveCount(0);
   await page.screenshot({ path: '.work/screenshots/w42-save-error.png', animations: 'disabled' });
 
@@ -212,7 +221,7 @@ function writeExample(dir: string, workflowId: string) {
   );
 }
 
-test('真实构建：保存为 workflow 后显示保存出的 workflow 与 variant 的链接，可以再次保存', async ({
+test('保存为 workflow（自有管理器构建）：显示保存出的 workflow 与 variant 的链接，可以再次保存', async ({
   page,
   request,
 }) => {
@@ -222,8 +231,8 @@ test('真实构建：保存为 workflow 后显示保存出的 workflow 与 varia
       mode: 'workflow',
       workflowId,
       name: `你好 ${marker}`,
+      description: '打招呼',
       requirement: '做一个打招呼的 workflow',
-      baseVariantId: base.id,
     },
   });
   expect(created.status()).toBe(201);
@@ -254,7 +263,8 @@ test('真实构建：保存为 workflow 后显示保存出的 workflow 与 varia
   await stopLive(page, draft.liveId);
 
   await saved.getByRole('link', { name: `基线 (${workflowId})` }).click();
-  await expect(page).toHaveURL(new RegExp(`/workflows/${workflowId}\\?variant=`));
-  await expect(page.getByTestId('workflow-summary')).toContainText('复制自 lfg');
+  await expect(page).toHaveURL(/\/variants\/[0-9a-f-]{36}$/);
+  await expect(page.getByTestId('breadcrumb')).toHaveText(`Workflows › 你好 ${marker} › 基线`);
   await expect(page.getByTestId('variant-draft')).toHaveText(`来自 Codex 草稿 ${draft.id}`);
+  await expect(page.getByTestId('build-status')).toHaveText('已构建');
 });

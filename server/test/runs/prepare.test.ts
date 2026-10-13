@@ -10,14 +10,13 @@ import { launchSpec, prepareRun } from '../../src/runs/prepare.js';
 import { createSettingsStore } from '../../src/runs/settings.js';
 import { loadTask, syncTasks } from '../../src/tasks/loader.js';
 import { createVariants } from '../../src/variants/index.js';
-import { createWorkflows, evalSpecOf, loadWorkflow } from '../../src/workflows/index.js';
+import { createWorkflows, evalSpecOf } from '../../src/workflows/index.js';
 import { testRunId } from '../helpers/ic-fixture.js';
 import { testRepos } from '../helpers/local-repos.js';
 import { openTestDb } from '../stages/db.js';
 
 // Contracts 16.2：准备、初始消息与启动 claude 的参数按评测类型的积木生成，入口命令为 workflow 的 id；只测到启动 claude 之前。
-// 内置 lfg 生成的初始消息与环境与原来写死的格式相同；复制出的 mylfg 以 /mylfg 开始，在 lfg task 上运行；
-// 不保留评测类型的 myreview 不能发起 run
+// 内置 lfg 生成的初始消息与环境与原来写死的格式相同；从空白新建的 myreview 没有评测类型，不能发起 run
 const { db, close } = openTestDb();
 const work = path.join(config.repoRoot, '.work', 'test-prepare', randomUUID());
 const vaultDir = path.join(work, 'vault');
@@ -71,7 +70,7 @@ function insertRun(taskId: string, variantId: string, prefix: string) {
 }
 
 describe('按评测类型准备与生成初始消息', { timeout: 900_000 }, () => {
-  test('内置 lfg、复制出的 mylfg（保留评测类型）与 myreview（不保留）', async () => {
+  test('内置 lfg 的准备与初始消息；从空白新建的 myreview 不能发起 run', async () => {
     syncTasks(db, config.tasksDir);
     const base = await variants.createBaseline({ name: `W41 基线 ${randomUUID().slice(0, 8)}` });
     created.push(base.id);
@@ -121,63 +120,19 @@ describe('按评测类型准备与生成初始消息', { timeout: 900_000 }, () 
       CLAUDE_CONFIG_DIR: variants.runtimeEnv(base.id).env.CLAUDE_CONFIG_DIR,
     });
 
-    // mylfg：复制 lfg 的定义、保留评测类型；第一个 variant 的入口 skill 改名为 mylfg
-    const mylfg = workflows.create({
-      id: 'mylfg',
-      name: '我的 lfg',
-      fromVariantId: base.id,
-      keepEvalKind: true,
-      definition: { ...loadWorkflow(db, 'lfg'), id: 'mylfg', name: '我的 lfg' },
-    });
-    expect(mylfg).toMatchObject({ evalKind: 'lfg', copiedFrom: 'lfg', variants: 1 });
-    const mylfgVariant = variants.list().find((v) => v.workflowId === 'mylfg');
-    if (mylfgVariant === undefined) throw new Error('mylfg 没有 variant');
-    created.push(mylfgVariant.id);
-    expect(mylfgVariant.name).toBe('基线');
-    const skills = variants.layout(mylfgVariant.id).skills;
-    expect(fs.existsSync(path.join(skills, 'mylfg', 'SKILL.md'))).toBe(true);
-    expect(fs.existsSync(path.join(skills, 'lfg'))).toBe(false);
-    expect(fs.readFileSync(path.join(skills, 'mylfg', 'SKILL.md'), 'utf8')).toMatch(
-      /^name: mylfg$/m,
-    );
-    await variants.build(mylfgVariant.id);
-    const mylfgRun = insertRun('lfg-calculator', mylfgVariant.id, 'w41-mylfg');
-    const mylfgStage = evalSpecOf(db, 'mylfg');
-    const mylfgInitial = await prepareRun({
-      db,
-      repos,
-      ...vault,
-      run: mylfgRun,
-      task: loadTask(db, 'lfg-calculator'),
-      stage: mylfgStage,
-      signal,
-    });
-    const mylfgRepo = path.join(String(repos.localDir), `wfe-${mylfgRun.id}.git`);
-    expect(mylfgInitial).toBe(
-      `/mylfg 做一个计算器\n\nProduct: Magi Eval\nFeature slug: ${mylfgRun.id}\nRepository: ${mylfgRepo}`,
-    );
     const repoArtifact = db
       .select()
       .from(artifacts)
-      .where(and(eq(artifacts.runId, mylfgRun.id), eq(artifacts.kind, 'repo')))
+      .where(and(eq(artifacts.runId, lfgRun.id), eq(artifacts.kind, 'repo')))
       .get();
-    expect(repoArtifact?.location).toBe(`file://${mylfgRepo}`);
-    const mylfgLaunch = launchSpec(
-      variants.runtimeEnv(mylfgVariant.id),
-      mylfgRun,
-      mylfgStage,
-      vault,
-    );
-    expect(mylfgLaunch.variantArgs.slice(0, 4)).toEqual(['--model', 'sonnet', '--effort', 'low']);
-    expect(mylfgLaunch.env.MAGI_PRODUCT).toBe(config.evalProduct);
+    expect(repoArtifact?.location).toBe(`file://${lfgRepo}`);
 
-    // myreview：不保留评测类型，不能评测
+    // myreview：从空白新建，没有评测类型，不能评测（Contracts 18.5）
     workflows.create({
       id: 'myreview',
       name: '我的 review',
-      fromVariantId: base.id,
-      keepEvalKind: false,
-      definition: { ...loadWorkflow(db, 'lfg'), id: 'myreview', name: '我的 review' },
+      description: '',
+      definition: { id: 'myreview', name: '我的 review', stages: [{ id: 'scan' }] },
     });
     const myreviewVariant = variants.list().find((v) => v.workflowId === 'myreview');
     if (myreviewVariant === undefined) throw new Error('myreview 没有 variant');

@@ -13,11 +13,12 @@ import { sessions, variants } from '../db/schema.js';
 import { events } from '../events.js';
 import { claudeSettingsEnv } from '../llm/client.js';
 import { loadWorkflow } from '../workflows/index.js';
-import { requiredSkills } from '../workflows/schema.js';
+import { isBuiltinWorkflow, requiredSkills } from '../workflows/schema.js';
 import { BuildLog } from './build-log.js';
 import { writeCodexHome } from './codex-home.js';
 import { HttpError } from './errors.js';
 import { dataLayout, type VariantLayout } from './layout.js';
+import { createLocalInstalls } from './local-install.js';
 import { claudeSandboxProfile, wfSandboxProfile } from './sandbox.js';
 import { REGISTRY_FILES, registerSkills } from './skill-registry.js';
 import {
@@ -26,6 +27,8 @@ import {
   resolveSkillPath,
   skillDir,
   skillsHash,
+  skillsProblem,
+  writeSkeleton,
 } from './skills.js';
 
 export type Variant = typeof variants.$inferSelect;
@@ -44,6 +47,8 @@ export interface VariantsOptions {
   codexConfigPath?: string | undefined;
   // variant 新建或 skills 内容变化之后调用：session 的自动绑定据此重新判定（Contracts 15.1）
   onSkillsChanged?: (() => void) | undefined;
+  // 安装到本机的目标所在的 home（Contracts 18.6），默认用户的 home；测试传入自己的临时目录
+  home?: string | undefined;
 }
 
 export interface SkillFile {
@@ -132,9 +137,11 @@ export function createVariants({
   codexAuthPath = config.codexAuthPath,
   codexConfigPath = config.codexConfigPath,
   onSkillsChanged = () => undefined,
+  home = os.homedir(),
 }: VariantsOptions) {
   const layout = dataLayout(dataDir);
   const runtimeBuilds = new Map<string, Promise<void>>();
+  const installs = createLocalInstalls({ installsDir: path.join(dataDir, 'installs'), home });
 
   // 把 settings 源的 env 块合并进 variant 的 settings.json，其他字段原样保留；返回合并的键。
   // 先写临时文件再 rename：同一 variant 的并发 run 不会读到写了一半的文件
@@ -260,14 +267,14 @@ export function createVariants({
 
   // source 的完整 src 复制到 dest：导入的 variant 只有 src/skills，由基线导出加上它的 skills 组成
   function copySourceTree(source: Variant, dest: string) {
-    const base = layout.base(source.baseCommit);
-    if (!fs.existsSync(base)) {
-      throw new HttpError(409, `基线 ${source.baseCommit} 的导出不存在：${base}`);
-    }
     const copy = (from: string, to: string) => {
       fs.cpSync(from, to, { recursive: true, verbatimSymlinks: true });
     };
     if (source.installDir === null) {
+      const base = layout.base(source.baseCommit);
+      if (!fs.existsSync(base)) {
+        throw new HttpError(409, `基线 ${source.baseCommit} 的导出不存在：${base}`);
+      }
       copy(base, dest);
       fs.rmSync(path.join(dest, 'skills'), { recursive: true, force: true });
       copy(dirsOf(source).skills, path.join(dest, 'skills'));
@@ -310,7 +317,9 @@ export function createVariants({
     return get(id);
   }
 
+  // 内置 lfg、ic 的 variant 版本号取基线的 workspace 版本；任意 workflow 的 variant 没有基线（Contracts 18.6）
   function versionFor(commit: string, hash: string): string {
+    if (commit === '') return `skills.${hash.slice(0, 8)}`;
     return `${readWorkspaceVersion(layout.base(commit))}-eval.${hash.slice(0, 8)}`;
   }
 
@@ -423,6 +432,123 @@ export function createVariants({
     return files;
   }
 
+  // 内置 lfg、ic 的 variant：完整的 txe-workflow 导出，用 wf 构建并隔离安装；返回所用 wf runtime 的路径
+  async function buildWithWf(
+    row: Variant,
+    dirs: VariantLayout,
+    log: BuildLog,
+    hash: string,
+    version: string,
+  ): Promise<string> {
+    await ensureRuntime(row.baseCommit, log);
+    const runtime = layout.runtimeBin(row.baseCommit);
+
+    let started = performance.now();
+    for (const dir of [dirs.dist, dirs.home, dirs.tmp]) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+    for (const dir of [path.dirname(dirs.wfBin), dirs.claudeDir, dirs.codexHome, dirs.tmp]) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const cargoPath = path.join(dirs.src, 'Cargo.toml');
+    const cargo = fs.readFileSync(cargoPath, 'utf8');
+    const manifest = CargoManifest.parse(parse(cargo));
+    manifest.workspace.package.version = version;
+    fs.writeFileSync(cargoPath, patch(cargo, manifest));
+    log.note('version', started, `skills sha256 ${hash}，版本 ${version}`);
+
+    const sandboxed = (step: string, wf: string, args: string[]) =>
+      log.run(step, 'sandbox-exec', ['-p', wfSandboxProfile(dirs.dir), wf, ...args], {
+        cwd: dirs.src,
+        env: {
+          ...isolatedBaseEnv(),
+          WF_HOME: dirs.wfHome,
+          CLAUDE_CONFIG_DIR: dirs.claudeDir,
+          // wf install 会把检测到的 codex 登记为由 wf 管理，配置根目录取 CODEX_HOME
+          CODEX_HOME: dirs.codexHome,
+          TMPDIR: dirs.tmp,
+        },
+      });
+
+    // 新增或删除的 skill 目录登记进 registry 与 docs 名单（Contracts 16.4），改动写回 src/ 并记进构建日志
+    started = performance.now();
+    const registration = registerSkills(dirs.src);
+    log.note(
+      'register-skills',
+      started,
+      registration.added.length === 0 && registration.removed.length === 0
+        ? '没有新增或删除的 skill'
+        : `登记 ${registration.added.join('、') || '（无）'}；删去 ${registration.removed.join('、') || '（无）'}（${REGISTRY_FILES.join('、')}）`,
+    );
+    // 改 skill frontmatter 时 docs/generated/skills.md 需要重新生成
+    await sandboxed('guard-fix', runtime, ['guard', '--fix']);
+    await sandboxed('guard', runtime, ['guard']);
+    await sandboxed('build-local', runtime, [
+      'release',
+      'build-local',
+      '--root',
+      dirs.src,
+      '--out',
+      dirs.dist,
+      '--version',
+      version,
+    ]);
+    started = performance.now();
+    // APFS 上是写时复制的克隆，不占额外空间
+    fs.copyFileSync(runtime, dirs.wfBin, fs.constants.COPYFILE_FICLONE);
+    log.note('copy-runtime', started, `${runtime} → ${dirs.wfBin}`);
+    const source = `local:${dirs.dist}`;
+    await sandboxed('install-dry-run', runtime, [
+      'install',
+      '--source',
+      source,
+      '--agent',
+      'claude',
+      '--dry-run',
+    ]);
+    await sandboxed('install', runtime, ['install', '--source', source, '--agent', 'claude']);
+    // 只让 wf 管理隔离的 Claude 目录；之后不带 --agent 的 repair、sync 与后台 apply 都不会碰 codex
+    await sandboxed('unregister-codex', dirs.wfBin, ['agents', 'unregister', 'codex']);
+    await sandboxed('status', dirs.wfBin, ['status']);
+    return runtime;
+  }
+
+  // 任意 workflow 的 variant（Contracts 18.6）：只有一组 skill，不用 wf。校验 frontmatter 后清空 variant 自己的
+  // 配置目录，复制 src/skills 进去；认证与设置之后照常合并
+  function buildOwn(row: Variant, dirs: VariantLayout, log: BuildLog) {
+    let started = performance.now();
+    const problem = skillsProblem(dirs.skills);
+    if (problem !== null) log.fail('check-frontmatter', problem);
+    log.note(
+      'check-frontmatter',
+      started,
+      '每个 SKILL.md 有 name 与 description，name 与目录名相同',
+    );
+
+    started = performance.now();
+    for (const dir of [dirs.dist, dirs.home, dirs.tmp]) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+    for (const dir of [dirs.claudeDir, dirs.codexHome, dirs.tmp]) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const installed = path.join(dirs.claudeDir, 'skills');
+    fs.cpSync(dirs.skills, installed, { recursive: true, verbatimSymlinks: true });
+    const names = fs
+      .readdirSync(installed, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+      .sort();
+    log.note('copy-skills', started, `${dirs.skills} → ${installed}：${names.join('、')}`);
+
+    started = performance.now();
+    // 认证与模型别名之后由 writeIsolatedSettings 合并进这份文件（wf 构建时由 wf install 写出）
+    fs.writeFileSync(path.join(dirs.claudeDir, 'settings.json'), '{}\n', { mode: 0o600 });
+    writeCodexHome(dirs.codexHome, { authPath: codexAuthPath, configPath: codexConfigPath });
+    log.note('write-config', started, `${dirs.claudeDir}/settings.json、${dirs.codexHome}`);
+    log.append(`\n[own] workflow ${row.workflowId} 的 variant 由 dashboard 管理，没有运行 wf\n`);
+  }
+
   return {
     list(): Variant[] {
       return db.select().from(variants).orderBy(desc(variants.createdAt)).all();
@@ -455,6 +581,13 @@ export function createVariants({
     }): Promise<Variant> {
       const workflowId = input.workflowId ?? 'lfg';
       loadWorkflow(db, workflowId);
+      // txe-workflow 的导出只属于内置的 lfg、ic；任意 workflow 的 variant 只有一组 skill（Contracts 18.6）
+      if (!isBuiltinWorkflow(workflowId)) {
+        throw new HttpError(
+          400,
+          `workflow ${workflowId} 不是内置的 lfg 或 ic，不能导入 txe-workflow 的基线；从它已有的 variant 派生`,
+        );
+      }
       assertNameFree(workflowId, input.name);
       const { stdout } = await execa('git', [
         '-C',
@@ -509,34 +642,39 @@ export function createVariants({
       });
     },
 
-    // 新建 workflow 时：复制 source 的基线导出与 src/skills，作为新 workflow 的第一个 variant（Contracts 16.1）。
-    // 入口 skill 与 workflow id 同名：来源 workflow 的入口 skill 在副本中改名为新的 id（frontmatter 的 name 一起改）
-    copyToWorkflow(sourceId: string, input: { workflowId: string; name: string }): Variant {
-      const source = get(sourceId);
-      loadWorkflow(db, input.workflowId);
-      const copy = copyVariant(source, {
-        name: input.name,
-        workflowId: input.workflowId,
-        note: `从 ${source.name}（${source.id}，${source.workflowId}）复制为 workflow ${input.workflowId} 的第一个 variant`,
-      });
-      const skills = dirsOf(copy).skills;
-      const entry = skillDir(skills, source.workflowId);
-      const renamed = skillDir(skills, input.workflowId);
-      if (fs.existsSync(entry) && !fs.existsSync(renamed)) {
-        fs.renameSync(entry, renamed);
-        const skillMd = path.join(renamed, 'SKILL.md');
-        if (fs.existsSync(skillMd)) {
-          fs.writeFileSync(
-            skillMd,
-            renameFrontmatter(fs.readFileSync(skillMd, 'utf8'), input.workflowId),
-          );
-        }
-        fs.appendFileSync(
-          dirsOf(copy).buildLog,
-          `入口 skill ${source.workflowId} 改名为 ${input.workflowId}\n`,
-        );
-      }
-      return afterEdit(copy);
+    // 从空白新建 workflow 时的第一个 variant（Contracts 18.5）：入口与各小阶段的 SKILL.md 骨架，没有基线
+    createBlank(input: { workflowId: string; name: string }): Variant {
+      const definition = loadWorkflow(db, input.workflowId);
+      assertNameFree(input.workflowId, input.name);
+      const id = randomUUID();
+      const dirs = layout.variant(id);
+      writeSkeleton(dirs.skills, definition);
+      fs.writeFileSync(
+        dirs.buildLog,
+        `=== 从空白新建：workflow ${definition.id} 的入口与各小阶段的 SKILL.md 骨架 ===\n`,
+      );
+      const hash = skillsHash(dirs.src);
+      db.insert(variants)
+        .values({
+          id,
+          name: input.name,
+          workflowId: input.workflowId,
+          parentId: null,
+          baseCommit: '',
+          skillsHash: hash,
+          version: versionFor('', hash),
+          installDir: dirs.dir,
+        })
+        .run();
+      onSkillsChanged();
+      return get(id);
+    },
+
+    // 基本描述（Contracts 18.3）：不属于 skill 内容，已冻结的 variant 也可以改
+    setDescription(id: string, description: string): Variant {
+      get(id);
+      db.update(variants).set({ description: description.trim() }).where(eq(variants.id, id)).run();
+      return get(id);
     },
 
     // Codex 草稿的 src/ 取自底子 variant 的完整 src（Contracts 17.2）
@@ -561,15 +699,16 @@ export function createVariants({
       }
     },
 
-    // 保存 Codex 草稿（Contracts 17.4）：src/ 取草稿的 src/，parent 为底子 variant，记录来源草稿；随后由调用方构建
+    // 保存 Codex 草稿（Contracts 17.4）：src/ 取草稿的 src/，parent 为底子 variant（从空白开始的草稿没有），
+    // 记录来源草稿；随后由调用方构建
     createFromDraft(input: {
       srcDir: string;
       workflowId: string;
       name: string;
-      parentId: string;
+      parentId: string | null;
       draftId: string;
     }): Variant {
-      const parent = get(input.parentId);
+      const parent = input.parentId === null ? null : get(input.parentId);
       loadWorkflow(db, input.workflowId);
       assertNameFree(input.workflowId, input.name);
       const id = randomUUID();
@@ -578,18 +717,19 @@ export function createVariants({
       fs.cpSync(input.srcDir, dirs.src, { recursive: true, verbatimSymlinks: true });
       fs.writeFileSync(
         dirs.buildLog,
-        `=== 从 Codex 草稿 ${input.draftId} 保存（底子 ${parent.name}，${parent.id}） ===\n`,
+        `=== 从 Codex 草稿 ${input.draftId} 保存（${parent === null ? '从空白开始' : `底子 ${parent.name}，${parent.id}`}） ===\n`,
       );
       const hash = skillsHash(dirs.src);
+      const baseCommit = parent?.baseCommit ?? '';
       db.insert(variants)
         .values({
           id,
           name: input.name,
           workflowId: input.workflowId,
-          parentId: parent.id,
-          baseCommit: parent.baseCommit,
+          parentId: parent?.id ?? null,
+          baseCommit,
           skillsHash: hash,
-          version: versionFor(parent.baseCommit, hash),
+          version: versionFor(baseCommit, hash),
           installDir: dirs.dir,
           draftId: input.draftId,
         })
@@ -716,6 +856,12 @@ export function createVariants({
         variantId = row.parentId;
         reference = dirsOf(get(row.parentId)).src;
       } else {
+        if (row.baseCommit === '') {
+          throw new HttpError(
+            400,
+            `variant ${row.name} 没有基线（任意 workflow 的 variant 只有一组 skill），只能与来源 variant 对比`,
+          );
+        }
         reference = layout.base(row.baseCommit);
       }
       return {
@@ -761,80 +907,16 @@ export function createVariants({
           `variant ${row.name} 缺少 workflow ${row.workflowId} 要求的 skill：${missing.join('、')}（应为 src/skills/<名字>/SKILL.md）`,
         );
       }
-      await ensureRuntime(row.baseCommit, log);
-      const runtime = layout.runtimeBin(row.baseCommit);
-
-      let started = performance.now();
-      for (const dir of [dirs.dist, dirs.home, dirs.tmp]) {
-        fs.rmSync(dir, { recursive: true, force: true });
-      }
-      for (const dir of [path.dirname(dirs.wfBin), dirs.claudeDir, dirs.codexHome, dirs.tmp]) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
       const hash = skillsHash(dirs.src);
       const version = versionFor(row.baseCommit, hash);
-      const cargoPath = path.join(dirs.src, 'Cargo.toml');
-      const cargo = fs.readFileSync(cargoPath, 'utf8');
-      const manifest = CargoManifest.parse(parse(cargo));
-      manifest.workspace.package.version = version;
-      fs.writeFileSync(cargoPath, patch(cargo, manifest));
-      log.note('version', started, `skills sha256 ${hash}，版本 ${version}`);
+      let runtime: string | null = null;
+      if (isBuiltinWorkflow(row.workflowId)) {
+        runtime = await buildWithWf(row, dirs, log, hash, version);
+      } else {
+        buildOwn(row, dirs, log);
+      }
 
-      const sandboxed = (step: string, wf: string, args: string[]) =>
-        log.run(step, 'sandbox-exec', ['-p', wfSandboxProfile(dirs.dir), wf, ...args], {
-          cwd: dirs.src,
-          env: {
-            ...isolatedBaseEnv(),
-            WF_HOME: dirs.wfHome,
-            CLAUDE_CONFIG_DIR: dirs.claudeDir,
-            // wf install 会把检测到的 codex 登记为由 wf 管理，配置根目录取 CODEX_HOME
-            CODEX_HOME: dirs.codexHome,
-            TMPDIR: dirs.tmp,
-          },
-        });
-
-      // 新增或删除的 skill 目录登记进 registry 与 docs 名单（Contracts 16.4），改动写回 src/ 并记进构建日志
-      started = performance.now();
-      const registration = registerSkills(dirs.src);
-      log.note(
-        'register-skills',
-        started,
-        registration.added.length === 0 && registration.removed.length === 0
-          ? '没有新增或删除的 skill'
-          : `登记 ${registration.added.join('、') || '（无）'}；删去 ${registration.removed.join('、') || '（无）'}（${REGISTRY_FILES.join('、')}）`,
-      );
-      // 改 skill frontmatter 时 docs/generated/skills.md 需要重新生成
-      await sandboxed('guard-fix', runtime, ['guard', '--fix']);
-      await sandboxed('guard', runtime, ['guard']);
-      await sandboxed('build-local', runtime, [
-        'release',
-        'build-local',
-        '--root',
-        dirs.src,
-        '--out',
-        dirs.dist,
-        '--version',
-        version,
-      ]);
-      started = performance.now();
-      // APFS 上是写时复制的克隆，不占额外空间
-      fs.copyFileSync(runtime, dirs.wfBin, fs.constants.COPYFILE_FICLONE);
-      log.note('copy-runtime', started, `${runtime} → ${dirs.wfBin}`);
-      const source = `local:${dirs.dist}`;
-      await sandboxed('install-dry-run', runtime, [
-        'install',
-        '--source',
-        source,
-        '--agent',
-        'claude',
-        '--dry-run',
-      ]);
-      await sandboxed('install', runtime, ['install', '--source', source, '--agent', 'claude']);
-      // 只让 wf 管理隔离的 Claude 目录；之后不带 --agent 的 repair、sync 与后台 apply 都不会碰 codex
-      await sandboxed('unregister-codex', dirs.wfBin, ['agents', 'unregister', 'codex']);
-      await sandboxed('status', dirs.wfBin, ['status']);
-
-      started = performance.now();
+      let started = performance.now();
       // 认证与 gateway 模型别名只来自 settings 源的 env 块，其他字段不复制
       const home = os.homedir();
       let excludes: string[] = [];
@@ -925,6 +1007,35 @@ export function createVariants({
       markOnboardingDone(dirs.claudeDir);
       writeCodexHome(dirs.codexHome, { authPath: codexAuthPath, configPath: codexConfigPath });
       return merged;
+    },
+
+    // 安装到本机（Contracts 18.6）：只对任意 workflow 的 variant，装的是按当前内容构建通过的 skill
+    installLocal(id: string) {
+      const row = get(id);
+      if (isBuiltinWorkflow(row.workflowId)) {
+        throw new HttpError(
+          409,
+          `variant ${row.name} 属于内置的 ${row.workflowId}，由 wf 管理，不能由 dashboard 安装到本机`,
+        );
+      }
+      if (row.buildStatus !== 'built' || row.builtHash !== row.skillsHash) {
+        throw new HttpError(
+          409,
+          `variant ${row.name} 还没有按当前内容构建，构建通过后才能安装到本机`,
+        );
+      }
+      return installs.install(row, dirsOf(row).skills);
+    },
+
+    uninstallLocal(id: string) {
+      get(id);
+      return installs.uninstall(id);
+    },
+
+    // 装在本机时为安装清单，没有装时为 null
+    localInstall(id: string) {
+      get(id);
+      return installs.status(id);
     },
 
     // 交互的进程在 cwd 中启动或 resume 前调用（Contracts 14.2）：variant 的配置目录由 dashboard 所有

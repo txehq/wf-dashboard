@@ -70,12 +70,12 @@ export const workflowTable = sqliteTable('workflows', {
   // 也是入口命令 /<id>
   id: text('id').primaryKey(),
   name: text('name').notNull(),
-  // 评测类型（16.2）；为空时不能评测，只用于 Live、阶段划分与分析。创建后不能修改
+  // 评测类型（16.2）：只有内置的 lfg、ic 有；为空时不能评测，只用于 Live、阶段划分与分析
   evalKind: text('eval_kind', { enum: evalKinds }),
   // 经 WorkflowDefinition 校验后的定义
   definition: text('definition', { mode: 'json' }).$type<WorkflowDefinition>().notNull(),
-  // 复制来源的 workflow；内置的为空
-  copiedFrom: text('copied_from'),
+  // 基本描述（Contracts 18.3）；内置的 lfg、ic 第一次写入时取各自 yaml 中的 description
+  description: text('description'),
   createdAt: createdAt(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 });
@@ -125,6 +125,8 @@ export const variants = sqliteTable(
     id: text('id').primaryKey(),
     // 在同一 workflow 内唯一
     name: text('name').notNull(),
+    // 基本描述（Contracts 18.3），在 variant 页面中编辑
+    description: text('description'),
     // 所属 workflow（Contracts 16.4）；是否存在由 variants 模块校验
     workflowId: text('workflow_id').notNull(),
     // 存放 src、构建产物与隔离 home 的目录 data/variants/<storage_id>，为空时是自己的 id。迁移拆出的 lfg 与 ic
@@ -134,10 +136,11 @@ export const variants = sqliteTable(
     parentId: text('parent_id').references((): AnySQLiteColumn => variants.id, {
       onDelete: 'set null',
     }),
+    // 导出的 txe-workflow commit；任意 workflow 的 variant 只有一组 skill（18.6），为空字符串
     baseCommit: text('base_commit').notNull(),
     // skills/ 树的 sha256
     skillsHash: text('skills_hash').notNull(),
-    // <base>-eval.<hash8>
+    // 内置 lfg、ic：<base>-eval.<hash8>；任意 workflow：skills.<hash8>
     version: text('version').notNull(),
     status: text('status', { enum: ['draft', 'frozen'] })
       .notNull()
@@ -425,9 +428,10 @@ export const workflowDrafts = sqliteTable('workflow_drafts', {
   workflowId: text('workflow_id').notNull(),
   // mode 为 workflow 时新 workflow 的名字（准备草稿时写进 workflow.yaml）；mode 为 variant 时为空
   name: text('name'),
-  baseVariantId: text('base_variant_id')
-    .notNull()
-    .references(() => variants.id, { onDelete: 'restrict' }),
+  // mode 为 workflow 时新 workflow 的描述（保存时写进 workflows.description，Contracts 18.3）
+  description: text('description'),
+  // mode 为 variant 时的底子 variant；mode 为 workflow 时为空，草稿从空白骨架开始（Contracts 18.5）
+  baseVariantId: text('base_variant_id').references(() => variants.id, { onDelete: 'restrict' }),
   requirement: text('requirement').notNull(),
   // Live 中的 Codex 会话；删除交互项时置空，草稿保留。不加外键：迁移重建 live_sessions 时不能连带改动这里
   liveId: text('live_id'),

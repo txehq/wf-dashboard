@@ -2,7 +2,9 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import matter from 'gray-matter';
-import { parseDocument } from 'yaml';
+import { parseDocument, stringify } from 'yaml';
+import { z } from 'zod';
+import type { WorkflowDefinition } from '../workflows/schema.js';
 import { HttpError } from './errors.js';
 
 // skill 目录的名字即 skill 名，也是 workflow 的入口或小阶段 id
@@ -36,6 +38,68 @@ export function renameFrontmatter(text: string, name: string): string {
   doc.set('name', name);
   const at = text.indexOf(raw);
   return `${text.slice(0, at)}\n${doc.toString().trimEnd()}${text.slice(at + raw.length)}`;
+}
+
+const Frontmatter = z.looseObject({
+  name: z.string().min(1),
+  description: z.string().trim().min(1),
+});
+
+// 一个 SKILL.md 的 frontmatter 有什么问题（Contracts 17.4、18.6）：是 YAML 映射，有 name 与 description，
+// name 与目录名相同。没有问题时为 null，有问题时是给用户看的原文
+export function frontmatterProblem(file: string, dirName: string): string | null {
+  const text = fs.readFileSync(file, 'utf8');
+  // gray-matter 只用来切出 frontmatter 的原文（它自带的 YAML 解析遇到错误直接抛出，没有位置信息），
+  // 解析与报错由 yaml 库的 Document 做；传入选项时 gray-matter 不用缓存
+  const raw = matter(text, { language: 'yaml', engines: { yaml: () => ({}) } }).matter;
+  if (!text.startsWith('---') || raw.trim() === '') {
+    return `${file} 没有 YAML frontmatter（应以 --- 开头）`;
+  }
+  const doc = parseDocument(raw);
+  if (doc.errors.length > 0) {
+    return `${file} 的 frontmatter 不是合法的 YAML：${doc.errors.map((e) => e.message).join('；')}`;
+  }
+  const parsed = Frontmatter.safeParse(doc.toJS());
+  if (!parsed.success) return `${file} 的 frontmatter 不合法：${parsed.error.message}`;
+  if (parsed.data.name !== dirName) {
+    return `${file} 的 frontmatter name 为 ${parsed.data.name}，应与目录名 ${dirName} 相同`;
+  }
+  return null;
+}
+
+// skills/ 中每个 skill 目录都有 SKILL.md 且 frontmatter 没有问题；返回第一个问题的原文，都没有时为 null
+export function skillsProblem(skillsDir: string): string | null {
+  for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const file = path.join(skillsDir, entry.name, 'SKILL.md');
+    if (!fs.existsSync(file)) return `skill 目录 skills/${entry.name}/ 中没有 SKILL.md`;
+    const problem = frontmatterProblem(file, entry.name);
+    if (problem !== null) return problem;
+  }
+  return null;
+}
+
+// 空白新建的骨架（Contracts 18.5）：入口与每个小阶段各一个 SKILL.md，只有 frontmatter（name 与一句 description）
+// 与一行"在这里写这个阶段做什么"
+export function writeSkeleton(skillsDir: string, definition: WorkflowDefinition) {
+  const skills = [
+    {
+      name: definition.id,
+      description: `${definition.name} 的入口 /${definition.id}：依次进入 ${definition.stages.map((s) => s.id).join('、')}`,
+    },
+    ...definition.stages.map((s) => ({
+      name: s.id,
+      description: `${definition.name} 的小阶段 ${s.id}`,
+    })),
+  ];
+  for (const skill of skills) {
+    const dir = skillDir(skillsDir, skill.name);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'SKILL.md'),
+      `---\n${stringify(skill).trimEnd()}\n---\n\n在这里写这个阶段做什么。\n`,
+    );
+  }
 }
 
 // srcDir 下 skills/ 的全部文件，返回以 skills/ 开头、按字典序排列的相对路径

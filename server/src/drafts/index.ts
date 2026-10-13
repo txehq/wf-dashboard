@@ -5,6 +5,7 @@ import { stringify } from 'yaml';
 import type { CodexSkillSources } from '../config.js';
 import type { Db } from '../db/index.js';
 import {
+  type DraftMode,
   type DraftStatus,
   type DraftStep,
   variants as variantsTable,
@@ -15,7 +16,8 @@ import type { Live } from '../live/index.js';
 import type { LiveDetail } from '../live/views.js';
 import { newId } from '../runs/index.js';
 import { HttpError } from '../variants/errors.js';
-import type { Variants } from '../variants/index.js';
+import type { Variant, Variants } from '../variants/index.js';
+import { writeSkeleton } from '../variants/skills.js';
 import {
   assertNewWorkflow,
   deleteEmptyWorkflow,
@@ -49,8 +51,8 @@ function lastStep(log: string): string {
 const SKILL_STEP = 'skill:';
 const START_STEP = 'start-codex';
 
-// 草稿准备的各步（Contracts 17.1）：复制 src、写说明与例子、逐个安装 skill、启动 Codex
-function initialSteps(sources: CodexSkillSources): DraftStep[] {
+// 草稿准备的各步（Contracts 17.1）：复制 src（新 workflow 为写骨架）、写说明与例子、逐个安装 skill、启动 Codex
+function initialSteps(mode: DraftMode, sources: CodexSkillSources): DraftStep[] {
   const step = (id: string, label: string): DraftStep => ({
     id,
     label,
@@ -60,12 +62,18 @@ function initialSteps(sources: CodexSkillSources): DraftStep[] {
     endedAt: null,
   });
   return [
-    step('copy-src', '复制底子 variant 的 src'),
+    step(
+      'copy-src',
+      mode === 'workflow' ? '写入口与各小阶段的 SKILL.md 骨架' : '复制底子 variant 的 src',
+    ),
     step('write-docs', '写 workflow.yaml、PLATFORM.md 与例子 workflow'),
     ...sources.map((s) => step(`${SKILL_STEP}${s.name}`, `安装 ${s.name}`)),
     step(START_STEP, '启动 Codex'),
   ];
 }
+
+// 从空白开始的新 workflow 草稿只有一个小阶段，由 Codex 在 workflow.yaml 中改（Contracts 18.5）
+const BLANK_STAGES = [{ id: 'stage-1' }];
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -108,6 +116,7 @@ export function createDrafts({ db, variants, live, draftsDir, skillSources }: Dr
       mode: r.mode,
       workflowId: r.workflowId,
       name: r.name,
+      description: r.description,
       baseVariantId: r.baseVariantId,
       requirement: r.requirement,
       liveId: r.liveId,
@@ -146,15 +155,11 @@ export function createDrafts({ db, variants, live, draftsDir, skillSources }: Dr
     });
   }
 
-  // 草稿的定义：mode 为 workflow 时先填 id、名字与底子的小阶段；mode 为 variant 时是所属 workflow 的定义
-  function definitionOf(d: Pick<DraftRow, 'mode' | 'workflowId' | 'name' | 'baseVariantId'>) {
+  // 草稿的定义：mode 为 workflow 时是 id、名字与一个小阶段的空白定义；mode 为 variant 时是所属 workflow 的定义
+  function definitionOf(d: Pick<DraftRow, 'mode' | 'workflowId' | 'name'>) {
     if (d.mode === 'variant') return loadWorkflow(db, d.workflowId);
     return parseDefinition(
-      {
-        id: d.workflowId,
-        name: d.name,
-        stages: loadWorkflow(db, variants.get(d.baseVariantId).workflowId).stages,
-      },
+      { id: d.workflowId, name: d.name, stages: BLANK_STAGES },
       `新 workflow ${d.workflowId} 的定义`,
     );
   }
@@ -164,7 +169,8 @@ export function createDrafts({ db, variants, live, draftsDir, skillSources }: Dr
     const layout = layoutOf(id);
     if (stepId === 'copy-src') {
       copyDraftSource(layout, (dest) => {
-        variants.exportSource(d.baseVariantId, dest);
+        if (d.baseVariantId === null) writeSkeleton(path.join(dest, 'skills'), definitionOf(d));
+        else variants.exportSource(d.baseVariantId, dest);
       });
     } else if (stepId === 'write-docs') {
       writeDraftDocs(layout, d.mode, definitionOf(d));
@@ -210,19 +216,15 @@ export function createDrafts({ db, variants, live, draftsDir, skillSources }: Dr
 
   // 建草稿与它在 Live 中的项（还没有进程）；草稿目录由 prepare 在后台准备
   function open(body: CreateDraftBody): { draft: DraftView; live: LiveDetail } {
-    const base = variants.get(body.baseVariantId);
+    let base: Variant | null = null;
     if (body.mode === 'workflow') {
       assertNewWorkflow(
         db,
-        definitionOf({
-          mode: 'workflow',
-          workflowId: body.workflowId,
-          name: body.name,
-          baseVariantId: base.id,
-        }),
+        definitionOf({ mode: 'workflow', workflowId: body.workflowId, name: body.name }),
       );
     } else {
       loadWorkflow(db, body.workflowId);
+      base = variants.get(body.baseVariantId);
       if (base.workflowId !== body.workflowId) {
         throw new HttpError(
           400,
@@ -246,11 +248,12 @@ export function createDrafts({ db, variants, live, draftsDir, skillSources }: Dr
         mode: body.mode,
         workflowId: body.workflowId,
         name: body.mode === 'workflow' ? body.name : null,
-        baseVariantId: base.id,
+        description: body.mode === 'workflow' ? body.description.trim() : null,
+        baseVariantId: base?.id ?? null,
         requirement: body.requirement,
         liveId: item.id,
         status: 'preparing',
-        steps: initialSteps(skillSources),
+        steps: initialSteps(body.mode, skillSources),
       })
       .run();
     events.publish({ type: 'draft.updated', draftId: id, status: 'preparing' });
@@ -262,7 +265,6 @@ export function createDrafts({ db, variants, live, draftsDir, skillSources }: Dr
   async function saveDraft(id: string): Promise<DraftView> {
     const draft = row(id);
     const layout = layoutOf(id);
-    const base = variants.get(draft.baseVariantId);
     let definition: WorkflowDefinition;
     const newWorkflow = draft.mode === 'workflow' && draft.savedWorkflowId === null;
     if (draft.mode === 'workflow') {
@@ -282,12 +284,12 @@ export function createDrafts({ db, variants, live, draftsDir, skillSources }: Dr
       definition = loadWorkflow(db, draft.workflowId);
     }
     checkDraftSkills(layout, definition);
-    if (newWorkflow) insertWorkflow(db, definition, base.workflowId);
+    if (newWorkflow) insertWorkflow(db, definition, draft.description ?? '');
     const variant = variants.createFromDraft({
       srcDir: layout.src,
       workflowId: definition.id,
       name: newWorkflow ? '基线' : variants.freeName(definition.id, `Codex ${id}`),
-      parentId: base.id,
+      parentId: draft.baseVariantId,
       draftId: id,
     });
     await variants.build(variant.id).then(

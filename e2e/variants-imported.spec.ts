@@ -37,12 +37,12 @@ test('导入的 variant：只读标记、文件与对比；文件缺失时显示
   expect(variant.workflowId).toBe('lfg');
   skillsDir = path.join(dataDir, 'variants', variant.id, 'src/skills');
 
-  // variant 在所属 workflow 的页面中：列表中标出导入的，点开在同一页展开
+  // workflow 页面的 variant 列表中标出导入的，名字链接到 variant 页面（Contracts 18.3）
   await page.goto('/workflows/lfg');
   const row = page.getByTestId(`variant-row-${variant.name}`);
   await expect(row).toContainText(imported);
-  await row.getByRole('button', { name: variant.name, exact: true }).click();
-  await expect(page).toHaveURL(new RegExp(`/workflows/lfg\\?variant=${variant.id}$`));
+  await row.getByRole('link', { name: variant.name, exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/variants/${variant.id}$`));
 
   const panel = page.getByTestId('variant-panel');
   await expect(panel.getByTestId('build-status')).toHaveText(imported);
@@ -104,17 +104,16 @@ test('导入的 variant 派生为可运行的 variant：展开新 variant，可�
   // 数据目录跨次保留：每次用新的名称
   const name = `${source.name}（可运行）${String(Date.now())}`;
   await page.goto(`/variants/${variant.id}`);
-  await expect(page).toHaveURL(new RegExp(`/workflows/lfg\\?variant=${variant.id}$`));
   page.once('dialog', (dialog) => {
     expect(dialog.defaultValue()).toBe(`${source.name}（可运行）`);
     void dialog.accept(name);
   });
   const panel = page.getByTestId('variant-panel');
   await panel.getByRole('button', { name: '派生为可运行的 variant' }).click();
-  // 页面中 variant 的名字为 名字 (workflow)（Contracts 16.4）
-  await expect(panel.getByRole('heading', { level: 2 })).toHaveText(`${name} (lfg)`);
-  await expect(page).not.toHaveURL(new RegExp(`variant=${variant.id}$`));
-  const id = new URL(page.url()).searchParams.get('variant') ?? '';
+  // 跳到新 variant 的页面：Workflows › lfg › 名字（Contracts 18.3）
+  await expect(page.getByTestId('breadcrumb')).toHaveText(`Workflows › lfg › ${name}`);
+  await expect(page).not.toHaveURL(new RegExp(`/variants/${variant.id}$`));
+  const id = page.url().split('/').at(-1) ?? '';
   const derived = (await (await request.get(`${api}/variants/${id}`)).json()) as {
     parentId: string;
     skillsHash: string;
@@ -138,5 +137,5 @@ test('导入的 variant 派生为可运行的 variant：展开新 variant，可�
   await expect(panel.getByText('skills 内容相同，没有差异。')).toBeVisible();
   await page.screenshot({ path: `${shots}/w26-derived.png`, animations: 'disabled' });
   await parent.getByRole('link').click();
-  await expect(page).toHaveURL(new RegExp(`/workflows/lfg\\?variant=${variant.id}$`));
+  await expect(page).toHaveURL(new RegExp(`/variants/${variant.id}$`));
 });

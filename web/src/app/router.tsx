@@ -12,7 +12,7 @@ import { SessionDetailPage } from '@/pages/sessions-detail';
 import { TasksPage } from '@/pages/tasks';
 import { TaskDetailPage } from '@/pages/tasks-detail';
 import { TaskNewPage } from '@/pages/tasks-new';
-import { VariantRedirect, VariantsRedirect } from '@/pages/variants';
+import { VariantPage, VariantsRedirect } from '@/pages/variants';
 import { WorkflowPage } from '@/pages/workflow-detail';
 import { WorkflowsPage } from '@/pages/workflows';
 
@@ -30,7 +30,7 @@ export const router = createBrowserRouter([
       { path: 'workflows', element: <WorkflowsPage /> },
       { path: 'workflows/:id', element: <WorkflowPage /> },
       { path: 'variants', element: <VariantsRedirect /> },
-      { path: 'variants/:id', element: <VariantRedirect /> },
+      { path: 'variants/:id', element: <VariantPage /> },
       { path: 'tasks', element: <TasksPage /> },
       { path: 'tasks/new', element: <TaskNewPage /> },
       { path: 'tasks/:id', element: <TaskDetailPage /> },

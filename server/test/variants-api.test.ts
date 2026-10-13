@@ -152,13 +152,20 @@ describe('variants API', () => {
     });
     expect(noParent.statusCode).toBe(400);
 
-    // variant 不再有模型与 effort 的设置：没有 PATCH 路由
+    // variant 不再有模型与 effort 的设置：PATCH 只接受描述（Contracts 18.3）
     const patched = await app.inject({
       method: 'PATCH',
       url: `/api/variants/${draft.id}`,
       payload: { model: 'sonnet', effort: 'xhigh' },
     });
-    expect(patched.statusCode).toBe(404);
+    expect(patched.statusCode).toBe(400);
+    const described = await app.inject({
+      method: 'PATCH',
+      url: `/api/variants/${draft.id}`,
+      payload: { description: '  改了 interview  ' },
+    });
+    expect(described.statusCode).toBe(200);
+    expect(described.json<{ description: string }>().description).toBe('改了 interview');
 
     const log = await app.inject({ method: 'GET', url: `/api/variants/${draft.id}/build-log` });
     expect(log.headers['content-type']).toMatch(/^text\/plain/);

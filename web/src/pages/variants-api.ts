@@ -4,9 +4,12 @@ import { requestJson } from '@/lib/http';
 export interface Variant {
   id: string;
   name: string;
+  // 基本描述（Contracts 18.3）
+  description: string | null;
   // 所属 workflow（Contracts 16.4）
   workflowId: string;
   parentId: string | null;
+  // 任意 workflow 的 variant 只有一组 skill，没有基线：为空字符串（Contracts 18.6）
   baseCommit: string;
   skillsHash: string;
   version: string;
@@ -57,9 +60,19 @@ export const statusLabel: Record<Variant['status'], string> = { draft: '草稿',
 export const variantLabel = (variant: Pick<Variant, 'name' | 'workflowId'>) =>
   `${variant.name} (${variant.workflowId})`;
 
-// variant 在它所属 workflow 的页面中展开（Contracts 16.7）
-export const variantHref = (variant: Pick<Variant, 'id' | 'workflowId'>) =>
-  `/workflows/${variant.workflowId}?variant=${variant.id}`;
+// variant 的独立页面（Contracts 18.3）
+export const variantHref = (variant: Pick<Variant, 'id'>) => `/variants/${variant.id}`;
+
+// 安装到本机的清单（Contracts 18.6）
+export interface InstallManifest {
+  variantId: string;
+  variantName: string;
+  workflowId: string;
+  installedAt: number;
+  targets: { claude: string; agents: string };
+  dirs: string[];
+  files: { path: string; sha256: string }[];
+}
 
 export function buildLabel(variant: Variant): string {
   if (variant.buildStatus === 'built' && variant.builtHash !== variant.skillsHash) {
@@ -144,4 +157,12 @@ export const buildLogQuery = (id: string, building: boolean) =>
     queryFn: () => request<string>('GET', `/api/variants/${id}/build-log`),
     ...manualRetry,
     refetchInterval: (query) => (building && notFailed(query) ? 1000 : false),
+  });
+
+export const installQuery = (id: string) =>
+  queryOptions({
+    queryKey: ['variants', id, 'install'],
+    queryFn: () =>
+      request<{ installed: InstallManifest | null }>('GET', `/api/variants/${id}/install`),
+    ...manualRetry,
   });

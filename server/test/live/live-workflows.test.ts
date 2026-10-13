@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import type { LiveDetail } from '../../src/live/views.js';
-import { createWorkflows, loadWorkflow } from '../../src/workflows/index.js';
+import { createWorkflows } from '../../src/workflows/index.js';
 import { type LiveServer, startLiveServer, until } from './harness.js';
 
 // Contracts 14.2、16.7：没有评测类型的 workflow 在 isolated 环境只建空的 workspace，初始消息为 /<workflow id> <问题>；
@@ -26,11 +26,11 @@ test(
   { timeout: 600_000 },
   async () => {
     const workflows = createWorkflows({ db: server.db, variants: server.variants });
+    // 从空白新建：第一个 variant"初稿"是骨架，用自有管理器构建（Contracts 18.5、18.6）
     workflows.create({
       id: 'myreview',
       name: '我的 review',
-      fromVariantId: server.variant.id,
-      keepEvalKind: false,
+      description: '',
       definition: {
         id: 'myreview',
         name: '我的 review',
@@ -40,13 +40,6 @@ test(
     const variant = server.variants.list().find((v) => v.workflowId === 'myreview');
     if (variant === undefined) throw new Error('myreview 没有 variant');
     created.push(variant.id);
-    for (const skill of loadWorkflow(server.db, 'myreview').stages.map((s) => s.id)) {
-      server.variants.writeFile(
-        variant.id,
-        `skills/${skill}/SKILL.md`,
-        `---\nname: ${skill}\ndescription: myreview 的 ${skill} 阶段\n---\n\n# ${skill}\n`,
-      );
-    }
     await server.variants.build(variant.id);
 
     const wrong = await server.request('POST', '/api/live', {
