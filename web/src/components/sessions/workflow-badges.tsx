@@ -18,7 +18,7 @@ export function LiveBadge({ liveId }: { liveId: string }) {
 export function WorkflowBadges({ workflows }: { workflows: Workflow[] }) {
   if (workflows.length === 0) return <span className="text-sm text-muted-foreground">—</span>;
   return (
-    <span className="flex gap-1">
+    <span className="flex flex-wrap gap-1">
       {workflows.map((w) => (
         <span
           key={w}

@@ -150,14 +150,14 @@ describe('在访达中打开', () => {
 
   test('variant 的整个目录；目录不存在与不认识的目标 404；不接受任意路径', async () => {
     const v = await variants.createBaseline({ name: '打开' });
-    expect(openTargetDir({ kind: 'variant', id: v.id }, { variants, live })).toBe(
+    expect(openTargetDir({ kind: 'variant', id: v.id }, { db, variants, live })).toBe(
       path.join(dataDir, 'variants', v.id),
     );
     expect(() =>
-      openTargetDir({ kind: 'live-cwd', id: 'l-20261013-nopeno' }, { variants, live }),
+      openTargetDir({ kind: 'live-cwd', id: 'l-20261013-nopeno' }, { db, variants, live }),
     ).toThrow('交互不存在：l-20261013-nopeno');
     fs.rmSync(variants.layout(v.id).dir, { recursive: true });
-    expect(() => openTargetDir({ kind: 'variant', id: v.id }, { variants, live })).toThrow(
+    expect(() => openTargetDir({ kind: 'variant', id: v.id }, { db, variants, live })).toThrow(
       `目录不存在：${path.join(dataDir, 'variants', v.id)}`,
     );
     db.update(variantsTable).set({ installDir: null }).where(eq(variantsTable.id, v.id)).run();

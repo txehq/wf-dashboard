@@ -168,7 +168,7 @@ export async function buildApp({
   // 可配置的 workflow（Contracts 16.1）
   await app.register(workflowRoutes, { workflows: createWorkflows({ db, variants }) });
   // "在访达中打开"（Contracts 16.7）
-  await app.register(openRoutes, { variants, live });
+  await app.register(openRoutes, { db, variants, live });
   // 用 Codex 生成 workflow 或 variant（Contracts 第 17 节）
   await app.register(draftRoutes, {
     drafts: createDrafts({

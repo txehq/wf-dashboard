@@ -173,7 +173,9 @@ test('交互：新建、resume 在同一项、改名、Sessions 中的名字、�
     .fill(sessionId);
   const row = page.getByTestId('session-row').filter({ hasText: sessionId.slice(0, 8) });
   await expect(row).toContainText(`W34 计算器 ${marker}`);
-  await expect(row.getByTestId('live-badge')).toBeVisible();
+  // 列表的 workflow 列没有"交互"标记，每行有 Live 按钮（Contracts 18.1）
+  await expect(row.getByTestId('live-badge')).toHaveCount(0);
+  await expect(row.getByTestId('open-in-live')).toBeVisible();
   await shot(page, 'sessions-name');
   await page.goto(`/sessions/${sessionId}`);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(`W34 计算器 ${marker}`);

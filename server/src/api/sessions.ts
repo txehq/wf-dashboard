@@ -28,6 +28,8 @@ import {
 } from '../ingest/sources.js';
 import { ConversationItem, sessionConversation } from '../ingest/conversation.js';
 import { displayUserText, sessionTitle } from './user-text.js';
+import { SessionLinks, sessionLinks } from './session-links.js';
+import { config } from '../config.js';
 
 const ErrorBody = z.object({ error: z.string() });
 
@@ -363,6 +365,27 @@ export const sessionsRoutes: FastifyPluginCallbackZod<SessionsRoutesOptions> = (
             ? encodeCursor({ startedAt: last.startedAt.getTime(), id: last.id })
             : null,
       };
+    },
+  );
+
+  // "绑定的对象"（Contracts 18.2）
+  app.get(
+    '/sessions/:id/bindings',
+    {
+      schema: {
+        params: z.object({ id: z.string() }),
+        response: { 200: SessionLinks, 404: ErrorBody },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const row = db
+        .select({ id: sessions.id, runId: sessions.runId, liveId: sessions.liveId })
+        .from(sessions)
+        .where(eq(sessions.id, id))
+        .get();
+      if (row === undefined) return reply.code(404).send({ error: `session ${id} 不存在` });
+      return sessionLinks(db, row, { dir: config.vaultDir, product: config.evalProduct });
     },
   );
 
