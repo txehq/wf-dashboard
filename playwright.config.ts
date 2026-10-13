@@ -4,7 +4,9 @@ import { type Service, webServersFor } from './e2e/services.js';
 import {
   analysisWorkflowWebPort,
   compareWebPort,
+  liveFullscreenWebPort,
   liveItemsWebPort,
+  resumeDialogWebPort,
   runsWebPort,
   webPort,
 } from './ports.js';
@@ -27,7 +29,9 @@ const projectServices: Record<string, Service[]> = {
   compare: ['compareServer', 'compareWeb'],
   runs: ['runsServer', 'runsWeb'],
   'live-items': ['liveItemsServer', 'liveItemsWeb'],
+  'live-fullscreen': ['liveFullscreenServer', 'liveFullscreenWeb'],
   'analysis-workflow': ['analysisWorkflowServer', 'analysisWorkflowWeb'],
+  'resume-dialog': ['resumeDialogServer', 'resumeDialogWeb'],
 };
 
 export default defineConfig({
@@ -97,12 +101,32 @@ export default defineConfig({
       },
     },
     {
+      // Live 的全屏（Contracts 20.3）：Claude Code 换成回显按键与终端尺寸的替身，不调用 claude
+      name: 'live-fullscreen',
+      testMatch: 'live-fullscreen.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: `http://127.0.0.1:${String(liveFullscreenWebPort)}`,
+        viewport: { width: 1600, height: 1000 },
+      },
+    },
+    {
       // 分析由 session-analysis 驱动：新建分析时选 variant、报告页的方面分组、交给 Codex 优化（Codex 是替身命令）
       name: 'analysis-workflow',
       testMatch: 'analysis-workflow.spec.ts',
       use: {
         ...devices['Desktop Chrome'],
         baseURL: `http://127.0.0.1:${String(analysisWorkflowWebPort)}`,
+        viewport: { width: 1600, height: 1000 },
+      },
+    },
+    {
+      // resume 对话框的预检（Contracts 14.5）："本机配置"的 HOME 在 .work/ 下，claude 是基础档会报错的替身
+      name: 'resume-dialog',
+      testMatch: 'resume-dialog.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: `http://127.0.0.1:${String(resumeDialogWebPort)}`,
         viewport: { width: 1600, height: 1000 },
       },
     },

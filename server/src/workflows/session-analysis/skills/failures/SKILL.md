@@ -16,7 +16,7 @@ description: Session-analysis stage for failures — every point where the sessi
    - 命令的非零退出、`command not found`、`No such file`、超时；
    - 权限拒绝、hook 失败、API 错误、限流与配额（`rate limit`、`quota`、`429`、`overloaded`）；
    - 撤回的修改：一次编辑之后又改回原样，或对改过的文件 `git checkout`、`git restore`、`git reset`；
-   - 回复与思考中的回头（"actually"、"let me instead"、"之前错了"、"换一种方式"）。
+   - 回复中的回头（"actually"、"let me instead"、"之前错了"、"换一种方式"）。
 
    完成条件：每个 `isError` 为 true 的调用都已归入某条失败链，或写明可以忽略的理由（例如预期中的探测）。
 

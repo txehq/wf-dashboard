@@ -5,13 +5,14 @@ import type {
   LiveSummary,
   ResumeDefaults,
   ResumeLiveBody,
+  ResumePlan,
 } from '@wf-dashboard/server/live/views';
 import { requestJson } from '@/lib/http';
 import { invalidateThrottled, useLiveEvent } from '@/lib/live-events';
 import type { Variant } from '@/pages/variants-api';
 
 // 与 Contracts 第 14 节的交互 API 对应
-export type { CreateLiveBody, LiveDetail, LiveSummary, ResumeDefaults, ResumeLiveBody };
+export type { CreateLiveBody, LiveDetail, LiveSummary, ResumeDefaults, ResumeLiveBody, ResumePlan };
 export type LiveDriver = LiveSummary['driver'];
 
 // 交互只用按当前内容构建成功的 variant
@@ -54,6 +55,18 @@ export async function createLive(body: CreateLiveBody): Promise<LiveDetail> {
 
 export async function resumeLive(body: ResumeLiveBody): Promise<LiveDetail> {
   return (await requestJson('POST', '/api/live/resume', body)) as LiveDetail;
+}
+
+// resume 的预检（Contracts 14.5）：对话框打开与改选配置时就说明将要做什么；variantId 为空时是本机配置
+export function resumePlanQuery(sessionId: string, variantId: string | null) {
+  return queryOptions({
+    queryKey: ['live', 'resume-plan', sessionId, variantId],
+    queryFn: async () =>
+      (await requestJson(
+        'GET',
+        `/api/live/resume-plan?sessionId=${encodeURIComponent(sessionId)}&variantId=${encodeURIComponent(variantId ?? '')}`,
+      )) as ResumePlan,
+  });
 }
 
 export async function setLiveDriver(id: string, driver: LiveDriver): Promise<LiveDetail> {

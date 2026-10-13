@@ -21,6 +21,7 @@ const app = await buildApp({
   logger: true,
   tasksDir: config.tasksDir,
   webDir,
+  localHome: config.localHome,
 });
 await app.listen({ host: config.host, port: config.port });
 

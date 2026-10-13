@@ -4,14 +4,18 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { ModelEffortChoice } from '@/components/model-effort';
 import { Button } from '@/components/ui/button';
+import { formatDateTime } from '@/lib/format';
 import {
   isBuiltVariant,
   type LiveDetail,
   type LiveDriver,
   resumeDefaultsQuery,
   resumeLive,
+  type ResumePlan,
+  resumePlanQuery,
 } from '@/lib/live-api';
-import { useModelEffort } from '@/lib/model-effort';
+import type { ModelEffort } from '@/lib/model-effort';
+import type { ResumeCopy } from '@wf-dashboard/server/live/views';
 import { variantLabel, variantsQuery } from '@/pages/variants-api';
 
 const LOCAL = 'local';
@@ -50,6 +54,76 @@ export function DriverChoice({
   );
 }
 
+// 一份 jsonl 的摘要：路径、最后一条消息的时间与内容
+function CopySummary({ label, copy }: { label: string; copy: ResumeCopy }) {
+  return (
+    <div className="flex flex-col gap-0.5 rounded-md border px-3 py-2 text-xs">
+      <span className="font-medium">{label}</span>
+      <span className="font-mono break-all text-muted-foreground">{copy.path}</span>
+      <span>
+        最后一条
+        {copy.lastRole === 'user'
+          ? '（你说的）'
+          : copy.lastRole === 'assistant'
+            ? '（agent 说的）'
+            : ''}
+        {copy.lastAt === null ? '' : `，${formatDateTime(copy.lastAt)}`}：
+        {copy.lastText ?? '（没有消息）'}
+      </span>
+    </div>
+  );
+}
+
+// 预检的结果（Contracts 14.5）：对话框打开与改选配置时就说明 resume 会做什么，或为什么不能 resume
+function PlanNotice({ plan }: { plan: ResumePlan }) {
+  const box = 'flex flex-col gap-2 rounded-md border px-3 py-2 text-sm';
+  if (plan.action === 'blocked') {
+    return (
+      <div className={`${box} border-destructive`} data-testid="resume-plan" data-action="blocked">
+        <span className="font-medium text-destructive">不能 resume</span>
+        <ul className="flex list-disc flex-col gap-1 pl-5">
+          {plan.problems.map((p) => (
+            <li key={p.code} data-problem={p.code}>
+              {p.message}
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+  const notes = plan.notes.map((n) => (
+    <span key={n} className="text-xs text-muted-foreground">
+      {n}
+    </span>
+  ));
+  if (plan.action === 'diverged') {
+    if (plan.latest === null || plan.target === null) throw new Error('分叉的预检缺少两份的摘要');
+    return (
+      <div className={`${box} border-amber-500`} data-testid="resume-plan" data-action="diverged">
+        <span className="font-medium">这个配置中的那份与最新的不一致</span>
+        <span className="text-xs">
+          两份从某一处起各自接着写过。「以最新的为准继续」会把这个配置中的那份改名保留（.diverged-时间），
+          再用最新的接着运行。
+        </span>
+        <CopySummary label="最新的一份" copy={plan.latest} />
+        <CopySummary label="这个配置中的一份" copy={plan.target} />
+        {notes}
+      </div>
+    );
+  }
+  const text = {
+    resume: '在这个配置中直接接着运行。',
+    copy: '先把 session 复制进这个配置，再接着运行；原文件不动。',
+    sync: '这个配置中有一份较早的记录：先用最新的内容覆盖它，再接着运行。',
+  }[plan.action];
+  return (
+    <div className={box} data-testid="resume-plan" data-action={plan.action}>
+      <span>{text}</span>
+      {notes}
+    </div>
+  );
+}
+
 function ResumeForm({
   sessionId,
   onClose,
@@ -70,7 +144,17 @@ function ResumeForm({
   const [driver, setDriver] = useState<LiveDriver>('human');
   const [model, setModel] = useState<string | null>(null);
   const [effort, setEffort] = useState<string | null>(null);
-  const chosenModel = useModelEffort({ model, effort });
+  const built = variants.data?.filter(isBuiltVariant) ?? [];
+  // 默认为 session 所用的 variant（它不在构建成功的列表中时为本机配置）
+  const used = built.some((v) => v.id === defaults.data?.variantId)
+    ? (defaults.data?.variantId ?? null)
+    : null;
+  const chosen = variant ?? used ?? LOCAL;
+  const variantId = chosen === LOCAL ? null : chosen;
+  const plan = useQuery({
+    ...resumePlanQuery(sessionId, variantId),
+    enabled: defaults.data !== undefined && variants.data !== undefined,
+  });
   const resuming = useMutation({
     mutationFn: resumeLive,
     onSuccess: async (live) => {
@@ -89,10 +173,25 @@ function ResumeForm({
       </p>
     );
   }
-  const built = variants.data.filter(isBuiltVariant);
-  // 默认为 session 所用的 variant（它不在构建成功的列表中时为本机配置）
-  const used = built.some((v) => v.id === defaults.data.variantId) ? defaults.data.variantId : null;
-  const chosen = variant ?? used ?? LOCAL;
+  // 选了 variant 时的 model 与 effort：没有改选时为预检返回的默认值（设置的 agentModel、agentEffort）
+  const chosenModel: ModelEffort | null =
+    plan.data?.model == null || plan.data.effort === null
+      ? null
+      : {
+          model: (model ?? plan.data.model) as ModelEffort['model'],
+          effort: (effort ?? plan.data.effort) as ModelEffort['effort'],
+        };
+  const p = plan.data;
+  const submit = (onDiverged?: 'use-latest') => {
+    resuming.mutate({
+      sessionId,
+      variantId,
+      driver,
+      // 本机配置不传 --model 与 --effort
+      ...(variantId === null || chosenModel === null ? {} : chosenModel),
+      ...(onDiverged === undefined ? {} : { onDiverged }),
+    });
+  };
   return (
     <div className="flex flex-col gap-4">
       <label className="flex flex-col gap-1.5 text-sm">
@@ -114,28 +213,31 @@ function ResumeForm({
         </select>
       </label>
       <div className="flex flex-col gap-1 text-sm">
-        <span className="font-medium">环境</span>
+        <span className="font-medium">环境与工作目录</span>
         <span>real：在下面的真实目录中运行，用本机的 GitHub 与 Linear 凭据，写入不加限制。</span>
-      </div>
-      <div className="flex flex-col gap-1 text-sm">
-        <span className="font-medium">工作目录</span>
         <span className="font-mono text-xs break-all" data-testid="resume-cwd">
           {defaults.data.cwd ?? '（session 没有记录工作目录）'}
         </span>
-        {!defaults.data.cwdExists && (
-          <span role="alert" className="text-destructive">
-            这个目录不存在，不能 resume。
-          </span>
-        )}
       </div>
       <DriverChoice value={driver} onChange={setDriver} name={`resume-driver-${sessionId}`} />
-      {chosen !== LOCAL && (
+      {variantId !== null && (
         <ModelEffortChoice
           value={chosenModel}
           onModel={setModel}
           onEffort={setEffort}
           testIdPrefix="resume"
         />
+      )}
+      {p === undefined ? (
+        plan.isError ? (
+          <p role="alert" className="text-sm text-destructive">
+            {plan.error.message}
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground">正在检查…</p>
+        )
+      ) : (
+        <PlanNotice plan={p} />
       )}
       {resuming.isError && (
         <p role="alert" className="text-sm text-destructive">
@@ -146,26 +248,34 @@ function ResumeForm({
         <Button variant="outline" onClick={onClose}>
           取消
         </Button>
-        <Button
-          disabled={
-            !defaults.data.cwdExists ||
-            defaults.data.running ||
-            resuming.isPending ||
-            (chosen !== LOCAL && chosenModel === null)
-          }
-          onClick={() => {
-            // 本机配置不传 --model 与 --effort
-            resuming.mutate({
-              sessionId,
-              variantId: chosen === LOCAL ? null : chosen,
-              driver,
-              ...(chosen === LOCAL || chosenModel === null ? {} : chosenModel),
-            });
-          }}
-        >
-          <RotateCcw />
-          {resuming.isPending ? '正在启动…' : 'resume'}
-        </Button>
+        {p?.action === 'diverged' ? (
+          <Button
+            data-testid="resume-use-latest"
+            disabled={resuming.isPending || (variantId !== null && chosenModel === null)}
+            onClick={() => {
+              submit('use-latest');
+            }}
+          >
+            <RotateCcw />
+            {resuming.isPending ? '正在启动…' : '以最新的为准继续'}
+          </Button>
+        ) : (
+          <Button
+            data-testid="resume-confirm"
+            disabled={
+              p === undefined ||
+              p.action === 'blocked' ||
+              resuming.isPending ||
+              (variantId !== null && chosenModel === null)
+            }
+            onClick={() => {
+              submit();
+            }}
+          >
+            <RotateCcw />
+            {resuming.isPending ? '正在启动…' : 'resume'}
+          </Button>
+        )}
       </div>
     </div>
   );

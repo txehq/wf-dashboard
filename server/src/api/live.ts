@@ -16,6 +16,7 @@ import {
   LiveSummary,
   RenameLiveBody,
   ResumeDefaults,
+  ResumePlan,
   ResumeLiveBody,
 } from '../live/views.js';
 
@@ -127,6 +128,22 @@ export const liveRoutes: FastifyPluginCallbackZod<{ live: Live }> = (app, { live
       },
     },
     (request) => live.resumeDefaults(request.query.sessionId),
+  );
+
+  // resume 的预检（Contracts 14.5）：variantId 为空字符串时为"本机配置"
+  app.get(
+    '/api/live/resume-plan',
+    {
+      schema: {
+        querystring: z.object({ sessionId: z.string().min(1), variantId: z.string().default('') }),
+        response: { 200: ResumePlan },
+      },
+    },
+    (request) =>
+      live.resumePlan(
+        request.query.sessionId,
+        request.query.variantId === '' ? null : request.query.variantId,
+      ),
   );
 
   // hook 命令 POST 的 stdin JSON

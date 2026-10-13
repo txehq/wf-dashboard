@@ -16,6 +16,8 @@ export const gatewayTests = [
   'test/tasks/criteria-draft.test.ts',
   'test/grading/ic-criteria-judge.test.ts',
   'test/live/live.test.ts',
+  // resume 前同步 variant 中较早的一份（Contracts 14.5）
+  'test/live/live-resume-sync.test.ts',
   'test/live/live-trust.test.ts',
   'test/live/live-simulated.test.ts',
   // 自有管理器构建的 variant 在 Live 中启动真实的 claude（Contracts 18.6）

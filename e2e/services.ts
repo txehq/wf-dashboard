@@ -8,8 +8,12 @@ import {
   compareServerPort,
   compareWebPort,
   environmentServerPort,
+  liveFullscreenServerPort,
+  liveFullscreenWebPort,
   liveItemsServerPort,
   liveItemsWebPort,
+  resumeDialogServerPort,
+  resumeDialogWebPort,
   runsServerPort,
   runsWebPort,
   serverPort,
@@ -38,6 +42,13 @@ const analysesProjectsDir = path.join(root, '.work/e2e/analyses/projects');
 // 交互项 e2e 的数据目录与来源目录：每次删除重建
 export const liveItemsDir = path.join(root, '.work/e2e/live-items');
 export const liveItemsProjectsDir = path.join(liveItemsDir, 'projects');
+// Live 全屏 e2e 的数据目录、来源目录与"本机配置"的 HOME：每次删除重建
+export const liveFullscreenDir = path.join(root, '.work/e2e/live-fullscreen');
+export const liveFullscreenProjectsDir = path.join(liveFullscreenDir, 'projects');
+// resume 对话框 e2e 的数据目录、来源目录与"本机配置"的 HOME：每次删除重建，不碰真实的 ~/.claude
+export const resumeDialogDir = path.join(root, '.work/e2e/resume-dialog');
+export const resumeDialogProjectsDir = path.join(resumeDialogDir, 'projects');
+export const resumeDialogHome = path.join(resumeDialogDir, 'home');
 // Codex 草稿（Contracts 第 17 节）：skill 的来源是 prepare-codex-skills-e2e 建的本地 git 仓库，Codex 换成测试中的
 // 替身命令（只验证页面与 API）
 const codexSkillsDir = path.join(root, '.work/e2e/codex-skills');
@@ -146,6 +157,47 @@ export const services = {
     url: `http://127.0.0.1:${String(liveItemsWebPort)}`,
     reuseExistingServer: false,
     env: { WFD_PORT: String(liveItemsServerPort), WFD_WEB_PORT: String(liveItemsWebPort) },
+  },
+  liveFullscreenServer: {
+    // 数据目录、来源目录与"本机配置"的 HOME 每次删除重建；Claude Code 换成回显按键与终端尺寸的替身
+    command: `rm -rf ${liveFullscreenDir} && mkdir -p ${liveFullscreenProjectsDir} && pnpm --filter @wf-dashboard/server exec tsx src/main.ts`,
+    url: `http://127.0.0.1:${String(liveFullscreenServerPort)}/api/health`,
+    reuseExistingServer: false,
+    timeout: 120_000,
+    env: {
+      WFD_DATA_DIR: path.join(liveFullscreenDir, 'data'),
+      WFD_CLAUDE_PROJECTS: liveFullscreenProjectsDir,
+      WFD_PORT: String(liveFullscreenServerPort),
+      WFD_CLAUDE_BIN: path.join(root, 'server/test/fixtures/live/claude-stand-in.mjs'),
+      WFD_LOCAL_HOME: path.join(liveFullscreenDir, 'home'),
+    },
+  },
+  liveFullscreenWeb: {
+    command: 'pnpm --filter @wf-dashboard/web dev',
+    url: `http://127.0.0.1:${String(liveFullscreenWebPort)}`,
+    reuseExistingServer: false,
+    env: {
+      WFD_PORT: String(liveFullscreenServerPort),
+      WFD_WEB_PORT: String(liveFullscreenWebPort),
+    },
+  },
+  resumeDialogServer: {
+    command: `rm -rf ${resumeDialogDir} && mkdir -p ${resumeDialogProjectsDir} ${resumeDialogHome} && pnpm --filter @wf-dashboard/server exec tsx src/main.ts`,
+    url: `http://127.0.0.1:${String(resumeDialogServerPort)}/api/health`,
+    reuseExistingServer: false,
+    timeout: 120_000,
+    env: {
+      WFD_DATA_DIR: path.join(resumeDialogDir, 'data'),
+      WFD_CLAUDE_PROJECTS: resumeDialogProjectsDir,
+      WFD_PORT: String(resumeDialogServerPort),
+      WFD_LOCAL_HOME: resumeDialogHome,
+    },
+  },
+  resumeDialogWeb: {
+    command: 'pnpm --filter @wf-dashboard/web dev',
+    url: `http://127.0.0.1:${String(resumeDialogWebPort)}`,
+    reuseExistingServer: false,
+    env: { WFD_PORT: String(resumeDialogServerPort), WFD_WEB_PORT: String(resumeDialogWebPort) },
   },
   analysisWorkflowServer: {
     command: `pnpm --filter @wf-dashboard/server prepare:analysis-workflow-e2e ${analysisWorkflowSkills} && pnpm --filter @wf-dashboard/server exec tsx src/main.ts`,

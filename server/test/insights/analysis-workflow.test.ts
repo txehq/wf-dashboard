@@ -46,6 +46,7 @@ const live = createLive({
   localHome: path.join(config.dataDir, 'home'),
   repos: testRepos(),
   codex: testCodex(),
+  claudeBin: config.claudeBin,
 });
 const work = path.join(config.repoRoot, '.work', 'test-analysis-workflow', randomUUID());
 const drafts = createDrafts({
