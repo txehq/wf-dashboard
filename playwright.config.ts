@@ -52,6 +52,7 @@ export default defineConfig({
         'tasks.spec.ts',
         'tasks-import.spec.ts',
         'variants.spec.ts',
+        'variant-workspace.spec.ts',
         'workflows.spec.ts',
         'codex-drafts.spec.ts',
         'compare-empty.spec.ts',

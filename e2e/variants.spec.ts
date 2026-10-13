@@ -44,7 +44,7 @@ test('variant 页面：任意 workflow 的 variant 编辑描述与 skill、派�
   await expect(page).toHaveURL(/\/variants\/[0-9a-f-]{36}$/);
   const first = page.url().split('/').at(-1) ?? '';
   await expect(page.getByTestId('breadcrumb')).toHaveText(`Workflows › 自有 ${marker} › 初稿`);
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText(`初稿 /${id}`);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('初稿');
   // variant 页面属于 Workflows：左侧导航高亮它，标签页标题取它
   const nav = page.getByRole('navigation', { name: '主导航' });
   await expect(nav.getByRole('link', { name: 'Workflows' })).toHaveAttribute(
@@ -84,9 +84,9 @@ test('variant 页面：任意 workflow 的 variant 编辑描述与 skill、派�
 
   // 构建：校验 frontmatter，复制进 variant 自己的配置目录，不用 wf
   const install = page.getByTestId('local-install');
-  await expect(install.getByTestId('local-install-status')).toHaveText('没有装在本机');
+  await expect(page.getByTestId('local-install-status')).toHaveText('没有装在本机');
   await expect(install.getByRole('button', { name: '安装到本机' })).toBeDisabled();
-  await panel.getByRole('button', { name: '构建并安装' }).click();
+  await panel.getByRole('button', { name: '构建', exact: true }).click();
   await expect(panel.getByTestId('build-status')).toHaveText('已构建', { timeout: 60_000 });
   const log = panel.getByTestId('build-log');
   await expect(log).toContainText(`[own] workflow ${id} 的 variant 由 dashboard 管理，没有运行 wf`);
@@ -100,10 +100,9 @@ test('variant 页面：任意 workflow 的 variant 编辑描述与 skill、派�
     fullPage: true,
     animations: 'disabled',
   });
-  await install.screenshot({ path: '.work/screenshots/w44-install.png', animations: 'disabled' });
 
   // 派生：跳到新 variant 的页面，与来源对比列出改过的文件
-  await panel.getByRole('button', { name: '另存为新 variant' }).click();
+  await panel.getByRole('button', { name: '派生新 variant' }).click();
   await expect(page.getByTestId('breadcrumb')).toHaveText(
     `Workflows › 自有 ${marker} › 第二版 ${marker}`,
   );

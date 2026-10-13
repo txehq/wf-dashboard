@@ -46,16 +46,16 @@ test('导入的 variant：只读标记、文件与对比；文件缺失时显示
 
   const panel = page.getByTestId('variant-panel');
   await expect(panel.getByTestId('build-status')).toHaveText(imported);
-  await expect(panel.getByRole('button', { name: '构建并安装' })).toHaveCount(0);
-  await expect(panel.getByRole('button', { name: '另存为新 variant' })).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: '构建', exact: true })).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: '派生新 variant' })).toHaveCount(0);
   await expect(panel.getByRole('button', { name: '派生为可运行的 variant' })).toBeEnabled();
   const tree = panel.getByRole('navigation', { name: 'skills 文件' });
   await expect(tree.getByRole('button', { name: 'lfg', exact: true })).toBeVisible();
   await expect(panel.getByTestId('skill-editor').locator('.view-lines')).toContainText('name: lfg');
-  await expect(panel.getByRole('button', { name: '保存' })).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: '保存', exact: true })).toHaveCount(0);
   await panel.getByRole('tab', { name: '对比' }).click();
   await expect(panel.getByText('skills 内容相同，没有差异。')).toBeVisible();
-  await panel.getByRole('tab', { name: '构建日志' }).click();
+  await panel.getByTestId('log-toggle').click();
   await expect(panel.getByText(`${imported}，没有构建日志。`)).toBeVisible();
   await page.screenshot({ path: `${shots}/w14b-imported.png`, animations: 'disabled' });
 
@@ -131,7 +131,7 @@ test('导入的 variant 派生为可运行的 variant：展开新 variant，可�
   const parent = panel.getByTestId('variant-parent');
   await expect(parent).toContainText(`派生自 ${source.name} (lfg)（导入的 variant）`);
   await expect(panel.getByTestId('build-status')).toHaveText('未构建');
-  await expect(panel.getByRole('button', { name: '构建并安装' })).toBeEnabled();
+  await expect(panel.getByRole('button', { name: '构建', exact: true })).toBeEnabled();
   await panel.getByRole('tab', { name: '对比' }).click();
   await panel.getByRole('button', { name: '与来源对比' }).click();
   await expect(panel.getByText('skills 内容相同，没有差异。')).toBeVisible();
