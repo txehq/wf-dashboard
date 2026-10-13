@@ -40,3 +40,7 @@ export const analysisWorkflowWebPort = webPort + 7000;
 // Live 全屏的 e2e：Claude Code 换成替身的一对服务，端口加 8000
 export const liveFullscreenServerPort = serverPort + 8000;
 export const liveFullscreenWebPort = webPort + 8000;
+
+// resume 对话框的 e2e："本机配置"的 HOME 在 .work/ 下的一对服务，端口加 9000
+export const resumeDialogServerPort = serverPort + 9000;
+export const resumeDialogWebPort = webPort + 9000;
