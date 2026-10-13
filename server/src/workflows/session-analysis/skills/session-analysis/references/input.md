@@ -11,7 +11,8 @@
   - `timestamp`、`durationMs`、`model`、`tokens`（`input` 未缓存的输入、`output`、`cacheRead`、`cacheCreation`，都是这一次请求的增量）、`costUsd`（这一次请求的花费）、`attributionSkill`（当时生效的 skill）。
   - `userMessagesBefore`：触发这条请求的用户消息与系统事件；`kind` 为 `user` 是用户（或评估 run 中的模拟用户）说的话，`notice` 是系统事件（例如上下文压缩、hook 输出），不是用户的话。
   - `skillLoads`：这条请求之前加载进上下文的 skill（名称与参数）。
-  - `thinking`、`text`：模型的思考与回复文字。
+  - `thinking`：模型思考的各个块，只有 `type`（`thinking` 或 `redacted_thinking`）与 `tokens`（这个块的估算 token 数：这次请求的 `tokens.output` 减去回复文字与 tool 调用输入的估算数，由这次请求的各个块均分），不含思考的文字；没有思考时为 null。
+  - `text`：模型的回复文字。
   - `toolCalls`：每个 tool 调用的 `name`、完整 `input`、完整 `result`（不截断）、`isError`、`subagentId`；结果溢出到文件时 `spilledOutput` 是文件的完整内容。
 - `input/sessions/<sessionId>/stages.json`：按 `workflow.yaml` 划分的阶段（每轮的各阶段、起止 seq、状态、请求数、token、花费、耗时）。
 - `input/sessions/<sessionId>/conversation.json`：用户与 agent 的对话（用户消息、每轮最后的回复、AskUserQuestion 的问题与回答）。

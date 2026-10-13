@@ -41,7 +41,7 @@ description: Session-analysis stage for repeated work — reads, searches, edits
 
    每个发现写出次数、第一次与最后一次的 seq。
 
-4. **重新推导。** 找回复与思考中再次得出前面已经得出的结论（同一个文件、同一个设计选择、同一条要运行的命令）；引用两处原文。
+4. **重新推导。** 找回复中再次得出前面已经得出的结论（同一个文件、同一个设计选择、同一条要运行的命令）；引用两处原文。
 5. **重复的子代理。** 多个子代理做同一件事（prompt 的目标相同）、或子代理重做了主 agent 已经做过的工作。
 6. 每条发现写出这些重复多花的 token 与花费（除第一次以外各次的请求之和，写算法）。
 7. 按 `findings.md` 写出 `output/findings-repeated-work.json` 并用 `jq .` 检查。

@@ -14,6 +14,7 @@ description: Session-analysis stage for token waste — where tokens and cost we
 1. **账目。** 用每行的 `tokens` 与 `costUsd`（都是该请求的增量）算出：
    - 每个 session 的总花费、总输入（`input + cacheRead + cacheCreation`）与总输出；
    - 按阶段（`stages.json`）、按子代理、按 `attributionSkill` 的花费与占比；
+   - 思考的 token：每行 `thinking` 各块 `tokens` 之和，按阶段的合计与占总输出的比例；
    - 花费最多的五个请求。
 
    这些数字写进相关发现的 detail；占总花费一成以上的部分必须出现在某条发现中。完成条件：`stages.json` 的每个阶段都有花费与占比。
