@@ -4,12 +4,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { parse, patch } from '@decimalturn/toml-patch';
 import { createTwoFilesPatch } from 'diff';
-import { and, count, desc, eq, isNotNull } from 'drizzle-orm';
+import { and, asc, count, desc, eq, isNotNull } from 'drizzle-orm';
 import { execa } from 'execa';
 import { z } from 'zod';
 import { config } from '../config.js';
 import type { Db } from '../db/index.js';
-import { sessions, variants } from '../db/schema.js';
+import { sessions, variantEvents, variants } from '../db/schema.js';
 import { events } from '../events.js';
 import { claudeSettingsEnv } from '../llm/client.js';
 import { loadWorkflow } from '../workflows/index.js';
@@ -18,7 +18,7 @@ import { BuildLog } from './build-log.js';
 import { writeCodexHome } from './codex-home.js';
 import { HttpError } from './errors.js';
 import { dataLayout, type VariantLayout } from './layout.js';
-import { createLocalInstalls } from './local-install.js';
+import { createLocalInstalls, type InstallManifest, type InstallView } from './local-install.js';
 import { claudeSandboxProfile, wfSandboxProfile } from './sandbox.js';
 import { REGISTRY_FILES, registerSkills } from './skill-registry.js';
 import {
@@ -199,6 +199,12 @@ export function createVariants({
     if (row === undefined) throw new HttpError(404, `variant 不存在：${id}`);
     return row;
   }
+
+  // 安装清单的显示：variant 的名字按 id 取当前的（Contracts 16.4）
+  const installView = (manifest: InstallManifest): InstallView => ({
+    ...manifest,
+    variantName: get(manifest.variantId).name,
+  });
 
   // variant 的目录：data/variants/<storage_id>，storage_id 为空时是自己的 id
   const storageOf = (row: Pick<Variant, 'id' | 'storageId'>) => row.storageId ?? row.id;
@@ -681,6 +687,44 @@ export function createVariants({
       return get(id);
     },
 
+    // 改名（Contracts 16.4）：任何 variant 都可以改，包括导入的、已冻结的与内置 workflow 的基线；
+    // 其他地方都按 id 取名字，改这一处即全局生效。历史中记旧名、新名与时间，页面经 variant.updated 刷新
+    rename(id: string, name: string): Variant {
+      const row = get(id);
+      const next = name.trim();
+      if (next === '') throw new HttpError(400, 'variant 的名字不能为空');
+      if (next.length > 100) {
+        throw new HttpError(400, `variant 的名字最多 100 字，现在是 ${String(next.length)} 字`);
+      }
+      if (next === row.name) return row;
+      assertNameFree(row.workflowId, next);
+      db.$client.transaction(() => {
+        db.update(variants).set({ name: next }).where(eq(variants.id, id)).run();
+        db.insert(variantEvents)
+          .values({
+            variantId: id,
+            at: new Date(),
+            kind: 'rename',
+            payload: { from: row.name, to: next },
+          })
+          .run();
+      })();
+      events.publish({ type: 'variant.updated', variantId: id });
+      return get(id);
+    },
+
+    // variant 的历史，按时间先后
+    history(id: string) {
+      get(id);
+      return db
+        .select()
+        .from(variantEvents)
+        .where(eq(variantEvents.variantId, id))
+        .orderBy(asc(variantEvents.id))
+        .all()
+        .map((e) => ({ at: e.at.getTime(), kind: e.kind, from: e.payload.from, to: e.payload.to }));
+    },
+
     // Codex 草稿的 src/ 取自底子 variant 的完整 src（Contracts 17.2）
     // 草稿的准备在后台进行：异步复制，lfg、ic 的完整导出较大，复制时服务端照常响应其他请求
     async exportSource(id: string, dest: string) {
@@ -750,6 +794,7 @@ export function createVariants({
     // 保存草稿时构建失败：删去这次建出、还没有被任何 run 或交互用过的 variant 与它的目录
     removeUnused(id: string) {
       const row = get(id);
+      db.delete(variantEvents).where(eq(variantEvents.variantId, id)).run();
       db.delete(variants).where(eq(variants.id, id)).run();
       fs.rmSync(dirsOf(row).dir, { recursive: true, force: true });
       onSkillsChanged();
@@ -1033,18 +1078,20 @@ export function createVariants({
           `variant ${row.name} 还没有按当前内容构建，构建通过后才能安装到本机`,
         );
       }
-      return installs.install(row, dirsOf(row).skills);
+      const { manifest, replaced } = installs.install(row, dirsOf(row).skills);
+      return { manifest: installView(manifest), replaced: replaced.map(installView) };
     },
 
     uninstallLocal(id: string) {
       get(id);
-      return installs.uninstall(id);
+      return installView(installs.uninstall(id));
     },
 
     // 装在本机时为安装清单，没有装时为 null
     localInstall(id: string) {
       get(id);
-      return installs.status(id);
+      const manifest = installs.status(id);
+      return manifest === null ? null : installView(manifest);
     },
 
     // 交互的进程在 cwd 中启动或 resume 前调用（Contracts 14.2）：variant 的配置目录由 dashboard 所有

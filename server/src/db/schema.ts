@@ -392,6 +392,22 @@ export const liveEvents = sqliteTable(
   (t) => [index('live_events_live_idx').on(t.liveId, t.id)],
 );
 
+// variant 的历史（Contracts 16.4）：改名时记一条，payload 为 { from, to }
+export const variantEventKinds = ['rename'] as const;
+export const variantEvents = sqliteTable(
+  'variant_events',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    variantId: text('variant_id')
+      .notNull()
+      .references(() => variants.id),
+    at: integer('at', { mode: 'timestamp_ms' }).notNull(),
+    kind: text('kind', { enum: variantEventKinds }).notNull(),
+    payload: text('payload', { mode: 'json' }).$type<{ from: string; to: string }>().notNull(),
+  },
+  (t) => [index('variant_events_variant_idx').on(t.variantId, t.id)],
+);
+
 // optimize：分析报告交给 Codex 优化（Contracts 19.3），目录是分析目录，保存时按 optimize/workflow.yaml 是否改动
 // 决定保存为原 workflow 的新 variant 还是新 workflow
 export const draftModes = ['workflow', 'variant', 'optimize'] as const;

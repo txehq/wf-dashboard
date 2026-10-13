@@ -19,6 +19,8 @@ export type AppEvent =
       status: 'building' | 'built' | 'failed';
       step: string | null;
     }
+  // variant 改了名字（Contracts 16.4）；各处都按 id 取名字，页面重新读取
+  | { type: 'variant.updated'; variantId: string }
   | { type: 'run.status'; runId: string; status: RunStatus }
   | { type: 'run.message'; runId: string; message: RunMessageView }
   | { type: 'run.pending'; runId: string; pending: Pending | null }

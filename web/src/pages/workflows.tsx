@@ -7,6 +7,7 @@ import { CodexDraftForm } from '@/components/codex-draft';
 import { PageShell } from '@/components/page-shell';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { VariantName } from '@/components/variant-name';
 import { StageFlow } from '@/components/workflow-flow';
 import { formatDateTime } from '@/lib/format';
 import {
@@ -139,9 +140,17 @@ export function VariantRows({ variants }: { variants: (Variant & { boundSessions
         {variants.map((v) => (
           <tr key={v.id} className="border-b last:border-b-0" data-testid={`variant-row-${v.name}`}>
             <td className="py-1.5">
-              <Link className="font-medium underline-offset-4 hover:underline" to={variantHref(v)}>
-                {v.name}
-              </Link>
+              <VariantName
+                variant={v}
+                link={(name) => (
+                  <Link
+                    className="font-medium underline-offset-4 hover:underline"
+                    to={variantHref(v)}
+                  >
+                    {name}
+                  </Link>
+                )}
+              />
             </td>
             <td className="max-w-md truncate text-muted-foreground" title={v.description ?? ''}>
               {v.description ?? ''}

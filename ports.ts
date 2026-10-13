@@ -44,3 +44,7 @@ export const liveFullscreenWebPort = webPort + 8000;
 // resume 对话框的 e2e："本机配置"的 HOME 在 .work/ 下的一对服务，端口加 9000
 export const resumeDialogServerPort = serverPort + 9000;
 export const resumeDialogWebPort = webPort + 9000;
+
+// variant 改名的 e2e（Contracts 16.4）：交互项用替身命令，另起一对服务，端口加 10000
+export const variantRenameServerPort = serverPort + 10000;
+export const variantRenameWebPort = webPort + 10000;
