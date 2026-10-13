@@ -50,6 +50,7 @@ beforeAll(async () => {
     localHome: path.join(config.dataDir, 'home'),
     repos: testRepos(),
     codex: testCodex(),
+    claudeBin: config.claudeBin,
   });
   await app.register(liveRoutes, { live });
 });

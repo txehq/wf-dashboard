@@ -47,6 +47,7 @@ const live = createLive({
   localHome: path.join(work, 'home'),
   repos: testRepos(),
   codex: testCodex(),
+  claudeBin: config.claudeBin,
 });
 await app.register(liveRoutes, { live });
 app.addHook('onClose', async () => {

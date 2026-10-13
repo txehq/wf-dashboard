@@ -70,6 +70,7 @@ test('服务重启：running 的进程变为 exited，error 为"服务重启中�
     localHome: path.join(config.dataDir, 'home'),
     repos: testRepos(),
     codex: testCodex(),
+    claudeBin: config.claudeBin,
   });
   unsubscribe();
   const byId = (id: number) =>

@@ -72,6 +72,10 @@ export const config = {
   workflowDraftsDir: path.join(dataDir, 'workflow-drafts'),
   // Live 中 Codex 会话运行的命令；e2e 用 WFD_CODEX_BIN 换成测试中的替身命令，只验证页面与 API
   codexBin: process.env.WFD_CODEX_BIN ?? 'codex',
+  // Live 中 Claude Code 会话运行的命令；基础档的 e2e 用 WFD_CLAUDE_BIN 换成回显按键与终端尺寸的替身，只验证页面与终端
+  claudeBin: process.env.WFD_CLAUDE_BIN ?? 'claude',
+  // Live"本机配置"的 HOME（claude 读 <HOME>/.claude）；e2e 用 WFD_LOCAL_HOME 指向 .work/ 下的目录
+  localHome: path.resolve(process.env.WFD_LOCAL_HOME ?? os.homedir()),
   // 草稿发起时装进 <草稿目录>/.agents/skills/ 的 skill 与来源（Contracts 17.3）；测试用 WFD_CODEX_SKILL_SOURCES
   // （JSON 数组）换成 .work/ 下的本地 git 仓库
   codexSkillSources: CodexSkillSources.parse(

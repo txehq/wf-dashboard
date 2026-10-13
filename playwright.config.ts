@@ -4,6 +4,7 @@ import { type Service, webServersFor } from './e2e/services.js';
 import {
   analysisWorkflowWebPort,
   compareWebPort,
+  liveFullscreenWebPort,
   liveItemsWebPort,
   runsWebPort,
   webPort,
@@ -27,6 +28,7 @@ const projectServices: Record<string, Service[]> = {
   compare: ['compareServer', 'compareWeb'],
   runs: ['runsServer', 'runsWeb'],
   'live-items': ['liveItemsServer', 'liveItemsWeb'],
+  'live-fullscreen': ['liveFullscreenServer', 'liveFullscreenWeb'],
   'analysis-workflow': ['analysisWorkflowServer', 'analysisWorkflowWeb'],
 };
 
@@ -93,6 +95,16 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         baseURL: `http://127.0.0.1:${String(liveItemsWebPort)}`,
+        viewport: { width: 1600, height: 1000 },
+      },
+    },
+    {
+      // Live 的全屏（Contracts 20.3）：Claude Code 换成回显按键与终端尺寸的替身，不调用 claude
+      name: 'live-fullscreen',
+      testMatch: 'live-fullscreen.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: `http://127.0.0.1:${String(liveFullscreenWebPort)}`,
         viewport: { width: 1600, height: 1000 },
       },
     },

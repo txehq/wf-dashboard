@@ -36,3 +36,7 @@ export const liveItemsWebPort = webPort + 6000;
 // 分析由 workflow 驱动与交给 Codex 优化的基础档 e2e：专用数据目录，另起一对服务，端口加 7000
 export const analysisWorkflowServerPort = serverPort + 7000;
 export const analysisWorkflowWebPort = webPort + 7000;
+
+// Live 全屏的 e2e：Claude Code 换成替身的一对服务，端口加 8000
+export const liveFullscreenServerPort = serverPort + 8000;
+export const liveFullscreenWebPort = webPort + 8000;

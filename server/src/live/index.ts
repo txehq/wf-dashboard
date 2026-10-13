@@ -75,6 +75,8 @@ export interface LiveDeps {
   repos: RunRepos;
   // Codex 会话（Contracts 17.3）：运行的命令、认证与模型配置的来源、等待会话记录出现的时限
   codex: { bin: string; sources: CodexSources; sessionTimeoutMs: number };
+  // Claude Code 会话运行的命令（config.claudeBin）
+  claudeBin: string;
 }
 
 export const LIVE_ID = /^l-\d{8}-[a-z0-9]{6}$/;
@@ -226,6 +228,8 @@ export function createLive(deps: LiveDeps) {
       exitCode: p.exitCode,
       error: p.error,
       driver: p.driver,
+      model: p.model,
+      effort: p.effort,
       startedAt: p.startedAt.getTime(),
       endedAt: p.endedAt === null ? null : p.endedAt.getTime(),
     };
@@ -421,8 +425,8 @@ export function createLive(deps: LiveDeps) {
     );
     const startedAt = new Date();
     const pty = new LivePty({
-      file: sandboxProfile === null ? 'claude' : 'sandbox-exec',
-      args: sandboxProfile === null ? args : ['-p', sandboxProfile, 'claude', ...args],
+      file: sandboxProfile === null ? deps.claudeBin : 'sandbox-exec',
+      args: sandboxProfile === null ? args : ['-p', sandboxProfile, deps.claudeBin, ...args],
       cwd: spec.cwd,
       env,
       cols: 120,
