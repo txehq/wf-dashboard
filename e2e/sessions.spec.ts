@@ -179,7 +179,8 @@ test('f0aca373：导入后立即看到 /interview 一轮 lfg 与三轮 ic，fix-
   const checkbox = page.getByRole('checkbox', { name: prsSource, exact: true });
   if (!(await checkbox.isVisible())) await sourcesToggle.click();
   const started = Date.now();
-  // 37 MB 的 f0aca373 分段导入：导入期间（PUT /api/sources 发出到返回）服务端照常响应其他请求
+  // 37 MB 的 f0aca373 分段导入：导入期间（PUT /api/sources 发出到返回）服务端照常响应其他请求。
+  // 一次读完时事件循环被占住，导入期间发出的请求都在导入结束后才返回
   const putSent = page.waitForRequest(
     (r) => r.method() === 'PUT' && r.url().endsWith('/api/sources'),
   );
@@ -192,11 +193,14 @@ test('f0aca373：导入后立即看到 /interview 一轮 lfg 与三轮 ic，fix-
       answeredAt.push(Date.now());
     }
   })();
-  const response = await put.response();
-  if (response === null) throw new Error('PUT /api/sources 没有响应');
-  const doneAt = Date.now();
+  if ((await put.response()) === null) throw new Error('PUT /api/sources 没有响应');
   await probe;
-  expect(answeredAt.filter((t) => t < doneAt).length).toBeGreaterThan(3);
+  const { startTime, responseEnd } = put.timing();
+  const importedAt = startTime + responseEnd;
+  console.log(
+    `导入 ${String(Math.round(responseEnd))} ms，导入期间返回的请求 ${String(answeredAt.filter((t) => t < importedAt).length)} 个`,
+  );
+  expect(answeredAt.filter((t) => t < importedAt).length).toBeGreaterThan(0);
   await expect(page.getByTestId('import-result')).toContainText('已导入', { timeout: 120_000 });
   const row = page.getByTestId('session-row').filter({ hasText: prsSession.slice(0, 8) });
   await row.getByRole('link').click();

@@ -120,8 +120,8 @@ export interface ImportSummary {
   durationMs: number;
 }
 
-// 导入时每段读的字节数：37 MB 的 session 分成约十段，每段之间让出事件循环，导入大的 session 时页面、Live 与其他请求照常响应
-const IMPORT_CHUNK_BYTES = 4 * 1024 * 1024;
+// 导入时每段读的字节数：37 MB 的 session 分成约二十段，每段之间让出事件循环，导入大的 session 时页面、Live 与其他请求照常响应
+const IMPORT_CHUNK_BYTES = 2 * 1024 * 1024;
 
 // 对全部勾选目录中的每个 session 做增量导入
 export async function importCheckedSources(db: Db): Promise<ImportSummary> {

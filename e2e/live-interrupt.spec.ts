@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { type APIRequestContext, expect, type Page, test } from '@playwright/test';
+import { type APIRequestContext, expect, type Page, test } from './test.js';
 import { z } from 'zod';
 import type { LiveDetail, LiveSummary } from '../server/src/live/views.js';
 import { runsServerPort } from '../ports.js';
