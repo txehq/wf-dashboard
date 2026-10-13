@@ -875,7 +875,12 @@ export const analyses = sqliteTable('analyses', {
   endedAt: integer('ended_at', { mode: 'timestamp_ms' }),
 });
 
-export const analysisOutcomes = ['achieved', 'partially_achieved', 'not_achieved', 'unclear'] as const;
+export const analysisOutcomes = [
+  'achieved',
+  'partially_achieved',
+  'not_achieved',
+  'unclear',
+] as const;
 
 // output/report.json（Contracts 19.2）：patches.json 中的修改都属于"改 variant"，workflowChanges 是"需要新建 workflow"的建议
 export interface AnalysisReport {

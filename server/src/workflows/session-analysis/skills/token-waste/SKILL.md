@@ -15,7 +15,9 @@ description: Session-analysis stage for token waste — where tokens and cost we
    - 每个 session 的总花费、总输入（`input + cacheRead + cacheCreation`）与总输出；
    - 按阶段（`stages.json`）、按子代理、按 `attributionSkill` 的花费与占比；
    - 花费最多的五个请求。
+
    这些数字写进相关发现的 detail；占总花费一成以上的部分必须出现在某条发现中。完成条件：`stages.json` 的每个阶段都有花费与占比。
+
 2. **过大的结果。** 量出每个 tool 结果的大小（`result` 与 `spilledOutput` 的字符数，约 4 个字符一个 token），列出最大的十个。单个结果超过约 25,000 token，或读了整个大文件却只用到其中一小段（之后的回复与调用只涉及其中几行），各是一条发现。
 3. **用不到的上下文。** 大结果（超过约 5,000 token）之后，回复与调用再也没有引用其中的内容。
 4. **snowball。** 每次请求的总输入随 seq 的变化：找出持续增长、没有压缩或子代理分担的区段，写出起止 seq 与增长量。

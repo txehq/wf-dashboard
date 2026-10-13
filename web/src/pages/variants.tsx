@@ -159,7 +159,7 @@ export function VariantPage() {
           await client.invalidateQueries({ queryKey: ['variants'] });
         }}
       />
-      {!workflow.builtin && <LocalInstall variant={v} />}
+      {!workflow.wf && <LocalInstall variant={v} />}
       <VariantPanel key={v.id} id={v.id} />
     </div>
   );

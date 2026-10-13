@@ -1,0 +1,136 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { bindLiveSession } from '../src/bindings/index.js';
+import { config } from '../src/config.js';
+import { openDatabase } from '../src/db/index.js';
+import { analyses, analysisFindings } from '../src/db/schema.js';
+import { ingestFile } from '../src/ingest/ingest.js';
+import { ensureAnalysisBaseline } from '../src/insights/baseline.js';
+import { analysisLayout, newAnalysisId } from '../src/insights/index.js';
+import { createVariants } from '../src/variants/index.js';
+import { createWorkflows, loadWorkflow } from '../src/workflows/index.js';
+import { makeSkillSources } from '../test/helpers/codex-skills.js';
+
+// 用法：WFD_DATA_DIR=.work/e2e/analysis-workflow/data tsx scripts/prepare-analysis-workflow-e2e.ts <skill 来源目录>
+// 分析由 workflow 驱动的基础档 e2e（Contracts 19.2、19.3）：每次删除重建。导入一轮的短 session cfa31f10，绑定到
+// 从空白新建的 workflow 的初稿；建出 session-analysis 的基线与一个派生的分析方法；写入一次成功的分析（测试数据：
+// 各阶段的状态与花费、每个方面一条发现、报告），供报告页与"交给 Codex 优化"使用。不调用任何模型
+
+if (config.dataDir === path.join(config.repoRoot, 'data')) {
+  throw new Error('WFD_DATA_DIR 未设置：e2e 数据目录不能是 data/');
+}
+const skillSourcesDir = process.argv[2];
+if (skillSourcesDir === undefined) throw new Error('缺少参数：skill 来源目录');
+fs.rmSync(config.dataDir, { recursive: true, force: true });
+fs.mkdirSync(config.dataDir, { recursive: true });
+makeSkillSources(path.resolve(skillSourcesDir));
+
+const db = openDatabase(config.dbPath, config.migrationsDir);
+const variants = createVariants({
+  db,
+  dataDir: config.dataDir,
+  repo: config.txeWorkflowRepo,
+  ctxBin: config.ctxBin,
+});
+
+const SESSION = 'cfa31f10-e280-4908-bcf7-cbe9b00fbe53';
+const sessionFile = path.join(config.dataDir, 'sessions', `${SESSION}.jsonl`);
+fs.mkdirSync(path.dirname(sessionFile), { recursive: true });
+fs.copyFileSync(
+  path.join(config.repoRoot, 'server/test/fixtures/live', `${SESSION}.jsonl`),
+  sessionFile,
+);
+ingestFile(db, sessionFile);
+
+const flowId = 'secret-keeper';
+createWorkflows({ db, variants }).create({
+  id: flowId,
+  name: '记住暗号',
+  description: '记住用户给的暗号并只回答"记住了"',
+  definition: { id: flowId, name: '记住暗号', stages: [{ id: 'remember' }] },
+});
+const analysed = variants.list().find((v) => v.workflowId === flowId);
+if (analysed === undefined) throw new Error(`workflow ${flowId} 没有建出初稿`);
+await variants.build(analysed.id);
+bindLiveSession(db, config.dataDir, SESSION, analysed.id);
+
+const baseline = await ensureAnalysisBaseline(db, variants);
+const method = variants.derive(baseline.id, { name: '只看失败' });
+variants.writeFile(
+  method.id,
+  'skills/failures/SKILL.md',
+  `${variants.readFile(method.id, 'skills/failures/SKILL.md')}\n只报告最终没有恢复的失败。\n`,
+);
+await variants.build(method.id);
+
+const stages = loadWorkflow(db, 'session-analysis').stages.map((s) => s.id);
+const aspects = stages.slice(0, -1);
+const id = newAnalysisId();
+const started = Date.parse('2026-10-13T08:00:00Z');
+db.insert(analyses)
+  .values({
+    id,
+    engine: 'claude',
+    model: 'claude-opus-5-5',
+    variantId: analysed.id,
+    analysisVariantId: baseline.id,
+    sessionIds: [SESSION],
+    status: 'succeeded',
+    steps: stages.map((key, i) => ({
+      key,
+      status: 'succeeded' as const,
+      startedAt: started,
+      endedAt: started + 12_000 + i * 1_000,
+      tokens: { input: 20, output: 900, cacheRead: 40_000, cacheWrite: 9_000, reasoning: 0 },
+      costUsd: 0.1,
+      events: 30,
+      error: null,
+    })),
+    costUsd: 0.1 * stages.length,
+    report: {
+      summary:
+        '这个 session 只有一轮：用户让 agent 记住暗号并只回答"记住了"，agent 照做了。入口 skill 没有被调用，阶段 remember 没有进入。',
+      goal: '记住暗号"青蛙-47"，并且只回答"记住了"',
+      outcome: 'achieved',
+      topIssues: [
+        {
+          title: '没有进入阶段 remember',
+          findingIds: ['process-adherence-1'],
+          impact: '阶段划分为空，看不出 skill 是否起作用',
+        },
+      ],
+      workflowChanges: [
+        {
+          findingIds: ['process-adherence-1'],
+          rationale: '一轮对话不需要单独的阶段',
+          change: '去掉小阶段 remember，只保留入口',
+        },
+      ],
+    },
+    endedAt: new Date(started + 30_000),
+  })
+  .run();
+for (const aspect of aspects) {
+  db.insert(analysisFindings)
+    .values({
+      analysisId: id,
+      findingId: `${aspect}-1`,
+      aspect,
+      title: `${aspect} 的一条发现`,
+      stage: aspect === 'process-adherence' ? 'remember' : null,
+      skill: aspect === 'process-adherence' ? flowId : null,
+      severity: aspect === 'process-adherence' ? 'high' : 'low',
+      detail: '测试数据。',
+      evidence: [{ sessionId: SESSION, seq: 1, quote: '记住了' }],
+    })
+    .run();
+}
+// 成功的分析在分析目录中留下修改建议的结果（这里没有修改建议）与引擎的输出
+const dirs = analysisLayout(config.dataDir, id);
+fs.mkdirSync(dirs.output, { recursive: true });
+fs.writeFileSync(dirs.proposals, '[]\n');
+fs.writeFileSync(path.join(dirs.output, 'patches.json'), '[]\n');
+console.log(
+  JSON.stringify({ analysis: id, analysed: analysed.id, baseline: baseline.id, method: method.id }),
+);
+db.$client.close();

@@ -79,9 +79,7 @@ export function codexDefaultModel(configPath: string = config.codexConfigPath): 
 
 // 引擎进程的提示：调用入口 skill，参数为阶段名（Contracts 19.2）。Claude Code 用 slash 命令，Codex 用 $skill 提及
 export function stagePrompt(engine: AnalysisEngine, stage: string): string {
-  return engine === 'claude'
-    ? `/${ANALYSIS_WORKFLOW} ${stage}`
-    : `$${ANALYSIS_WORKFLOW} ${stage}`;
+  return engine === 'claude' ? `/${ANALYSIS_WORKFLOW} ${stage}` : `$${ANALYSIS_WORKFLOW} ${stage}`;
 }
 
 const pendingStep = (key: string): AnalysisStep => ({
@@ -352,7 +350,9 @@ export function createInsights({
     const ids = loadWorkflow(db, ANALYSIS_WORKFLOW).stages.map((s) => s.id);
     const last = ids.at(-1);
     if (last !== SYNTHESIZE_STAGE) {
-      throw new Error(`workflow ${ANALYSIS_WORKFLOW} 的最后一个小阶段应为 ${SYNTHESIZE_STAGE}：${String(last)}`);
+      throw new Error(
+        `workflow ${ANALYSIS_WORKFLOW} 的最后一个小阶段应为 ${SYNTHESIZE_STAGE}：${String(last)}`,
+      );
     }
     return { aspects: ids.slice(0, -1), synthesize: last };
   }
@@ -376,7 +376,8 @@ export function createInsights({
   function planStages(
     row: Pick<Analysis, 'id' | 'engine' | 'model' | 'analysisVariantId' | 'steps'>,
   ): StagePlan[] {
-    if (row.analysisVariantId === null) throw new Error(`分析 ${row.id} 没有 session-analysis variant`);
+    if (row.analysisVariantId === null)
+      throw new Error(`分析 ${row.id} 没有 session-analysis variant`);
     const dirs = analysisLayout(dataDir, row.id);
     const variantId = checkedAnalysisVariant(row.analysisVariantId).id;
     let engineHome: string;
@@ -516,20 +517,15 @@ export function createInsights({
     publish(id);
 
     const findingIds = new Set(findings.map((f) => f.findingId));
-    const { proposal, report } = await step(
-      row,
-      planOf(plans, synthesize),
-      signal,
-      async () => ({
-        proposal: await validatePatches(
-          path.join(dirs.output, 'patches.json'),
-          path.join(dirs.input, 'skills'),
-          dirs.check,
-          findingIds,
-        ),
-        report: validateReport(path.join(dirs.output, 'report.json'), findingIds),
-      }),
-    );
+    const { proposal, report } = await step(row, planOf(plans, synthesize), signal, async () => ({
+      proposal: await validatePatches(
+        path.join(dirs.output, 'patches.json'),
+        path.join(dirs.input, 'skills'),
+        dirs.check,
+        findingIds,
+      ),
+      report: validateReport(path.join(dirs.output, 'report.json'), findingIds),
+    }));
     fs.writeFileSync(dirs.proposals, `${JSON.stringify(proposal.files)}\n`);
     db.transaction((tx) => {
       for (const p of proposal.patches) {
@@ -569,7 +565,14 @@ export function createInsights({
     analysisVariantId?: string | undefined;
   }): Pick<
     Analysis,
-    'id' | 'engine' | 'model' | 'variantId' | 'analysisVariantId' | 'sessionIds' | 'status' | 'steps'
+    | 'id'
+    | 'engine'
+    | 'model'
+    | 'variantId'
+    | 'analysisVariantId'
+    | 'sessionIds'
+    | 'status'
+    | 'steps'
   > {
     const s = scope(input);
     if (s.problem !== null || s.variant === null)

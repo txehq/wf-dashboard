@@ -24,6 +24,8 @@ export const gatewayTests = [
   'test/bindings-build.test.ts',
   // 唯一一次真实调用 Codex（Contracts 17.5）
   'test/drafts/drafts-codex.test.ts',
+  // 交给 Codex 优化的会话在分析目录中写一行（Contracts 19.3），一次 Codex 调用
+  'test/insights/optimize-codex.test.ts',
 ];
 
 // 同样属于真实档：读取真实 GitHub（只读）的测试。基础档不依赖网络，其中的 gh 一律报错

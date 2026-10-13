@@ -314,9 +314,7 @@ const InstructionsRecord = z.looseObject({
   timestamp: z.string(),
   attachment: z.looseObject({
     type: z.literal('instructions'),
-    files: z.array(
-      z.looseObject({ path: z.string(), type: z.string(), content: z.string() }),
-    ),
+    files: z.array(z.looseObject({ path: z.string(), type: z.string(), content: z.string() })),
   }),
 });
 
@@ -372,7 +370,11 @@ export async function writeInput(db: Db, input: ExportInput): Promise<Map<string
       `${JSON.stringify(
         sessionInstructions(m.filePath).map((r) => ({
           timestamp: r.timestamp,
-          files: r.attachment.files.map((f) => ({ path: f.path, type: f.type, content: f.content })),
+          files: r.attachment.files.map((f) => ({
+            path: f.path,
+            type: f.type,
+            content: f.content,
+          })),
         })),
         null,
         2,

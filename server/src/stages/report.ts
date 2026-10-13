@@ -215,8 +215,7 @@ export function sessionPartition(db: Db, sessionId: string): Partition {
           .from(variants)
           .where(eq(variants.id, variantId))
           .get()?.workflowId;
-  if (workflowId !== undefined && !isWfWorkflow(workflowId))
-    return [loadWorkflow(db, workflowId)];
+  if (workflowId !== undefined && !isWfWorkflow(workflowId)) return [loadWorkflow(db, workflowId)];
   return WF_WORKFLOWS.map((id) => loadWorkflow(db, id));
 }
 

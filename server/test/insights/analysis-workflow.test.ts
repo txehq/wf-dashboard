@@ -94,7 +94,10 @@ const STAGES = [
 const SESSION = 'cfa31f10-e280-4908-bcf7-cbe9b00fbe53';
 const sessionFile = path.join(work, 'sessions', `${SESSION}.jsonl`);
 fs.mkdirSync(path.dirname(sessionFile), { recursive: true });
-fs.copyFileSync(path.join(config.repoRoot, 'server/test/fixtures/live', `${SESSION}.jsonl`), sessionFile);
+fs.copyFileSync(
+  path.join(config.repoRoot, 'server/test/fixtures/live', `${SESSION}.jsonl`),
+  sessionFile,
+);
 ingestFile(db, sessionFile);
 
 // 被分析的 workflow：从空白新建（自有管理器），第一个 variant 构建后绑定 session
@@ -108,6 +111,7 @@ workflows.create({
 });
 const analysed = variants.list().find((v) => v.workflowId === flowId);
 if (analysed === undefined) throw new Error(`workflow ${flowId} 没有建出初稿`);
+const analysedId = analysed.id;
 createdVariants.push(analysed.id);
 await variants.build(analysed.id);
 bindLiveSession(db, dataDir, SESSION, analysed.id);
@@ -173,9 +177,9 @@ describe('session-analysis workflow（Contracts 19.2）', () => {
       expect(p.command.env.CLAUDE_CONFIG_DIR).toBe(home);
       expect(p.profile).toContain(home);
     }
-    expect(fs.readFileSync(path.join(claude[0]?.skillsDir ?? '', 'failures/SKILL.md'), 'utf8')).toContain(
-      changed,
-    );
+    expect(
+      fs.readFileSync(path.join(claude[0]?.skillsDir ?? '', 'failures/SKILL.md'), 'utf8'),
+    ).toContain(changed);
 
     const codex = insights.plan({
       sessionIds: [SESSION],
@@ -187,16 +191,16 @@ describe('session-analysis workflow（Contracts 19.2）', () => {
       STAGES.map((s) => [`$session-analysis ${s}`, ['codex', 'exec']]),
     );
     // Codex 从分析目录的 .agents/skills 加载这个 variant 的 skill
-    expect(fs.readFileSync(path.join(codex[0]?.skillsDir ?? '', 'failures/SKILL.md'), 'utf8')).toContain(
-      changed,
-    );
+    expect(
+      fs.readFileSync(path.join(codex[0]?.skillsDir ?? '', 'failures/SKILL.md'), 'utf8'),
+    ).toContain(changed);
     expect(codex[0]?.skillsDir).toMatch(/\/analyses\/a-\d{8}-[a-z0-9]{6}\/\.agents\/skills$/);
     createdAnalyses.push(path.basename(path.dirname(path.dirname(codex[0]?.skillsDir ?? ''))));
 
     // 默认用基线；不属于 session-analysis 的 variant 不能用来分析
-    expect(insights.plan({ sessionIds: [SESSION], engine: 'claude' })[0]?.command.env.CLAUDE_CONFIG_DIR).toBe(
-      variants.runtimeEnv(baseline.id).env.CLAUDE_CONFIG_DIR,
-    );
+    expect(
+      insights.plan({ sessionIds: [SESSION], engine: 'claude' })[0]?.command.env.CLAUDE_CONFIG_DIR,
+    ).toBe(variants.runtimeEnv(baseline.id).env.CLAUDE_CONFIG_DIR);
     expect(() =>
       insights.plan({ sessionIds: [SESSION], engine: 'claude', analysisVariantId: analysed.id }),
     ).toThrow(`分析只能用 session-analysis 的 variant`);
@@ -230,7 +234,7 @@ function succeededAnalysis(): string {
       id,
       engine: 'claude',
       model: 'claude-opus-5-5',
-      variantId: analysed.id,
+      variantId: analysedId,
       analysisVariantId: baseline.id,
       sessionIds: [SESSION],
       status: 'succeeded',
@@ -277,7 +281,13 @@ describe('交给 Codex 优化（Contracts 19.3）', { timeout: 120_000 }, () => 
     const analysisId = succeededAnalysis();
     const { draft, live: item } = await openOptimize(analysisId);
     const dir = analysisLayout(dataDir, analysisId).dir;
-    expect(draft).toMatchObject({ mode: 'optimize', workflowId: flowId, baseVariantId: analysed.id, analysisId, dir });
+    expect(draft).toMatchObject({
+      mode: 'optimize',
+      workflowId: flowId,
+      baseVariantId: analysed.id,
+      analysisId,
+      dir,
+    });
     expect(item.cwd).toBe(dir);
     // optimize/src 是被分析 variant 的 src，optimize/workflow.yaml 是它所属 workflow 的定义（可以改）
     expect(listSkillFiles(path.join(dir, 'optimize/src'))).toEqual(
@@ -294,9 +304,9 @@ describe('交给 Codex 优化（Contracts 19.3）', { timeout: 120_000 }, () => 
     expect(fs.readdirSync(path.join(dir, '.agents/skills')).sort()).toEqual(
       ['find-skills', 'optimize-from-report', 'skill-creator', 'writing-for-agents'].sort(),
     );
-    expect(fs.readFileSync(path.join(dir, '.agents/skills/optimize-from-report/SKILL.md'), 'utf8')).toBe(
-      variants.readFile(baseline.id, 'skills/optimize-from-report/SKILL.md'),
-    );
+    expect(
+      fs.readFileSync(path.join(dir, '.agents/skills/optimize-from-report/SKILL.md'), 'utf8'),
+    ).toBe(variants.readFile(baseline.id, 'skills/optimize-from-report/SKILL.md'));
     // 初始消息：报告的总结与发现的条数，指向 output/ 与 optimize/
     const prompt = live.get(item.id).input;
     expect(prompt).toContain('一轮对话就记住了暗号。');
@@ -383,7 +393,10 @@ describe('交给 Codex 优化（Contracts 19.3）', { timeout: 120_000 }, () => 
 
   test('分析没有成功完成时不能交给 Codex', () => {
     const analysisId = succeededAnalysis();
-    db.update(analyses).set({ status: 'failed', report: null }).where(eq(analyses.id, analysisId)).run();
+    db.update(analyses)
+      .set({ status: 'failed', report: null })
+      .where(eq(analyses.id, analysisId))
+      .run();
     expect(() => drafts.openOptimize(analysisId)).toThrow(
       `分析 ${analysisId} 还没有成功完成，没有报告可以交给 Codex`,
     );

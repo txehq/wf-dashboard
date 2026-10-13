@@ -32,3 +32,7 @@ export const analysesWebPort = webPort + 5000;
 // 交互项的关闭、删除与导入选择框的 e2e：专用数据目录与来源目录，另起一对服务，端口加 6000
 export const liveItemsServerPort = serverPort + 6000;
 export const liveItemsWebPort = webPort + 6000;
+
+// 分析由 workflow 驱动与交给 Codex 优化的基础档 e2e：专用数据目录，另起一对服务，端口加 7000
+export const analysisWorkflowServerPort = serverPort + 7000;
+export const analysisWorkflowWebPort = webPort + 7000;

@@ -1,18 +1,22 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { ArrowLeft } from 'lucide-react';
-import { Link, useParams } from 'react-router';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, Sparkles } from 'lucide-react';
+import { Link, useNavigate, useParams } from 'react-router';
 import { FindingsReport } from '@/components/analyses/findings-report';
 import { PatchReview } from '@/components/analyses/patch-review';
 import { Button } from '@/components/ui/button';
 import {
   type AnalysisDetail,
+  type AnalysisReport,
   type AnalysisStep,
   analysisQuery,
+  aspectKeys,
   cancelAnalysis,
   costText,
   engineLabel,
+  outcomeLabel,
+  stageName,
+  startOptimize,
   statusLabel,
-  stepLabel,
   tokenTotal,
   useAnalysisEvents,
 } from '@/lib/analyses-api';
@@ -49,7 +53,10 @@ function Steps({ analysis }: { analysis: AnalysisDetail }) {
               className="border-b align-top last:border-0"
               data-testid="analysis-step"
             >
-              <td className="py-2 pr-4 pl-3">{stepLabel[s.key]}</td>
+              <td className="py-2 pr-4 pl-3">
+                {stageName(s.key)}
+                <span className="ml-2 font-mono text-xs text-muted-foreground">{s.key}</span>
+              </td>
               <td className="py-2 pr-4">
                 {stepStatus[s.status]}
                 {s.error !== null && (
@@ -75,6 +82,111 @@ function Steps({ analysis }: { analysis: AnalysisDetail }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// 引用的发现：链接到页面中对应的卡片
+function FindingRefs({ ids }: { ids: string[] }) {
+  return (
+    <span className="flex flex-wrap gap-1">
+      {ids.map((id) => (
+        <a key={id} href={`#finding-${id}`} className="font-mono text-xs underline">
+          {id}
+        </a>
+      ))}
+    </span>
+  );
+}
+
+// synthesize 写出的报告（Contracts 19.2）：总结、目标与结果、每个方面的条数、影响最大的问题、需要新建 workflow 的建议
+function ReportSummary({ analysis, report }: { analysis: AnalysisDetail; report: AnalysisReport }) {
+  return (
+    <section
+      aria-label="报告"
+      className="flex flex-col gap-3 rounded-lg border px-4 py-3"
+      data-testid="analysis-report"
+    >
+      <h2 className="text-lg font-semibold">报告</h2>
+      <p className="text-sm whitespace-pre-wrap">{report.summary}</p>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+        <dt className="text-muted-foreground">目标</dt>
+        <dd>{report.goal}</dd>
+        <dt className="text-muted-foreground">结果</dt>
+        <dd data-testid="analysis-outcome">{outcomeLabel[report.outcome]}</dd>
+        <dt className="text-muted-foreground">发现</dt>
+        <dd className="flex flex-wrap gap-x-3">
+          {aspectKeys(analysis.steps).map((a) => (
+            <span key={a}>
+              {stageName(a)} {analysis.findings.filter((f) => f.aspect === a).length}
+            </span>
+          ))}
+        </dd>
+      </dl>
+      {report.topIssues.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <h3 className="text-sm font-medium">影响最大的问题</h3>
+          <ol className="flex list-decimal flex-col gap-1 pl-5 text-sm">
+            {report.topIssues.map((issue, i) => (
+              <li key={i}>
+                <span className="font-medium">{issue.title}</span>：{issue.impact}{' '}
+                <FindingRefs ids={issue.findingIds} />
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+      {report.workflowChanges.length > 0 && (
+        <div className="flex flex-col gap-1" data-testid="workflow-changes">
+          <h3 className="text-sm font-medium">需要新建 workflow 的修改（改入口或小阶段）</h3>
+          <ul className="flex flex-col gap-1 text-sm">
+            {report.workflowChanges.map((c, i) => (
+              <li key={i}>
+                {c.change}（{c.rationale}） <FindingRefs ids={c.findingIds} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// "交给 Codex 优化"（Contracts 19.3）：在 Live 中建 Codex 会话，工作目录为分析目录，跳到它
+function OptimizeButton({ analysis }: { analysis: AnalysisDetail }) {
+  const client = useQueryClient();
+  const navigate = useNavigate();
+  const start = useMutation({
+    mutationFn: () => startOptimize(analysis.id),
+    onSuccess: async ({ live }) => {
+      await client.invalidateQueries({ queryKey: ['live'] });
+      await navigate(`/live?item=${live.id}`);
+    },
+  });
+  const sessions = analysis.optimizeDrafts.filter((d) => d.liveId !== null);
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <Button
+        size="sm"
+        data-testid="analysis-optimize"
+        disabled={start.isPending}
+        onClick={() => {
+          start.mutate();
+        }}
+      >
+        <Sparkles />
+        {start.isPending ? '正在发起…' : '交给 Codex 优化'}
+      </Button>
+      {sessions.map((d) => (
+        <Link key={d.id} className="underline" to={`/live?item=${d.liveId ?? ''}`}>
+          Codex 优化 {d.id}
+        </Link>
+      ))}
+      {start.isError && (
+        <p role="alert" className="text-destructive">
+          {start.error.message}
+        </p>
+      )}
     </div>
   );
 }
@@ -109,6 +221,18 @@ function AnalysisView({ analysis }: { analysis: AnalysisDetail }) {
           <Link className="underline" to={`/variants/${analysis.variantId}`}>
             {analysis.variantName}
           </Link>{' '}
+          {analysis.analysisVariantId !== null && (
+            <>
+              · 分析方法{' '}
+              <Link
+                className="underline"
+                to={`/variants/${analysis.analysisVariantId}`}
+                data-testid="analysis-method"
+              >
+                {analysis.analysisVariantName}
+              </Link>{' '}
+            </>
+          )}
           · {formatDateTime(analysis.createdAt)} · {costText(analysis)}
         </p>
         <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
@@ -139,10 +263,14 @@ function AnalysisView({ analysis }: { analysis: AnalysisDetail }) {
           {analysis.error}
         </pre>
       )}
+      {analysis.report !== null && <ReportSummary analysis={analysis} report={analysis.report} />}
+      {analysis.status === 'succeeded' && analysis.report !== null && (
+        <OptimizeButton analysis={analysis} />
+      )}
       {analysis.findings.length > 0 && (
         <FindingsReport
           findings={analysis.findings}
-          aspects={['process', 'efficiency', 'interaction', 'quality']}
+          aspects={aspectKeys(analysis.steps)}
           sessionCount={analysis.sessions.length}
         />
       )}

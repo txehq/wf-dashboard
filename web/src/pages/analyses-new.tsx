@@ -21,7 +21,7 @@ function scopeFromParams(params: URLSearchParams): ScopeInput | null {
   return null;
 }
 
-// Contracts 15.2：新建分析——范围（session 或 batch）、引擎与模型
+// Contracts 15.2、19.2：新建分析——范围（session 或 batch）、分析用的 session-analysis variant、引擎与模型
 export function AnalysisNewPage() {
   const [params] = useSearchParams();
   const input = scopeFromParams(params);
@@ -30,8 +30,13 @@ export function AnalysisNewPage() {
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold">New analysis</h1>
         <p className="text-sm text-muted-foreground">
-          四个方面（流程遵守、效率与花费、和用户的交互、产物质量）各由一个引擎进程分析，每条发现都要有
-          session 中的原文作证据；最后综合出 skill 文件的修改建议。
+          分析由 workflow{' '}
+          <Link className="underline" to="/workflows/session-analysis">
+            session-analysis
+          </Link>{' '}
+          的一个 variant
+          驱动。它的每个小阶段是一个方面：流程、计划、失败、重复、token、时间、交互、产物、冲突，各由一个引擎进程按对应的
+          skill 分析，每条发现都要有 session 中的原文作证据；最后综合出报告与 skill 的修改建议。
         </p>
       </header>
       {input === null ? (
@@ -60,8 +65,11 @@ function AnalysisForm({ input }: { input: ScopeInput }) {
   const [engine, setEngine] = useState<AnalysisEngine>('claude');
   const [models, setModels] = useState<Partial<Record<AnalysisEngine, string>>>({});
   const model = models[engine] ?? options.data?.defaults[engine] ?? '';
+  const [chosenVariant, setChosenVariant] = useState('');
+  const analysisVariantId =
+    chosenVariant === '' ? (options.data?.defaults.analysisVariantId ?? '') : chosenVariant;
   const create = useMutation({
-    mutationFn: () => createAnalysis({ ...input, engine, model: model.trim() }),
+    mutationFn: () => createAnalysis({ ...input, engine, model: model.trim(), analysisVariantId }),
     onSuccess: (created) => {
       void navigate(`/analyses/${created.id}`);
     },
@@ -129,6 +137,29 @@ function AnalysisForm({ input }: { input: ScopeInput }) {
           </p>
         )}
       </section>
+      <label className="flex flex-col gap-1 text-sm font-medium">
+        分析方法（session-analysis 的 variant）
+        <select
+          aria-label="分析方法"
+          data-testid="analysis-variant"
+          className="h-9 w-96 rounded-md border bg-background px-2 text-sm font-normal"
+          value={analysisVariantId}
+          onChange={(e) => {
+            setChosenVariant(e.target.value);
+          }}
+        >
+          {analysisVariantId === '' && <option value="">没有构建通过的 variant</option>}
+          {(options.data?.analysisVariants ?? []).map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.name}
+              {v.id === options.data?.defaults.analysisVariantId ? '（默认）' : ''}
+            </option>
+          ))}
+        </select>
+        <span className="text-xs font-normal text-muted-foreground">
+          要改进分析方法，在 session-analysis 下派生 variant、修改 skill 并构建，这里就可以选它。
+        </span>
+      </label>
       <fieldset className="flex flex-col gap-2">
         <legend className="mb-1 text-sm font-medium">引擎</legend>
         {(['claude', 'codex'] as const).map((e) => (
@@ -163,7 +194,12 @@ function AnalysisForm({ input }: { input: ScopeInput }) {
       <div className="flex items-center gap-3">
         <Button
           type="submit"
-          disabled={s.problem !== null || model.trim() === '' || create.isPending}
+          disabled={
+            s.problem !== null ||
+            model.trim() === '' ||
+            analysisVariantId === '' ||
+            create.isPending
+          }
         >
           {create.isPending ? '正在开始…' : '开始分析'}
         </Button>

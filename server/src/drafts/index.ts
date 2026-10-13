@@ -98,14 +98,7 @@ const BLANK_STAGES = [{ id: 'stage-1' }];
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 // 用 Codex 生成 workflow 或 variant（Contracts 第 17 节）
-export function createDrafts({
-  db,
-  variants,
-  live,
-  draftsDir,
-  dataDir,
-  skillSources,
-}: DraftsDeps) {
+export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSources }: DraftsDeps) {
   // 正在保存的草稿：同一草稿同时只保存一次
   const saving = new Set<string>();
 
@@ -405,8 +398,7 @@ export function createDrafts({
       return { definition, newWorkflow: true, parentId: draft.baseVariantId };
     }
     // 再次保存：在已保存的新 workflow 下建新 variant，定义必须没有改动
-    const savedId = draft.savedWorkflowId ?? draft.workflowId;
-    const saved = loadWorkflow(db, savedId);
+    const saved = loadWorkflow(db, draft.savedWorkflowId);
     if (!isDeepStrictEqual(saved, definition)) {
       throw new HttpError(
         400,

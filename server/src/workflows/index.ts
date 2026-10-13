@@ -27,7 +27,10 @@ const builtinFile = (id: BuiltinWorkflow) =>
   path.join(config.repoRoot, `server/src/workflows/${id}.yaml`);
 
 // session-analysis 基线 variant 的 skill（Contracts 19.2）：src/ 的形状，skills/ 在其下
-export const analysisBaselineSrc = path.join(config.repoRoot, 'server/src/workflows/session-analysis');
+export const analysisBaselineSrc = path.join(
+  config.repoRoot,
+  'server/src/workflows/session-analysis',
+);
 
 type WorkflowRow = typeof workflowTable.$inferSelect;
 
@@ -67,8 +70,7 @@ export function syncBuiltinWorkflows(db: Db) {
     const evalKind = isWfWorkflow(id) ? id : null;
     const existing = db.select().from(workflowTable).where(eq(workflowTable.id, id)).get();
     if (
-      existing !== undefined &&
-      existing.evalKind === evalKind &&
+      existing?.evalKind === evalKind &&
       existing.description !== null &&
       JSON.stringify(existing.definition) === JSON.stringify(definition)
     )

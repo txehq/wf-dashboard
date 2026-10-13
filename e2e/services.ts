@@ -3,6 +3,8 @@ import type { PlaywrightTestConfig } from '@playwright/test';
 import {
   analysesServerPort,
   analysesWebPort,
+  analysisWorkflowServerPort,
+  analysisWorkflowWebPort,
   compareServerPort,
   compareWebPort,
   environmentServerPort,
@@ -48,6 +50,10 @@ const codexEnv = {
     })),
   ),
 };
+// 分析由 workflow 驱动（Contracts 19.2、19.3）：数据目录与 skill 来源每次由 prepare-analysis-workflow-e2e 删除重建；
+// skill 来源与 chromium 的分开，两个服务同时启动时不互相删除
+export const analysisWorkflowDir = path.join(root, '.work/e2e/analysis-workflow');
+const analysisWorkflowSkills = path.join(analysisWorkflowDir, 'codex-skills');
 
 // 各 project 用到的服务。chromium 的服务端与页面继承本进程的 WFD_PORT、WFD_WEB_PORT；
 // 其余几对服务读取各自的专用数据目录，端口见 ports.ts
@@ -140,6 +146,33 @@ export const services = {
     url: `http://127.0.0.1:${String(liveItemsWebPort)}`,
     reuseExistingServer: false,
     env: { WFD_PORT: String(liveItemsServerPort), WFD_WEB_PORT: String(liveItemsWebPort) },
+  },
+  analysisWorkflowServer: {
+    command: `pnpm --filter @wf-dashboard/server prepare:analysis-workflow-e2e ${analysisWorkflowSkills} && pnpm --filter @wf-dashboard/server exec tsx src/main.ts`,
+    url: `http://127.0.0.1:${String(analysisWorkflowServerPort)}/api/health`,
+    reuseExistingServer: false,
+    timeout: 120_000,
+    env: {
+      WFD_DATA_DIR: path.join(analysisWorkflowDir, 'data'),
+      WFD_CLAUDE_PROJECTS: path.join(analysisWorkflowDir, 'projects'),
+      WFD_PORT: String(analysisWorkflowServerPort),
+      WFD_CODEX_BIN: codexEnv.WFD_CODEX_BIN,
+      WFD_CODEX_SKILL_SOURCES: JSON.stringify(
+        ['find-skills', 'skill-creator', 'writing-for-agents'].map((name) => ({
+          name,
+          source: path.join(analysisWorkflowSkills, name),
+        })),
+      ),
+    },
+  },
+  analysisWorkflowWeb: {
+    command: 'pnpm --filter @wf-dashboard/web dev',
+    url: `http://127.0.0.1:${String(analysisWorkflowWebPort)}`,
+    reuseExistingServer: false,
+    env: {
+      WFD_PORT: String(analysisWorkflowServerPort),
+      WFD_WEB_PORT: String(analysisWorkflowWebPort),
+    },
   },
 } satisfies Record<string, WebServer>;
 

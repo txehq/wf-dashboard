@@ -214,7 +214,9 @@ export function CodexDraftBar({
     if (type === 'draft.updated') invalidateThrottled(client, ['drafts'], 300);
   });
   const d = draft.data;
-  const label = d?.mode === 'variant' ? '保存为 variant' : '保存为 workflow';
+  // optimize：按 optimize/workflow.yaml 是否改动保存为新 variant 或新 workflow（Contracts 19.3）
+  const label =
+    d?.mode === 'variant' ? '保存为 variant' : d?.mode === 'optimize' ? '保存' : '保存为 workflow';
   const savable = d?.status === 'open' || d?.status === 'saved';
   return (
     <div className="flex flex-col gap-2" data-testid="codex-draft-bar">
@@ -226,6 +228,11 @@ export function CodexDraftBar({
             <span>
               草稿 <span className="font-mono">{draftId}</span>
             </span>
+            {d?.analysisId != null && (
+              <Link className="underline" to={`/analyses/${d.analysisId}`}>
+                分析 {d.analysisId}
+              </Link>
+            )}
             <Button
               size="sm"
               data-testid="codex-draft-save"
@@ -266,11 +273,13 @@ export function CodexDraftBar({
       {d !== undefined && d.savedVariants.length > 0 && (
         <p className="flex flex-wrap items-center gap-x-2 text-sm" data-testid="codex-draft-saved">
           已保存：
-          {d.mode === 'workflow' && d.savedWorkflowId !== null && (
-            <Link className="underline" to={`/workflows/${d.savedWorkflowId}`}>
-              workflow /{d.savedWorkflowId}
-            </Link>
-          )}
+          {d.mode !== 'variant' &&
+            d.savedWorkflowId !== null &&
+            (d.mode === 'workflow' || d.savedWorkflowId !== d.workflowId) && (
+              <Link className="underline" to={`/workflows/${d.savedWorkflowId}`}>
+                workflow /{d.savedWorkflowId}
+              </Link>
+            )}
           {d.savedVariants.map((v) => (
             <Link key={v.id} className="underline" to={variantHref(v)}>
               {variantLabel(v)}

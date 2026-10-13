@@ -16,7 +16,9 @@ description: Session-analysis stage for plan adherence — recover the plan this
    - session 中写出的计划类文件（Brief、Research、plan、Tickets、checklist：写入或编辑这些文件的 tool 调用）；
    - 用户说"好""可以""go"之前 agent 提出的设计或步骤；
    - TodoWrite 之类的待办记录、回复中编号的步骤。
+
    每一步记下它所在的请求与原文。没有任何可找到的计划时，这就是唯一的一条发现（severity low），detail 写明查过哪些地方。
+
 2. **结构事件。** 标出计划与执行之间的上下文压缩（`notice`）、resume、中断与派出子代理的请求；紧跟其后的偏离单独成一条发现。
 3. **逐步对应。** 对计划的每一步，找执行它的 tool 调用与回复，或确认没有。报告：
    - 跳过的步骤（引用计划原文）；
