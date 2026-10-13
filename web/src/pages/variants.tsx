@@ -3,6 +3,7 @@ import { Download, GitBranchPlus, Hammer, Save, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router';
 import { useFullscreen } from '@/components/fullscreen';
+import { VariantName } from '@/components/variant-name';
 import { OpenInFinder } from '@/components/open-in-finder';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -300,18 +301,23 @@ function VariantBody({ variant, workflow }: { variant: Variant; workflow: Workfl
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <nav
           aria-label="位置"
-          className="min-w-0 text-sm text-muted-foreground"
+          className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground"
           data-testid="breadcrumb"
         >
-          <Link className="underline-offset-4 hover:underline" to="/workflows">
+          <Link className="shrink-0 underline-offset-4 hover:underline" to="/workflows">
             Workflows
           </Link>
           {' › '}
-          <Link className="underline-offset-4 hover:underline" to={`/workflows/${workflow.id}`}>
+          <Link
+            className="shrink-0 underline-offset-4 hover:underline"
+            to={`/workflows/${workflow.id}`}
+          >
             {workflow.name}
           </Link>
           {' › '}
-          <h1 className="inline text-xl font-semibold text-foreground">{variant.name}</h1>
+          <h1 className="min-w-0 text-xl font-semibold text-foreground">
+            <VariantName variant={variant} className="truncate" />
+          </h1>
         </nav>
         <HeaderActions
           variant={variant}

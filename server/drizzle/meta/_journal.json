@@ -120,6 +120,13 @@
       "when": 1791865353537,
       "tag": "0016_analysis-workflow",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1791885331358,
+      "tag": "0017_variant-events",
+      "breakpoints": true
     }
   ]
 }

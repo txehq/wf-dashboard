@@ -150,6 +150,7 @@ describe('database', () => {
       'subagents',
       'tasks',
       'user_messages',
+      'variant_events',
       'variants',
       'workflow_drafts',
       'workflows',

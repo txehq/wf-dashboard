@@ -152,7 +152,7 @@ test('交互：新建、resume 在同一项、改名、Sessions 中的名字、�
   await listTitle.getByTestId('live-title-input').fill('不会保存的名字');
   await listTitle.getByTestId('live-title-input').press('Escape');
   await expect(listTitle.getByTestId('live-title')).toHaveText('/lfg 做一个计算器');
-  await tab.getByTestId('live-rename').click();
+  await tab.getByTestId('live-title-rename').click();
   await tab.getByTestId('live-title-input').fill(`W34 计算器 ${marker}`);
   await shot(page, 'renaming');
   await tab.getByTestId('live-title-input').press('Enter');
