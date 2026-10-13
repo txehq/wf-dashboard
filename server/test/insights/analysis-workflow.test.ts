@@ -321,6 +321,16 @@ describe('交给 Codex 优化（Contracts 19.3）', { timeout: 120_000 }, () => 
     const { draft } = await openOptimize(analysisId);
     const skill = path.join(draft.dir, 'optimize/src/skills', stepId, 'SKILL.md');
     fs.appendFileSync(skill, '\n先读输入再回答。\n');
+    // 保存前的改动预览（Contracts 21.3）：optimize/src 相对被分析的 variant
+    const preview = drafts.diff(draft.id);
+    expect(preview.base).toEqual({ id: analysed.id, name: analysed.name });
+    expect(preview.files.map((f) => [f.path, f.status])).toEqual([
+      [`skills/${stepId}/SKILL.md`, 'modified'],
+    ]);
+    expect(preview.files[0]?.oldContent).toBe(
+      variants.readFile(analysed.id, `skills/${stepId}/SKILL.md`),
+    );
+    expect(preview.files[0]?.patch).toContain('\n+\n+先读输入再回答。\n');
     const saved = await drafts.save(draft.id);
     const v = variants.get(saved.savedVariantId ?? '');
     createdVariants.push(v.id);

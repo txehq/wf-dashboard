@@ -12,3 +12,5 @@ tasks/
 server/scripts/fixtures/
 # gateway 响应的原文，保持原样
 server/test/fixtures/llm/
+# 真实分析写出的 patches.json，保持原样
+web/src/components/diff/fixtures/

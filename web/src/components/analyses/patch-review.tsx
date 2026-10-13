@@ -1,7 +1,17 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { EditableDiffEditor } from '@/components/analyses/editable-diff-editor';
+import {
+  countChanges,
+  DiffCounts,
+  DiffFileCard,
+  DiffViewTypeToggle,
+  hunksOfBlocks,
+  useDiffViewType,
+} from '@/components/diff';
+import { FullscreenArea, FullscreenButton, useFullscreen } from '@/components/fullscreen';
+import { RenderedCompare } from '@/components/markdown';
 import { Button } from '@/components/ui/button';
 import {
   applyHunks,
@@ -27,7 +37,8 @@ const resultOf = (file: FileProposal, state: FileState) =>
     file.hunks.filter((h) => state.decisions[h.index] === 'accepted'),
   );
 
-function HunkItem({
+// 一处修改上方的一行：位置、增删行数、对应的发现、接受与拒绝
+function HunkHeader({
   hunk,
   decision,
   findings,
@@ -41,60 +52,50 @@ function HunkItem({
   onDecide: (d: Decision) => void;
 }) {
   return (
-    <li
+    <div
       className={cn(
-        'flex flex-col gap-2 rounded-md border px-3 py-2 text-xs',
-        decision === 'accepted' && 'border-emerald-400 bg-emerald-50/50',
-        decision === 'rejected' && 'opacity-60',
+        'flex items-center gap-3 border-y bg-muted/50 px-3 py-1 text-xs',
+        decision === 'accepted' && 'bg-emerald-100/70 dark:bg-emerald-950',
       )}
       data-testid="hunk"
       data-decision={decision ?? 'pending'}
+      data-dimmed={decision === 'rejected'}
     >
-      <div className="flex items-center gap-2">
-        <span className="font-medium">第 {hunk.start + 1} 行</span>
-        <span className="text-muted-foreground">
-          −{hunk.remove.length} +{hunk.insert.length}
-        </span>
-        <div className="ml-auto flex gap-1">
-          <Button
-            size="sm"
-            variant={decision === 'accepted' ? 'default' : 'outline'}
-            disabled={locked}
-            onClick={() => {
-              onDecide('accepted');
-            }}
-          >
-            接受
-          </Button>
-          <Button
-            size="sm"
-            variant={decision === 'rejected' ? 'secondary' : 'outline'}
-            disabled={locked}
-            onClick={() => {
-              onDecide('rejected');
-            }}
-          >
-            拒绝
-          </Button>
-        </div>
+      <span className="shrink-0 font-medium">第 {hunk.start + 1} 行</span>
+      <DiffCounts additions={hunk.insert.length} deletions={hunk.remove.length} />
+      <ul className="flex min-w-0 flex-1 flex-wrap gap-x-3">
+        {findings.map((f) => (
+          <li key={f.findingId} className="max-w-full truncate" title={f.title}>
+            <a className="underline" href={`#finding-${f.findingId}`}>
+              {f.findingId}
+            </a>{' '}
+            {f.title}
+          </li>
+        ))}
+      </ul>
+      <div className="flex shrink-0 gap-1">
+        <Button
+          size="xs"
+          variant={decision === 'accepted' ? 'default' : 'outline'}
+          disabled={locked}
+          onClick={() => {
+            onDecide('accepted');
+          }}
+        >
+          接受
+        </Button>
+        <Button
+          size="xs"
+          variant={decision === 'rejected' ? 'secondary' : 'outline'}
+          disabled={locked}
+          onClick={() => {
+            onDecide('rejected');
+          }}
+        >
+          拒绝
+        </Button>
       </div>
-      <pre className="max-h-48 overflow-auto rounded bg-muted/60 px-2 py-1 font-mono text-[11px] whitespace-pre-wrap">
-        {hunk.remove.map((l) => `- ${l}`).join('')}
-        {hunk.insert.map((l) => `+ ${l}`).join('')}
-      </pre>
-      {findings.length > 0 && (
-        <ul className="flex flex-col gap-0.5">
-          {findings.map((f) => (
-            <li key={f.findingId}>
-              <a className="underline" href={`#finding-${f.findingId}`}>
-                {f.findingId}
-              </a>{' '}
-              {f.title}
-            </li>
-          ))}
-        </ul>
-      )}
-    </li>
+    </div>
   );
 }
 
@@ -121,7 +122,16 @@ function FileEditor({
   );
 }
 
-// Contracts 15.3：每个文件一个 diff 视图，按 hunk 逐处接受或拒绝，接受后的结果可以继续编辑；另存为草稿 variant
+type Mode = 'hunks' | 'rendered' | 'edit';
+
+const modeLabels: Record<Mode, string> = {
+  hunks: '逐处修改',
+  rendered: '渲染后的对比',
+  edit: '编辑结果',
+};
+
+// Contracts 15.3、21.3：每个文件的修改建议以红绿 diff 显示，按 hunk 逐处接受或拒绝；.md 文件可以看渲染后的对比；
+// 接受后的结果可以在 Monaco 对比视图中继续编辑；另存为草稿 variant
 export function PatchReview({
   analysisId,
   files,
@@ -135,10 +145,13 @@ export function PatchReview({
 }) {
   const client = useQueryClient();
   const navigate = useNavigate();
+  const fullscreen = useFullscreen();
+  const [viewType] = useDiffViewType();
   const [states, setStates] = useState<Record<string, FileState>>({});
   // 每个文件的编辑器重建次数：撤销编辑时加一
   const [revisions, setRevisions] = useState<Record<string, number>>({});
   const [current, setCurrent] = useState(files[0]?.path ?? '');
+  const [selectedMode, setMode] = useState<Mode>('hunks');
   const [name, setName] = useState(`来自分析 ${analysisId}`);
   const stateOf = (path: string): FileState => states[path] ?? { decisions: {}, edited: null };
   const changed = files
@@ -155,8 +168,19 @@ export function PatchReview({
       void navigate(`/variants/${created.id}`);
     },
   });
+  const file = files.find((f) => f.path === current) ?? files[0];
+  const diff = useMemo(() => {
+    if (file === undefined) return null;
+    const hunks = hunksOfBlocks(file.original, file.hunks);
+    return {
+      path: file.path,
+      status: file.original === '' ? ('added' as const) : ('modified' as const),
+      hunks,
+      ...countChanges(hunks),
+    };
+  }, [file]);
 
-  if (files.length === 0) {
+  if (file === undefined || diff === null) {
     return (
       <section className="flex flex-col gap-2">
         <h2 className="text-lg font-semibold">修改建议</h2>
@@ -164,8 +188,6 @@ export function PatchReview({
       </section>
     );
   }
-  const file = files.find((f) => f.path === current) ?? files[0];
-  if (file === undefined) throw new Error('修改建议为空');
   const state = stateOf(file.path);
   const fromHunks = resultOf(file, { ...state, edited: null });
   const update = (next: FileState) => {
@@ -181,83 +203,146 @@ export function PatchReview({
     });
   };
   const rationale = patches.filter((p) => `skills/${p.file}` === file.path);
+  const markdown = file.path.endsWith('.md');
+  const modes: Mode[] = markdown ? ['hunks', 'rendered', 'edit'] : ['hunks', 'edit'];
+  const mode = modes.includes(selectedMode) ? selectedMode : 'hunks';
 
   return (
-    <section aria-label="修改建议" className="flex flex-col gap-3" data-testid="patch-review">
-      <h2 className="text-lg font-semibold">修改建议</h2>
-      <div className="flex flex-wrap gap-1" role="tablist" aria-label="修改的文件">
-        {files.map((f) => {
-          const decided = Object.keys(stateOf(f.path).decisions).length;
-          return (
-            <button
-              key={f.path}
-              type="button"
-              role="tab"
-              aria-selected={f.path === file.path}
-              className="rounded-md border px-3 py-1.5 font-mono text-xs aria-selected:border-foreground aria-selected:bg-muted"
-              onClick={() => {
-                setCurrent(f.path);
-              }}
-            >
-              {f.path}
-              <span className="ml-2 text-muted-foreground">
-                {decided}/{f.hunks.length}
-              </span>
-            </button>
-          );
-        })}
+    <FullscreenArea
+      active={fullscreen.active}
+      testId="patch-review"
+      className="flex flex-col gap-2"
+      activeClassName="p-3"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 className="text-lg font-semibold">修改建议</h2>
+        <div className="flex flex-wrap gap-1" role="tablist" aria-label="修改的文件">
+          {files.map((f) => {
+            const decided = Object.keys(stateOf(f.path).decisions).length;
+            return (
+              <button
+                key={f.path}
+                type="button"
+                role="tab"
+                aria-selected={f.path === file.path}
+                className="rounded-md border px-2.5 py-1 font-mono text-xs aria-selected:border-foreground aria-selected:bg-muted"
+                onClick={() => {
+                  setCurrent(f.path);
+                }}
+              >
+                {f.path}
+                <span className="ml-2 text-muted-foreground">
+                  {decided}/{f.hunks.length}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          {mode === 'hunks' && <DiffViewTypeToggle />}
+          <div
+            role="group"
+            aria-label="显示方式"
+            className="inline-flex overflow-hidden rounded-md border text-xs"
+            data-testid="patch-mode"
+            data-mode={mode}
+          >
+            {modes.map((m) => (
+              <button
+                key={m}
+                type="button"
+                aria-pressed={mode === m}
+                className="px-2.5 py-1 hover:bg-muted aria-pressed:bg-foreground aria-pressed:text-background"
+                onClick={() => {
+                  setMode(m);
+                }}
+              >
+                {modeLabels[m]}
+              </button>
+            ))}
+          </div>
+          <FullscreenButton active={fullscreen.active} onToggle={fullscreen.toggle} size="xs" />
+        </div>
       </div>
       {rationale.map((p, i) => (
         <p key={i} className="text-sm text-muted-foreground">
           {p.rationale}
         </p>
       ))}
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_22rem]">
-        <div className="h-[36rem] min-w-0 rounded-md border" data-testid="patch-editor">
-          {/* 编辑器自己保存输入：传入的内容只随接受与拒绝变化，不把每次编辑的内容再传回去（快速输入时旧的值会覆盖新的输入）。
-              切换文件后回来时以挂载时已有的编辑为准；撤销编辑时换 key 重建编辑器 */}
-          <FileEditor
-            key={`${file.path}:${String(revisions[file.path] ?? 0)}`}
-            file={file}
-            fromHunks={fromHunks}
-            edited={state.edited}
-            onChange={edit}
+      {state.edited !== null && (
+        <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs">
+          已在编辑器中修改；撤销编辑后才能重新选择各处修改。
+          <Button
+            size="xs"
+            variant="outline"
+            className="ml-auto"
+            onClick={() => {
+              update({ ...state, edited: null });
+              setRevisions({ ...revisions, [file.path]: (revisions[file.path] ?? 0) + 1 });
+            }}
+          >
+            撤销编辑
+          </Button>
+        </div>
+      )}
+      <div
+        className={cn(
+          'min-h-0 overflow-hidden rounded-md border',
+          fullscreen.active ? 'flex-1' : 'h-[calc(100svh-11rem)] min-h-[28rem]',
+        )}
+        data-testid="patch-work"
+      >
+        {mode === 'hunks' && (
+          <div className="h-full overflow-auto" data-testid="patch-hunks">
+            <DiffFileCard
+              key={file.path}
+              file={diff}
+              viewType={viewType}
+              source={file.original}
+              className="rounded-none border-0"
+              renderHunkHeader={(_, i) => {
+                const hunk = file.hunks[i];
+                if (hunk === undefined) throw new Error(`${file.path} 没有第 ${String(i)} 处修改`);
+                return (
+                  <HunkHeader
+                    hunk={hunk}
+                    decision={state.decisions[hunk.index]}
+                    locked={state.edited !== null}
+                    findings={findings.filter((f) => hunk.findingIds.includes(f.findingId))}
+                    onDecide={(d) => {
+                      update({ ...state, decisions: { ...state.decisions, [hunk.index]: d } });
+                    }}
+                  />
+                );
+              }}
+            />
+          </div>
+        )}
+        {mode === 'rendered' && (
+          <RenderedCompare
+            key={file.path}
+            path={file.path}
+            original={file.original}
+            modified={file.proposed}
+            changes={file.hunks}
+            labels={['原文', '全部建议应用后']}
           />
-        </div>
-        <div className="flex min-w-0 flex-col gap-2">
-          {state.edited !== null && (
-            <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs">
-              已在编辑器中修改；撤销编辑后才能重新选择各处修改。
-              <Button
-                size="sm"
-                variant="outline"
-                className="ml-auto"
-                onClick={() => {
-                  update({ ...state, edited: null });
-                  setRevisions({ ...revisions, [file.path]: (revisions[file.path] ?? 0) + 1 });
-                }}
-              >
-                撤销编辑
-              </Button>
-            </div>
-          )}
-          <ul className="flex max-h-[36rem] flex-col gap-2 overflow-y-auto" aria-label="逐处修改">
-            {file.hunks.map((h) => (
-              <HunkItem
-                key={h.index}
-                hunk={h}
-                decision={state.decisions[h.index]}
-                locked={state.edited !== null}
-                findings={findings.filter((f) => h.findingIds.includes(f.findingId))}
-                onDecide={(d) => {
-                  update({ ...state, decisions: { ...state.decisions, [h.index]: d } });
-                }}
-              />
-            ))}
-          </ul>
-        </div>
+        )}
+        {mode === 'edit' && (
+          <div className="h-full" data-testid="patch-editor">
+            {/* 编辑器自己保存输入：传入的内容只随接受与拒绝变化，不把每次编辑的内容再传回去（快速输入时旧的值会覆盖新的输入）。
+                切换文件或显示方式后回来时以挂载时已有的编辑为准；撤销编辑时换 key 重建编辑器 */}
+            <FileEditor
+              key={`${file.path}:${String(revisions[file.path] ?? 0)}`}
+              file={file}
+              fromHunks={fromHunks}
+              edited={state.edited}
+              onChange={edit}
+            />
+          </div>
+        )}
       </div>
-      <div className="flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3">
+      <div className="flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2">
         <label className="flex items-center gap-2 text-sm">
           新 variant 的名称
           <input
@@ -288,6 +373,6 @@ export function PatchReview({
           </p>
         )}
       </div>
-    </section>
+    </FullscreenArea>
   );
 }

@@ -100,6 +100,7 @@ test('用 Codex 生成 workflow：表单、跳到 Live 的 Codex 会话、保存
   const save = panel.getByTestId('codex-draft-save');
   await expect(save).toHaveText('保存为 workflow');
   await save.click();
+  await page.getByTestId('codex-draft-confirm').click();
   const error = panel.getByTestId('codex-draft-error');
   await expect(error).toContainText('保存失败，草稿保留');
   await expect(error).toContainText(`缺少 workflow ${workflowId} 要求的 skill：review`);
@@ -250,6 +251,19 @@ test('保存为 workflow（自有管理器构建）：显示保存出的 workflo
   await page.goto(`/live?item=${draft.liveId}`);
   const panel = page.getByTestId('live-panel');
   await panel.getByTestId('codex-draft-save').click();
+  // 保存前的改动预览（Contracts 21.3）：从空白开始的草稿没有底子，四个 skill 都是新增的文件
+  const preview = page.getByTestId('codex-save-preview');
+  await expect(preview).toContainText('从空白开始');
+  await expect(preview.getByTestId('diff-file')).toHaveCount(5);
+  await expect(preview.locator(`[data-path="skills/${workflowId}/SKILL.md"]`)).toContainText(
+    '新增',
+  );
+  await expect(preview.locator('td.diff-code-delete')).toHaveCount(0);
+  await page.screenshot({
+    path: '.work/screenshots/w50-codex-save-preview-new.png',
+    animations: 'disabled',
+  });
+  await preview.getByTestId('codex-draft-confirm').click();
   const saved = panel.getByTestId('codex-draft-saved');
   await expect(saved).toBeVisible({ timeout: 600_000 });
   await expect(saved.getByRole('link', { name: `workflow /${workflowId}` })).toBeVisible();
@@ -257,6 +271,7 @@ test('保存为 workflow（自有管理器构建）：显示保存出的 workflo
   await page.screenshot({ path: '.work/screenshots/w42-save-success.png', animations: 'disabled' });
 
   await panel.getByTestId('codex-draft-save').click();
+  await preview.getByTestId('codex-draft-confirm').click();
   await expect(saved.getByRole('link', { name: `Codex ${draft.id} (${workflowId})` })).toBeVisible({
     timeout: 600_000,
   });

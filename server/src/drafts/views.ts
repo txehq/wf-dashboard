@@ -68,3 +68,20 @@ export const DraftView = z.object({
   createdAt: z.number(),
 });
 export type DraftView = z.infer<typeof DraftView>;
+
+// 保存前的改动预览（Contracts 21.3）：草稿的 src/ 相对底子 variant 逐文件的差异
+export const DraftDiffView = z.object({
+  // 从空白开始的草稿没有底子，文件都是新增
+  base: z.object({ id: z.string(), name: z.string() }).nullable(),
+  files: z.array(
+    z.object({
+      path: z.string(),
+      status: z.enum(['added', 'removed', 'modified']),
+      oldContent: z.string(),
+      newContent: z.string(),
+      // 统一 diff 文本
+      patch: z.string(),
+    }),
+  ),
+});
+export type DraftDiffView = z.infer<typeof DraftDiffView>;

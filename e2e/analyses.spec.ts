@@ -119,7 +119,8 @@ test('新建分析、报告、证据链接、按 hunk 接受与拒绝、编辑�
     await expect(hunks.nth(i)).toHaveAttribute('data-decision', decision);
   }
   await expect(review.getByTestId('changed-files')).toContainText('1 个文件有修改');
-  // 在结果一侧接受的文字所在的行末加一段文字（Monaco 把空格渲染为不换行空格）
+  // 在"编辑结果"的结果一侧，接受的文字所在的行末加一段文字（Monaco 把空格渲染为不换行空格）
+  await review.getByRole('button', { name: '编辑结果' }).click();
   const insertedLine = accepted.insert.find((l) => l.trim() !== '') ?? '';
   const probe = insertedLine
     .trim()
@@ -134,8 +135,9 @@ test('新建分析、报告、证据链接、按 hunk 接受与拒绝、编辑�
   await page.keyboard.press('End');
   await page.keyboard.type(' e2e-edit');
   await expect(review).toContainText('已在编辑器中修改');
-  await expect(hunks.nth(pick).getByRole('button', { name: '接受' })).toBeDisabled();
   await page.screenshot({ path: `${shots}/w31-diff.png`, animations: 'disabled' });
+  await review.getByRole('button', { name: '逐处修改' }).click();
+  await expect(hunks.nth(pick).getByRole('button', { name: '接受' })).toBeDisabled();
 
   const name = `w31 e2e ${id}`;
   await review.getByLabel('新 variant 的名称').fill(name);

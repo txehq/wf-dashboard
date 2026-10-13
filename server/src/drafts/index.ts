@@ -41,7 +41,7 @@ import {
 } from './dir.js';
 import { installCodexSkill } from './skills.js';
 import { checkDraftSkills, readDraftDefinition } from './validate.js';
-import type { CreateDraftBody, DraftView } from './views.js';
+import type { CreateDraftBody, DraftDiffView, DraftView } from './views.js';
 
 export interface DraftsDeps {
   db: Db;
@@ -454,6 +454,19 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
 
   return {
     get: (id: string) => view(row(id)),
+
+    // 保存前的改动预览（Contracts 21.3）：将要保存的 src/ 相对底子 variant 的 diff；从空白开始的草稿没有底子
+    diff(id: string): DraftDiffView {
+      const d = row(id);
+      if (!savable.includes(d.status)) {
+        throw new HttpError(409, `草稿 ${id} 的状态是 ${d.status}，准备完成后才有改动可看`);
+      }
+      const base = d.baseVariantId === null ? null : variants.get(d.baseVariantId);
+      return {
+        base: base === null ? null : { id: base.id, name: base.name },
+        files: variants.diffSource(d.baseVariantId, layoutOf(d).src),
+      };
+    },
 
     open,
 

@@ -5,7 +5,7 @@ import {
 } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { Drafts } from '../drafts/index.js';
-import { CreateDraftBody, DraftView } from '../drafts/views.js';
+import { CreateDraftBody, DraftDiffView, DraftView } from '../drafts/views.js';
 import { LiveDetail } from '../live/views.js';
 
 const IdParams = z.object({ id: z.string().min(1) });
@@ -39,6 +39,13 @@ export const draftRoutes: FastifyPluginCallbackZod<{ drafts: Drafts }> = (
     '/api/workflow-drafts/:id',
     { schema: { params: IdParams, response: { 200: DraftView } } },
     (request) => drafts.get(request.params.id),
+  );
+
+  // 保存前的改动预览（Contracts 21.3）：草稿的 src/ 相对底子 variant 的 diff；还在准备时 409
+  app.get(
+    '/api/workflow-drafts/:id/diff',
+    { schema: { params: IdParams, response: { 200: DraftDiffView } } },
+    (request) => drafts.diff(request.params.id),
   );
 
   // 重试准备：从失败的那一步接着做；不是 failed 时 409
