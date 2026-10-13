@@ -5,13 +5,19 @@ import { expect, type Page, test } from './test.js';
 import { stringify } from 'yaml';
 import { serverPort } from '../ports.js';
 
-// 用 Codex 生成 workflow 或 variant（Contracts 第 17 节）：两个入口的表单、跳到 Live 的 Codex 会话、保存按钮。
-// 服务端的 Codex 是测试中的替身命令（e2e/services.ts），只验证页面与 API，不验证 Codex 本身；skill 来源是本地仓库。
-// 新 workflow 的草稿从空白骨架开始，保存时用自有管理器构建（Contracts 18.5、18.6），很快，在基础档
+// 用 Codex 生成 workflow 或 variant（Contracts 第 17 节）：两个入口的表单、跳到 Live 的 Codex 会话、保存对话框
+// （新建或覆盖、名字与描述必填、diff 预览、保存不构建）与 variant 的历史。
+// 服务端的 Codex 是测试中的替身命令（e2e/services.ts），只验证页面与 API，不验证 Codex 本身；skill 来源是本地仓库
 const api = `http://127.0.0.1:${String(serverPort)}/api`;
 const marker = randomUUID().slice(0, 6);
 const root = path.resolve(import.meta.dirname, '..');
 const example = path.join(root, 'server/src/drafts/assets/simple-workflow');
+const shots = '.work/screenshots';
+// 两种窗口下截图自查（Contracts 20.4）
+const sizes = [
+  { width: 1280, height: 800 },
+  { width: 1600, height: 1000 },
+] as const;
 
 interface Variant {
   id: string;
@@ -98,14 +104,24 @@ test('用 Codex 生成 workflow：表单、跳到 Live 的 Codex 会话、保存
   );
   fs.appendFileSync(path.join(cwd, 'workflow.yaml'), '  - id: review\n');
   const save = panel.getByTestId('codex-draft-save');
-  await expect(save).toHaveText('保存为 workflow');
+  await expect(save).toHaveText('保存');
   await save.click();
-  await page.getByTestId('codex-draft-confirm').click();
-  const error = panel.getByTestId('codex-draft-error');
+  // 第一次保存为新 workflow：workflow 与第一个 variant 的名字与描述都必填
+  const dialog = page.getByTestId('codex-save-dialog');
+  await expect(dialog.getByTestId('codex-save-workflow-name')).toHaveValue(`你好 ${marker}`);
+  await expect(dialog.getByTestId('codex-save-workflow-description')).toHaveValue(
+    '先问清楚，再写，最后检查',
+  );
+  await expect(dialog.getByTestId('codex-save-name')).toHaveValue('初稿');
+  await expect(dialog.getByTestId('codex-save-confirm')).toBeDisabled();
+  await dialog.getByTestId('codex-save-description').fill('第一版');
+  await dialog.getByTestId('codex-save-confirm').click();
+  const error = dialog.getByTestId('codex-save-error');
   await expect(error).toContainText('保存失败，草稿保留');
   await expect(error).toContainText(`缺少 workflow ${workflowId} 要求的 skill：review`);
-  await expect(panel.getByTestId('codex-draft-saved')).toHaveCount(0);
   await page.screenshot({ path: '.work/screenshots/w42-save-error.png', animations: 'disabled' });
+  await dialog.getByRole('button', { name: '取消' }).click();
+  await expect(panel.getByTestId('codex-draft-saved')).toHaveCount(0);
 
   // 结束进程后 resume 接着同一个会话
   await panel.getByRole('button', { name: '结束进程' }).click();
@@ -118,7 +134,7 @@ test('用 Codex 生成 workflow：表单、跳到 Live 的 Codex 会话、保存
   await stopLive(page, liveId);
 });
 
-test('用 Codex 生成 variant：Workflow 页面的表单默认第一个 variant，保存按钮为"保存为 variant"', async ({
+test('用 Codex 生成 variant：Workflow 页面的表单默认第一个 variant，会话头部有"保存"', async ({
   page,
 }) => {
   await page.goto('/workflows/lfg');
@@ -137,7 +153,7 @@ test('用 Codex 生成 variant：Workflow 页面的表单默认第一个 variant
   await expect(page).toHaveURL(/\/live\?item=/, { timeout: 5_000 });
   const liveId = new URL(page.url()).searchParams.get('item') ?? '';
   const panel = page.getByTestId('live-panel');
-  await expect(panel.getByTestId('codex-draft-save')).toHaveText('保存为 variant');
+  await expect(panel.getByTestId('codex-draft-save')).toHaveText('保存');
   await expect
     .poll(() => terminalText(page), { timeout: 60_000 })
     .toContain('让 interview 一次只问一个问题');
@@ -222,7 +238,7 @@ function writeExample(dir: string, workflowId: string) {
   );
 }
 
-test('保存为 workflow（自有管理器构建）：显示保存出的 workflow 与 variant 的链接，可以再次保存', async ({
+test('保存为新 workflow：对话框填 workflow 与第一个 variant，预览全部是新增，保存后跳到未构建的 variant 页面', async ({
   page,
   request,
 }) => {
@@ -251,35 +267,171 @@ test('保存为 workflow（自有管理器构建）：显示保存出的 workflo
   await page.goto(`/live?item=${draft.liveId}`);
   const panel = page.getByTestId('live-panel');
   await panel.getByTestId('codex-draft-save').click();
-  // 保存前的改动预览（Contracts 21.3）：从空白开始的草稿没有底子，四个 skill 都是新增的文件
-  const preview = page.getByTestId('codex-save-preview');
-  await expect(preview).toContainText('从空白开始');
-  await expect(preview.getByTestId('diff-file')).toHaveCount(5);
-  await expect(preview.locator(`[data-path="skills/${workflowId}/SKILL.md"]`)).toContainText(
-    '新增',
-  );
-  await expect(preview.locator('td.diff-code-delete')).toHaveCount(0);
-  await page.screenshot({
-    path: '.work/screenshots/w50-codex-save-preview-new.png',
-    animations: 'disabled',
-  });
-  await preview.getByTestId('codex-draft-confirm').click();
-  const saved = panel.getByTestId('codex-draft-saved');
-  await expect(saved).toBeVisible({ timeout: 600_000 });
-  await expect(saved.getByRole('link', { name: `workflow /${workflowId}` })).toBeVisible();
-  await expect(saved.getByRole('link', { name: `基线 (${workflowId})` })).toBeVisible();
-  await page.screenshot({ path: '.work/screenshots/w42-save-success.png', animations: 'disabled' });
-
-  await panel.getByTestId('codex-draft-save').click();
-  await preview.getByTestId('codex-draft-confirm').click();
-  await expect(saved.getByRole('link', { name: `Codex ${draft.id} (${workflowId})` })).toBeVisible({
-    timeout: 600_000,
-  });
-  await stopLive(page, draft.liveId);
-
-  await saved.getByRole('link', { name: `基线 (${workflowId})` }).click();
+  // 从空白开始的草稿没有底子，四个 skill 都是新增的文件
+  const dialog = page.getByTestId('codex-save-dialog');
+  await expect(dialog.getByTestId('codex-save-against')).toContainText('从空白开始');
+  await expect(dialog.getByTestId('diff-file')).toHaveCount(5);
+  await expect(dialog.locator(`[data-path="skills/${workflowId}/SKILL.md"]`)).toContainText('新增');
+  await expect(dialog.locator('td.diff-code-delete')).toHaveCount(0);
+  await dialog.getByTestId('codex-save-workflow-name').fill(`你好流程 ${marker}`);
+  await dialog.getByTestId('codex-save-description').fill('先问、再写、最后检查');
+  for (const size of sizes) {
+    await page.setViewportSize(size);
+    await page.screenshot({
+      path: `${shots}/w52-save-new-workflow-${String(size.width)}.png`,
+      animations: 'disabled',
+    });
+  }
+  await dialog.getByTestId('codex-save-confirm').click();
+  // 保存不构建：跳到 variant 页面，显示未构建
   await expect(page).toHaveURL(/\/variants\/[0-9a-f-]{36}$/);
-  await expect(page.getByTestId('breadcrumb')).toHaveText(`Workflows › 你好 ${marker} › 基线`);
+  await expect(page.getByTestId('breadcrumb')).toHaveText(`Workflows › 你好流程 ${marker} › 初稿`);
   await expect(page.getByTestId('variant-draft')).toHaveText(`来自 Codex 草稿 ${draft.id}`);
-  await expect(page.getByTestId('build-status')).toHaveText('已构建');
+  await expect(page.getByTestId('build-status')).toHaveText('未构建');
+  await expect(page.getByLabel('描述')).toHaveValue('先问、再写、最后检查');
+
+  // 回到 Live：显示保存出的 workflow 与 variant 的链接；再次保存时保存到这个 workflow
+  await page.goto(`/live?item=${draft.liveId}`);
+  const saved = panel.getByTestId('codex-draft-saved');
+  await expect(saved.getByRole('link', { name: `workflow /${workflowId}` })).toBeVisible();
+  await expect(saved.getByRole('link', { name: `初稿 (${workflowId})` })).toBeVisible();
+  await panel.getByTestId('codex-draft-save').click();
+  await expect(dialog).toContainText(`保存到 workflow 你好流程 ${marker}（/${workflowId}）`);
+  await expect(dialog.getByTestId('codex-save-kind-new')).toBeChecked();
+  await dialog.getByRole('button', { name: '取消' }).click();
+  await stopLive(page, draft.liveId);
+});
+
+test('保存到已有 workflow：新建或覆盖，已冻结的灰显并写明原因，diff 相对目标，覆盖前的内容进历史并能恢复', async ({
+  page,
+  request,
+}) => {
+  // session-analysis 的基线在服务启动时建出并冻结（Contracts 19.2）
+  const all = (await (await request.get(`${api}/variants`)).json()) as (Variant & {
+    status: string;
+  })[];
+  const baseline = all.find((v) => v.workflowId === 'session-analysis' && v.status === 'frozen');
+  if (baseline === undefined) throw new Error('没有冻结的 session-analysis 基线');
+  const created = await request.post(`${api}/workflow-drafts`, {
+    data: {
+      mode: 'variant',
+      workflowId: 'session-analysis',
+      requirement: '让 synthesize 先写总结',
+      baseVariantId: baseline.id,
+    },
+  });
+  expect(created.status()).toBe(201);
+  const { draft } = (await created.json()) as { draft: Draft };
+  await expect
+    .poll(
+      async () =>
+        ((await (await request.get(`${api}/workflow-drafts/${draft.id}`)).json()) as Draft).status,
+      { timeout: 60_000 },
+    )
+    .toBe('open');
+  const skill = path.join(draft.dir, 'src/skills/synthesize/SKILL.md');
+  fs.appendFileSync(skill, '\n先写一句总结。\n');
+
+  await page.goto(`/live?item=${draft.liveId}`);
+  const panel = page.getByTestId('live-panel');
+  const dialog = page.getByTestId('codex-save-dialog');
+  await panel.getByTestId('codex-draft-save').click();
+  // 新建：diff 相对底子
+  await expect(dialog.getByTestId('codex-save-kind-new')).toBeChecked();
+  await expect(dialog).toContainText(`派生自 ${baseline.name}`);
+  await expect(dialog.getByTestId('codex-save-against')).toHaveText(`相对底子 ${baseline.name}`);
+  await expect(dialog.getByTestId('diff-file')).toHaveCount(1);
+  await expect(dialog.getByTestId('diff-file')).toHaveAttribute(
+    'data-path',
+    'skills/synthesize/SKILL.md',
+  );
+  const newName = `先写总结 ${marker}`;
+  await dialog.getByTestId('codex-save-name').fill(newName);
+  await expect(dialog.getByTestId('codex-save-confirm')).toBeDisabled();
+  await dialog.getByTestId('codex-save-description').fill('synthesize 先写一句总结');
+  for (const size of sizes) {
+    await page.setViewportSize(size);
+    await page.screenshot({
+      path: `${shots}/w52-save-new-variant-${String(size.width)}.png`,
+      animations: 'disabled',
+    });
+  }
+  await dialog.getByTestId('codex-save-confirm').click();
+  await expect(page).toHaveURL(/\/variants\/[0-9a-f-]{36}$/);
+  const newId = page.url().split('/').at(-1) ?? '';
+  await expect(page.getByTestId('build-status')).toHaveText('未构建');
+  await expect(page.getByTestId('variant-parent')).toContainText(baseline.name);
+  for (const size of sizes) {
+    await page.setViewportSize(size);
+    await page.screenshot({
+      path: `${shots}/w52-variant-unbuilt-${String(size.width)}.png`,
+      animations: 'disabled',
+    });
+  }
+
+  // 覆盖：已冻结的基线灰显并写明原因；选中刚保存的 variant 后名字与描述预填，diff 相对它
+  fs.appendFileSync(skill, '总结不超过三句。\n');
+  await page.goto(`/live?item=${draft.liveId}`);
+  await panel.getByTestId('codex-draft-save').click();
+  await dialog.getByTestId('codex-save-kind-overwrite').check();
+  await expect(dialog.getByTestId('codex-save-against')).toContainText('选一个要覆盖的 variant');
+  const frozen = dialog.locator(`[data-testid="codex-save-target"][data-variant="${baseline.id}"]`);
+  await expect(frozen).toHaveAttribute('data-disabled', 'true');
+  await expect(frozen).toContainText('已冻结（用于 batch），内容只读');
+  await expect(frozen.getByRole('radio')).toBeDisabled();
+  await dialog
+    .locator(`[data-testid="codex-save-target"][data-variant="${newId}"]`)
+    .getByRole('radio')
+    .check();
+  await expect(dialog.getByTestId('codex-save-name')).toHaveValue(newName);
+  await expect(dialog.getByTestId('codex-save-description')).toHaveValue('synthesize 先写一句总结');
+  await expect(dialog.getByTestId('codex-save-against')).toHaveText(`相对被覆盖的 ${newName}`);
+  await expect(dialog.locator('td.diff-code-insert')).toHaveText(['总结不超过三句。']);
+  await dialog.getByTestId('codex-save-description').fill('先写总结，不超过三句');
+  for (const size of sizes) {
+    await page.setViewportSize(size);
+    await page.screenshot({
+      path: `${shots}/w52-save-overwrite-${String(size.width)}.png`,
+      animations: 'disabled',
+    });
+  }
+  await dialog.getByTestId('codex-save-confirm').click();
+  await expect(page).toHaveURL(new RegExp(`/variants/${newId}$`));
+  await expect(page.getByTestId('build-status')).toHaveText('未构建');
+  await expect(page.getByLabel('描述')).toHaveValue('先写总结，不超过三句');
+
+  // 历史：覆盖前的内容，恢复成它时的改动；恢复后内容回到覆盖前
+  const readSkill = async () =>
+    (
+      (await (
+        await request.get(
+          `${api}/variants/${newId}/file?path=${encodeURIComponent('skills/synthesize/SKILL.md')}`,
+        )
+      ).json()) as { content: string }
+    ).content;
+  const overwritten = await readSkill();
+  expect(overwritten).toContain('总结不超过三句。');
+  await page.getByTestId('variant-history').click();
+  const history = page.getByTestId('variant-history-dialog');
+  await expect(history.getByTestId('variant-history-entry')).toHaveCount(1);
+  await expect(history.getByTestId('variant-history-entry')).toContainText(
+    `被 Codex 草稿 ${draft.id} 覆盖前`,
+  );
+  await expect(history.locator('td.diff-code-delete')).toHaveText(['总结不超过三句。']);
+  for (const size of sizes) {
+    await page.setViewportSize(size);
+    await page.screenshot({
+      path: `${shots}/w52-history-${String(size.width)}.png`,
+      animations: 'disabled',
+    });
+  }
+  await history.getByTestId('variant-history-restore').click();
+  await expect(history).toHaveCount(0);
+  await expect.poll(readSkill).toBe(overwritten.replace('总结不超过三句。\n', ''));
+  await expect(page.getByTestId('variant-history')).toHaveText('历史（2）');
+  await page.getByTestId('variant-history').click();
+  await expect(history.getByTestId('variant-history-entry').first()).toContainText('恢复 #');
+  await page.screenshot({ path: `${shots}/w52-restored.png`, animations: 'disabled' });
+  await history.getByRole('button', { name: '关闭' }).click();
+  await stopLive(page, draft.liveId);
 });

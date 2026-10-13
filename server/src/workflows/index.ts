@@ -183,13 +183,6 @@ export function insertWorkflow(db: Db, definition: WorkflowDefinition, descripti
     .run();
 }
 
-// 保存草稿时构建失败：删去这次建出、还没有 variant 的 workflow
-export function deleteEmptyWorkflow(db: Db, id: string) {
-  const n = db.select({ n: count() }).from(variants).where(eq(variants.workflowId, id)).get();
-  if ((n?.n ?? 0) > 0) throw new Error(`workflow ${id} 还有 variant，不能删除`);
-  db.delete(workflowTable).where(eq(workflowTable.id, id)).run();
-}
-
 // Contracts 16.1 的 API 背后的服务
 export function createWorkflows({ db, variants: variantsModule }: { db: Db; variants: Variants }) {
   return {

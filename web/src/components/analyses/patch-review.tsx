@@ -153,6 +153,7 @@ export function PatchReview({
   const [current, setCurrent] = useState(files[0]?.path ?? '');
   const [selectedMode, setMode] = useState<Mode>('hunks');
   const [name, setName] = useState(`来自分析 ${analysisId}`);
+  const [description, setDescription] = useState('');
   const stateOf = (path: string): FileState => states[path] ?? { decisions: {}, edited: null };
   const changed = files
     .map((f) => ({ path: f.path, content: resultOf(f, stateOf(f.path)), original: f.original }))
@@ -160,7 +161,8 @@ export function PatchReview({
   const save = useMutation({
     mutationFn: () =>
       saveAnalysisVariant(analysisId, {
-        name: name.trim(),
+        name,
+        description,
         files: changed.map(({ path, content }) => ({ path, content })),
       }),
     onSuccess: async (created) => {
@@ -347,15 +349,34 @@ export function PatchReview({
           新 variant 的名称
           <input
             aria-label="新 variant 的名称"
-            className="h-8 w-80 rounded-md border bg-background px-2 text-sm"
+            className="h-8 w-64 rounded-md border bg-background px-2 text-sm"
             value={name}
+            required
             onChange={(e) => {
               setName(e.target.value);
             }}
           />
         </label>
+        <label className="flex min-w-64 flex-1 items-center gap-2 text-sm">
+          描述
+          <input
+            aria-label="新 variant 的描述"
+            className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2 text-sm"
+            placeholder="这一版改了什么"
+            value={description}
+            required
+            onChange={(e) => {
+              setDescription(e.target.value);
+            }}
+          />
+        </label>
         <Button
-          disabled={changed.length === 0 || name.trim() === '' || save.isPending}
+          disabled={
+            changed.length === 0 ||
+            name.trim() === '' ||
+            description.trim() === '' ||
+            save.isPending
+          }
           onClick={() => {
             save.mutate();
           }}
@@ -365,7 +386,7 @@ export function PatchReview({
         <span className="text-xs text-muted-foreground" data-testid="changed-files">
           {changed.length === 0
             ? '还没有接受任何修改'
-            : `${String(changed.length)} 个文件有修改；保存为草稿，构建与评测由你发起`}
+            : `${String(changed.length)} 个文件有修改；保存后不构建，到 variant 页面再构建`}
         </span>
         {save.isError && (
           <p role="alert" className="w-full text-sm text-destructive">

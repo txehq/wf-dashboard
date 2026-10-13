@@ -19,6 +19,7 @@ const EVENT_TYPES = [
   'run.artifact',
   'run.cost',
   'variant.build',
+  'variant.updated',
   'live.updated',
   'draft.updated',
   'analysis.updated',
@@ -132,6 +133,18 @@ export function useLiveConnection() {
   const client = useQueryClient();
   useEffect(() => connectLiveEvents(client), [client]);
   useLiveEvent((type, data) => {
+    // variant 改名、被覆盖或恢复（Contracts 16.4、17.4）：刷新名字、状态与历史，编辑中的文件内容不动
+    if (type === 'variant.updated') {
+      const { variantId } = data as { variantId: string };
+      for (const queryKey of [
+        ['variants'],
+        ['variants', variantId],
+        ['variants', variantId, 'history'],
+      ]) {
+        void client.invalidateQueries({ queryKey, exact: true });
+      }
+      return;
+    }
     if (type !== 'variant.build') return;
     const { variantId } = data as { variantId: string };
     for (const queryKey of [

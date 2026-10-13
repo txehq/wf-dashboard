@@ -38,7 +38,7 @@ export function rehypeMarkLines(marks: LineMarks | undefined) {
     const mark = (node: Element): boolean => {
       if (!touched(node)) return false;
       const children = node.children.filter(
-        (child) => child.type === 'element' && blocks.has(child.tagName),
+        (child): child is Element => child.type === 'element' && blocks.has(child.tagName),
       );
       const inner = containers.has(node.tagName) && children.map(mark).some(Boolean);
       if (!inner) {

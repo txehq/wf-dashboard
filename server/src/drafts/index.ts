@@ -25,7 +25,6 @@ import type { Variant, Variants } from '../variants/index.js';
 import { writeSkeleton } from '../variants/skills.js';
 import {
   assertNewWorkflow,
-  deleteEmptyWorkflow,
   insertWorkflow,
   loadWorkflow,
   parseDefinition,
@@ -41,7 +40,13 @@ import {
 } from './dir.js';
 import { installCodexSkill } from './skills.js';
 import { checkDraftSkills, readDraftDefinition } from './validate.js';
-import type { CreateDraftBody, DraftDiffView, DraftView } from './views.js';
+import type {
+  CreateDraftBody,
+  DraftDiffView,
+  DraftView,
+  SaveDraftBody,
+  SavePlanView,
+} from './views.js';
 
 export interface DraftsDeps {
   db: Db;
@@ -55,12 +60,6 @@ export interface DraftsDeps {
 }
 
 type DraftRow = typeof workflowDrafts.$inferSelect;
-
-// 构建失败时显示的原文：构建日志中最后一步的命令与输出
-function lastStep(log: string): string {
-  const at = log.lastIndexOf('\n$ [');
-  return (at < 0 ? log : log.slice(at + 1)).trim();
-}
 
 const SKILL_STEP = 'skill:';
 const START_STEP = 'start-codex';
@@ -97,11 +96,25 @@ const BLANK_STAGES = [{ id: 'stage-1' }];
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
+// 新 workflow 第一个 variant 的名字的预填（Contracts 17.4）
+const FIRST_VARIANT = '初稿';
+
+// 定义相同即入口与小阶段相同（Contracts 19.1）；名字是 workflow 的属性，在 Workflow 页面改
+const sameStages = (a: WorkflowDefinition, b: WorkflowDefinition) =>
+  isDeepStrictEqual({ id: a.id, stages: a.stages }, { id: b.id, stages: b.stages });
+
+// 保存时 workflow 的名字与描述必填
+function checkText(label: string, value: string, max: number): string {
+  const text = value.trim();
+  if (text === '') throw new HttpError(400, `${label}不能为空`);
+  if (text.length > max) {
+    throw new HttpError(400, `${label}最多 ${String(max)} 字，现在是 ${String(text.length)} 字`);
+  }
+  return text;
+}
+
 // 用 Codex 生成 workflow 或 variant（Contracts 第 17 节）
 export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSources }: DraftsDeps) {
-  // 正在保存的草稿：同一草稿同时只保存一次
-  const saving = new Set<string>();
-
   // 上次服务退出时还在准备的草稿不会再完成：那一步记为失败，可以重试
   const interrupted = db
     .select()
@@ -369,7 +382,7 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
     return { draft: view(row(id)), live: live.get(item.id) };
   }
 
-  // 保存的目标（Contracts 17.4、19.3）：定义、是否新建 workflow、parent
+  // 保存到哪个 workflow（Contracts 17.4、19.3）：定义、是否新建 workflow、新建 variant 时的 parent
   function saveTarget(draft: DraftRow): {
     definition: WorkflowDefinition;
     newWorkflow: boolean;
@@ -385,8 +398,8 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
     }
     const definition = readDraftDefinition(layout);
     if (draft.mode === 'optimize') {
-      // optimize/workflow.yaml 与原定义相同：原 workflow 的新 variant，parent 为被分析的 variant
-      if (isDeepStrictEqual(loadWorkflow(db, draft.workflowId), definition)) {
+      // optimize/workflow.yaml 的入口与小阶段与原 workflow 相同：保存到原 workflow，parent 为被分析的 variant
+      if (sameStages(loadWorkflow(db, draft.workflowId), definition)) {
         return { definition, newWorkflow: false, parentId: draft.baseVariantId };
       }
       if (draft.savedWorkflowId === null || draft.savedWorkflowId === draft.workflowId) {
@@ -397,9 +410,9 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
       assertNewWorkflow(db, definition);
       return { definition, newWorkflow: true, parentId: draft.baseVariantId };
     }
-    // 再次保存：在已保存的新 workflow 下建新 variant，定义必须没有改动
+    // 再次保存：保存到已保存出的新 workflow，入口与小阶段必须没有改动
     const saved = loadWorkflow(db, draft.savedWorkflowId);
-    if (!isDeepStrictEqual(saved, definition)) {
+    if (!sameStages(saved, definition)) {
       throw new HttpError(
         400,
         `workflow.yaml 与已保存的 workflow ${saved.id} 的定义不同；要改定义就在 Workflow 页面改，或另开草稿。\n已保存：\n${stringify(saved)}\nworkflow.yaml：\n${stringify(definition)}`,
@@ -407,66 +420,144 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
     }
     // 新 workflow 下的 variant 没有 parent：被分析的 variant 属于另一个 workflow
     return {
-      definition,
+      definition: saved,
       newWorkflow: false,
       parentId: draft.mode === 'optimize' ? null : draft.baseVariantId,
     };
   }
 
-  // 新 workflow 的描述：mode 为 workflow 时是发起时填的，mode 为 optimize 时写明来源
+  // 保存对话框的内容（Contracts 17.4）：第一次保存为新 workflow 时填 workflow 与第一个 variant；
+  // 其余情况列出同一 workflow 的 variant，导入的与已冻结的不能被覆盖，写明原因
+  function savePlan(id: string): SavePlanView {
+    const draft = savableRow(id);
+    const { definition, newWorkflow, parentId } = saveTarget(draft);
+    if (newWorkflow) {
+      return {
+        kind: 'new-workflow',
+        workflowId: definition.id,
+        workflowName: definition.name,
+        workflowDescription: newWorkflowDescription(draft),
+        variantName: FIRST_VARIANT,
+      };
+    }
+    const parent = parentId === null ? null : variants.get(parentId);
+    return {
+      kind: 'variant',
+      workflowId: definition.id,
+      workflowName: definition.name,
+      parent: parent === null ? null : { id: parent.id, name: parent.name },
+      variants: variants
+        .list()
+        .filter((v) => v.workflowId === definition.id)
+        .reverse()
+        .map((v) => ({
+          id: v.id,
+          name: v.name,
+          description: v.description,
+          reason: variants.replaceBlocker(v),
+        })),
+    };
+  }
+
+  // 新 workflow 的描述的预填：mode 为 workflow 时是发起时填的，mode 为 optimize 时写明来源
   const newWorkflowDescription = (draft: DraftRow) =>
     draft.mode === 'optimize'
       ? `由 Codex 按分析 ${draft.analysisId ?? ''} 的报告，从 workflow ${draft.workflowId} 改出`
       : (draft.description ?? '');
 
-  // 校验、建 workflow 与 variant、构建；任何一步失败都以原文 400，草稿保留，这次建出的 workflow 与 variant 删去
-  async function saveDraft(id: string): Promise<DraftView> {
+  // 校验后建 workflow 与 variant，或覆盖已有 variant；不构建，variant 状态为未构建（Contracts 17.4）。
+  // 任何一项校验不通过都以原文失败，草稿保留，什么都不改
+  function saveDraft(id: string, body: SaveDraftBody): DraftView {
     const draft = row(id);
     const layout = layoutOf(draft);
     const { definition, newWorkflow, parentId } = saveTarget(draft);
     checkDraftSkills(layout, definition);
-    if (newWorkflow) insertWorkflow(db, definition, newWorkflowDescription(draft));
-    const parent = parentId === null ? null : variants.get(parentId);
-    const variant = variants.createFromSource({
-      srcDir: layout.src,
-      workflowId: definition.id,
-      name: newWorkflow ? '基线' : variants.freeName(definition.id, `Codex ${id}`),
-      parentId,
-      draftId: id,
-      analysisId: draft.analysisId,
-      note: `从 Codex 草稿 ${id} 保存（${parent === null ? '没有底子' : `底子 ${parent.name}，${parent.id}`}${draft.analysisId === null ? '' : `，分析 ${draft.analysisId}`}）`,
-    });
-    await variants.build(variant.id).then(
-      () => undefined,
-      (error: unknown) => {
-        // 构建失败的原文是构建日志的最后一步
-        const log = lastStep(variants.buildLog(variant.id));
-        variants.removeUnused(variant.id);
-        if (newWorkflow) deleteEmptyWorkflow(db, definition.id);
-        throw new HttpError(400, `构建失败：${message(error)}\n${log}`);
-      },
-    );
-    update(id, { status: 'saved', savedWorkflowId: definition.id, savedVariantId: variant.id });
+    const { target } = body;
+    const name = variants.checkName(target.name);
+    const description = variants.checkDescription(target.description);
+    let saved: WorkflowDefinition = definition;
+    if (newWorkflow) {
+      if (body.workflow === undefined) {
+        throw new HttpError(
+          400,
+          `第一次保存为新 workflow ${definition.id}，要填 workflow 的名字与描述`,
+        );
+      }
+      if (target.kind !== 'new') {
+        throw new HttpError(
+          400,
+          `新 workflow ${definition.id} 还没有 variant，只能新建第一个 variant`,
+        );
+      }
+      saved = { ...definition, name: checkText('workflow 的名字', body.workflow.name, 100) };
+      const workflowDescription = checkText('workflow 的描述', body.workflow.description, 2000);
+      insertWorkflow(db, saved, workflowDescription);
+    } else if (body.workflow !== undefined) {
+      throw new HttpError(
+        400,
+        `保存到已有的 workflow ${definition.id}，不填 workflow 的名字与描述（在 Workflow 页面改）`,
+      );
+    }
+    const source = draft.analysisId === null ? '' : `，分析 ${draft.analysisId}`;
+    let variant: Variant;
+    if (target.kind === 'new') {
+      const parent = parentId === null ? null : variants.get(parentId);
+      variant = variants.createFromSource({
+        srcDir: layout.src,
+        workflowId: saved.id,
+        name,
+        description,
+        parentId,
+        draftId: id,
+        analysisId: draft.analysisId,
+        note: `从 Codex 草稿 ${id} 保存（${parent === null ? '没有底子' : `底子 ${parent.name}，${parent.id}`}${source}），需要构建`,
+      });
+    } else {
+      const existing = variants.get(target.variantId);
+      if (existing.workflowId !== saved.id) {
+        throw new HttpError(
+          400,
+          `variant ${existing.name} 属于 workflow ${existing.workflowId}，这个草稿保存到 ${saved.id}，只能覆盖其中的 variant`,
+        );
+      }
+      variant = variants.overwriteFromSource(existing.id, {
+        srcDir: layout.src,
+        name,
+        description,
+        draftId: id,
+        analysisId: draft.analysisId,
+      });
+    }
+    update(id, { status: 'saved', savedWorkflowId: saved.id, savedVariantId: variant.id });
     return view(row(id));
   }
 
   const savable: DraftStatus[] = ['open', 'saved'];
 
+  function savableRow(id: string): DraftRow {
+    const d = row(id);
+    if (!savable.includes(d.status)) {
+      throw new HttpError(409, `草稿 ${id} 的状态是 ${d.status}，准备完成后才能保存`);
+    }
+    return d;
+  }
+
   return {
     get: (id: string) => view(row(id)),
 
-    // 保存前的改动预览（Contracts 21.3）：将要保存的 src/ 相对底子 variant 的 diff；从空白开始的草稿没有底子
-    diff(id: string): DraftDiffView {
-      const d = row(id);
-      if (!savable.includes(d.status)) {
-        throw new HttpError(409, `草稿 ${id} 的状态是 ${d.status}，准备完成后才有改动可看`);
-      }
-      const base = d.baseVariantId === null ? null : variants.get(d.baseVariantId);
+    // 保存前的改动预览（Contracts 17.4、21.3）：将要保存的 src/ 相对目标的 diff。against 为被覆盖的 variant；
+    // 不传时相对底子（新建时），从空白开始的草稿没有底子
+    diff(id: string, against: string | undefined): DraftDiffView {
+      const d = savableRow(id);
+      const baseId = against ?? d.baseVariantId;
+      const base = baseId === null ? null : variants.get(baseId);
       return {
         base: base === null ? null : { id: base.id, name: base.name },
-        files: variants.diffSource(d.baseVariantId, layoutOf(d).src),
+        files: variants.diffSource(baseId, layoutOf(d).src),
       };
     },
+
+    savePlan,
 
     open,
 
@@ -500,17 +591,10 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
       return view(row(id));
     },
 
-    // 保存（Contracts 17.4）：同一草稿同时只保存一次
-    async save(id: string): Promise<DraftView> {
-      const d = row(id);
-      if (!savable.includes(d.status)) {
-        throw new HttpError(409, `草稿 ${id} 的状态是 ${d.status}，准备完成后才能保存`);
-      }
-      if (saving.has(id)) throw new HttpError(409, `草稿 ${id} 正在保存`);
-      saving.add(id);
-      return saveDraft(id).finally(() => {
-        saving.delete(id);
-      });
+    // 保存（Contracts 17.4）：新建 variant 或覆盖已有 variant，不构建
+    save(id: string, body: SaveDraftBody): DraftView {
+      savableRow(id);
+      return saveDraft(id, body);
     },
   };
 }

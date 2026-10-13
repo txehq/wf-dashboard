@@ -4,7 +4,7 @@ import {
   validatorCompiler,
 } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import type { Variants } from '../variants/index.js';
+import { type Variants, VariantHistoryEntry } from '../variants/index.js';
 import { InstallManifest } from '../variants/local-install.js';
 import { efforts, modelAliases, modelChoices } from '../variants/models.js';
 
@@ -244,6 +244,29 @@ export const variantRoutes: FastifyPluginCallbackZod<{ variants: Variants }> = (
       },
     },
     (request) => variants.setDescription(request.params.id, request.body.description),
+  );
+
+  // variant 的历史（Contracts 16.4、17.4）：改名、被 Codex 草稿覆盖、恢复，按时间先后
+  app.get(
+    '/api/variants/:id/history',
+    { schema: { params: IdParams, response: { 200: z.array(VariantHistoryEntry) } } },
+    (request) => variants.history(request.params.id),
+  );
+
+  const EventParams = IdParams.extend({ eventId: z.coerce.number().int().positive() });
+
+  // 查看历史中存下的 src/：现在的内容恢复成它时逐文件的改动
+  app.get(
+    '/api/variants/:id/history/:eventId/diff',
+    { schema: { params: EventParams, response: { 200: z.array(FileDiff) } } },
+    (request) => variants.historyDiff(request.params.id, request.params.eventId),
+  );
+
+  // 恢复历史中存下的 src/：恢复前的 src/ 同样存进历史；导入的与已冻结的 409
+  app.post(
+    '/api/variants/:id/history/:eventId/restore',
+    { schema: { params: EventParams, response: { 200: Variant } } },
+    (request) => variants.restore(request.params.id, request.params.eventId),
   );
 
   // 安装到本机（Contracts 18.6）：没有装时 installed 为 null
