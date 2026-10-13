@@ -29,7 +29,9 @@ export function FullscreenArea({
         data-fullscreen={active}
         className={cn(
           className,
-          active && 'fixed inset-0 z-50 flex flex-col bg-background',
+          // 不全屏时的尺寸、圆角与边框在全屏时去掉，铺满窗口
+          active &&
+            'fixed inset-0 z-50 m-0 flex h-auto max-h-none min-h-0 w-auto max-w-none flex-col rounded-none border-0 bg-background',
           active && activeClassName,
         )}
       >

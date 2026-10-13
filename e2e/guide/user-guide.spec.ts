@@ -109,7 +109,7 @@ test('03 建基线 variant、派生并编辑 skill、构建', async ({ page, req
   await shot(page, '06-variant-import');
   await page.getByRole('button', { name: '导入基线' }).click();
   const panel = page.getByTestId('variant-panel');
-  // 页面上方是描述与安装区，截图前把 variant 的主体滚到视口顶部
+  // 截图前把 variant 页面滚到视口顶部
   const showPanel = () =>
     panel.evaluate((el) => {
       el.scrollIntoView({ block: 'start' });
@@ -123,7 +123,7 @@ test('03 建基线 variant、派生并编辑 skill、构建', async ({ page, req
   expect(((await built.json()) as { buildStatus: string }).buildStatus).toBe('built');
 
   await page.reload();
-  await panel.getByRole('button', { name: '另存为新 variant' }).click();
+  await panel.getByRole('button', { name: '派生新 variant' }).click();
   await expect(page.getByTestId('breadcrumb')).toHaveText(`Workflows › lfg › ${modName}`);
   await shot(page, '07-variant-derived');
 
@@ -141,7 +141,7 @@ test('03 建基线 variant、派生并编辑 skill、构建', async ({ page, req
   await expect(panel.getByText('未保存')).toBeVisible();
   await showPanel();
   await shot(page, '08-skill-edit');
-  await panel.getByRole('button', { name: '保存' }).click();
+  await panel.getByRole('button', { name: '保存', exact: true }).click();
   await expect(panel.getByText('未保存')).toHaveCount(0);
 
   await panel.getByRole('tab', { name: '对比' }).click();
@@ -149,7 +149,7 @@ test('03 建基线 variant、派生并编辑 skill、构建', async ({ page, req
   await showPanel();
   await shot(page, '09-skill-diff');
 
-  await panel.getByRole('button', { name: '构建并安装' }).click();
+  await panel.getByRole('button', { name: '构建', exact: true }).click();
   await expect(panel.getByTestId('build-status')).toHaveText('已构建', { timeout: 840_000 });
   await expect(panel.getByTestId('build-log')).toContainText('=== 构建完成');
   await showPanel();
