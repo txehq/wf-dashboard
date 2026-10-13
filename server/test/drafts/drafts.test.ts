@@ -447,9 +447,11 @@ describe('用 Codex 生成 workflow 或 variant（基础档）', { timeout: 60_0
     expect(response.statusCode, response.body).toBe(200);
     const saved = response.json<Draft>();
     expect(saved.savedWorkflowId).toBe(newId);
-    const workflow = (
-      await app.inject({ method: 'GET', url: `/api/workflows/${newId}` })
-    ).json<{ evalKind: string | null; description: string | null; definition: unknown }>();
+    const workflow = (await app.inject({ method: 'GET', url: `/api/workflows/${newId}` })).json<{
+      evalKind: string | null;
+      description: string | null;
+      definition: unknown;
+    }>();
     expect([workflow.evalKind, workflow.description]).toEqual([null, '打招呼']);
     expect(saved.savedVariants.map((v) => v.name)).toEqual(['基线']);
     const first = (
@@ -467,17 +469,16 @@ describe('用 Codex 生成 workflow 或 variant（基础档）', { timeout: 60_0
       'built',
       workflowDraft.id,
     ]);
-    const log = (
-      await app.inject({ method: 'GET', url: `/api/variants/${first.id}/build-log` })
-    ).body;
+    const log = (await app.inject({ method: 'GET', url: `/api/variants/${first.id}/build-log` }))
+      .body;
     expect(log).toContain(`[own] workflow ${newId} 的 variant 由 dashboard 管理，没有运行 wf`);
     expect(log).toContain('[copy-skills]');
 
     const again = await save(workflowDraft.id);
     expect(again.statusCode, again.body).toBe(200);
-    expect(again.json<{ savedVariants: { name: string }[] }>().savedVariants.map((v) => v.name)).toEqual(
-      ['基线', `Codex ${workflowDraft.id}`],
-    );
+    expect(
+      again.json<{ savedVariants: { name: string }[] }>().savedVariants.map((v) => v.name),
+    ).toEqual(['基线', `Codex ${workflowDraft.id}`]);
     // workflow.yaml 改了定义：以原文失败，不建 variant
     fs.appendFileSync(path.join(workflowDraft.dir, 'workflow.yaml'), '  - id: publish\n');
     const changed = await save(workflowDraft.id);

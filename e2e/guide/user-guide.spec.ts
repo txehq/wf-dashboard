@@ -96,31 +96,31 @@ test('03 建基线 variant、派生并编辑 skill、构建', async ({ page, req
   page.on('dialog', (dialog) => {
     void dialog.accept(modName);
   });
-  // variant 是 workflow 的实例，在所属 workflow 的页面中（Contracts 16.7）
+  // variant 是 workflow 的实例：从 workflow 页面导入，之后在它自己的页面中编辑（Contracts 18.3）
   await page.goto('/workflows');
   await shot(page, '06-workflows');
   await page.getByRole('link', { name: 'lfg', exact: true }).click();
-  await page.getByTestId('workflow-variants').getByLabel('名称').fill(baseName);
+  await page.getByTestId('import-baseline').getByLabel('名称').fill(baseName);
+  await page.getByTestId('workflow-variants').scrollIntoViewIfNeeded();
   await shot(page, '06-variant-import');
   await page.getByRole('button', { name: '导入基线' }).click();
   const panel = page.getByTestId('variant-panel');
-  // 展开的 variant 在配置与 variant 列表之下：截图前把它滚到视口顶部
+  // 页面上方是描述与安装区，截图前把 variant 的主体滚到视口顶部
   const showPanel = () =>
     panel.evaluate((el) => {
       el.scrollIntoView({ block: 'start' });
     });
-  await expect(panel.getByRole('heading', { level: 2 })).toHaveText(`${baseName} (lfg)`, {
+  await expect(page.getByTestId('breadcrumb')).toHaveText(`Workflows › lfg › ${baseName}`, {
     timeout: 120_000,
   });
   // 基线本身也要构建才能运行
-  const baseId = new URL(page.url()).searchParams.get('variant') ?? '';
+  const baseId = page.url().split('/').at(-1) ?? '';
   const built = await request.post(`/api/variants/${baseId}/build`, { timeout: 900_000 });
   expect(((await built.json()) as { buildStatus: string }).buildStatus).toBe('built');
 
   await page.reload();
   await panel.getByRole('button', { name: '另存为新 variant' }).click();
-  await expect(panel.getByRole('heading', { level: 2 })).toHaveText(`${modName} (lfg)`);
-  await showPanel();
+  await expect(page.getByTestId('breadcrumb')).toHaveText(`Workflows › lfg › ${modName}`);
   await shot(page, '07-variant-derived');
 
   // research 的评审最多两轮：在 research/SKILL.md 中加一条规则

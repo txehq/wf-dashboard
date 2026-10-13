@@ -128,11 +128,11 @@ test('新建分析、报告、证据链接、按 hunk 接受与拒绝、编辑�
   const name = `w31 e2e ${id}`;
   await review.getByLabel('新 variant 的名称').fill(name);
   await review.getByRole('button', { name: '另存为 variant' }).click();
-  // 新 variant 在所属 workflow 的页面中展开（Contracts 16.7）
-  await expect(page).toHaveURL(/\/workflows\/[a-z0-9-]+\?variant=[0-9a-f-]{36}$/);
-  const variantId = new URL(page.url()).searchParams.get('variant') ?? '';
+  // 新 variant 的页面（Contracts 18.3）
+  await expect(page).toHaveURL(/\/variants\/[0-9a-f-]{36}$/);
+  const variantId = page.url().split('/').at(-1) ?? '';
   const panel = page.getByTestId('variant-panel');
-  await expect(panel.getByRole('heading', { level: 2 })).toContainText(name);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText(name);
   await expect(panel.getByTestId('variant-analysis')).toContainText(id);
   await expect(panel.getByTestId('variant-parent')).toContainText(baseline);
   await page.screenshot({ path: `${shots}/w31-variant.png`, animations: 'disabled' });

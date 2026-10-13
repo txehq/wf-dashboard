@@ -185,7 +185,7 @@ test.describe('真实运行', () => {
     await expect(draftRow.getByRole('checkbox')).toBeDisabled();
     await expect(draftRow.getByRole('link', { name: '去构建' })).toHaveAttribute(
       'href',
-      `/workflows/lfg?variant=${draft.id}`,
+      `/variants/${draft.id}`,
     );
     await launch.getByRole('checkbox', { name: `${variantName} (lfg)` }).check();
     await launch.getByRole('checkbox', { name: '课堂用的网页计算器' }).check();

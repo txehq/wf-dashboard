@@ -18,6 +18,8 @@ export const gatewayTests = [
   'test/live/live.test.ts',
   'test/live/live-trust.test.ts',
   'test/live/live-simulated.test.ts',
+  // 自有管理器构建的 variant 在 Live 中启动真实的 claude（Contracts 18.6）
+  'test/live/live-own.test.ts',
   'test/insights-engines.test.ts',
   'test/bindings-build.test.ts',
   // 唯一一次真实调用 Codex（Contracts 17.5）

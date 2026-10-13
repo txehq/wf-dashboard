@@ -218,7 +218,10 @@ export function createDrafts({ db, variants, live, draftsDir, skillSources }: Dr
   function open(body: CreateDraftBody): { draft: DraftView; live: LiveDetail } {
     let base: Variant | null = null;
     if (body.mode === 'workflow') {
-      assertNewWorkflow(db, definitionOf({ mode: 'workflow', workflowId: body.workflowId, name: body.name }));
+      assertNewWorkflow(
+        db,
+        definitionOf({ mode: 'workflow', workflowId: body.workflowId, name: body.name }),
+      );
     } else {
       loadWorkflow(db, body.workflowId);
       base = variants.get(body.baseVariantId);

@@ -519,7 +519,11 @@ export function createVariants({
     let started = performance.now();
     const problem = skillsProblem(dirs.skills);
     if (problem !== null) log.fail('check-frontmatter', problem);
-    log.note('check-frontmatter', started, '每个 SKILL.md 有 name 与 description，name 与目录名相同');
+    log.note(
+      'check-frontmatter',
+      started,
+      '每个 SKILL.md 有 name 与 description，name 与目录名相同',
+    );
 
     started = performance.now();
     for (const dir of [dirs.dist, dirs.home, dirs.tmp]) {
@@ -669,10 +673,7 @@ export function createVariants({
     // 基本描述（Contracts 18.3）：不属于 skill 内容，已冻结的 variant 也可以改
     setDescription(id: string, description: string): Variant {
       get(id);
-      db.update(variants)
-        .set({ description: description.trim() })
-        .where(eq(variants.id, id))
-        .run();
+      db.update(variants).set({ description: description.trim() }).where(eq(variants.id, id)).run();
       return get(id);
     },
 
@@ -1018,7 +1019,10 @@ export function createVariants({
         );
       }
       if (row.buildStatus !== 'built' || row.builtHash !== row.skillsHash) {
-        throw new HttpError(409, `variant ${row.name} 还没有按当前内容构建，构建通过后才能安装到本机`);
+        throw new HttpError(
+          409,
+          `variant ${row.name} 还没有按当前内容构建，构建通过后才能安装到本机`,
+        );
       }
       return installs.install(row, dirsOf(row).skills);
     },

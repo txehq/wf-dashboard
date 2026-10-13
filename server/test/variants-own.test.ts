@@ -94,7 +94,9 @@ describe('自有管理器的构建（18.6）', () => {
     expect(settings.claudeMdExcludes).toContain(path.join(os.homedir(), '.claude/CLAUDE.md'));
     expect(fs.existsSync(path.join(dirs.codexHome, 'config.toml'))).toBe(true);
     const log = variants.buildLog(draft.id);
-    expect(log).toContain(`[own] workflow ${definition.id} 的 variant 由 dashboard 管理，没有运行 wf`);
+    expect(log).toContain(
+      `[own] workflow ${definition.id} 的 variant 由 dashboard 管理，没有运行 wf`,
+    );
     expect(log).not.toContain('[guard]');
     expect(log).toContain(`=== 构建完成 skills.${draft.skillsHash.slice(0, 8)} ===`);
     // Live 与分析用这份配置目录
@@ -132,9 +134,9 @@ describe('自有管理器的构建（18.6）', () => {
       `variant ${missing.name} 缺少 workflow ${definition.id} 要求的 skill：${String(scan)}（应为 src/skills/<名字>/SKILL.md）`,
     );
     // 初稿本身没有被改动
-    expect(fs.existsSync(path.join(variants.layout(draft.id).skills, String(scan), 'SKILL.md'))).toBe(
-      true,
-    );
+    expect(
+      fs.existsSync(path.join(variants.layout(draft.id).skills, String(scan), 'SKILL.md')),
+    ).toBe(true);
   });
 });
 
@@ -159,9 +161,7 @@ describe('安装到本机与卸载（18.6）', () => {
     expect(skillsOf(claudeSkills)).toEqual(skillsOf(variants.layout(draft.id).skills));
     expect(skillsOf(agentsSkills)).toEqual(skillsOf(variants.layout(draft.id).skills));
     expect(variants.localInstall(draft.id)).toEqual(manifest);
-    expect(
-      fs.existsSync(path.join(dataDir, 'installs', `${draft.id}.json`)),
-    ).toBe(true);
+    expect(fs.existsSync(path.join(dataDir, 'installs', `${draft.id}.json`))).toBe(true);
 
     // 另一个 workflow 的 skill 与一个不是 dashboard 装的目录同名：拒绝并列出，不覆盖
     const other = newWorkflow();

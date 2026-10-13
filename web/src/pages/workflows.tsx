@@ -1,54 +1,57 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Sparkles } from 'lucide-react';
-import { useState } from 'react';
+import type { WorkflowDefinition } from '@wf-dashboard/server/workflows/schema';
+import { ChevronDown, ChevronRight, Plus, Sparkles } from 'lucide-react';
+import { Fragment, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { CodexDraftForm } from '@/components/codex-draft';
 import { PageShell } from '@/components/page-shell';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { StageFlow } from '@/components/workflow-flow';
+import { formatDateTime } from '@/lib/format';
 import {
   createWorkflow,
   evalKindLabel,
   type WorkflowRecord,
   workflowsQuery,
 } from '@/lib/workflows-api';
-import { variantLabel, variantsQuery } from '@/pages/variants-api';
+import {
+  buildLabel,
+  importedLabel,
+  isImported,
+  statusLabel,
+  type Variant,
+  variantHref,
+  variantsQuery,
+} from '@/pages/variants-api';
+import { DefinitionForm } from '@/pages/workflow-config';
 
-// 复制：选一个已有 variant 作来源，填 id 与名字，勾选是否保留评测类型（默认保留）；定义先复制来源 workflow 的定义
-export function NewWorkflowForm({
-  initialVariantId,
-  onCancel,
-}: {
-  initialVariantId?: string | undefined;
-  onCancel: () => void;
-}) {
+// 从空白新建（Contracts 18.5）：id、名字、描述与小阶段；没有评测类型。同时建出第一个 variant"初稿"
+function BlankWorkflowForm({ onCancel }: { onCancel: () => void }) {
   const client = useQueryClient();
   const navigate = useNavigate();
-  const variants = useQuery(variantsQuery);
-  const workflows = useQuery(workflowsQuery);
-  const [variantId, setVariantId] = useState(initialVariantId ?? '');
   const [id, setId] = useState('');
-  const [name, setName] = useState('');
-  const [keepEvalKind, setKeepEvalKind] = useState(true);
-  const source = variants.data?.find((v) => v.id === variantId);
-  const from = workflows.data?.find((w) => w.id === source?.workflowId);
+  const [description, setDescription] = useState('');
+  const [definition, setDefinition] = useState<WorkflowDefinition>({
+    id: '',
+    name: '',
+    stages: [],
+  });
   const create = useMutation({
-    mutationFn: () => {
-      if (from === undefined) throw new Error('还没有选来源 variant');
-      return createWorkflow({
+    mutationFn: () =>
+      createWorkflow({
         id,
-        name,
-        fromVariantId: variantId,
-        keepEvalKind,
-        definition: { ...from.definition, id, name },
-      });
-    },
+        name: definition.name,
+        description,
+        definition: { ...definition, id },
+      }),
     onSuccess: async (created) => {
       await client.invalidateQueries({ queryKey: ['workflows'] });
       await client.invalidateQueries({ queryKey: ['variants'] });
       await navigate(`/workflows/${created.id}`);
     },
   });
+  const ready = id !== '' && definition.name.trim() !== '' && definition.stages.length > 0;
   return (
     <form
       className="flex flex-col gap-4 rounded-lg border p-4"
@@ -58,78 +61,54 @@ export function NewWorkflowForm({
         create.mutate();
       }}
     >
-      <h2 className="text-base font-semibold">复制为新 workflow</h2>
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1 text-sm">
-          来源 variant
-          <select
-            className="h-9 w-72 rounded-md border bg-background px-2"
-            data-testid="new-workflow-source"
-            value={variantId}
-            onChange={(event) => {
-              setVariantId(event.target.value);
-            }}
-            required
-          >
-            <option value="">选择…</option>
-            {variants.data?.map((v) => (
-              <option key={v.id} value={v.id}>
-                {variantLabel(v)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          id（入口命令 /id）
-          <input
-            className="h-9 w-48 rounded-md border px-3 font-mono"
-            value={id}
-            onChange={(event) => {
-              setId(event.target.value);
-            }}
-            required
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          名字
-          <input
-            className="h-9 w-56 rounded-md border px-3"
-            value={name}
-            onChange={(event) => {
-              setName(event.target.value);
-            }}
-            required
-          />
-        </label>
-        <label className="flex h-9 items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={keepEvalKind}
-            onChange={(event) => {
-              setKeepEvalKind(event.target.checked);
-            }}
-          />
-          保留评测类型{from === undefined ? '' : `（${evalKindLabel(from.evalKind)}）`}
-        </label>
-      </div>
-      {from !== undefined && (
-        <p className="text-sm text-muted-foreground">
-          定义复制自 {from.name}：{from.definition.stages.map((s) => s.id).join('、')}
-          ；来源 variant 的入口 skill /{from.id} 在副本中改名为 /{id === '' ? '<id>' : id}。
-        </p>
+      <h2 className="text-base font-semibold">从空白新建 workflow</h2>
+      <label className="flex flex-col gap-1.5 text-sm">
+        <span className="font-medium">id（入口命令 /id，也是入口 skill 的名字）</span>
+        <input
+          className="h-9 w-56 rounded-md border bg-background px-3 font-mono"
+          value={id}
+          onChange={(event) => {
+            setId(event.target.value.trim());
+          }}
+          required
+        />
+      </label>
+      <label className="flex flex-col gap-1.5 text-sm">
+        <span className="font-medium">描述</span>
+        <textarea
+          className="min-h-16 max-w-3xl rounded-md border bg-background px-3 py-2"
+          value={description}
+          placeholder="写一句这是做什么的"
+          onChange={(event) => {
+            setDescription(event.target.value);
+          }}
+        />
+      </label>
+      <DefinitionForm
+        definition={{ ...definition, id }}
+        skillNames={[]}
+        readOnly={false}
+        onChange={setDefinition}
+      />
+      {id !== '' && definition.stages.length > 0 && (
+        <StageFlow definition={{ ...definition, id }} />
       )}
+      <p className="text-sm text-muted-foreground">
+        新建后有一个 variant「初稿」：入口与每个小阶段各一个只有 frontmatter 与一行说明的
+        SKILL.md，在 variant 页面中写成完整的 skill。新 workflow 没有评测类型，用于
+        Live、阶段划分与分析。
+      </p>
       {create.isError && (
         <Alert variant="destructive">
           <AlertTitle>新建失败</AlertTitle>
-          <AlertDescription>{create.error.message}</AlertDescription>
+          <AlertDescription className="whitespace-pre-wrap">
+            {create.error.message}
+          </AlertDescription>
         </Alert>
       )}
       <div className="flex gap-2">
-        <Button
-          type="submit"
-          disabled={create.isPending || variantId === '' || id === '' || name === ''}
-        >
-          {create.isPending ? '复制中…' : '新建'}
+        <Button type="submit" disabled={!ready || create.isPending}>
+          {create.isPending ? '新建中…' : '新建'}
         </Button>
         <Button type="button" variant="ghost" onClick={onCancel}>
           取消
@@ -139,42 +118,117 @@ export function NewWorkflowForm({
   );
 }
 
-function WorkflowRow({ workflow }: { workflow: WorkflowRecord }) {
+// 一个 workflow 的 variant（Contracts 18.3）：名字链接到 variant 页面
+export function VariantRows({ variants }: { variants: (Variant & { boundSessions: number })[] }) {
+  if (variants.length === 0) {
+    return <p className="text-sm text-muted-foreground">这个 workflow 还没有 variant。</p>;
+  }
   return (
-    <tr className="border-b" data-testid={`workflow-row-${workflow.id}`}>
-      <td className="py-2">
-        <Link className="font-medium underline-offset-4 hover:underline" to={workflow.id}>
-          {workflow.name}
-        </Link>
-        {workflow.builtin && <span className="ml-2 text-xs text-muted-foreground">内置</span>}
-      </td>
-      <td className="font-mono">/{workflow.id}</td>
-      <td>{evalKindLabel(workflow.evalKind)}</td>
-      <td>{workflow.definition.stages.length}</td>
-      <td>{workflow.variants}</td>
-    </tr>
+    <table className="w-full text-sm" data-testid="variant-table">
+      <thead className="text-left text-muted-foreground">
+        <tr className="border-b">
+          <th className="py-1.5 font-medium">名字</th>
+          <th className="font-medium">描述</th>
+          <th className="font-medium">状态</th>
+          <th className="font-medium">构建</th>
+          <th className="font-medium">构建时间</th>
+          <th className="font-medium">绑定的 session</th>
+        </tr>
+      </thead>
+      <tbody>
+        {variants.map((v) => (
+          <tr key={v.id} className="border-b last:border-b-0" data-testid={`variant-row-${v.name}`}>
+            <td className="py-1.5">
+              <Link className="font-medium underline-offset-4 hover:underline" to={variantHref(v)}>
+                {v.name}
+              </Link>
+            </td>
+            <td className="max-w-md truncate text-muted-foreground" title={v.description ?? ''}>
+              {v.description ?? ''}
+            </td>
+            <td>{statusLabel[v.status]}</td>
+            <td>{isImported(v) ? importedLabel : buildLabel(v)}</td>
+            <td>{v.builtAt === null ? '—' : formatDateTime(v.builtAt)}</td>
+            <td>{v.boundSessions}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
-// Contracts 16.7：Workflows 列表与新建
+function WorkflowRow({
+  workflow,
+  variants,
+}: {
+  workflow: WorkflowRecord;
+  variants: (Variant & { boundSessions: number })[];
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Fragment>
+      <tr className="border-b" data-testid={`workflow-row-${workflow.id}`}>
+        <td className="py-2">
+          <span className="flex items-center gap-1">
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              aria-expanded={open}
+              aria-label={`${open ? '收起' : '展开'} ${workflow.name} 的 variant`}
+              onClick={() => {
+                setOpen(!open);
+              }}
+            >
+              {open ? <ChevronDown /> : <ChevronRight />}
+            </Button>
+            <Link
+              className="font-medium underline-offset-4 hover:underline"
+              to={`/workflows/${workflow.id}`}
+            >
+              {workflow.name}
+            </Link>
+            {workflow.builtin && <span className="ml-1 text-xs text-muted-foreground">内置</span>}
+          </span>
+        </td>
+        <td className="max-w-md truncate text-muted-foreground" title={workflow.description ?? ''}>
+          {workflow.description ?? ''}
+        </td>
+        <td className="font-mono">/{workflow.id}</td>
+        <td>{evalKindLabel(workflow.evalKind)}</td>
+        <td>{workflow.definition.stages.length}</td>
+        <td>{workflow.variants}</td>
+      </tr>
+      {open && (
+        <tr className="border-b bg-muted/30" data-testid={`workflow-variants-${workflow.id}`}>
+          <td colSpan={6} className="px-8 py-2">
+            <VariantRows variants={variants} />
+          </td>
+        </tr>
+      )}
+    </Fragment>
+  );
+}
+
+// Contracts 16.7、18.3：Workflows 列表与新建（从空白新建，或用 Codex 生成）
 export function WorkflowsPage() {
   const list = useQuery(workflowsQuery);
-  const [creating, setCreating] = useState<'copy' | 'codex' | null>(null);
+  const variants = useQuery(variantsQuery);
+  const [creating, setCreating] = useState<'blank' | 'codex' | null>(null);
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <PageShell
           title="Workflows"
-          description="workflow 是一个入口命令加一串小阶段；variant 是它的实例。内置的 lfg、ic 只读，要改就复制。"
+          description="workflow 是一个入口命令加一串小阶段；variant 是它的实例。内置的 lfg、ic 只读（描述可改），新的 workflow 从空白新建。"
         />
         <div className="flex gap-2">
           <Button
             onClick={() => {
-              setCreating('copy');
+              setCreating('blank');
             }}
           >
             <Plus />
-            新建 workflow
+            从空白新建
           </Button>
           <Button
             variant="outline"
@@ -187,8 +241,8 @@ export function WorkflowsPage() {
           </Button>
         </div>
       </div>
-      {creating === 'copy' && (
-        <NewWorkflowForm
+      {creating === 'blank' && (
+        <BlankWorkflowForm
           onCancel={() => {
             setCreating(null);
           }}
@@ -203,10 +257,10 @@ export function WorkflowsPage() {
         />
       )}
       {list.isPending && <p className="text-sm text-muted-foreground">加载中…</p>}
-      {list.isError && (
+      {(list.isError || variants.isError) && (
         <Alert variant="destructive">
           <AlertTitle>无法读取 workflow 列表</AlertTitle>
-          <AlertDescription>{list.error.message}</AlertDescription>
+          <AlertDescription>{(list.error ?? variants.error)?.message}</AlertDescription>
         </Alert>
       )}
       {list.data !== undefined && (
@@ -214,6 +268,7 @@ export function WorkflowsPage() {
           <thead className="text-left text-muted-foreground">
             <tr className="border-b">
               <th className="py-2 font-medium">名字</th>
+              <th className="font-medium">描述</th>
               <th className="font-medium">入口命令</th>
               <th className="font-medium">评测类型</th>
               <th className="font-medium">小阶段数</th>
@@ -222,7 +277,11 @@ export function WorkflowsPage() {
           </thead>
           <tbody>
             {list.data.map((w) => (
-              <WorkflowRow key={w.id} workflow={w} />
+              <WorkflowRow
+                key={w.id}
+                workflow={w}
+                variants={(variants.data ?? []).filter((v) => v.workflowId === w.id)}
+              />
             ))}
           </tbody>
         </table>

@@ -205,25 +205,25 @@ export function DefinitionForm({
         </ol>
         {!readOnly && (
           <div className="flex items-center gap-2">
-            <select
-              className="h-9 rounded-md border bg-background px-2"
+            <input
+              className="h-9 w-56 rounded-md border bg-background px-3 font-mono"
               aria-label="要加入的小阶段"
+              list="stage-suggestions"
+              placeholder="小阶段 id，例如 scan"
               value={adding}
               onChange={(event) => {
-                setAdding(event.target.value);
+                setAdding(event.target.value.trim());
               }}
-            >
-              <option value="">选择一个 skill…</option>
+            />
+            <datalist id="stage-suggestions">
               {choices.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
+                <option key={name} value={name} />
               ))}
-            </select>
+            </datalist>
             <Button
               size="sm"
               variant="outline"
-              disabled={adding === ''}
+              disabled={adding === '' || used.has(adding) || adding === definition.id}
               onClick={() => {
                 setStages([...stages, { id: adding }]);
                 setAdding('');

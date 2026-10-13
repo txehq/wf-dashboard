@@ -40,24 +40,20 @@ export function CodexDraftForm({
   const client = useQueryClient();
   const navigate = useNavigate();
   const variants = useQuery(variantsQuery);
-  // mode 为 workflow 时底子默认是内置 lfg 的基线；mode 为 variant 时是这个 workflow 的第一个 variant
-  const choices =
-    mode === 'workflow'
-      ? (variants.data ?? [])
-      : (variants.data ?? []).filter((v) => v.workflowId === workflowId);
-  const lfg = (variants.data ?? []).filter((v) => v.workflowId === 'lfg');
-  const fallback =
-    mode === 'workflow' ? (lfg.find((v) => v.name === '基线') ?? earliest(lfg)) : earliest(choices);
+  // mode 为 variant 时底子默认是这个 workflow 的第一个 variant；mode 为 workflow 时从空白骨架开始（Contracts 18.5）
+  const choices = (variants.data ?? []).filter((v) => v.workflowId === workflowId);
+  const fallback = earliest(choices);
   const [baseVariantId, setBaseVariantId] = useState('');
   const base = baseVariantId === '' ? (fallback?.id ?? '') : baseVariantId;
   const [id, setId] = useState('');
   const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
   const [requirement, setRequirement] = useState('');
   const create = useMutation({
     mutationFn: () =>
       createDraft(
         mode === 'workflow'
-          ? { mode, workflowId: id, name, requirement, baseVariantId: base }
+          ? { mode, workflowId: id, name, description, requirement }
           : { mode, workflowId: workflowId ?? '', requirement, baseVariantId: base },
       ),
     onSuccess: async ({ live }) => {
@@ -66,7 +62,7 @@ export function CodexDraftForm({
     },
   });
   const ready =
-    base !== '' && requirement.trim() !== '' && (mode === 'variant' || (id !== '' && name !== ''));
+    requirement.trim() !== '' && (mode === 'variant' ? base !== '' : id !== '' && name !== '');
   return (
     <form
       className="flex flex-col gap-4 rounded-lg border p-4"
@@ -110,26 +106,41 @@ export function CodexDraftForm({
             </label>
           </>
         )}
-        <label className="flex flex-col gap-1 text-sm">
-          底子 variant
-          <select
-            className="h-9 w-72 rounded-md border bg-background px-2"
-            data-testid="codex-draft-base"
-            value={base}
-            onChange={(event) => {
-              setBaseVariantId(event.target.value);
-            }}
-            required
-          >
-            {base === '' && <option value="">选择…</option>}
-            {choices.map((v) => (
-              <option key={v.id} value={v.id}>
-                {variantLabel(v)}
-              </option>
-            ))}
-          </select>
-        </label>
+        {mode === 'variant' && (
+          <label className="flex flex-col gap-1 text-sm">
+            底子 variant
+            <select
+              className="h-9 w-72 rounded-md border bg-background px-2"
+              data-testid="codex-draft-base"
+              value={base}
+              onChange={(event) => {
+                setBaseVariantId(event.target.value);
+              }}
+              required
+            >
+              {base === '' && <option value="">选择…</option>}
+              {choices.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {variantLabel(v)}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
+      {mode === 'workflow' && (
+        <label className="flex flex-col gap-1 text-sm">
+          描述
+          <textarea
+            className="min-h-14 rounded-md border px-3 py-2"
+            data-testid="codex-draft-description"
+            value={description}
+            onChange={(event) => {
+              setDescription(event.target.value);
+            }}
+          />
+        </label>
+      )}
       <label className="flex flex-col gap-1 text-sm">
         需求
         <textarea
@@ -144,7 +155,7 @@ export function CodexDraftForm({
       </label>
       <p className="text-sm text-muted-foreground">
         {mode === 'workflow'
-          ? '草稿从底子 variant 的全部 skill 开始；Codex 写好 skill 与小阶段后，在 Live 中保存为新 workflow。'
+          ? '草稿从空白骨架开始（入口与一个小阶段的 SKILL.md）；Codex 写好 skill 与小阶段后，在 Live 中保存为新 workflow。'
           : '只改 skill 内容，入口与小阶段不变；Codex 写好后，在 Live 中保存为新 variant。'}
       </p>
       {create.isError && (
