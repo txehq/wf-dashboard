@@ -46,10 +46,11 @@ for (const { runId, ...from } of sources) {
   if (isImported(db, runId)) continue;
   console.log(JSON.stringify(importRun(db, from, runId, config.dataDir)));
 }
-// 全部导入后按 runs 模块在 run 结束时的做法重新扫描运行之间的参考（Contracts 7.11）
+// 全部导入后按 runs 模块在 run 结束时的做法重新扫描运行之间的参考（Contracts 7.11）。
+// 数据目录保留在多次运行之间：上一次运行中途结束时，runs.spec 标为无效的 run 没有恢复，这里每次清除
 for (const { runId } of sources) {
   const refs = scanCrossRunRefs(db, runId);
-  db.update(runs).set({ crossRunRefs: refs }).where(eq(runs.id, runId)).run();
+  db.update(runs).set({ crossRunRefs: refs, invalidReason: null }).where(eq(runs.id, runId)).run();
   console.log(JSON.stringify({ runId, crossRunRefs: refs.length }));
 }
 db.$client.close();

@@ -1,3 +1,4 @@
+import { availableParallelism } from 'node:os';
 import { defineConfig } from 'vitest/config';
 
 // 真实档（pnpm test:real）：真实调用 gateway 模型、claude 或 Codex 的测试，在单独的项目中逐个文件顺序执行，
@@ -52,6 +53,8 @@ const external = 'test/**/*.external.test.ts';
 
 export default defineConfig({
   test: {
+    // 同时运行的测试文件最多为本机核数的一半：许多文件还会启动 git、npm、wf 等子进程，默认的核数减一会让机器过载
+    maxWorkers: Math.max(1, Math.floor(availableParallelism() / 2)),
     // 测试进程的数据目录在 .work/test-data/<进程号>/；运行前后检查仓库根目录的 data/ 没有新增。
     // github-guard：gh 在 GitHub 上创建或修改对象的命令一律报错（测试只读取 GitHub）
     setupFiles: ['test/setup/data-dir.ts'],
