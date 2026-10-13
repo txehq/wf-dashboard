@@ -3,7 +3,7 @@ import { formatInteger, formatUsd } from '@/lib/format';
 import { requestJson } from '@/lib/http';
 import { invalidateThrottled, useLiveEvent } from '@/lib/live-events';
 
-// Contracts 第 15 节：session 绑定 variant 与 skill 分析
+// Contracts 第 15 节、第 19 节：session 绑定 variant 与由 session-analysis 驱动的分析
 
 export type VariantBinding = 'run' | 'auto' | 'manual';
 
@@ -49,22 +49,45 @@ export function deriveVariantFromSession(
 
 export type AnalysisEngine = 'claude' | 'codex';
 export type AnalysisStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
-export type AnalysisAspect = 'process' | 'efficiency' | 'interaction' | 'quality';
-export type StepKey = AnalysisAspect | 'synthesis';
 
 export const engineLabel: Record<AnalysisEngine, string> = {
   claude: 'Claude Code',
   codex: 'Codex',
 };
 
-export const aspectLabel: Record<AnalysisAspect, string> = {
+// 方面与步骤是所选 session-analysis variant 的小阶段（Contracts 19.2）；W45 之前的分析是四个方面与 synthesis
+const stageNames: Record<string, string> = {
+  'process-adherence': '流程遵守',
+  'plan-adherence': '计划遵守',
+  failures: '经常失败的地方',
+  'repeated-work': '重复的工作',
+  'token-waste': '浪费 token',
+  'time-waste': '浪费时间',
+  'user-interaction': '和用户的交互',
+  'output-quality': '产物质量',
+  'request-conflicts': '与请求的冲突',
+  synthesize: '综合：报告与修改建议',
   process: '流程遵守',
   efficiency: '效率与花费',
   interaction: '和用户的交互',
   quality: '产物质量',
+  synthesis: '综合修改建议',
 };
 
-export const stepLabel: Record<StepKey, string> = { ...aspectLabel, synthesis: '综合修改建议' };
+// 已知的小阶段显示中文名，其余（派生出的 workflow 的阶段）显示阶段 id
+export const stageName = (key: string) => stageNames[key] ?? key;
+
+// 综合步骤：最后一步
+const SYNTHESIS_KEYS = ['synthesize', 'synthesis'];
+export const aspectKeys = (steps: { key: string }[]) =>
+  steps.map((s) => s.key).filter((k) => !SYNTHESIS_KEYS.includes(k));
+
+export const outcomeLabel: Record<AnalysisReport['outcome'], string> = {
+  achieved: '完成',
+  partially_achieved: '部分完成',
+  not_achieved: '没有完成',
+  unclear: '看不出',
+};
 
 export const statusLabel: Record<AnalysisStatus, string> = {
   queued: '排队中',
@@ -83,7 +106,7 @@ export interface AnalysisTokens {
 }
 
 export interface AnalysisStep {
-  key: StepKey;
+  key: string;
   status: 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
   startedAt: number | null;
   endedAt: number | null;
@@ -99,6 +122,9 @@ export interface AnalysisSummary {
   model: string;
   variantId: string;
   variantName: string;
+  // 驱动分析的 session-analysis variant；W45 之前的分析为空
+  analysisVariantId: string | null;
+  analysisVariantName: string | null;
   sessionIds: string[];
   status: AnalysisStatus;
   error: string | null;
@@ -125,7 +151,7 @@ export interface AnalysisScope {
 
 export interface Finding {
   findingId: string;
-  aspect: AnalysisAspect;
+  aspect: string;
   title: string;
   stage: string | null;
   skill: string | null;
@@ -150,8 +176,20 @@ export interface FileProposal {
   hunks: Hunk[];
 }
 
+// synthesize 写出的报告（Contracts 19.2）：workflowChanges 是"需要新建 workflow"的建议
+export interface AnalysisReport {
+  summary: string;
+  goal: string;
+  outcome: 'achieved' | 'partially_achieved' | 'not_achieved' | 'unclear';
+  topIssues: { title: string; findingIds: string[]; impact: string }[];
+  workflowChanges: { findingIds: string[]; rationale: string; change: string }[];
+}
+
 export interface AnalysisDetail extends AnalysisSummary {
   sessions: ScopeSession[];
+  report: AnalysisReport | null;
+  // 交给 Codex 优化的草稿与它在 Live 中的项（Contracts 19.3）
+  optimizeDrafts: { id: string; liveId: string | null }[];
   findings: Finding[];
   patches: { file: string; findingIds: string[]; rationale: string; patch: string }[];
   files: FileProposal[];
@@ -177,10 +215,15 @@ export const analysisQuery = (id: string) =>
     queryFn: () => call<AnalysisDetail>('GET', `/api/analyses/${id}`),
   });
 
+export interface AnalysisOptions {
+  defaults: Record<AnalysisEngine, string> & { analysisVariantId: string | null };
+  // 可以选用的 session-analysis variant（按当前内容构建通过的）
+  analysisVariants: Named[];
+}
+
 export const analysisOptionsQuery = queryOptions({
   queryKey: ['analyses', 'options'],
-  queryFn: () => call<{ defaults: Record<AnalysisEngine, string> }>('GET', '/api/analyses/options'),
-  staleTime: Infinity,
+  queryFn: () => call<AnalysisOptions>('GET', '/api/analyses/options'),
 });
 
 // 范围：?sessions=a,b 或 ?batch=<id>
@@ -198,13 +241,22 @@ export const scopeQuery = (input: ScopeInput) =>
   });
 
 export function createAnalysis(
-  input: ScopeInput & { engine: AnalysisEngine; model: string },
+  input: ScopeInput & { engine: AnalysisEngine; model: string; analysisVariantId: string },
 ): Promise<{ id: string }> {
   return call('POST', '/api/analyses', {
     ...('batch' in input ? { batchId: input.batch } : { sessionIds: input.sessions }),
     engine: input.engine,
     model: input.model,
+    analysisVariantId: input.analysisVariantId,
   });
+}
+
+// 交给 Codex 优化（Contracts 19.3）：返回 Live 中的 Codex 项
+export function startOptimize(id: string) {
+  return call<{ draft: { id: string }; live: { id: string } }>(
+    'POST',
+    `/api/analyses/${id}/optimize`,
+  );
 }
 
 export function cancelAnalysis(id: string) {

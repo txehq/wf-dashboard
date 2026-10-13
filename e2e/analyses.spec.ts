@@ -64,9 +64,21 @@ test('新建分析、报告、证据链接、按 hunk 接受与拒绝、编辑�
   await expect(page).toHaveURL(/\/analyses\/a-\d{8}-[a-z0-9]{6}$/);
   const id = page.url().split('/').pop() ?? '';
   await expect(page.getByTestId('analysis-status')).toHaveText('已完成', { timeout: 35 * 60_000 });
-  for (const aspect of ['process', 'efficiency', 'interaction', 'quality']) {
+  // 方面即 session-analysis 的小阶段（Contracts 19.2）
+  for (const aspect of [
+    'process-adherence',
+    'plan-adherence',
+    'failures',
+    'repeated-work',
+    'token-waste',
+    'time-waste',
+    'user-interaction',
+    'output-quality',
+    'request-conflicts',
+  ]) {
     await expect(page.getByTestId(`aspect-${aspect}`)).toBeVisible();
   }
+  await expect(page.getByTestId('analysis-report')).toBeVisible();
   const detail = (await (await request.get(`${api}/analyses/${id}`)).json()) as Detail;
   expect(detail.findings.length).toBeGreaterThan(0);
   expect(detail.files.length).toBeGreaterThan(0);

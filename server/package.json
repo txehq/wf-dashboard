@@ -26,6 +26,7 @@
     "prepare:runs-e2e": "tsx scripts/prepare-runs-e2e.ts",
     "prepare:sessions-e2e": "tsx scripts/prepare-sessions-e2e.ts",
     "prepare:analyses-e2e": "tsx scripts/prepare-analyses-e2e.ts",
+    "prepare:analysis-workflow-e2e": "tsx scripts/prepare-analysis-workflow-e2e.ts",
     "prepare:codex-skills-e2e": "tsx scripts/prepare-codex-skills-e2e.ts",
     "record:gh-fixtures": "tsx scripts/record-gh-fixtures.ts"
   },

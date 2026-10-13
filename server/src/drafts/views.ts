@@ -49,8 +49,10 @@ export const DraftView = z.object({
   // mode 为 workflow 时新 workflow 的名字与描述
   name: z.string().nullable(),
   description: z.string().nullable(),
-  // mode 为 variant 时的底子 variant；mode 为 workflow 时为空
+  // mode 为 variant 时的底子 variant；mode 为 optimize 时是被分析的 variant；mode 为 workflow 时为空
   baseVariantId: z.string().nullable(),
+  // mode 为 optimize 时被优化的分析（Contracts 19.3）
+  analysisId: z.string().nullable(),
   requirement: z.string(),
   liveId: z.string().nullable(),
   // preparing 时后台在准备草稿目录；failed 时 error 为失败那一步的原文，可以重试

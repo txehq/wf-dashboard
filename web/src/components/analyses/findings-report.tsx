@@ -1,5 +1,5 @@
 import { Link } from 'react-router';
-import { type AnalysisAspect, aspectLabel, type Finding } from '@/lib/analyses-api';
+import { type Finding, stageName } from '@/lib/analyses-api';
 import { cn } from '@/lib/utils';
 
 const severityLabel: Record<Finding['severity'], string> = { high: '高', medium: '中', low: '低' };
@@ -67,14 +67,14 @@ function FindingCard({ finding, sessionCount }: { finding: Finding; sessionCount
   );
 }
 
-// Contracts 15.3：发现按方面、阶段、skill 分组
+// Contracts 15.3、19.2：发现按方面（session-analysis 的小阶段）、被分析 workflow 的阶段、skill 分组
 export function FindingsReport({
   findings,
   aspects,
   sessionCount,
 }: {
   findings: Finding[];
-  aspects: readonly AnalysisAspect[];
+  aspects: readonly string[];
   sessionCount: number;
 }) {
   return (
@@ -85,12 +85,15 @@ export function FindingsReport({
         return (
           <section
             key={aspect}
-            aria-label={aspectLabel[aspect]}
+            aria-label={stageName(aspect)}
             className="flex flex-col gap-3 rounded-lg border px-4 py-3"
             data-testid={`aspect-${aspect}`}
           >
             <h3 className="font-medium">
-              {aspectLabel[aspect]}
+              {stageName(aspect)}
+              <span className="ml-2 font-mono text-xs font-normal text-muted-foreground">
+                {aspect}
+              </span>
               <span className="ml-2 text-xs font-normal text-muted-foreground">
                 {items.length} 条
               </span>

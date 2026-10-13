@@ -8,12 +8,17 @@ import type { AnalysisEngine, AnalysisTokens } from '../db/schema.js';
 
 // Contracts 15.2：两种引擎在 sandbox 中 headless 运行，从事件流中取 token 与花费
 
+// 一个引擎进程的命令行与环境（在 sandbox-exec 之内运行的部分）
+export interface EngineCommand {
+  args: string[];
+  env: Record<string, string>;
+}
+
 export interface EngineRunOptions {
   engine: AnalysisEngine;
-  model: string;
+  command: EngineCommand;
   // 分析目录，引擎的 cwd
   cwd: string;
-  prompt: string;
   // CLAUDE_CONFIG_DIR 或 CODEX_HOME
   engineHome: string;
   // sandbox-exec 的 profile
@@ -86,7 +91,12 @@ function baseEnv(home: string): Record<string, string> {
   return env;
 }
 
-function commandOf(o: EngineRunOptions): { args: string[]; env: Record<string, string> } {
+export function engineCommand(o: {
+  engine: AnalysisEngine;
+  model: string;
+  prompt: string;
+  engineHome: string;
+}): EngineCommand {
   if (o.engine === 'claude') {
     return {
       args: [
@@ -123,7 +133,7 @@ function commandOf(o: EngineRunOptions): { args: string[]; env: Record<string, s
 
 export async function runEngine(o: EngineRunOptions): Promise<EngineResult> {
   o.signal.throwIfAborted();
-  const { args, env } = commandOf(o);
+  const { args, env } = o.command;
   fs.mkdirSync(path.join(o.engineHome, 'tmp'), { recursive: true });
   const log = fs.createWriteStream(o.logFile, { flags: 'a' });
   const child = execa('sandbox-exec', ['-p', o.profile, ...args], {

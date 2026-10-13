@@ -13,7 +13,7 @@ import { sessions, variants } from '../db/schema.js';
 import { events } from '../events.js';
 import { claudeSettingsEnv } from '../llm/client.js';
 import { loadWorkflow } from '../workflows/index.js';
-import { isBuiltinWorkflow, requiredSkills } from '../workflows/schema.js';
+import { isWfWorkflow, requiredSkills } from '../workflows/schema.js';
 import { BuildLog } from './build-log.js';
 import { writeCodexHome } from './codex-home.js';
 import { HttpError } from './errors.js';
@@ -582,7 +582,7 @@ export function createVariants({
       const workflowId = input.workflowId ?? 'lfg';
       loadWorkflow(db, workflowId);
       // txe-workflow 的导出只属于内置的 lfg、ic；任意 workflow 的 variant 只有一组 skill（Contracts 18.6）
-      if (!isBuiltinWorkflow(workflowId)) {
+      if (!isWfWorkflow(workflowId)) {
         throw new HttpError(
           400,
           `workflow ${workflowId} 不是内置的 lfg 或 ic，不能导入 txe-workflow 的基线；从它已有的 variant 派生`,
@@ -699,14 +699,17 @@ export function createVariants({
       }
     },
 
-    // 保存 Codex 草稿（Contracts 17.4）：src/ 取草稿的 src/，parent 为底子 variant（从空白开始的草稿没有），
-    // 记录来源草稿；随后由调用方构建
-    createFromDraft(input: {
+    // 从一份 src/ 建 variant，随后由调用方构建：保存 Codex 草稿（Contracts 17.4、19.3：src/ 取草稿的 src/，
+    // parent 为底子 variant，记录来源草稿与分析）与 session-analysis 的基线（19.2：src/ 取仓库中的 skill）
+    createFromSource(input: {
       srcDir: string;
       workflowId: string;
       name: string;
       parentId: string | null;
-      draftId: string;
+      draftId: string | null;
+      analysisId: string | null;
+      // 构建日志的第一行
+      note: string;
     }): Variant {
       const parent = input.parentId === null ? null : get(input.parentId);
       loadWorkflow(db, input.workflowId);
@@ -715,10 +718,7 @@ export function createVariants({
       const dirs = layout.variant(id);
       fs.mkdirSync(dirs.dir, { recursive: true });
       fs.cpSync(input.srcDir, dirs.src, { recursive: true, verbatimSymlinks: true });
-      fs.writeFileSync(
-        dirs.buildLog,
-        `=== 从 Codex 草稿 ${input.draftId} 保存（${parent === null ? '从空白开始' : `底子 ${parent.name}，${parent.id}`}） ===\n`,
-      );
+      fs.writeFileSync(dirs.buildLog, `=== ${input.note} ===\n`);
       const hash = skillsHash(dirs.src);
       const baseCommit = parent?.baseCommit ?? '';
       db.insert(variants)
@@ -732,6 +732,7 @@ export function createVariants({
           version: versionFor(baseCommit, hash),
           installDir: dirs.dir,
           draftId: input.draftId,
+          analysisId: input.analysisId,
         })
         .run();
       onSkillsChanged();
@@ -910,7 +911,7 @@ export function createVariants({
       const hash = skillsHash(dirs.src);
       const version = versionFor(row.baseCommit, hash);
       let runtime: string | null = null;
-      if (isBuiltinWorkflow(row.workflowId)) {
+      if (isWfWorkflow(row.workflowId)) {
         runtime = await buildWithWf(row, dirs, log, hash, version);
       } else {
         buildOwn(row, dirs, log);
@@ -1012,7 +1013,7 @@ export function createVariants({
     // 安装到本机（Contracts 18.6）：只对任意 workflow 的 variant，装的是按当前内容构建通过的 skill
     installLocal(id: string) {
       const row = get(id);
-      if (isBuiltinWorkflow(row.workflowId)) {
+      if (isWfWorkflow(row.workflowId)) {
         throw new HttpError(
           409,
           `variant ${row.name} 属于内置的 ${row.workflowId}，由 wf 管理，不能由 dashboard 安装到本机`,

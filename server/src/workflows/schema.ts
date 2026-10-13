@@ -9,9 +9,21 @@ const slug = z.string().regex(SLUG, '只能包含小写字母、数字与连字�
 export const evalKinds = ['lfg', 'ic'] as const;
 export type EvalKind = (typeof evalKinds)[number];
 
-// 内置的两个 workflow，id 与评测类型同名
-export const BUILTIN_WORKFLOWS = evalKinds;
-export const isBuiltinWorkflow = (id: string): id is EvalKind =>
+// 内置的 lfg、ic：id 与评测类型同名，variant 是完整的 txe-workflow 导出，用 wf 构建（Contracts 18.6）
+export const WF_WORKFLOWS = evalKinds;
+export const isWfWorkflow = (id: string): id is EvalKind =>
+  (WF_WORKFLOWS as readonly string[]).includes(id);
+
+// 内置的分析 workflow（Contracts 19.2）：没有评测类型，variant 由 dashboard 自己管理；最后一个小阶段综合
+export const ANALYSIS_WORKFLOW = 'session-analysis';
+export const SYNTHESIZE_STAGE = 'synthesize';
+// 基线 variant 中供 Codex 优化用的 skill（Contracts 19.3），不是小阶段
+export const OPTIMIZE_SKILL = 'optimize-from-report';
+
+// 服务启动时以仓库中的 yaml 为准写入的 workflow，定义只读
+export const BUILTIN_WORKFLOWS = [...WF_WORKFLOWS, ANALYSIS_WORKFLOW] as const;
+export type BuiltinWorkflow = (typeof BUILTIN_WORKFLOWS)[number];
+export const isBuiltinWorkflow = (id: string): id is BuiltinWorkflow =>
   (BUILTIN_WORKFLOWS as readonly string[]).includes(id);
 
 // 准备积木，按顺序执行
@@ -234,7 +246,10 @@ export const WorkflowView = z.object({
   name: z.string(),
   evalKind: z.enum(evalKinds).nullable(),
   description: z.string().nullable(),
+  // 定义只读的内置 workflow（lfg、ic、session-analysis）
   builtin: z.boolean(),
+  // variant 是 txe-workflow 导出、用 wf 构建（lfg、ic）；其余由 dashboard 自己管理
+  wf: z.boolean(),
   definition: WorkflowDefinition,
   variants: z.number(),
   createdAt: z.number(),

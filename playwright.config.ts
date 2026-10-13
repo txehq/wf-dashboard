@@ -1,7 +1,13 @@
 import { defineConfig, devices } from '@playwright/test';
 import { e2eLocalReposDir } from './e2e/local-repos.js';
 import { type Service, webServersFor } from './e2e/services.js';
-import { compareWebPort, liveItemsWebPort, runsWebPort, webPort } from './ports.js';
+import {
+  analysisWorkflowWebPort,
+  compareWebPort,
+  liveItemsWebPort,
+  runsWebPort,
+  webPort,
+} from './ports.js';
 import { guardBasicTier } from './server/test/setup/basic-tier.js';
 import { guardGithub } from './server/test/setup/github-guard.js';
 
@@ -21,6 +27,7 @@ const projectServices: Record<string, Service[]> = {
   compare: ['compareServer', 'compareWeb'],
   runs: ['runsServer', 'runsWeb'],
   'live-items': ['liveItemsServer', 'liveItemsWeb'],
+  'analysis-workflow': ['analysisWorkflowServer', 'analysisWorkflowWeb'],
 };
 
 export default defineConfig({
@@ -85,6 +92,16 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         baseURL: `http://127.0.0.1:${String(liveItemsWebPort)}`,
+        viewport: { width: 1600, height: 1000 },
+      },
+    },
+    {
+      // 分析由 session-analysis 驱动：新建分析时选 variant、报告页的方面分组、交给 Codex 优化（Codex 是替身命令）
+      name: 'analysis-workflow',
+      testMatch: 'analysis-workflow.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: `http://127.0.0.1:${String(analysisWorkflowWebPort)}`,
         viewport: { width: 1600, height: 1000 },
       },
     },

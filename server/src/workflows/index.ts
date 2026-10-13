@@ -12,9 +12,10 @@ import type { Variants } from '../variants/index.js';
 import { evalSpec } from './eval-kinds.js';
 import {
   BUILTIN_WORKFLOWS,
-  type EvalKind,
+  type BuiltinWorkflow,
   type EvalSpec,
   isBuiltinWorkflow,
+  isWfWorkflow,
   type NewWorkflowBody,
   type UpdateWorkflowBody,
   WorkflowDefinition,
@@ -22,7 +23,14 @@ import {
 } from './schema.js';
 
 // pnpm start 运行 dist 时同样从源码目录读取
-const builtinFile = (id: EvalKind) => path.join(config.repoRoot, `server/src/workflows/${id}.yaml`);
+const builtinFile = (id: BuiltinWorkflow) =>
+  path.join(config.repoRoot, `server/src/workflows/${id}.yaml`);
+
+// session-analysis 基线 variant 的 skill（Contracts 19.2）：src/ 的形状，skills/ 在其下
+export const analysisBaselineSrc = path.join(
+  config.repoRoot,
+  'server/src/workflows/session-analysis',
+);
 
 type WorkflowRow = typeof workflowTable.$inferSelect;
 
@@ -37,7 +45,7 @@ export function parseDefinition(value: unknown, where: string): WorkflowDefiniti
 const BuiltinFile = z.looseObject({ description: z.string().trim().min(1) });
 
 // 内置 yaml 的 description 不属于定义（Contracts 18.3），其余部分是定义
-function readBuiltin(id: EvalKind): { definition: WorkflowDefinition; description: string } {
+function readBuiltin(id: BuiltinWorkflow): { definition: WorkflowDefinition; description: string } {
   const file = builtinFile(id);
   const { description, ...rest } = BuiltinFile.parse(parse(fs.readFileSync(file, 'utf8')));
   const definition = parseDefinition(rest, file);
@@ -45,7 +53,7 @@ function readBuiltin(id: EvalKind): { definition: WorkflowDefinition; descriptio
   return { definition, description };
 }
 
-export function builtinDefinition(id: EvalKind): WorkflowDefinition {
+export function builtinDefinition(id: BuiltinWorkflow): WorkflowDefinition {
   return readBuiltin(id).definition;
 }
 
@@ -54,21 +62,22 @@ export function definitionHash(definition: WorkflowDefinition): string {
   return createHash('sha256').update(JSON.stringify(definition)).digest('hex');
 }
 
-// 服务启动时（打开数据库后）以内置 YAML 为准写入 lfg 与 ic，评测类型与 id 同名。
-// 描述只在还没有时取 yaml 中的（之后在页面中编辑，Contracts 18.3）
+// 服务启动时（打开数据库后）以内置 YAML 为准写入 lfg、ic 与 session-analysis：lfg、ic 的评测类型与 id 同名，
+// session-analysis 没有评测类型（Contracts 19.2）。描述只在还没有时取 yaml 中的（之后在页面中编辑，Contracts 18.3）
 export function syncBuiltinWorkflows(db: Db) {
   for (const id of BUILTIN_WORKFLOWS) {
     const { definition, description } = readBuiltin(id);
+    const evalKind = isWfWorkflow(id) ? id : null;
     const existing = db.select().from(workflowTable).where(eq(workflowTable.id, id)).get();
     if (
-      existing?.evalKind === id &&
+      existing?.evalKind === evalKind &&
       existing.description !== null &&
       JSON.stringify(existing.definition) === JSON.stringify(definition)
     )
       continue;
     const values = {
       name: definition.name,
-      evalKind: id,
+      evalKind,
       definition,
       description: existing?.description ?? description,
       updatedAt: new Date(),
@@ -120,6 +129,7 @@ function view(db: Db, r: WorkflowRow): WorkflowView {
     evalKind: r.evalKind,
     description: r.description,
     builtin: isBuiltinWorkflow(r.id),
+    wf: isWfWorkflow(r.id),
     definition: parseDefinition(r.definition, `workflow ${r.id}`),
     variants: n?.n ?? 0,
     createdAt: r.createdAt.getTime(),

@@ -293,7 +293,7 @@ function VariantsSection({
         />
       )}
       {derive.isError && <p className="text-sm text-destructive">{derive.error.message}</p>}
-      {workflow.builtin && <ImportBaseline workflowId={workflow.id} />}
+      {workflow.wf && <ImportBaseline workflowId={workflow.id} />}
       <VariantRows variants={variants} />
     </section>
   );

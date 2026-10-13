@@ -9,7 +9,7 @@ import {
   useAnalysisEvents,
 } from '@/lib/analyses-api';
 
-// Contracts 15.3：分析列表
+// Contracts 15.3、19：分析列表
 export function AnalysesPage() {
   useAnalysisEvents();
   const list = useQuery(analysesQuery);
@@ -18,8 +18,9 @@ export function AnalysesPage() {
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold">Analyses</h1>
         <p className="text-sm text-muted-foreground">
-          用 Claude Code 或 Codex 分析 session，按发现修改 skill，另存为新的 variant。在 Sessions
-          中选择 session，或在 Runs 的 batch 上开始分析。
+          用 workflow session-analysis 的 variant 分析 session：按发现修改 skill 另存为新的
+          variant，或把报告交给 Codex 优化。在 Sessions 中选择 session，或在 Runs 的 batch
+          上开始分析。
         </p>
       </header>
       {list.isPending ? (
@@ -59,7 +60,14 @@ export function AnalysesPage() {
                       ? (a.sessionIds[0] ?? '').slice(0, 8)
                       : `${String(a.sessionIds.length)} 个 session`}
                   </td>
-                  <td className="py-2 pr-4">{a.variantName}</td>
+                  <td className="py-2 pr-4">
+                    {a.variantName}
+                    {a.analysisVariantName !== null && (
+                      <p className="text-xs text-muted-foreground">
+                        分析方法 {a.analysisVariantName}
+                      </p>
+                    )}
+                  </td>
                   <td className="py-2 pr-4">
                     {engineLabel[a.engine]}
                     <p className="font-mono text-xs text-muted-foreground">{a.model}</p>

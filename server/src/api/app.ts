@@ -29,6 +29,7 @@ import { liveRoutes } from './live.js';
 import { backfillSkillLoads } from '../ingest/ingest.js';
 import { bindRunSessions, rebindAll } from '../bindings/index.js';
 import { createInsights } from '../insights/index.js';
+import { ensureAnalysisBaseline } from '../insights/baseline.js';
 import { bindingRoutes } from './bindings.js';
 import { analysisRoutes } from './analyses.js';
 import { createWorkflows } from '../workflows/index.js';
@@ -129,6 +130,8 @@ export async function buildApp({
   bindRunSessions(db);
   rebindAll(db, config.dataDir);
   await app.register(bindingRoutes, { db, variants, dataDir: config.dataDir });
+  // 分析由内置的 session-analysis 驱动（Contracts 19.2）：启动时建出并构建它的基线 variant
+  await ensureAnalysisBaseline(db, variants);
   const insights = createInsights({ db, variants, dataDir: config.dataDir });
   await app.register(analysisRoutes, { insights });
   app.addHook('onClose', async () => {
@@ -176,6 +179,7 @@ export async function buildApp({
       variants,
       live,
       draftsDir: config.workflowDraftsDir,
+      dataDir: config.dataDir,
       skillSources: config.codexSkillSources,
     }),
   });
