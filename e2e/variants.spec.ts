@@ -72,7 +72,7 @@ test('variant 页面：任意 workflow 的 variant 编辑描述与 skill、派�
   await tree.getByTitle(`skills/${stage}/SKILL.md`).click();
   const editor = panel.getByTestId('skill-editor');
   // .md 文件默认预览，点"编辑"进入编辑
-  await panel.getByTestId('md-view').getByRole('button', { name: '编辑' }).click();
+  await panel.getByRole('tab', { name: '编辑' }).click();
   await expect(editor.locator('.view-lines')).toContainText('在这里写这个阶段做什么。');
   await editor.locator('.view-lines').click();
   await page.keyboard.press('ControlOrMeta+End');
