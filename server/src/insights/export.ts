@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { getTokenizer } from '@anthropic-ai/tokenizer';
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import { execa } from 'execa';
 import { stringify } from 'yaml';
@@ -41,6 +42,11 @@ export interface ExportedToolCall {
   subagentId: string | null;
 }
 
+export interface ExportedThinking {
+  type: ThinkingType;
+  tokens: number;
+}
+
 export interface ExportedRow {
   seq: number;
   agent: string | null;
@@ -55,7 +61,8 @@ export interface ExportedRow {
   attributionSkill: string | null;
   userMessagesBefore: { kind: 'user' | 'notice'; text: string }[];
   skillLoads: { name: string; args: string }[];
-  thinking: string | null;
+  // 只有类型与估算的 token 数，不含思考的文字与 signature；没有 thinking 块时为 null
+  thinking: ExportedThinking[] | null;
   text: string | null;
   toolCalls: ExportedToolCall[];
 }
@@ -82,6 +89,54 @@ function fullResults(files: string[], ids: Set<string>): Map<string, string> {
   if (missing.length > 0)
     throw new Error(`jsonl 中找不到这些 tool 结果的原文：${missing.join(', ')}`);
   return out;
+}
+
+const THINKING_TYPES = ['thinking', 'redacted_thinking'] as const;
+type ThinkingType = (typeof THINKING_TYPES)[number];
+
+const ThinkingRecord = z.looseObject({
+  type: z.literal('assistant'),
+  message: z.looseObject({
+    id: z.string(),
+    content: z.array(z.looseObject({ type: z.string() })),
+  }),
+});
+
+// 一个 agent 的 jsonl 中这些 message 的 thinking 块类型，按出现顺序；不读取块中的文字
+function thinkingTypes(file: string, messageIds: Set<string>): Map<string, ThinkingType[]> {
+  const out = new Map<string, ThinkingType[]>();
+  for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+    if (!line.includes('"thinking"') && !line.includes('"redacted_thinking"')) continue;
+    const raw: unknown = JSON.parse(line);
+    if (AnyRecord.parse(raw).type !== 'assistant') continue;
+    const { message } = ThinkingRecord.parse(raw);
+    if (!messageIds.has(message.id)) continue;
+    for (const block of message.content) {
+      const type = THINKING_TYPES.find((t) => t === block.type);
+      if (type === undefined) continue;
+      const types = out.get(message.id) ?? [];
+      types.push(type);
+      out.set(message.id, types);
+    }
+  }
+  return out;
+}
+
+// thinking 块的 token 数：一次请求的输出 token 减去回复文字与 tool 调用输入的估算 token 数，由这次请求的各个块均分。
+// Claude Code 记录的思考文字是摘要或空串（只有 signature），按输出 token 推算才接近实际消耗
+function estimateThinking(
+  tokenizer: ReturnType<typeof getTokenizer>,
+  row: { outputTokens: number; text: string | null; toolCalls: ToolCall[] },
+  types: ThinkingType[],
+): ExportedThinking[] {
+  const count = (s: string) => tokenizer.encode(s.normalize('NFKC'), 'all').length;
+  const visible =
+    (row.text === null ? 0 : count(row.text)) +
+    row.toolCalls.reduce((sum, c) => sum + count(c.name) + count(JSON.stringify(c.input)), 0);
+  const total = Math.max(0, row.outputTokens - visible);
+  const each = Math.floor(total / types.length);
+  const rest = total - each * types.length;
+  return types.map((type, i) => ({ type, tokens: each + (i < rest ? 1 : 0) }));
 }
 
 function stageLabels(report: StageReport): (seq: number) => string | null {
@@ -143,6 +198,15 @@ export function exportSessionRows(db: Db, sessionId: string): SessionExport {
   );
   const full = fullResults([session.filePath, ...subs.map((s) => s.filePath)], truncated);
 
+  // 每个 agent 只在自己的 jsonl 中找：fork 子代理的 jsonl 开头是父代理对话的副本
+  const idsOf = (agent: string | null) =>
+    new Set(rows.filter((r) => r.agentId === agent).map((r) => r.messageId));
+  const thinking = new Map<string | null, Map<string, ThinkingType[]>>([
+    [null, thinkingTypes(session.filePath, idsOf(null))],
+  ]);
+  for (const s of subs) thinking.set(s.agentId, thinkingTypes(s.filePath, idsOf(s.agentId)));
+  const tokenizer = getTokenizer();
+
   // tool_use.id → 主 agent 的 seq：主 agent 的调用即其所在行；子代理中的调用沿启动链回到主 agent
   const callSeq = new Map<string, number>();
   for (const r of rows)
@@ -169,6 +233,7 @@ export function exportSessionRows(db: Db, sessionId: string): SessionExport {
     const inWindow = (m: { agentId: string | null; timestamp: Date }) =>
       m.agentId === r.agentId && m.timestamp.getTime() > since && m.timestamp.getTime() <= at;
     const parentSeq = r.agentId === null ? r.seq : agentRoot(r.agentId);
+    const thinkingOf = thinking.get(r.agentId)?.get(r.messageId);
     return {
       seq: r.seq,
       agent: r.agentId,
@@ -189,7 +254,7 @@ export function exportSessionRows(db: Db, sessionId: string): SessionExport {
         .filter(inWindow)
         .map((m) => ({ kind: m.kind, text: m.kind === 'user' ? displayUserText(m.text) : m.text })),
       skillLoads: loads.filter(inWindow).map((l) => ({ name: l.name, args: l.args })),
-      thinking: r.thinking,
+      thinking: thinkingOf === undefined ? null : estimateThinking(tokenizer, r, thinkingOf),
       text: r.text,
       toolCalls: r.toolCalls.map((c: ToolCall) => ({
         id: c.id,
@@ -202,6 +267,7 @@ export function exportSessionRows(db: Db, sessionId: string): SessionExport {
       })),
     };
   });
+  tokenizer.free();
   return { rows: exported, report };
 }
 
