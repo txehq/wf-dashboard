@@ -5,6 +5,7 @@ import {
   analysisWorkflowWebPort,
   compareWebPort,
   liveItemsWebPort,
+  resumeDialogWebPort,
   runsWebPort,
   webPort,
 } from './ports.js';
@@ -28,6 +29,7 @@ const projectServices: Record<string, Service[]> = {
   runs: ['runsServer', 'runsWeb'],
   'live-items': ['liveItemsServer', 'liveItemsWeb'],
   'analysis-workflow': ['analysisWorkflowServer', 'analysisWorkflowWeb'],
+  'resume-dialog': ['resumeDialogServer', 'resumeDialogWeb'],
 };
 
 export default defineConfig({
@@ -103,6 +105,16 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         baseURL: `http://127.0.0.1:${String(analysisWorkflowWebPort)}`,
+        viewport: { width: 1600, height: 1000 },
+      },
+    },
+    {
+      // resume 对话框的预检（Contracts 14.5）："本机配置"的 HOME 在 .work/ 下，claude 是基础档会报错的替身
+      name: 'resume-dialog',
+      testMatch: 'resume-dialog.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: `http://127.0.0.1:${String(resumeDialogWebPort)}`,
         viewport: { width: 1600, height: 1000 },
       },
     },

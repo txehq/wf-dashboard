@@ -135,6 +135,8 @@ export const ResumeLiveBody = z.strictObject({
   driver: z.enum(liveDrivers),
   model: z.enum(modelAliases).optional(),
   effort: z.enum(efforts).optional(),
+  // 两份分叉时"以最新的为准继续"（Contracts 14.5）：目标中的那份改名保留后用最新的覆盖；不传时分叉不 resume
+  onDiverged: z.literal('use-latest').optional(),
 });
 export type ResumeLiveBody = z.infer<typeof ResumeLiveBody>;
 
@@ -149,3 +151,48 @@ export const ResumeDefaults = z.object({
   running: z.boolean(),
 });
 export type ResumeDefaults = z.infer<typeof ResumeDefaults>;
+
+// resume 的预检（Contracts 14.5）：对话框打开与改选配置时就说明将要做什么。
+// resume：目标配置中已是最新内容，直接接着运行；copy：先把 session 复制进目标配置；sync：目标中有较早的一份，
+// 先用最新的覆盖；diverged：两份分叉，要用户选择；blocked：不能 resume，problems 中写明原因与可做的操作
+export const resumeActions = ['resume', 'copy', 'sync', 'diverged', 'blocked'] as const;
+export type ResumeAction = (typeof resumeActions)[number];
+
+export const resumeProblemCodes = [
+  'no-cwd',
+  'cwd-missing',
+  'variant-not-built',
+  'running',
+  'file-missing',
+] as const;
+
+export const ResumeCopy = z.object({
+  path: z.string(),
+  bytes: z.number().int(),
+  // 主 agent 最后一条有文字的消息
+  lastAt: z.string().nullable(),
+  lastRole: z.enum(['user', 'assistant']).nullable(),
+  lastText: z.string().nullable(),
+});
+export type ResumeCopy = z.infer<typeof ResumeCopy>;
+
+export const ResumePlan = z.object({
+  sessionId: z.string(),
+  // 这次预检的配置；本机配置为空
+  variantId: z.string().nullable(),
+  // 目标配置目录（variant 的 CLAUDE_CONFIG_DIR 或"本机配置"的 <HOME>/.claude）
+  configDir: z.string(),
+  liveId: z.string().nullable(),
+  cwd: z.string().nullable(),
+  // 选了 variant 时的默认 model 与 effort（设置的 agentModel、agentEffort）；本机配置不传，为空
+  model: z.enum(modelAliases).nullable(),
+  effort: z.enum(efforts).nullable(),
+  action: z.enum(resumeActions),
+  // 最新那份（sessions.file_path）与目标配置中已有的那份（没有时为空）
+  latest: ResumeCopy.nullable(),
+  target: ResumeCopy.nullable(),
+  problems: z.array(z.object({ code: z.enum(resumeProblemCodes), message: z.string() })),
+  // 不妨碍 resume、但要让用户知道的事（例如子代理目录不在）
+  notes: z.array(z.string()),
+});
+export type ResumePlan = z.infer<typeof ResumePlan>;

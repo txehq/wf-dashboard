@@ -36,3 +36,7 @@ export const liveItemsWebPort = webPort + 6000;
 // 分析由 workflow 驱动与交给 Codex 优化的基础档 e2e：专用数据目录，另起一对服务，端口加 7000
 export const analysisWorkflowServerPort = serverPort + 7000;
 export const analysisWorkflowWebPort = webPort + 7000;
+
+// resume 对话框的 e2e："本机配置"的 HOME 在 .work/ 下的一对服务，端口加 9000
+export const resumeDialogServerPort = serverPort + 9000;
+export const resumeDialogWebPort = webPort + 9000;
