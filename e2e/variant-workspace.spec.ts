@@ -176,7 +176,7 @@ test('全屏编辑 skill：按钮与 ⌃⇧F 进入退出，Esc 不退出，刷�
   await tree.getByTitle(`skills/${stage}/SKILL.md`).click();
   await expect(workspace.getByTestId('current-file')).toHaveText(`skills/${stage}/SKILL.md`);
   // .md 文件默认预览，点"编辑"进入编辑
-  await workspace.getByTestId('md-view').getByRole('button', { name: '编辑' }).click();
+  await workspace.getByRole('tab', { name: '编辑' }).click();
   await expect(lines).toContainText('在这里写这个阶段做什么。');
   await lines.click();
   await page.keyboard.press('ControlOrMeta+End');
@@ -367,7 +367,7 @@ test('variant 页面的 .md 文件：默认预览，编辑 / 预览 / 并排，�
   await page.setViewportSize(sizes[0]);
   await page.goto(`/variants/${derived.id}?file=${encodeURIComponent(skill)}`);
   const workspace = page.getByTestId('skill-workspace');
-  const view = workspace.getByTestId('md-view');
+  const view = workspace.getByTestId('workspace-view');
   const fileView = workspace.getByTestId('file-view');
   const preview = workspace.getByTestId('md-preview');
   const editor = workspace.getByTestId('skill-editor');
@@ -375,6 +375,11 @@ test('variant 页面的 .md 文件：默认预览，编辑 / 预览 / 并排，�
 
   // 默认预览：21.1 的渲染，编辑器隐藏
   await expect(view).toHaveAttribute('data-view', 'preview');
+  // 编辑、预览、并排与对比是工具栏中的一组，"编辑"只出现一次
+  await expect(view.getByRole('tab')).toHaveText(['编辑', '预览', '并排', '对比']);
+  await expect(
+    workspace.getByTestId('workspace-toolbar').getByText('编辑', { exact: true }),
+  ).toHaveCount(1);
   await expect(fileView).toHaveAttribute('data-view', 'preview');
   await expect(editor).toBeHidden();
   const article = preview.getByTestId('markdown');
@@ -390,13 +395,13 @@ test('variant 页面的 .md 文件：默认预览，编辑 / 预览 / 并排，�
     expect(await singleButtonRows(page)).toEqual([]);
     expect(await horizontalScroll(page)).toBe(false);
     await page.screenshot({
-      path: `${shots}/w50-variant-preview-${String(size.width)}.png`,
+      path: `${shots}/w50b-variant-preview-${String(size.width)}.png`,
       animations: 'disabled',
     });
   }
 
   // 并排：左编辑、右预览，编辑时预览实时更新，未保存
-  await view.getByRole('button', { name: '并排' }).click();
+  await view.getByRole('tab', { name: '并排' }).click();
   await expect(fileView).toHaveAttribute('data-view', 'split');
   await expect(editor).toBeVisible();
   await expect(lines).toContainText(`扫描 ${marker}`);
@@ -427,7 +432,7 @@ test('variant 页面的 .md 文件：默认预览，编辑 / 预览 / 并排，�
   for (const size of sizes) {
     await page.setViewportSize(size);
     await page.screenshot({
-      path: `${shots}/w50-variant-split-${String(size.width)}.png`,
+      path: `${shots}/w50b-variant-split-${String(size.width)}.png`,
       animations: 'disabled',
     });
   }
@@ -442,7 +447,7 @@ test('variant 页面的 .md 文件：默认预览，编辑 / 预览 / 并排，�
   // 全屏中同样可用：切到预览，铺满窗口
   await workspace.getByTestId('fullscreen-toggle').click();
   await expect(workspace).toHaveAttribute('data-fullscreen', 'true');
-  await view.getByRole('button', { name: '预览' }).click();
+  await view.getByRole('tab', { name: '预览' }).click();
   await expect(editor).toBeHidden();
   await expect(article.getByRole('heading', { level: 1 })).toHaveText(`扫描 ${marker}`);
   for (const size of sizes) {
@@ -450,18 +455,18 @@ test('variant 页面的 .md 文件：默认预览，编辑 / 预览 / 并排，�
     expect(await height(page, 'md-preview')).toBeGreaterThan(size.height * 0.85);
     expect(await singleButtonRows(page)).toEqual([]);
     await page.screenshot({
-      path: `${shots}/w50-variant-fullscreen-preview-${String(size.width)}.png`,
+      path: `${shots}/w50b-variant-fullscreen-preview-${String(size.width)}.png`,
       animations: 'disabled',
     });
   }
-  await view.getByRole('button', { name: '并排' }).click();
+  await view.getByRole('tab', { name: '并排' }).click();
   await expect(editor).toBeVisible();
   await expect(preview).toBeVisible();
   await page.screenshot({
     path: `${shots}/w50-variant-fullscreen-split.png`,
     animations: 'disabled',
   });
-  await view.getByRole('button', { name: '预览' }).click();
+  await view.getByRole('tab', { name: '预览' }).click();
 
   // 预览中指向另一个 .md 的链接在工作区中打开它
   await article.getByRole('link', { name: '检查清单' }).click();
@@ -471,7 +476,8 @@ test('variant 页面的 .md 文件：默认预览，编辑 / 预览 / 并排，�
   // 其他类型的文件只有编辑
   await page.goto(`/variants/${derived.id}?file=${encodeURIComponent(`skills/${stage}/scan.sh`)}`);
   await expect(lines).toContainText('echo scan');
-  await expect(view).toHaveCount(0);
+  await expect(view.getByRole('tab')).toHaveText(['编辑', '对比']);
+  await expect(view).toHaveAttribute('data-view', 'edit');
   await expect(preview).toHaveCount(0);
 
   // 对比：与来源对比，共用的 diff（红绿、行号、统一与并排），每个文件一个可折叠的标题
@@ -509,4 +515,22 @@ test('variant 页面的 .md 文件：默认预览，编辑 / 预览 / 并排，�
     .click();
   await card.getByRole('button', { name: skill }).click();
   await expect(card.locator('table')).toHaveCount(0);
+
+  // 对比也记在浏览器中：刷新后仍是对比，全屏中同一组
+  await page.reload();
+  await expect(view).toHaveAttribute('data-view', 'diff');
+  await expect(diff.getByTestId('diff-file')).toHaveCount(3);
+  await workspace.getByTestId('fullscreen-toggle').click();
+  await expect(workspace).toHaveAttribute('data-fullscreen', 'true');
+  for (const size of sizes) {
+    await page.setViewportSize(size);
+    expect(await singleButtonRows(page)).toEqual([]);
+    await page.screenshot({
+      path: `${shots}/w50b-fullscreen-diff-${String(size.width)}.png`,
+      animations: 'disabled',
+    });
+  }
+  await view.getByRole('tab', { name: '编辑' }).click();
+  await expect(view).toHaveAttribute('data-view', 'edit');
+  await expect(lines).toContainText('echo scan');
 });

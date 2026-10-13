@@ -61,7 +61,8 @@ test('导入的 variant：只读标记、文件与对比；文件缺失时显示
   await expect(panel.getByText(`${imported}，没有构建日志。`)).toBeVisible();
   await page.screenshot({ path: `${shots}/w14b-imported.png`, animations: 'disabled' });
 
-  // 移走 skills：files 返回 500，页面显示服务端的错误原文
+  // 移走 skills：files 返回 500，页面显示服务端的错误原文（先回到编辑：显示的选择刷新后保持）
+  await panel.getByRole('tab', { name: '编辑' }).click();
   fs.renameSync(skillsDir, moved());
   const filesRequests: Request[] = [];
   page.on('request', (r) => {

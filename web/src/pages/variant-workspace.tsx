@@ -41,7 +41,13 @@ import { Button } from '@/components/ui/button';
 import { formatDateTime } from '@/lib/format';
 import { languageOf } from '@/lib/language';
 import { cn } from '@/lib/utils';
-import { isMarkdown, type MdView, useMdView } from '@/pages/variant-md-view';
+import {
+  effectiveView,
+  type MdView,
+  useWorkspaceView,
+  viewLabels,
+  viewsOf,
+} from '@/pages/variant-md-view';
 import {
   buildLogQuery,
   diffQuery,
@@ -562,8 +568,6 @@ function Splitter({ width, onWidth }: { width: number; onWidth: (width: number) 
   );
 }
 
-type Mode = 'edit' | 'diff';
-
 // skill 编辑区（Contracts 20.2）：顶部一条细工具栏，下面是可拖动宽度、可收起的文件树与 Monaco（或 diff），
 // 底部是可收起的构建日志面板。整个区域可以页面内全屏（Contracts 20.1）
 export function VariantWorkspace({
@@ -581,8 +585,7 @@ export function VariantWorkspace({
 }) {
   const queryClient = useQueryClient();
   const files = useQuery(filesQuery(variant.id));
-  const [mode, setMode] = useState<Mode>('edit');
-  const [mdView, setMdView] = useMdView();
+  const [stored, setView] = useWorkspaceView();
   const [viewType] = useDiffViewType();
   // 打开的文件写在地址的 ?file= 中：刷新（包括全屏时）后仍打开它
   const [params, setParams] = useSearchParams();
@@ -613,6 +616,9 @@ export function VariantWorkspace({
   // 默认打开 workflow 的入口 skill
   const entry = `skills/${variant.workflowId}/SKILL.md`;
   const current = selected ?? files.data?.find((f) => f.path === entry)?.path ?? null;
+  // 编辑、预览、并排与对比合为一组（Contracts 21.2）；非 .md 文件的预览与并排按编辑显示
+  const view = effectiveView(stored, current);
+  const mode = view === 'diff' ? 'diff' : 'edit';
   const refresh = async () => {
     await queryClient.invalidateQueries({ queryKey: ['variants'] });
   };
@@ -695,7 +701,7 @@ export function VariantWorkspace({
       testId="skill-workspace"
       className="flex h-[calc(100svh-12rem)] min-h-[28rem] flex-col overflow-hidden rounded-lg border"
     >
-      {/* 顶部细工具栏：文件树开关、文件路径与保存状态、编辑与对比、保存、构建日志开关、全屏 */}
+      {/* 顶部细工具栏：文件树开关、编辑 / 预览 / 并排 / 对比、文件路径与保存状态、保存、构建日志开关、全屏 */}
       <div
         className="flex h-9 shrink-0 items-center gap-1 border-b px-1.5 text-sm"
         data-testid="workspace-toolbar"
@@ -713,24 +719,25 @@ export function VariantWorkspace({
         >
           <PanelLeft />
         </Button>
-        <div role="tablist" aria-label="编辑或对比" className="flex rounded-md border p-0.5">
-          {(
-            [
-              ['edit', '编辑'],
-              ['diff', '对比'],
-            ] as const
-          ).map(([id, label]) => (
+        <div
+          role="tablist"
+          aria-label="编辑区的显示"
+          className="flex rounded-md border p-0.5"
+          data-testid="workspace-view"
+          data-view={view}
+        >
+          {viewsOf(current).map((id) => (
             <button
               key={id}
               type="button"
               role="tab"
-              aria-selected={mode === id}
+              aria-selected={view === id}
               className="rounded px-2 py-0.5 text-xs aria-selected:bg-foreground aria-selected:text-background"
               onClick={() => {
-                setMode(id);
+                setView(id);
               }}
             >
-              {label}
+              {viewLabels[id]}
             </button>
           ))}
         </div>
@@ -756,35 +763,6 @@ export function VariantWorkspace({
           </span>
         )}
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          {mode === 'edit' && current !== null && isMarkdown(current) && (
-            <div
-              role="group"
-              aria-label="Markdown 的显示"
-              className="mr-1 flex rounded-md border p-0.5"
-              data-testid="md-view"
-              data-view={mdView}
-            >
-              {(
-                [
-                  ['edit', '编辑'],
-                  ['preview', '预览'],
-                  ['split', '并排'],
-                ] as const
-              ).map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  aria-pressed={mdView === id}
-                  className="rounded px-2 py-0.5 text-xs aria-pressed:bg-foreground aria-pressed:text-background"
-                  onClick={() => {
-                    setMdView(id);
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
           {mode === 'diff' && <DiffViewTypeToggle className="mr-1" />}
           {mode === 'edit' && editable && current !== null && (
             <>
@@ -907,7 +885,7 @@ export function VariantWorkspace({
             variant={variant}
             path={current}
             readOnly={!editable}
-            view={isMarkdown(current) ? mdView : 'edit'}
+            view={view === 'diff' ? 'edit' : view}
             saveRef={saveRef}
             onStatus={setStatus}
             onOpenFile={select}

@@ -133,7 +133,7 @@ test('03 建基线 variant、派生并编辑 skill、构建', async ({ page, req
   await tree.getByTitle('skills/research/SKILL.md').click();
   const editor = panel.getByTestId('skill-editor');
   // .md 文件默认预览，点"编辑"进入编辑
-  await panel.getByTestId('md-view').getByRole('button', { name: '编辑' }).click();
+  await panel.getByRole('tab', { name: '编辑' }).click();
   await expect(editor.locator('.view-lines')).toContainText('name: research');
   await editor.locator('.view-lines').click();
   await page.keyboard.press('ControlOrMeta+End');

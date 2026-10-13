@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { expect, test } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { must } from '@/lib/must';
@@ -151,6 +152,25 @@ test('mermaid 语法有错时显示原文与代码', async () => {
   expect(screen.container.querySelector('[data-testid="mermaid-error"] code')?.textContent).toBe(
     'flowchart LR\n  a --\n',
   );
+});
+
+test('同一页面中两份相同的 mermaid 图都显示（渲染后的对比的左右两侧）', async () => {
+  const content = '```mermaid\nflowchart LR\n  A[列出] --> B[扫描]\n```\n';
+  const screen = await render(
+    <StrictMode>
+      <Markdown content={content} />
+      <Markdown content={content} />
+    </StrictMode>,
+  );
+  const diagrams = screen.container.querySelectorAll('[data-testid="mermaid"]');
+  expect(diagrams).toHaveLength(2);
+  await expect
+    .poll(() => screen.container.querySelectorAll('[data-testid="mermaid"] > svg').length)
+    .toBe(2);
+  const ids = [...screen.container.querySelectorAll('[data-testid="mermaid"] > svg')].map(
+    (svg) => svg.id,
+  );
+  expect(new Set(ids).size).toBe(2);
 });
 
 test('源文件中改动的行所在的段落被标出：段落、列表中的一项、表格中的一行', async () => {
