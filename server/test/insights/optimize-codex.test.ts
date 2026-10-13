@@ -121,9 +121,7 @@ describe('交给 Codex 优化的会话（真实 Codex，一次）', { timeout: 6
   test('在分析目录中启动交互的 codex，按一句提示在 optimize/src/ 中写一行，然后结束', async () => {
     const { draft } = drafts.openOptimize(analysisId);
     const layout = draftLayout(draft.dir, 'optimize');
-    copyDraftSource(layout, (dest) => {
-      variants.exportSource(analysed.id, dest);
-    });
+    await copyDraftSource(layout, (dest) => variants.exportSource(analysed.id, dest));
     writeDraftDocs(layout, 'optimize', loadWorkflow(db, flowId));
     const file = path.join(layout.skills, 'remember/SKILL.md');
     const started = Date.now();

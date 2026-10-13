@@ -1,6 +1,6 @@
 import { rmSync } from 'node:fs';
 import path from 'node:path';
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Page, test } from './test.js';
 
 const shot = (page: Page, name: string) =>
   page.screenshot({
