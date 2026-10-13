@@ -233,7 +233,7 @@ export const WorkflowView = z.object({
   id: z.string(),
   name: z.string(),
   evalKind: z.enum(evalKinds).nullable(),
-  copiedFrom: z.string().nullable(),
+  description: z.string().nullable(),
   builtin: z.boolean(),
   definition: WorkflowDefinition,
   variants: z.number(),
@@ -242,15 +242,19 @@ export const WorkflowView = z.object({
 });
 export type WorkflowView = z.infer<typeof WorkflowView>;
 
-// POST /api/workflows（16.1）：复制 fromVariantId 作为新 workflow 的第一个 variant
+// POST /api/workflows（16.1、18.5）：从空白新建，同时建出第一个 variant"初稿"
 export const NewWorkflowBody = z.object({
   id: z.string(),
   name: z.string(),
-  fromVariantId: z.string(),
-  keepEvalKind: z.boolean(),
+  description: z.string(),
   definition: z.unknown(),
 });
 export type NewWorkflowBody = z.infer<typeof NewWorkflowBody>;
 
-export const UpdateWorkflowBody = z.object({ name: z.string(), definition: z.unknown() });
+// PUT /api/workflows/:id：内置的 lfg、ic 只能改描述
+export const UpdateWorkflowBody = z.object({
+  name: z.string(),
+  description: z.string(),
+  definition: z.unknown(),
+});
 export type UpdateWorkflowBody = z.infer<typeof UpdateWorkflowBody>;

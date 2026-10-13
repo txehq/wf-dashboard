@@ -9,10 +9,11 @@ import { codexStandIn, makeSkillSources } from '../helpers/codex-skills.js';
 
 // 基础档（Contracts 第 17 节）：发起立即返回、后台准备（preparing → open，某一步失败 → failed → 从那一步重试）、
 // 草稿目录的生成（mode workflow 与 variant）、装 skill 与 Codex 会话、
-// 保存的各种校验失败（以原文失败，草稿保留，不建 workflow 与 variant）、Codex 会话的结束、resume 与删除。
+// 保存的各种校验失败（以原文失败，草稿保留，不建 workflow 与 variant）、从空白开始的草稿用自有管理器保存成功、
+// Codex 会话的结束、resume 与删除。
 // Codex 用测试中的替身命令，只验证页面与 API；skill 的来源是 .work/ 下的本地 git 仓库（不依赖网络），
 // 把其中一个仓库暂时移走就是可控的失败。
-// 成功保存要真实构建，在慢档 drafts-save.test.ts。
+// lfg 之下的草稿保存要用 wf 真实构建，在慢档 drafts-save.test.ts。
 // 被导出的 workflow 仓库：只有 skills/lfg/SKILL.md 与 Cargo.toml 的最小本地 git 仓库（与 variants-api 相同）
 const work = path.resolve(import.meta.dirname, '../../../.work/test-drafts', randomUUID());
 const repo = path.join(work, 'txe-workflow');
@@ -55,7 +56,7 @@ interface Draft {
   error: string | null;
   steps: { id: string; status: string; error: string | null }[];
   savedWorkflowId: string | null;
-  savedVariants: unknown[];
+  savedVariants: { id: string; name: string }[];
   skills: { name: string; source: string; computedHash: string; commit: string }[];
   dir: string;
 }
@@ -221,32 +222,35 @@ describe('用 Codex 生成 workflow 或 variant（基础档）', { timeout: 60_0
     await app.inject({ method: 'POST', url: `/api/live/${live.id}/stop` });
   });
 
-  test('mode workflow：草稿目录、装好的 skill、Live 中的 Codex 会话', async () => {
+  test('mode workflow：从空白骨架开始的草稿目录、装好的 skill、Live 中的 Codex 会话', async () => {
     const { draft, live } = await createDraft({
       mode: 'workflow',
       workflowId: newId,
       name: `你好 ${marker}`,
+      description: '打招呼',
       requirement: '做一个打招呼的 workflow',
-      baseVariantId: base.id,
     });
     workflowDraft = draft;
     workflowLive = live;
     expect(draft.id).toMatch(/^d-\d{8}-[a-z0-9]{6}$/);
     expect(draft.dir).toBe(path.join(config.workflowDraftsDir, draft.id));
-    // src/ 是底子 variant 的 src 副本
-    expect(fs.readFileSync(path.join(draft.dir, 'src/skills/lfg/SKILL.md'), 'utf8')).toBe(
-      fs.readFileSync(path.join(repo, 'skills/lfg/SKILL.md'), 'utf8'),
+    // src/ 只有入口与一个小阶段的 SKILL.md 骨架（Contracts 18.5），没有 txe-workflow 的导出
+    expect(fs.readdirSync(path.join(draft.dir, 'src'))).toEqual(['skills']);
+    expect(fs.readdirSync(path.join(draft.dir, 'src/skills')).sort()).toEqual(
+      [newId, 'stage-1'].sort(),
     );
-    expect(fs.existsSync(path.join(draft.dir, 'src/Cargo.toml'))).toBe(true);
-    // workflow.yaml 先填 id、名字与底子的小阶段
+    expect(fs.readFileSync(path.join(draft.dir, 'src/skills/stage-1/SKILL.md'), 'utf8')).toBe(
+      `---\nname: stage-1\ndescription: 你好 ${marker} 的小阶段 stage-1\n---\n\n在这里写这个阶段做什么。\n`,
+    );
     expect(parseYaml(fs.readFileSync(path.join(draft.dir, 'workflow.yaml'), 'utf8'))).toEqual({
       id: newId,
       name: `你好 ${marker}`,
-      stages: [{ id: 'interview' }, { id: 'research' }, { id: 'plan' }, { id: 'ticketing' }],
+      stages: [{ id: 'stage-1' }],
     });
-    expect(fs.readFileSync(path.join(draft.dir, 'PLATFORM.md'), 'utf8')).toContain(
-      'wf release build-local',
-    );
+    // 说明是自有管理器的那一份：没有 wf，没有两份清单
+    const platform = fs.readFileSync(path.join(draft.dir, 'PLATFORM.md'), 'utf8');
+    expect(platform).toContain('这个 workflow 不用 wf');
+    expect(platform).not.toContain('wf release build-local');
     const example = path.join(draft.dir, 'examples/simple-workflow');
     expect(parseYaml(fs.readFileSync(path.join(example, 'workflow.yaml'), 'utf8'))).toEqual({
       id: 'hello-flow',
@@ -354,8 +358,8 @@ describe('用 Codex 生成 workflow 或 variant（基础档）', { timeout: 60_0
         mode: 'workflow',
         workflowId: 'ic',
         name: 'x',
+        description: '',
         requirement: 'x',
-        baseVariantId: base.id,
       },
     });
     expect(used.statusCode).toBe(400);
@@ -394,7 +398,8 @@ describe('用 Codex 生成 workflow 或 variant（基础档）', { timeout: 60_0
       yamlFile,
       `id: ${newId}\nname: 你好\nstages:\n  - id: gather\n  - id: draft\n  - id: review\n    repeatable: true\n`,
     );
-    // 缺入口 skill
+    // 缺入口 skill（先去掉骨架）
+    for (const name of [newId, 'stage-1']) fs.rmSync(path.join(skills, name), { recursive: true });
     for (const name of ['gather', 'draft', 'review']) {
       fs.mkdirSync(path.join(skills, name), { recursive: true });
       fs.writeFileSync(path.join(skills, name, 'SKILL.md'), skillMd(name));
@@ -433,6 +438,51 @@ describe('用 Codex 生成 workflow 或 variant（基础档）', { timeout: 60_0
     expect(response.statusCode).toBe(400);
     expect(response.body).toContain('review/SKILL.md 没有 YAML frontmatter');
     await expectUnsaved(workflowDraft, newId);
+  });
+
+  test('保存成功：用自有管理器构建（不用 wf），建 workflow 与它的第一个 variant「基线」，再次保存建出新 variant', async () => {
+    const skills = path.join(workflowDraft.dir, 'src/skills');
+    fs.writeFileSync(path.join(skills, 'review', 'SKILL.md'), skillMd('review'));
+    const response = await save(workflowDraft.id);
+    expect(response.statusCode, response.body).toBe(200);
+    const saved = response.json<Draft>();
+    expect(saved.savedWorkflowId).toBe(newId);
+    const workflow = (
+      await app.inject({ method: 'GET', url: `/api/workflows/${newId}` })
+    ).json<{ evalKind: string | null; description: string | null; definition: unknown }>();
+    expect([workflow.evalKind, workflow.description]).toEqual([null, '打招呼']);
+    expect(saved.savedVariants.map((v) => v.name)).toEqual(['基线']);
+    const first = (
+      await app.inject({ method: 'GET', url: `/api/variants/${saved.savedVariants[0]?.id ?? ''}` })
+    ).json<{
+      id: string;
+      parentId: string | null;
+      baseCommit: string;
+      buildStatus: string;
+      draftId: string;
+    }>();
+    expect([first.parentId, first.baseCommit, first.buildStatus, first.draftId]).toEqual([
+      null,
+      '',
+      'built',
+      workflowDraft.id,
+    ]);
+    const log = (
+      await app.inject({ method: 'GET', url: `/api/variants/${first.id}/build-log` })
+    ).body;
+    expect(log).toContain(`[own] workflow ${newId} 的 variant 由 dashboard 管理，没有运行 wf`);
+    expect(log).toContain('[copy-skills]');
+
+    const again = await save(workflowDraft.id);
+    expect(again.statusCode, again.body).toBe(200);
+    expect(again.json<{ savedVariants: { name: string }[] }>().savedVariants.map((v) => v.name)).toEqual(
+      ['基线', `Codex ${workflowDraft.id}`],
+    );
+    // workflow.yaml 改了定义：以原文失败，不建 variant
+    fs.appendFileSync(path.join(workflowDraft.dir, 'workflow.yaml'), '  - id: publish\n');
+    const changed = await save(workflowDraft.id);
+    expect(changed.statusCode).toBe(400);
+    expect(changed.body).toContain(`workflow.yaml 与已保存的 workflow ${newId} 的定义不同`);
   });
 
   test('结束 Codex 进程、resume 接着同一个会话、删除交互项不删除草稿', async () => {

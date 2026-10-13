@@ -4,7 +4,7 @@ import { stringify } from 'yaml';
 import { config } from '../config.js';
 import type { DraftMode } from '../db/schema.js';
 import { codexDirsOf } from '../live/codex.js';
-import type { WorkflowDefinition } from '../workflows/schema.js';
+import { isBuiltinWorkflow, type WorkflowDefinition } from '../workflows/schema.js';
 
 // dashboard 自带的 PLATFORM.md 与例子 workflow；pnpm start 运行 dist 时同样从源码目录读取
 const assetsDir = path.join(config.repoRoot, 'server/src/drafts/assets');
@@ -39,7 +39,8 @@ export function copyDraftSource(layout: DraftLayout, copySource: (dest: string) 
   copySource(layout.src);
 }
 
-// 准备的第二步：workflow.yaml、PLATFORM.md 与例子 workflow；重试时整体重写
+// 准备的第二步：workflow.yaml、PLATFORM.md 与例子 workflow；重试时整体重写。
+// 内置 lfg、ic 之下的 variant 用 wf 构建，说明为 PLATFORM.md；其余由 dashboard 自己管理（Contracts 18.6）
 export function writeDraftDocs(
   layout: DraftLayout,
   mode: DraftMode,
@@ -48,7 +49,8 @@ export function writeDraftDocs(
   fs.rmSync(layout.workflowYaml, { force: true });
   fs.writeFileSync(layout.workflowYaml, yamlHeader[mode] + stringify(definition));
   if (mode === 'variant') fs.chmodSync(layout.workflowYaml, 0o444);
-  fs.copyFileSync(path.join(assetsDir, 'PLATFORM.md'), layout.platform);
+  const platform = isBuiltinWorkflow(definition.id) ? 'PLATFORM.md' : 'PLATFORM-own.md';
+  fs.copyFileSync(path.join(assetsDir, platform), layout.platform);
   fs.rmSync(layout.example, { recursive: true, force: true });
   fs.cpSync(path.join(assetsDir, 'simple-workflow'), layout.example, { recursive: true });
 }

@@ -147,125 +147,142 @@ afterAll(async () => {
   close();
 });
 
-describe('workflows API 与从 variant 复制', () => {
-  test('GET 列出内置的 lfg 与 ic；PUT 内置的返回 409', async () => {
+describe('workflows API 与从空白新建', () => {
+  test('GET 列出内置的 lfg 与 ic 与 yaml 中的描述；内置的只能改描述，改定义 409', async () => {
     const list = await app.inject({ method: 'GET', url: '/api/workflows' });
     expect(list.statusCode).toBe(200);
-    expect(
-      WorkflowView.array()
-        .parse(list.json())
-        .map((w) => [w.id, w.evalKind, w.builtin, w.copiedFrom]),
-    ).toEqual([
-      ['lfg', 'lfg', true, null],
-      ['ic', 'ic', true, null],
+    const views = WorkflowView.array().parse(list.json());
+    expect(views.map((w) => [w.id, w.evalKind, w.builtin])).toEqual([
+      ['lfg', 'lfg', true],
+      ['ic', 'ic', true],
     ]);
-    const put = await app.inject({
-      method: 'PUT',
-      url: '/api/workflows/lfg',
-      payload: { name: 'lfg', definition: builtinDefinition('lfg') },
-    });
-    expect(put.statusCode).toBe(409);
-    expect(put.json<{ message: string }>().message).toBe(
-      'lfg 是内置的 workflow，不能修改；要改就复制成新 workflow',
+    expect(views[0]?.description).toBe(
+      '从一个新想法到 Linear 工单：访谈确定边界，本地与网上调研，计划，拆成工单后停在 dispatch gate。',
     );
+    const put = (payload: Record<string, unknown>) =>
+      app.inject({ method: 'PUT', url: '/api/workflows/lfg', payload });
+    const changed = await put({
+      name: 'lfg',
+      description: '',
+      definition: { ...builtinDefinition('lfg'), stages: [{ id: 'interview' }] },
+    });
+    expect(changed.statusCode).toBe(409);
+    expect(changed.json<{ message: string }>().message).toBe(
+      'lfg 是内置的 workflow，只能修改描述；要换入口或小阶段就从空白新建一个 workflow',
+    );
+    const described = await put({
+      name: 'lfg',
+      description: '  只改描述  ',
+      definition: builtinDefinition('lfg'),
+    });
+    expect(described.statusCode).toBe(200);
+    expect(WorkflowView.parse(described.json()).description).toBe('只改描述');
   });
 
-  test(
-    '从 lfg 的基线复制成 myreview（不保留评测类型）：第一个 variant 名为"基线"、入口 skill 改名；构建时缺少小阶段 skill 以原文失败',
-    { timeout: 300_000 },
-    async () => {
-      const base = await variants.createBaseline({ name: '基线' });
-      created.push(base.id);
-      expect(base.workflowId).toBe('lfg');
-      const post = (payload: Record<string, unknown>) =>
-        app.inject({ method: 'POST', url: '/api/workflows', payload });
-      const response = await post({
-        id: 'myreview',
-        name: '我的 review 流程',
-        fromVariantId: base.id,
-        keepEvalKind: false,
-        definition: myreviewYaml,
-      });
-      expect(response.statusCode).toBe(201);
-      const view = WorkflowView.parse(response.json());
-      expect([view.evalKind, view.copiedFrom, view.builtin, view.variants]).toEqual([
-        null,
-        'lfg',
-        false,
-        1,
-      ]);
-      const copy = variants.list().find((v) => v.workflowId === 'myreview');
-      if (copy === undefined) throw new Error('myreview 没有 variant');
-      created.push(copy.id);
-      // 同名的"基线"在不同 workflow 中可以共存；入口 skill lfg 在副本中改名为 myreview
-      expect([copy.name, copy.parentId, copy.status]).toEqual(['基线', base.id, 'draft']);
-      const skills = variants.layout(copy.id).skills;
-      expect(fs.existsSync(path.join(skills, 'myreview', 'SKILL.md'))).toBe(true);
-      expect(fs.existsSync(path.join(skills, 'lfg'))).toBe(false);
-      expect(loadWorkflow(db, 'myreview').stages.map((s) => s.id)).toEqual([
-        'scan',
-        'fix',
-        'report',
-      ]);
-      await expect(variants.build(copy.id)).rejects.toThrow(
-        'variant 基线 缺少 workflow myreview 要求的 skill：scan、fix、report（应为 src/skills/<名字>/SKILL.md）',
-      );
+  test('从空白新建 myreview：没有评测类型，第一个 variant"初稿"是入口与各小阶段的 SKILL.md 骨架', async () => {
+    const post = (payload: Record<string, unknown>) =>
+      app.inject({ method: 'POST', url: '/api/workflows', payload });
+    const response = await post({
+      id: 'myreview',
+      name: '我的 review 流程',
+      description: '扫描、修复、报告',
+      definition: myreviewYaml,
+    });
+    expect(response.statusCode).toBe(201);
+    const view = WorkflowView.parse(response.json());
+    expect([view.evalKind, view.builtin, view.variants, view.description]).toEqual([
+      null,
+      false,
+      1,
+      '扫描、修复、报告',
+    ]);
+    const first = variants.list().find((v) => v.workflowId === 'myreview');
+    if (first === undefined) throw new Error('myreview 没有 variant');
+    created.push(first.id);
+    expect([first.name, first.parentId, first.baseCommit, first.status]).toEqual([
+      '初稿',
+      null,
+      '',
+      'draft',
+    ]);
+    expect(first.version).toBe(`skills.${first.skillsHash.slice(0, 8)}`);
+    expect(variants.listFiles(first.id).map((f) => f.path)).toEqual([
+      'skills/fix/SKILL.md',
+      'skills/myreview/SKILL.md',
+      'skills/report/SKILL.md',
+      'skills/scan/SKILL.md',
+    ]);
+    expect(variants.readFile(first.id, 'skills/scan/SKILL.md')).toBe(
+      '---\nname: scan\ndescription: 我的 review 流程 的小阶段 scan\n---\n\n在这里写这个阶段做什么。\n',
+    );
+    expect(variants.readFile(first.id, 'skills/myreview/SKILL.md')).toContain(
+      'description: 我的 review 流程 的入口 /myreview：依次进入 scan、fix、report',
+    );
+    expect(loadWorkflow(db, 'myreview').stages.map((s) => s.id)).toEqual(['scan', 'fix', 'report']);
 
-      // id 已存在 409；与其他 workflow 的小阶段同名 400；定义与请求不一致 400
-      expect(
-        (
-          await post({
-            id: 'myreview',
-            name: '我的 review 流程',
-            fromVariantId: base.id,
-            keepEvalKind: false,
-            definition: myreviewYaml,
-          })
-        ).statusCode,
-      ).toBe(409);
-      const clash = await post({
-        id: 'interview',
-        name: 'interview',
-        fromVariantId: base.id,
-        keepEvalKind: true,
-        definition: { ...myreviewYaml, id: 'interview', name: 'interview' },
-      });
-      expect(clash.statusCode).toBe(400);
-      expect(clash.json<{ message: string }>().message).toBe(
-        'workflow id interview 与 workflow lfg 的小阶段同名',
-      );
-      const mismatch = await post({
-        id: 'other',
-        name: 'other',
-        fromVariantId: base.id,
-        keepEvalKind: true,
-        definition: myreviewYaml,
-      });
-      expect(mismatch.statusCode).toBe(400);
+    // id 已存在 409；与其他 workflow 的小阶段同名 400；定义与请求不一致 400
+    expect(
+      (
+        await post({
+          id: 'myreview',
+          name: '我的 review 流程',
+          description: '',
+          definition: myreviewYaml,
+        })
+      ).statusCode,
+    ).toBe(409);
+    const clash = await post({
+      id: 'interview',
+      name: 'interview',
+      description: '',
+      definition: { ...myreviewYaml, id: 'interview', name: 'interview' },
+    });
+    expect(clash.statusCode).toBe(400);
+    expect(clash.json<{ message: string }>().message).toBe(
+      'workflow id interview 与 workflow lfg 的小阶段同名',
+    );
+    const mismatch = await post({
+      id: 'other',
+      name: 'other',
+      description: '',
+      definition: myreviewYaml,
+    });
+    expect(mismatch.statusCode).toBe(400);
 
-      // 改名与改小阶段；评测类型不变
-      const renamed = await app.inject({
-        method: 'PUT',
-        url: '/api/workflows/myreview',
-        payload: {
-          name: '审阅流程',
-          definition: { ...myreviewYaml, name: '审阅流程', stages: [{ id: 'scan' }] },
-        },
-      });
-      expect(renamed.statusCode).toBe(200);
-      expect(WorkflowView.parse(renamed.json())).toMatchObject({
+    // 改名、描述与小阶段；评测类型不变
+    const renamed = await app.inject({
+      method: 'PUT',
+      url: '/api/workflows/myreview',
+      payload: {
         name: '审阅流程',
-        evalKind: null,
-        definition: { stages: [{ id: 'scan' }] },
-      });
+        description: '只剩扫描',
+        definition: { ...myreviewYaml, name: '审阅流程', stages: [{ id: 'scan' }] },
+      },
+    });
+    expect(renamed.statusCode).toBe(200);
+    expect(WorkflowView.parse(renamed.json())).toMatchObject({
+      name: '审阅流程',
+      description: '只剩扫描',
+      evalKind: null,
+      definition: { stages: [{ id: 'scan' }] },
+    });
 
-      const cross = await app.inject({
-        method: 'POST',
-        url: `/api/variants/${base.id}/derive`,
-        payload: { name: '跨 workflow', workflowId: 'myreview' },
-      });
-      expect(cross.statusCode).toBe(400);
-      expect(cross.json<{ message: string }>().message).toContain('派生只能在同一 workflow 内');
-    },
-  );
+    // 任意 workflow 不导入 txe-workflow 的基线；派生只在同一 workflow 内
+    const baseline = await app.inject({
+      method: 'POST',
+      url: '/api/variants',
+      payload: { name: '基线', workflowId: 'myreview' },
+    });
+    expect(baseline.statusCode).toBe(400);
+    expect(baseline.json<{ message: string }>().message).toBe(
+      'workflow myreview 不是内置的 lfg 或 ic，不能导入 txe-workflow 的基线；从它已有的 variant 派生',
+    );
+    const cross = await app.inject({
+      method: 'POST',
+      url: `/api/variants/${first.id}/derive`,
+      payload: { name: '跨 workflow', workflowId: 'lfg' },
+    });
+    expect(cross.statusCode).toBe(400);
+    expect(cross.json<{ message: string }>().message).toContain('派生只能在同一 workflow 内');
+  });
 });

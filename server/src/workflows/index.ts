@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { asc, count, eq } from 'drizzle-orm';
 import { parse } from 'yaml';
+import { z } from 'zod';
 import { config } from '../config.js';
 import type { Db } from '../db/index.js';
 import { variants, workflowTable } from '../db/schema.js';
@@ -33,11 +34,19 @@ export function parseDefinition(value: unknown, where: string): WorkflowDefiniti
   return result.data;
 }
 
-export function builtinDefinition(id: EvalKind): WorkflowDefinition {
+const BuiltinFile = z.looseObject({ description: z.string().trim().min(1) });
+
+// 内置 yaml 的 description 不属于定义（Contracts 18.3），其余部分是定义
+function readBuiltin(id: EvalKind): { definition: WorkflowDefinition; description: string } {
   const file = builtinFile(id);
-  const definition = parseDefinition(parse(fs.readFileSync(file, 'utf8')), file);
+  const { description, ...rest } = BuiltinFile.parse(parse(fs.readFileSync(file, 'utf8')));
+  const definition = parseDefinition(rest, file);
   if (definition.id !== id) throw new Error(`${file} 的 id 应为 ${id}：${definition.id}`);
-  return definition;
+  return { definition, description };
+}
+
+export function builtinDefinition(id: EvalKind): WorkflowDefinition {
+  return readBuiltin(id).definition;
 }
 
 // 阶段划分的增量状态据此判断定义是否改变
@@ -45,17 +54,25 @@ export function definitionHash(definition: WorkflowDefinition): string {
   return createHash('sha256').update(JSON.stringify(definition)).digest('hex');
 }
 
-// 服务启动时（打开数据库后）以内置 YAML 为准写入 lfg 与 ic，评测类型与 id 同名
+// 服务启动时（打开数据库后）以内置 YAML 为准写入 lfg 与 ic，评测类型与 id 同名。
+// 描述只在还没有时取 yaml 中的（之后在页面中编辑，Contracts 18.3）
 export function syncBuiltinWorkflows(db: Db) {
   for (const id of BUILTIN_WORKFLOWS) {
-    const definition = builtinDefinition(id);
+    const { definition, description } = readBuiltin(id);
     const existing = db.select().from(workflowTable).where(eq(workflowTable.id, id)).get();
     if (
       existing?.evalKind === id &&
+      existing.description !== null &&
       JSON.stringify(existing.definition) === JSON.stringify(definition)
     )
       continue;
-    const values = { name: definition.name, evalKind: id, definition, updatedAt: new Date() };
+    const values = {
+      name: definition.name,
+      evalKind: id,
+      definition,
+      description: existing?.description ?? description,
+      updatedAt: new Date(),
+    };
     db.insert(workflowTable)
       .values({ id, ...values })
       .onConflictDoUpdate({ target: workflowTable.id, set: values })
@@ -101,7 +118,7 @@ function view(db: Db, r: WorkflowRow): WorkflowView {
     id: r.id,
     name: r.name,
     evalKind: r.evalKind,
-    copiedFrom: r.copiedFrom,
+    description: r.description,
     builtin: isBuiltinWorkflow(r.id),
     definition: parseDefinition(r.definition, `workflow ${r.id}`),
     variants: n?.n ?? 0,
@@ -141,8 +158,8 @@ export function assertNewWorkflow(db: Db, definition: WorkflowDefinition) {
   assertEntryFree(db, definition);
 }
 
-// 没有评测类型的新 workflow；copiedFrom 为底子 variant 所属的 workflow
-export function insertWorkflow(db: Db, definition: WorkflowDefinition, copiedFrom: string) {
+// 没有评测类型的新 workflow（Contracts 18.5）：从空白新建或保存 Codex 草稿
+export function insertWorkflow(db: Db, definition: WorkflowDefinition, description: string) {
   assertNewWorkflow(db, definition);
   db.insert(workflowTable)
     .values({
@@ -150,7 +167,7 @@ export function insertWorkflow(db: Db, definition: WorkflowDefinition, copiedFro
       name: definition.name,
       evalKind: null,
       definition,
-      copiedFrom,
+      description,
       updatedAt: new Date(),
     })
     .run();
@@ -185,39 +202,38 @@ export function createWorkflows({ db, variants: variantsModule }: { db: Db; vari
       return view(db, workflowRow(db, id));
     },
 
-    // 复制 fromVariantId 的基线导出与 src/skills，作为新 workflow 的第一个 variant（草稿，名字"基线"）
+    // 从空白新建（Contracts 18.5）：没有评测类型；同时建出第一个 variant"初稿"（入口与各小阶段的 SKILL.md 骨架）
     create(input: NewWorkflowBody): WorkflowView {
       const definition = checkedDefinition(input.definition, input.id, input.name);
       if (db.select().from(workflowTable).where(eq(workflowTable.id, input.id)).get()) {
         throw new HttpError(409, `workflow ${input.id} 已存在`);
       }
-      assertEntryFree(db, definition);
-      const source = variantsModule.get(input.fromVariantId);
-      const from = workflowRow(db, source.workflowId);
-      // 先写 workflow 行，再复制 variant：variant 的 workflow 必须已存在
-      db.insert(workflowTable)
-        .values({
-          id: input.id,
-          name: input.name,
-          evalKind: input.keepEvalKind ? from.evalKind : null,
-          definition,
-          copiedFrom: from.id,
-          updatedAt: new Date(),
-        })
-        .run();
-      variantsModule.copyToWorkflow(source.id, { workflowId: input.id, name: '基线' });
+      // 先写 workflow 行，再建 variant：variant 的 workflow 必须已存在
+      insertWorkflow(db, definition, input.description.trim());
+      variantsModule.createBlank({ workflowId: input.id, name: '初稿' });
       return view(db, workflowRow(db, input.id));
     },
 
-    // 名字与定义可改，评测类型不能改；内置的两个返回 409
+    // 名字、描述与定义可改，评测类型不能改；内置的两个只能改描述，改了名字或定义时 409
     update(id: string, input: UpdateWorkflowBody): WorkflowView {
-      if (isBuiltinWorkflow(id)) {
-        throw new HttpError(409, `${id} 是内置的 workflow，不能修改；要改就复制成新 workflow`);
-      }
-      workflowRow(db, id);
+      const current = workflowRow(db, id);
       const definition = checkedDefinition(input.definition, id, input.name);
+      if (
+        isBuiltinWorkflow(id) &&
+        JSON.stringify(definition) !== JSON.stringify(current.definition)
+      ) {
+        throw new HttpError(
+          409,
+          `${id} 是内置的 workflow，只能修改描述；要换入口或小阶段就从空白新建一个 workflow`,
+        );
+      }
       db.update(workflowTable)
-        .set({ name: definition.name, definition, updatedAt: new Date() })
+        .set({
+          name: definition.name,
+          description: input.description.trim(),
+          definition,
+          updatedAt: new Date(),
+        })
         .where(eq(workflowTable.id, id))
         .run();
       return view(db, workflowRow(db, id));

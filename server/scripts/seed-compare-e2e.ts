@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { asc, eq } from 'drizzle-orm';
@@ -130,10 +131,19 @@ for (const v of [baseline, modified, trial]) {
     .where(eq(variantsTable.id, v.id))
     .run();
 }
-// ic 的 run 用 ic workflow 的 variant（Contracts 16.4）：同名的两个，内容与 lfg 的两个相同
+// ic 的 run 用 ic workflow 的 variant（Contracts 16.4）：与迁移拆出的一样，同名、与 lfg 的那一个共用目录
+const icCopy = (source: { id: string }, parentId: string | null) => {
+  const row = variantsModule.get(source.id);
+  const id = randomUUID();
+  db.insert(variantsTable)
+    .values({ ...row, id, workflowId: 'ic', storageId: row.id, parentId })
+    .run();
+  return variantsModule.get(id);
+};
+const icBaseline = icCopy(baseline, null);
 const icVariants = {
-  baseline: variantsModule.copyToWorkflow(baseline.id, { workflowId: 'ic', name: baseline.name }),
-  modified: variantsModule.copyToWorkflow(modified.id, { workflowId: 'ic', name: modified.name }),
+  baseline: icBaseline,
+  modified: icCopy(modified, icBaseline.id),
 };
 for (const v of Object.values(icVariants)) {
   db.update(variantsTable)

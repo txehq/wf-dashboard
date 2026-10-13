@@ -172,10 +172,12 @@ describe('0011 与 0012 迁移：dev-workflow 拆成 lfg 与 ic', () => {
       { id: 'ic-money-format', kind: 'ic' },
       { id: 'lfg-calculator', kind: 'lfg' },
     ]);
-    // workflows：dev-workflow 删除，内置的 lfg 与 ic 带评测类型
-    expect(all('select id, eval_kind, copied_from from workflows order by id')).toEqual([
-      { id: 'ic', eval_kind: 'ic', copied_from: null },
-      { id: 'lfg', eval_kind: 'lfg', copied_from: null },
+    // workflows：dev-workflow 删除，内置的 lfg 与 ic 带评测类型与 yaml 中的描述（0015 去掉 copied_from）
+    expect(
+      all('select id, eval_kind, description is not null described from workflows order by id'),
+    ).toEqual([
+      { id: 'ic', eval_kind: 'ic', described: 1 },
+      { id: 'lfg', eval_kind: 'lfg', described: 1 },
     ]);
     expect(all('select count(*) n from stage_cycles')).toEqual([{ n: 0 }]);
     expect(
