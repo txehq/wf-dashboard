@@ -37,7 +37,7 @@ import {
   type Variant,
 } from '@/pages/variants-api';
 import { QueryError } from '@/pages/variants-error';
-import { monaco } from '@/pages/variants-monaco';
+import { MONACO_THEME, monaco } from '@/pages/variants-monaco';
 
 type MonacoEditor = Parameters<NonNullable<Parameters<typeof Editor>[0]['onMount']>>[0];
 
@@ -229,6 +229,7 @@ function FileEditor({
         key={path}
         defaultValue={file.data.content}
         language={languageOf(path)}
+        theme={MONACO_THEME}
         options={{
           readOnly,
           minimap: { enabled: false },

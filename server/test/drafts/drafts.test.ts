@@ -443,6 +443,27 @@ describe('用 Codex 生成 workflow 或 variant（基础档）', { timeout: 60_0
   test('保存成功：用自有管理器构建（不用 wf），建 workflow 与它的第一个 variant「基线」，再次保存建出新 variant', async () => {
     const skills = path.join(workflowDraft.dir, 'src/skills');
     fs.writeFileSync(path.join(skills, 'review', 'SKILL.md'), skillMd('review'));
+    // 保存前的改动预览（Contracts 21.3）：从空白开始的草稿没有底子，src/skills 中的文件都是新增
+    const preview = await app.inject({
+      method: 'GET',
+      url: `/api/workflow-drafts/${workflowDraft.id}/diff`,
+    });
+    expect(preview.statusCode, preview.body).toBe(200);
+    const diff = preview.json<{
+      base: unknown;
+      files: { path: string; status: string; oldContent: string; patch: string }[];
+    }>();
+    expect(diff.base).toBeNull();
+    expect(diff.files.map((f) => f.path)).toEqual(
+      fs
+        .readdirSync(skills)
+        .sort()
+        .map((name) => `skills/${name}/SKILL.md`),
+    );
+    expect(diff.files.every((f) => f.status === 'added' && f.oldContent === '')).toBe(true);
+    expect(diff.files.find((f) => f.path === 'skills/review/SKILL.md')?.patch).toContain(
+      '--- /dev/null\n+++ b/skills/review/SKILL.md\n',
+    );
     const response = await save(workflowDraft.id);
     expect(response.statusCode, response.body).toBe(200);
     const saved = response.json<Draft>();

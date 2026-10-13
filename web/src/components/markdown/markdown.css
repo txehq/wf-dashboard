@@ -1,0 +1,73 @@
+/* github-markdown-css 之外的少量样式 */
+
+/* Tailwind 的 preflight 去掉了列表的符号，这里按 GitHub 的样子补回 */
+.markdown-body ul {
+  list-style-type: disc;
+}
+
+.markdown-body ul ul {
+  list-style-type: circle;
+}
+
+.markdown-body ul ul ul {
+  list-style-type: square;
+}
+
+.markdown-body ol {
+  list-style-type: decimal;
+}
+
+.markdown-body ul.contains-task-list {
+  list-style-type: none;
+}
+
+.markdown-body .md-mermaid {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.markdown-body .md-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.markdown-body .md-mermaid-error {
+  margin-bottom: 8px;
+  color: var(--fgColor-danger, #d1242f);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.markdown-body .md-image-path {
+  padding: 0 4px;
+  border: 1px dashed var(--borderColor-default, #d1d9e0);
+  border-radius: 4px;
+  color: var(--fgColor-muted, #59636e);
+  font-size: 85%;
+}
+
+/* 渲染后的对比：改动的段落，左侧一道色条加浅底色，与 diff 的红绿相同 */
+.markdown-body .md-mark-added,
+.markdown-body .md-mark-removed {
+  border-radius: 2px;
+}
+
+.markdown-body .md-mark-added {
+  background-color: var(--wfd-diff-add-line) !important;
+  box-shadow:
+    -6px 0 0 0 var(--wfd-diff-add-line),
+    -9px 0 0 0 var(--wfd-diff-add-text);
+}
+
+.markdown-body .md-mark-removed {
+  background-color: var(--wfd-diff-delete-line) !important;
+  box-shadow:
+    -6px 0 0 0 var(--wfd-diff-delete-line),
+    -9px 0 0 0 var(--wfd-diff-delete-text);
+}
+
+.markdown-body tr.md-mark-added > *,
+.markdown-body tr.md-mark-removed > * {
+  background-color: inherit;
+}

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Play, RotateCcw, Save, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
+import { CodexSavePreview } from '@/components/codex-save-preview';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
@@ -203,6 +204,8 @@ export function CodexDraftBar({
     },
   });
   const resume = useMutation({ mutationFn: () => resumeCodex(live.id), onSuccess: onResumed });
+  // 点保存后先看将要保存的改动，确认后才保存（Contracts 21.3）
+  const [previewing, setPreviewing] = useState(false);
   const retry = useMutation({
     mutationFn: () => retryDraft(draftId ?? ''),
     onSuccess: async () => {
@@ -238,12 +241,25 @@ export function CodexDraftBar({
               data-testid="codex-draft-save"
               disabled={!savable || save.isPending}
               onClick={() => {
-                save.mutate();
+                setPreviewing(true);
               }}
             >
               <Save />
               {save.isPending ? '校验并构建中…' : label}
             </Button>
+            {previewing && (
+              <CodexSavePreview
+                draftId={draftId}
+                saveLabel={label}
+                onClose={() => {
+                  setPreviewing(false);
+                }}
+                onConfirm={() => {
+                  setPreviewing(false);
+                  save.mutate();
+                }}
+              />
+            )}
           </>
         )}
         {live.status !== 'running' && live.process !== null && (

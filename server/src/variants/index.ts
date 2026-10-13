@@ -406,8 +406,9 @@ export function createVariants({
     );
   }
 
-  function diffTrees(beforeDir: string, afterDir: string): FileDiff[] {
-    const before = readTree(beforeDir);
+  // beforeDir 为空：没有可比的一侧，afterDir 中的文件都是新增
+  function diffTrees(beforeDir: string | null, afterDir: string): FileDiff[] {
+    const before = beforeDir === null ? new Map<string, string>() : readTree(beforeDir);
     const after = readTree(afterDir);
     const paths = [...new Set([...before.keys(), ...after.keys()])].sort();
     const files: FileDiff[] = [];
@@ -874,6 +875,11 @@ export function createVariants({
     // 任意两个 variant 之间逐文件对比 skills/，from 为旧的一侧
     diffBetween(fromId: string, toId: string): FileDiff[] {
       return diffTrees(dirsOf(get(fromId)).src, dirsOf(get(toId)).src);
+    },
+
+    // 一份还没有成为 variant 的 src（Codex 草稿）相对底子 variant 逐文件对比 skills/；没有底子时全部是新增
+    diffSource(baseId: string | null, srcDir: string): FileDiff[] {
+      return diffTrees(baseId === null ? null : dirsOf(get(baseId)).src, srcDir);
     },
 
     buildLog(id: string): string {

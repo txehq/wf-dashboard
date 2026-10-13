@@ -1,6 +1,7 @@
 import { queryOptions } from '@tanstack/react-query';
 import {
   type CreateDraftBody,
+  DraftDiffView,
   type DraftStepView,
   DraftView,
 } from '@wf-dashboard/server/drafts/views';
@@ -26,6 +27,16 @@ export async function createDraft(
     live: LiveDetail;
   };
 }
+
+// 保存前的改动预览（Contracts 21.3）：每次打开都重新读取，Codex 可能刚改过文件
+export const draftDiffQuery = (id: string) =>
+  queryOptions({
+    queryKey: ['drafts', id, 'diff'],
+    queryFn: async () =>
+      DraftDiffView.parse(await requestJson('GET', `/api/workflow-drafts/${id}/diff`)),
+    staleTime: 0,
+    gcTime: 0,
+  });
 
 // 保存为 workflow / variant：校验与构建失败时服务端以原文报错
 export async function saveDraft(id: string): Promise<Draft> {
