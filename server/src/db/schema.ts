@@ -392,7 +392,9 @@ export const liveEvents = sqliteTable(
   (t) => [index('live_events_live_idx').on(t.liveId, t.id)],
 );
 
-export const draftModes = ['workflow', 'variant'] as const;
+// optimize：分析报告交给 Codex 优化（Contracts 19.3），目录是分析目录，保存时按 optimize/workflow.yaml 是否改动
+// 决定保存为原 workflow 的新 variant 还是新 workflow
+export const draftModes = ['workflow', 'variant', 'optimize'] as const;
 export type DraftMode = (typeof draftModes)[number];
 // preparing：后台准备草稿目录；open：可以与 Codex 对话、保存；failed：准备的某一步失败，可以从那一步重试（Contracts 17.1）
 export const draftStatuses = ['preparing', 'open', 'saved', 'failed'] as const;
@@ -451,6 +453,10 @@ export const workflowDrafts = sqliteTable('workflow_drafts', {
     .$type<DraftSkillVersion[]>()
     .notNull()
     .default(sql`'[]'`),
+  // mode 为 optimize 时被优化的分析（Contracts 19.3）：草稿目录即 data/analyses/<id>/
+  analysisId: text('analysis_id').references((): AnySQLiteColumn => analyses.id, {
+    onDelete: 'restrict',
+  }),
   createdAt: createdAt(),
 });
 
@@ -820,11 +826,8 @@ export type AnalysisEngine = (typeof analysisEngines)[number];
 export const analysisStatuses = ['queued', 'running', 'succeeded', 'failed', 'cancelled'] as const;
 export type AnalysisStatus = (typeof analysisStatuses)[number];
 
-// 四个方面各一步，最后一步综合出修改建议
-export const analysisAspects = ['process', 'efficiency', 'interaction', 'quality'] as const;
-export type AnalysisAspect = (typeof analysisAspects)[number];
-export const analysisStepKeys = [...analysisAspects, 'synthesis'] as const;
-export type AnalysisStepKey = (typeof analysisStepKeys)[number];
+// 分析的方面与步骤是所选 session-analysis variant 的小阶段（Contracts 19.2）：每个方面一步，
+// 最后一个小阶段 synthesize 综合出报告与修改建议。W45 之前的分析是 process、efficiency、interaction、quality 与 synthesis
 
 export interface AnalysisTokens {
   input: number;
@@ -836,7 +839,8 @@ export interface AnalysisTokens {
 }
 
 export interface AnalysisStep {
-  key: AnalysisStepKey;
+  // 小阶段 id（W45 之前为 process、efficiency、interaction、quality、synthesis）
+  key: string;
   status: 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
   startedAt: number | null;
   endedAt: number | null;
@@ -861,9 +865,26 @@ export const analyses = sqliteTable('analyses', {
   error: text('error'),
   steps: text('steps', { mode: 'json' }).$type<AnalysisStep[]>().notNull(),
   costUsd: real('cost_usd'),
+  // 驱动这次分析的 session-analysis variant（Contracts 19.2）；W45 之前的分析为空
+  analysisVariantId: text('analysis_variant_id').references((): AnySQLiteColumn => variants.id, {
+    onDelete: 'restrict',
+  }),
+  // synthesize 写出的 output/report.json（校验后）；W45 之前的分析与没有成功的分析为空
+  report: text('report', { mode: 'json' }).$type<AnalysisReport>(),
   createdAt: createdAt(),
   endedAt: integer('ended_at', { mode: 'timestamp_ms' }),
 });
+
+export const analysisOutcomes = ['achieved', 'partially_achieved', 'not_achieved', 'unclear'] as const;
+
+// output/report.json（Contracts 19.2）：patches.json 中的修改都属于"改 variant"，workflowChanges 是"需要新建 workflow"的建议
+export interface AnalysisReport {
+  summary: string;
+  goal: string;
+  outcome: (typeof analysisOutcomes)[number];
+  topIssues: { title: string; findingIds: string[]; impact: string }[];
+  workflowChanges: { findingIds: string[]; rationale: string; change: string }[];
+}
 
 export interface FindingEvidence {
   sessionId: string;
@@ -883,7 +904,8 @@ export const analysisFindings = sqliteTable(
       .references(() => analyses.id, { onDelete: 'cascade' }),
     // <方面>-<序号>，序号为发现在该方面输出文件中的位置，从 1 开始；修改建议的 findingIds 引用它
     findingId: text('finding_id').notNull(),
-    aspect: text('aspect', { enum: analysisAspects }).notNull(),
+    // 所选 session-analysis variant 的小阶段 id（W45 之前为 process、efficiency、interaction、quality）
+    aspect: text('aspect').notNull(),
     title: text('title').notNull(),
     stage: text('stage'),
     skill: text('skill'),

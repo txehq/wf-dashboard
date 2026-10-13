@@ -148,13 +148,14 @@ afterAll(async () => {
 });
 
 describe('workflows API 与从空白新建', () => {
-  test('GET 列出内置的 lfg 与 ic 与 yaml 中的描述；内置的只能改描述，改定义 409', async () => {
+  test('GET 列出内置的 lfg、ic 与 session-analysis 与 yaml 中的描述；内置的只能改描述，改定义 409', async () => {
     const list = await app.inject({ method: 'GET', url: '/api/workflows' });
     expect(list.statusCode).toBe(200);
     const views = WorkflowView.array().parse(list.json());
-    expect(views.map((w) => [w.id, w.evalKind, w.builtin])).toEqual([
-      ['lfg', 'lfg', true],
-      ['ic', 'ic', true],
+    expect(views.map((w) => [w.id, w.evalKind, w.builtin, w.wf])).toEqual([
+      ['lfg', 'lfg', true, true],
+      ['ic', 'ic', true, true],
+      ['session-analysis', null, true, false],
     ]);
     expect(views[0]?.description).toBe(
       '从一个新想法到 Linear 工单：访谈确定边界，本地与网上调研，计划，拆成工单后停在 dispatch gate。',

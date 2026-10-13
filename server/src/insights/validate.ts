@@ -3,10 +3,15 @@ import path from 'node:path';
 import { diffArrays, parsePatch } from 'diff';
 import { execa } from 'execa';
 import { z } from 'zod';
-import { type AnalysisAspect, type FindingEvidence, findingSeverities } from '../db/schema.js';
+import {
+  analysisOutcomes,
+  type AnalysisReport,
+  type FindingEvidence,
+  findingSeverities,
+} from '../db/schema.js';
 import type { ExportedRow } from './export.js';
 
-// Contracts 15.2：引擎输出文件的格式与 dashboard 的校验；不满足时以原文失败
+// Contracts 15.2、19.2：引擎输出文件的格式与 dashboard 的校验；不满足时以原文失败
 
 const Evidence = z.object({
   sessionId: z.string().min(1),
@@ -26,11 +31,12 @@ export type EngineFinding = z.infer<typeof EngineFinding>;
 
 export interface ValidatedFinding extends EngineFinding {
   findingId: string;
-  aspect: AnalysisAspect;
+  // 方面即 session-analysis 的小阶段
+  aspect: string;
   evidence: FindingEvidence[];
 }
 
-export const findingsFile = (aspect: AnalysisAspect) => `findings-${aspect}.json`;
+export const findingsFile = (aspect: string) => `findings-${aspect}.json`;
 
 function readJson(file: string): unknown {
   if (!fs.existsSync(file)) throw new Error(`引擎没有写出 ${file}`);
@@ -70,7 +76,7 @@ export function evidenceIndex(exported: Map<string, ExportedRow[]>): EvidenceInd
 // 校验一个方面的输出：zod 格式，以及每条证据的 seq 存在、quote 是该行导出内容的子串
 export function validateFindings(
   file: string,
-  aspect: AnalysisAspect,
+  aspect: string,
   index: EvidenceIndex,
 ): ValidatedFinding[] {
   const parsed = z.array(EngineFinding).safeParse(readJson(file));
@@ -130,6 +136,46 @@ export const EnginePatch = z.object({
   patch: z.string().min(1),
 });
 export type EnginePatch = z.infer<typeof EnginePatch>;
+
+const FindingIds = z.array(z.string().min(1)).min(1);
+
+export const EngineReport = z.strictObject({
+  summary: z.string().trim().min(1),
+  goal: z.string().trim().min(1),
+  outcome: z.enum(analysisOutcomes),
+  topIssues: z.array(
+    z.strictObject({
+      title: z.string().trim().min(1),
+      findingIds: FindingIds,
+      impact: z.string().trim().min(1),
+    }),
+  ),
+  workflowChanges: z.array(
+    z.strictObject({
+      findingIds: FindingIds,
+      rationale: z.string().trim().min(1),
+      change: z.string().trim().min(1),
+    }),
+  ),
+});
+
+// 校验 output/report.json（Contracts 19.2）：zod 格式，每个 findingId 都存在
+export function validateReport(file: string, findingIds: Set<string>): AnalysisReport {
+  const parsed = EngineReport.safeParse(readJson(file));
+  if (!parsed.success) {
+    throw new Error(`report.json 的格式不对：${z.prettifyError(parsed.error)}`);
+  }
+  const report = parsed.data;
+  const referenced = [
+    ...report.topIssues.flatMap((i) => i.findingIds),
+    ...report.workflowChanges.flatMap((c) => c.findingIds),
+  ];
+  const unknown = [...new Set(referenced.filter((id) => !findingIds.has(id)))];
+  if (unknown.length > 0) {
+    throw new Error(`report.json 校验失败：findingIds 不存在：${unknown.join(', ')}`);
+  }
+  return report;
+}
 
 // 一处改动：在原文第 start 行（0 起）删除 remove，插入 insert；行含换行符
 export interface Hunk {

@@ -127,7 +127,7 @@ describe('绑定与分析的 HTTP 接口', { timeout: 120_000 }, () => {
 
   test('默认模型：Claude Code 为 judge，Codex 为 ~/.codex/config.toml 的 model', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/analyses/options' });
-    expect(res.json()).toEqual({ defaults: insights.defaults() });
+    expect(res.json()).toEqual({ defaults: insights.defaults(), analysisVariants: [] });
     expect(insights.defaults().codex).not.toBe('');
   });
 });

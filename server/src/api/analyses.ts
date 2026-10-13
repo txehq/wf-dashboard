@@ -5,10 +5,9 @@ import {
 } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
-  analysisAspects,
   analysisEngines,
+  analysisOutcomes,
   analysisStatuses,
-  analysisStepKeys,
   findingSeverities,
   variantBindings,
 } from '../db/schema.js';
@@ -39,8 +38,9 @@ const Tokens = z.object({
   reasoning: z.number(),
 });
 
+// key 是所选 session-analysis variant 的小阶段（Contracts 19.2）
 const Step = z.object({
-  key: z.enum(analysisStepKeys),
+  key: z.string(),
   status: z.enum(['pending', 'running', 'succeeded', 'failed', 'cancelled']),
   startedAt: z.number().nullable(),
   endedAt: z.number().nullable(),
@@ -56,6 +56,9 @@ const Summary = z.object({
   model: z.string(),
   variantId: z.string(),
   variantName: z.string(),
+  // 驱动分析的 session-analysis variant；W45 之前的分析为空
+  analysisVariantId: z.string().nullable(),
+  analysisVariantName: z.string().nullable(),
   sessionIds: z.array(z.string()),
   status: z.enum(analysisStatuses),
   error: z.string().nullable(),
@@ -67,7 +70,7 @@ const Summary = z.object({
 
 const Finding = z.object({
   findingId: z.string(),
-  aspect: z.enum(analysisAspects),
+  aspect: z.string(),
   title: z.string(),
   stage: z.string().nullable(),
   skill: z.string().nullable(),
@@ -76,8 +79,24 @@ const Finding = z.object({
   evidence: z.array(z.object({ sessionId: z.string(), seq: z.number(), quote: z.string() })),
 });
 
+const Ids = z.array(z.string());
+
+// output/report.json（Contracts 19.2）
+const Report = z.object({
+  summary: z.string(),
+  goal: z.string(),
+  outcome: z.enum(analysisOutcomes),
+  topIssues: z.array(z.object({ title: z.string(), findingIds: Ids, impact: z.string() })),
+  workflowChanges: z.array(
+    z.object({ findingIds: Ids, rationale: z.string(), change: z.string() }),
+  ),
+});
+
 const Detail = Summary.extend({
   sessions: z.array(ScopeSession),
+  report: Report.nullable(),
+  // 交给 Codex 优化的草稿与它在 Live 中的项（Contracts 19.3）
+  optimizeDrafts: z.array(z.object({ id: z.string(), liveId: z.string().nullable() })),
   findings: z.array(Finding),
   patches: z.array(
     z.object({
@@ -125,16 +144,27 @@ export const analysisRoutes: FastifyPluginCallbackZod<{ insights: Insights }> = 
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
+  // 默认模型与默认的 session-analysis variant（基线），以及可选的 variant（按当前内容构建通过的）
   app.get(
     '/api/analyses/options',
     {
       schema: {
         response: {
-          200: z.object({ defaults: z.object({ claude: z.string(), codex: z.string() }) }),
+          200: z.object({
+            defaults: z.object({
+              claude: z.string(),
+              codex: z.string(),
+              analysisVariantId: z.string().nullable(),
+            }),
+            analysisVariants: z.array(Named),
+          }),
         },
       },
     },
-    () => ({ defaults: insights.defaults() }),
+    () => ({
+      defaults: insights.defaults(),
+      analysisVariants: insights.analysisVariants().map((v) => ({ id: v.id, name: v.name })),
+    }),
   );
 
   app.get(
@@ -158,6 +188,8 @@ export const analysisRoutes: FastifyPluginCallbackZod<{ insights: Insights }> = 
             batchId: z.string().min(1).optional(),
             engine: z.enum(analysisEngines),
             model: z.string().trim().min(1).optional(),
+            // 用哪个 session-analysis variant 分析（Contracts 19.2），默认基线
+            analysisVariantId: z.string().min(1).optional(),
           })
           .refine((b) => (b.sessionIds === undefined) !== (b.batchId === undefined), {
             message: 'sessionIds 与 batchId 必须恰好给出一个',

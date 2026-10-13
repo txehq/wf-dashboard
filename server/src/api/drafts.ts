@@ -55,5 +55,21 @@ export const draftRoutes: FastifyPluginCallbackZod<{ drafts: Drafts }> = (
     (request) => drafts.save(request.params.id),
   );
 
+  // 交给 Codex 优化（Contracts 19.3）：在分析目录中建优化草稿与 Live 中的 Codex 项，准备在后台进行
+  app.post(
+    '/api/analyses/:id/optimize',
+    {
+      schema: {
+        params: IdParams,
+        response: { 201: z.object({ draft: DraftView, live: LiveDetail }) },
+      },
+    },
+    (request, reply) => {
+      const created = drafts.optimize(request.params.id);
+      void reply.code(201);
+      return created;
+    },
+  );
+
   done();
 };

@@ -17,7 +17,7 @@ import {
 } from '../db/schema.js';
 import { events } from '../events.js';
 import { definitionHash, loadWorkflow } from '../workflows/index.js';
-import { BUILTIN_WORKFLOWS, isBuiltinWorkflow } from '../workflows/schema.js';
+import { isWfWorkflow, WF_WORKFLOWS } from '../workflows/schema.js';
 import {
   type Cycle,
   cyclesOf,
@@ -215,9 +215,9 @@ export function sessionPartition(db: Db, sessionId: string): Partition {
           .from(variants)
           .where(eq(variants.id, variantId))
           .get()?.workflowId;
-  if (workflowId !== undefined && !isBuiltinWorkflow(workflowId))
+  if (workflowId !== undefined && !isWfWorkflow(workflowId))
     return [loadWorkflow(db, workflowId)];
-  return BUILTIN_WORKFLOWS.map((id) => loadWorkflow(db, id));
+  return WF_WORKFLOWS.map((id) => loadWorkflow(db, id));
 }
 
 export interface StageChange {

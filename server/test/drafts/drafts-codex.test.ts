@@ -61,6 +61,7 @@ const drafts = createDrafts({
   variants,
   live,
   draftsDir: config.workflowDraftsDir,
+  dataDir: config.dataDir,
   skillSources: config.codexSkillSources,
 });
 
@@ -100,10 +101,10 @@ describe('Live 中的 Codex 会话（真实 Codex，一次）', { timeout: 600_0
       requirement: '测试',
       baseVariantId: base.id,
     });
-    copyDraftSource(draftLayout(draft.dir), (dest) => {
+    copyDraftSource(draftLayout(draft.dir, 'variant'), (dest) => {
       variants.exportSource(base.id, dest);
     });
-    writeDraftDocs(draftLayout(draft.dir), 'variant', loadWorkflow(db, 'lfg'));
+    writeDraftDocs(draftLayout(draft.dir, 'variant'), 'variant', loadWorkflow(db, 'lfg'));
     const file = path.join(draft.dir, 'src/skills/hello-flow/SKILL.md');
     const started = Date.now();
     const item = live.createCodexItem({

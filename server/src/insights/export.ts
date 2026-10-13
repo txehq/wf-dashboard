@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import { execa } from 'execa';
+import { stringify } from 'yaml';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import {
@@ -25,6 +26,7 @@ import { AnyRecord, UserRecord } from '../ingest/records.js';
 import { readReport, type StageReport } from '../stages/report.js';
 import { loadTask } from '../tasks/loader.js';
 import { displayUserText } from '../api/user-text.js';
+import type { WorkflowDefinition } from '../workflows/schema.js';
 
 // Contracts 15.2：分析目录 input/ 的内容。sessions/<id>.jsonl 每行一次请求（主 agent 与子代理），不截断
 
@@ -301,8 +303,35 @@ export interface ExportInput {
   variant: { id: string; name: string };
   // 绑定 variant 的 src/skills
   skillsDir: string;
+  // 绑定 variant 所属 workflow 的定义，写成 input/workflow.yaml（Contracts 19.2）
+  workflow: WorkflowDefinition;
   sessionIds: string[];
   inputDir: string;
+}
+
+const InstructionsRecord = z.looseObject({
+  type: z.literal('attachment'),
+  timestamp: z.string(),
+  attachment: z.looseObject({
+    type: z.literal('instructions'),
+    files: z.array(
+      z.looseObject({ path: z.string(), type: z.string(), content: z.string() }),
+    ),
+  }),
+});
+
+// session 记录中加载的指令文件（attachment.type 为 instructions：CLAUDE.md 等的路径与原文），按出现顺序
+export function sessionInstructions(file: string): z.infer<typeof InstructionsRecord>[] {
+  const out: z.infer<typeof InstructionsRecord>[] = [];
+  for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+    if (!line.includes('"instructions"') || !line.includes('"attachment"')) continue;
+    const raw: unknown = JSON.parse(line);
+    const record = z.looseObject({ type: z.string(), attachment: z.unknown() }).parse(raw);
+    if (record.type !== 'attachment') continue;
+    const kind = z.looseObject({ type: z.string() }).parse(record.attachment).type;
+    if (kind === 'instructions') out.push(InstructionsRecord.parse(raw));
+  }
+  return out;
 }
 
 // 写出 input/；返回每个 session 的导出行，供证据校验使用
@@ -311,7 +340,13 @@ export async function writeInput(db: Db, input: ExportInput): Promise<Map<string
   const sessionsDir = path.join(input.inputDir, 'sessions');
   fs.mkdirSync(sessionsDir, { recursive: true });
   const meta = db
-    .select({ id: sessions.id, title: sessions.title, cwd: sessions.cwd, runId: sessions.runId })
+    .select({
+      id: sessions.id,
+      title: sessions.title,
+      cwd: sessions.cwd,
+      runId: sessions.runId,
+      filePath: sessions.filePath,
+    })
     .from(sessions)
     .where(inArray(sessions.id, input.sessionIds))
     .all();
@@ -331,6 +366,17 @@ export async function writeInput(db: Db, input: ExportInput): Promise<Map<string
     fs.writeFileSync(
       path.join(dir, 'conversation.json'),
       `${JSON.stringify(sessionConversation(db, id), null, 2)}\n`,
+    );
+    fs.writeFileSync(
+      path.join(dir, 'instructions.json'),
+      `${JSON.stringify(
+        sessionInstructions(m.filePath).map((r) => ({
+          timestamp: r.timestamp,
+          files: r.attachment.files.map((f) => ({ path: f.path, type: f.type, content: f.content })),
+        })),
+        null,
+        2,
+      )}\n`,
     );
     if (m.runId !== null) {
       fs.writeFileSync(
@@ -353,6 +399,7 @@ export async function writeInput(db: Db, input: ExportInput): Promise<Map<string
     });
   }
   fs.cpSync(input.skillsDir, path.join(input.inputDir, 'skills'), { recursive: true });
+  fs.writeFileSync(path.join(input.inputDir, 'workflow.yaml'), stringify(input.workflow));
   const caseFile: CaseFile = {
     analysisId: input.analysisId,
     variant: input.variant,

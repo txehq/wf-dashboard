@@ -14,6 +14,7 @@ import {
 } from '../src/insights/validate.js';
 import { syncTasks } from '../src/tasks/loader.js';
 import { createVariants } from '../src/variants/index.js';
+import { loadWorkflow } from '../src/workflows/index.js';
 import { BASE_COMMIT, IC, unpackSession, workDir } from './helpers/session-fixtures.js';
 
 // Contracts 15.2 的校验：用写好的输出文件直接测试校验函数，不调用引擎
@@ -44,6 +45,7 @@ const exported = await writeInput(db, {
   analysisId: 'a-20261012-valid1',
   variant: { id: variant.id, name: variant.name },
   skillsDir: variants.layout(variant.id).skills,
+  workflow: loadWorkflow(db, 'ic'),
   sessionIds: [IC.sessionId],
   inputDir,
 });

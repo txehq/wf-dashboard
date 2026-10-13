@@ -43,6 +43,7 @@ const drafts = createDrafts({
   variants,
   live,
   draftsDir: config.workflowDraftsDir,
+  dataDir: variantsData,
   skillSources: makeSkillSources(path.join(config.dataDir, 'skill-sources')),
 });
 const marker = randomUUID().slice(0, 6);
