@@ -113,6 +113,7 @@ describe('Live 中的 Codex 会话（真实 Codex，一次）', { timeout: 600_0
       prompt: '在 src/skills/hello-flow/SKILL.md 末尾加一行 ok',
       title: 'W42 真实 Codex',
       workflow: 'lfg',
+      purpose: 'design',
     });
     const detail = await live.startCodex(item.id);
     expect(detail.engine).toBe('codex');

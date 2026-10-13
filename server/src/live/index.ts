@@ -11,6 +11,7 @@ import {
   liveEvents,
   type LiveProcessKind,
   liveProcesses,
+  type LivePurpose,
   liveSessions,
   runs,
   sessions,
@@ -256,7 +257,11 @@ export function createLive(deps: LiveDeps) {
     const start = startPayload(r.id);
     const controller = controllers.get(r.id);
     const draft = db
-      .select({ id: workflowDrafts.id })
+      .select({
+        id: workflowDrafts.id,
+        mode: workflowDrafts.mode,
+        analysisId: workflowDrafts.analysisId,
+      })
       .from(workflowDrafts)
       .where(eq(workflowDrafts.liveId, r.id))
       .get();
@@ -265,6 +270,14 @@ export function createLive(deps: LiveDeps) {
       title: r.title,
       claudeSessionId: r.claudeSessionId,
       engine: r.engine,
+      purpose: r.purpose,
+      // 设计的是新 workflow 还是新 variant；其余用途为空
+      designMode:
+        r.purpose === 'design' && (draft?.mode === 'workflow' || draft?.mode === 'variant')
+          ? draft.mode
+          : null,
+      // 优化会话对应的分析（Contracts 19.3）
+      analysisId: r.purpose === 'optimize' ? (draft?.analysisId ?? null) : null,
       draftId: draft?.id ?? null,
       environment: r.environment,
       workflow: r.workflow,
@@ -361,6 +374,8 @@ export function createLive(deps: LiveDeps) {
     // Codex 草稿的项在 Codex 第一次启动之前为空
     claudeSessionId: string | null;
     engine?: 'claude' | 'codex';
+    // 不传时为 interaction（新建、导入、resume 的普通项）
+    purpose?: LivePurpose;
     title: string;
     environment: LiveEnvironment;
     workflow: string | null;
@@ -635,18 +650,21 @@ export function createLive(deps: LiveDeps) {
     });
   }
 
-  // Codex 草稿的项（Contracts 17.1）：发起时立即建出，没有进程，也还没有会话 id；草稿准备完后由 launchCodex 启动
+  // Codex 草稿与优化的项（Contracts 17.1、19.3）：发起时立即建出，没有进程，也还没有会话 id；草稿准备完后由
+  // launchCodex 启动
   function createCodexItem(input: {
     cwd: string;
     prompt: string;
     title: string;
     workflow: string | null;
+    purpose: 'design' | 'optimize';
   }): LiveDetail {
     const liveId = newId('l');
     insertItem({
       id: liveId,
       claudeSessionId: null,
       engine: 'codex',
+      purpose: input.purpose,
       title: Array.from(input.title.trim()).slice(0, DEFAULT_TITLE_LENGTH).join(''),
       // Codex 自己的沙箱只允许写草稿目录
       environment: 'isolated',

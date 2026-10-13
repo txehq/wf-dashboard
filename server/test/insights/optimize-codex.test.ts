@@ -130,6 +130,7 @@ describe('交给 Codex 优化的会话（真实 Codex，一次）', { timeout: 6
       prompt: '在 optimize/src/skills/remember/SKILL.md 末尾加一行 ok',
       title: 'W45 真实 Codex 优化',
       workflow: null,
+      purpose: 'optimize',
     });
     const detail = await live.startCodex(item.id);
     expect(detail.status).toBe('running');

@@ -32,6 +32,7 @@ const projectServices: Record<string, Service[]> = {
   'live-items': ['liveItemsServer', 'liveItemsWeb'],
   'live-fullscreen': ['liveFullscreenServer', 'liveFullscreenWeb'],
   'analysis-workflow': ['analysisWorkflowServer', 'analysisWorkflowWeb'],
+  'live-purpose': ['analysisWorkflowServer', 'analysisWorkflowWeb'],
   'resume-dialog': ['resumeDialogServer', 'resumeDialogWeb'],
   'variant-rename': ['variantRenameServer', 'variantRenameWeb'],
 };
@@ -126,6 +127,17 @@ export default defineConfig({
       // 分析由 session-analysis 驱动：新建分析时选 variant、报告页的方面分组、交给 Codex 优化（Codex 是替身命令）
       name: 'analysis-workflow',
       testMatch: 'analysis-workflow.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: `http://127.0.0.1:${String(analysisWorkflowWebPort)}`,
+        viewport: { width: 1600, height: 1000 },
+      },
+    },
+    {
+      // Live 列表中的用途与引擎（Contracts 14.3）：用 analysis-workflow 的数据建出三种用途的项，在它之后运行
+      name: 'live-purpose',
+      testMatch: 'live-purpose.spec.ts',
+      dependencies: ['analysis-workflow'],
       use: {
         ...devices['Desktop Chrome'],
         baseURL: `http://127.0.0.1:${String(analysisWorkflowWebPort)}`,
