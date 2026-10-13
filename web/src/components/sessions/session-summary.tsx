@@ -1,6 +1,10 @@
 import { useState } from 'react';
 import { OpenInLiveButton } from '@/components/live/open-in-live';
-import { ResumeButton } from '@/components/live/resume-dialog';
+import {
+  SessionLinksButton,
+  VariantLink,
+  WorkspaceLink,
+} from '@/components/sessions/session-header-links';
 import { LiveBadge, WorkflowBadges } from '@/components/sessions/workflow-badges';
 import {
   durationBetween,
@@ -91,13 +95,17 @@ export function SessionSummaryPanel({
           <WorkflowBadges workflows={session.workflows} />
           {session.liveId !== null && <LiveBadge liveId={session.liveId} />}
           <span className="ml-auto flex items-start gap-2">
+            <SessionLinksButton sessionId={session.id} />
             <OpenInLiveButton session={session} />
-            <ResumeButton sessionId={session.id} />
           </span>
         </div>
-        <p className="font-mono text-xs text-muted-foreground">
-          {session.cwd ?? '—'} · {session.id}
-          {session.runId !== null && ` · run ${session.runId}`}
+        <p className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
+          <span>工作区</span>
+          <WorkspaceLink session={session} />
+          <span>· {session.id}</span>
+          {session.runId !== null && <span>· run {session.runId}</span>}
+          <span>· variant</span>
+          <VariantLink session={session} />
         </p>
         <p className="text-xs text-muted-foreground tabular-nums">
           {formatDateTime(session.startedAt)} 至 {formatDateTime(session.endedAt)}

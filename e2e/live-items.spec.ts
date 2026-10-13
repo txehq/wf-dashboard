@@ -4,6 +4,7 @@ import path from 'node:path';
 import { expect, type Page, test } from '@playwright/test';
 import { z } from 'zod';
 import { liveItemsProjectsDir } from './services.js';
+import { openLog } from '../server/test/setup/basic-tier.js';
 
 // 交互项的关闭、显示已关闭的项、删除，导入选择框（与 Sessions 页面相同的来源勾选与列表），Sessions 的 Live 按钮
 // （Contracts 14.5）。服务端的来源目录每次删除重建，这里放入两个目录：一个短 session（"请记住暗号"），
@@ -159,7 +160,18 @@ test('Sessions 的 Live 按钮：到达交互区并选中这一项、未运行�
   await listed.getByTestId('live-hide').click();
   await expect(listed).toHaveCount(0);
   await page.goto(`/sessions/${shortSession}`);
-  await page.getByTestId('session-summary').getByTestId('open-in-live').click();
+  const summary = page.getByTestId('session-summary');
+  // 不属于 run 与 isolated 交互项的 session 没有绑定的对象：不显示按钮（Contracts 18.2）
+  await expect(summary.getByTestId('open-in-live')).toBeVisible();
+  await expect(summary.getByTestId('session-links-open')).toHaveCount(0);
+  // 工作区：点击后服务端执行 open <cwd>（基础档的 open 只记下参数，test/setup/basic-bin/open）
+  const workspace = summary.getByTestId('session-workspace');
+  const cwd = (await workspace.textContent()) ?? '';
+  const opened = page.waitForResponse((r) => r.url().endsWith('/api/open'));
+  await workspace.click();
+  expect((await opened).status()).toBe(200);
+  expect(fs.readFileSync(openLog, 'utf8').split('\n')).toContain(cwd);
+  await summary.getByTestId('open-in-live').click();
   await expect(page).toHaveURL(new RegExp(`/live\\?item=${item.id}$`));
   await expect(listed).toHaveAttribute('data-hidden', 'false');
   expect((await liveItems(page)).length).toBe(before);

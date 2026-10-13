@@ -65,7 +65,12 @@ export default defineConfig({
     {
       // W4 端到端导入的已结束 run（prepare-runs-e2e）
       name: 'runs',
-      testMatch: ['runs.spec.ts', 'variants-imported.spec.ts', 'details.spec.ts'],
+      testMatch: [
+        'runs.spec.ts',
+        'variants-imported.spec.ts',
+        'details.spec.ts',
+        'sessions-layout.spec.ts',
+      ],
       use: {
         ...devices['Desktop Chrome'],
         baseURL: `http://127.0.0.1:${String(runsWebPort)}`,

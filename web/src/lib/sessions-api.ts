@@ -204,6 +204,20 @@ export function sessionQuery(id: string) {
   });
 }
 
+// "绑定的对象"（Contracts 18.2）
+export interface SessionLinks {
+  github: { label: string; url: string }[];
+  linear: { label: string; url: string }[];
+  obsidian: { label: string; path: string }[];
+}
+
+export function sessionLinksQuery(id: string) {
+  return queryOptions({
+    queryKey: ['session', id, 'bindings'],
+    queryFn: async () => (await getJson(`/api/sessions/${id}/bindings`)) as SessionLinks,
+  });
+}
+
 // 阶段在导入时划分，已导入的 session 总是有结果
 export function stagesQuery(id: string) {
   return queryOptions({

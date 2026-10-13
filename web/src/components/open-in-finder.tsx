@@ -1,17 +1,11 @@
 import { useMutation } from '@tanstack/react-query';
 import { FolderOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { requestJson } from '@/lib/http';
-
-// "在访达中打开"的目标（Contracts 16.7）：服务端解析出已知的目录，不传任意路径
-export type OpenTarget =
-  | { kind: 'variant'; id: string }
-  | { kind: 'live-cwd'; id: string }
-  | { kind: 'live-config'; id: string };
+import { openInFinder, type OpenTarget } from '@/lib/open-api';
 
 export function OpenInFinder({ target, label }: { target: OpenTarget; label: string }) {
   const open = useMutation({
-    mutationFn: () => requestJson('POST', '/api/open', { target }),
+    mutationFn: () => openInFinder(target),
   });
   return (
     <span className="inline-flex items-center gap-2">
