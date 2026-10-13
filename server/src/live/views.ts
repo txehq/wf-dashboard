@@ -5,6 +5,7 @@ import {
   liveEnvironments,
   liveEventKinds,
   liveProcessKinds,
+  livePurposes,
   liveStatuses,
 } from '../db/schema.js';
 import { AskQuestionView } from '../runs/views.js';
@@ -55,6 +56,10 @@ export const LiveSummary = z.object({
   claudeSessionId: z.string().nullable(),
   // codex：用 Codex 生成 workflow 或 variant 的会话（Contracts 17.3），claudeSessionId 是 Codex 的会话 id
   engine: z.enum(liveEngines),
+  // 用途（Contracts 14.3）；design 时 designMode 为 workflow 或 variant，optimize 时 analysisId 为对应的分析
+  purpose: z.enum(livePurposes),
+  designMode: z.enum(['workflow', 'variant']).nullable(),
+  analysisId: z.string().nullable(),
   // 这个 Codex 会话所属的草稿；其余为空
   draftId: z.string().nullable(),
   environment: z.enum(liveEnvironments),

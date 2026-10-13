@@ -246,7 +246,8 @@ test('全屏中切换交互项：⌃⇧] 与工具栏的下拉，切换后保持
   await page.keyboard.type('z');
   await expect.poll(() => terminalLines(page)).toContainEqual('key "z"');
 
-  await page.getByTestId('live-switcher').selectOption(first);
+  await page.getByTestId('live-switcher').click();
+  await page.locator(`[data-testid="live-switcher-item"][data-live="${first}"]`).click();
   await expect(panelOf(page)).toHaveAttribute('data-live', first);
   await expect(page.getByTestId('live-fullscreen')).toHaveAttribute('data-fullscreen', 'true');
   await page.keyboard.press('Control+Shift+BracketLeft');

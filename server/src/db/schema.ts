@@ -300,6 +300,10 @@ export type LiveStatus = (typeof liveStatuses)[number];
 // 交互项终端中运行的程序：Claude Code，或用 Codex 生成 workflow 的会话（Contracts 17.3，只有人驾驶）
 export const liveEngines = ['claude', 'codex'] as const;
 export type LiveEngine = (typeof liveEngines)[number];
+// 交互项的用途（Contracts 14.3）：interaction 用 workflow 做事（新建、导入、resume）；design 为第 17 节的 Codex 草稿；
+// optimize 为 19.3 的 Codex 优化会话
+export const livePurposes = ['interaction', 'design', 'optimize'] as const;
+export type LivePurpose = (typeof livePurposes)[number];
 
 // 交互（Contracts 14.1）：交互区的一项对应一个 Claude Code session，不评分、不进入对比。
 // 一项可以先后有多个进程（第一次启动、之后的每次 resume），见 live_processes。
@@ -313,6 +317,7 @@ export const liveSessions = sqliteTable(
     // 在草稿准备完、Codex 第一次写出会话记录之前为空（Contracts 17.1）
     claudeSessionId: text('claude_session_id').unique(),
     engine: text('engine', { enum: liveEngines }).notNull().default('claude'),
+    purpose: text('purpose', { enum: livePurposes }).notNull().default('interaction'),
     // 用户可改（Contracts 14.3）；默认取输入的前 40 个字，从已有 session 开始的项取该 session 的标题
     title: text('title').notNull(),
     environment: text('environment', { enum: liveEnvironments }).notNull(),
