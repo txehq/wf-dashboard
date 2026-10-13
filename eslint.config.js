@@ -48,5 +48,22 @@ export default tseslint.config(
     files: ['web/src/components/ui/**/*.tsx'],
     rules: { 'react-refresh/only-export-components': 'off' },
   },
+  {
+    // e2e 用例从 e2e/test.ts 导入 test：它检查浏览器控制台的 React key 报错
+    files: ['e2e/**/*.spec.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@playwright/test',
+              message: "从 e2e/test.ts 导入（import { test, expect } from './test.js'）",
+            },
+          ],
+        },
+      ],
+    },
+  },
   prettier,
 );

@@ -36,7 +36,7 @@ setCheckedSources(
   dirs,
   fs.readdirSync(config.claudeProjectsDir).map((d) => path.join(config.claudeProjectsDir, d)),
 );
-console.log(JSON.stringify(importCheckedSources(db)));
+console.log(JSON.stringify(await importCheckedSources(db)));
 const variants = createVariants({
   db,
   dataDir: config.dataDir,

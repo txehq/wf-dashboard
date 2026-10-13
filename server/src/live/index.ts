@@ -46,14 +46,17 @@ import {
 } from './codex.js';
 import { type HandBackReason, type HookPayload, LiveController } from './controller.js';
 import { LivePty } from './pty.js';
+import { divergedName, lastMessage, relationOf, syncSessionDir } from './resume-plan.js';
 import {
   type CreateLiveBody,
   type LiveDetail,
   type LiveEventView,
   type LiveProcessView,
   type LiveSummary,
+  type ResumeCopy,
   type ResumeDefaults,
   type ResumeLiveBody,
+  type ResumePlan,
   TITLE_MAX,
 } from './views.js';
 
@@ -841,43 +844,147 @@ export function createLive(deps: LiveDeps) {
     };
   }
 
-  // Contracts 14.5：环境固定为 real，工作目录为 session 记录的 cwd；session 已属于某一项时在这一项上接着运行，
-  // 否则为它建一项
-  function resume(body: ResumeLiveBody): LiveDetail {
-    const session = db.select().from(sessions).where(eq(sessions.id, body.sessionId)).get();
-    if (session === undefined) throw new HttpError(404, `session 不存在：${body.sessionId}`);
-    if (session.cwd === null) throw new HttpError(400, `session ${session.id} 没有记录工作目录`);
-    const cwd = session.cwd;
-    if (!fs.statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) {
-      throw new HttpError(400, `工作目录不存在：${cwd}`);
+  function copyOf(file: string): ResumeCopy {
+    const last = lastMessage(file);
+    return {
+      path: file,
+      bytes: fs.statSync(file).size,
+      lastAt: last.at,
+      lastRole: last.role,
+      lastText: last.text,
+    };
+  }
+
+  // resume 的预检（Contracts 14.5）：在哪个配置中、用哪一份 jsonl 接着运行，或为什么不能 resume
+  function resumePlan(sessionId: string, variantId: string | null): ResumePlan {
+    const session = db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
+    if (session === undefined) throw new HttpError(404, `session 不存在：${sessionId}`);
+    const item = itemOfSession(sessionId);
+    const problems: ResumePlan['problems'] = [];
+    const notes: string[] = [];
+    if (session.cwd === null) {
+      problems.push({
+        code: 'no-cwd',
+        message: '这个 session 没有记录工作目录，不知道在哪里接着运行。',
+      });
+    } else if (!fs.statSync(session.cwd, { throwIfNoEntry: false })?.isDirectory()) {
+      problems.push({
+        code: 'cwd-missing',
+        message: `工作目录 ${session.cwd} 已经不在了。把目录放回原处后再 resume。`,
+      });
     }
-    if (body.variantId !== null) variants.runtimeEnv(body.variantId);
-    const item = itemOfSession(session.id);
-    if (item !== null && (controllers.has(item.id) || running(item.id))) {
-      throw new HttpError(409, `session ${session.id} 正在交互 ${item.id} 中运行`);
-    }
-    const liveId = item?.id ?? newId('l');
-    const configDir = configDirOf(body.variantId);
-    // 先读完原文件，复制后的字节与已导入的偏移量一致
-    ingestFile(db, session.filePath);
-    let jsonl = locate(configDir, session.id);
-    let copied = false;
-    if (jsonl === null) {
-      jsonl = path.join(configDir, 'projects', liveId, `${session.id}.jsonl`);
-      fs.mkdirSync(path.dirname(jsonl), { recursive: true });
-      fs.copyFileSync(session.filePath, jsonl);
-      const sessionDir = path.join(path.dirname(session.filePath), session.id);
-      if (fs.existsSync(sessionDir)) {
-        fs.cpSync(sessionDir, path.join(path.dirname(jsonl), session.id), { recursive: true });
+    let configDir: string;
+    if (variantId === null) {
+      configDir = configDirOf(null);
+    } else {
+      const variant = variants.get(variantId);
+      configDir = variants.layout(variantId).claudeDir;
+      if (variant.buildStatus !== 'built' || variant.builtHash !== variant.skillsHash) {
+        problems.push({
+          code: 'variant-not-built',
+          message: `variant ${variant.name} 还没有按当前内容构建成功。先在 variant 页面构建，或改选别的配置。`,
+        });
       }
-      copied = true;
-    } else if (jsonl !== session.filePath) {
-      throw new HttpError(
-        409,
-        `session ${session.id} 已从 ${session.filePath} 导入，目标配置中另有一份 ${jsonl}`,
+    }
+    if (item !== null && (controllers.has(item.id) || running(item.id))) {
+      problems.push({
+        code: 'running',
+        message: `这个 session 正在交互项「${item.title}」中运行。先在那里结束进程再 resume。`,
+      });
+    }
+    const latestExists = fs.existsSync(session.filePath);
+    const targetFile = locate(configDir, session.id);
+    const latest = latestExists ? copyOf(session.filePath) : null;
+    const target = targetFile === null ? null : copyOf(targetFile);
+    let action: ResumePlan['action'];
+    if (!latestExists) {
+      problems.push({
+        code: 'file-missing',
+        message:
+          targetFile === null
+            ? `session 文件 ${session.filePath} 已经不在了（被移走或删除），没有可以接着运行的记录。`
+            : `最新的 session 文件 ${session.filePath} 已经不在了；目标配置中有一份 ${targetFile}，但无法确认它包含全部对话，不接着运行。把文件放回原处后再 resume。`,
+      });
+      action = 'blocked';
+    } else if (targetFile === null) {
+      action = 'copy';
+    } else {
+      const relation = relationOf(session.filePath, targetFile);
+      action = relation === 'behind' ? 'sync' : relation === 'diverged' ? 'diverged' : 'resume';
+    }
+    if (problems.length > 0) action = 'blocked';
+    // 有子代理的 session：子代理的记录在与 jsonl 同名的目录中，复制与同步时一起带上
+    const subagentCount = db
+      .select({ n: sql<number>`count(*)` })
+      .from(subagents)
+      .where(eq(subagents.sessionId, session.id))
+      .get()?.n;
+    const sessionDir = path.join(path.dirname(session.filePath), session.id);
+    if ((subagentCount ?? 0) > 0 && latestExists && !fs.existsSync(sessionDir)) {
+      notes.push(
+        `子代理的记录目录 ${sessionDir} 不在：主对话照常接着运行，之前子代理的明细不会带进目标配置。`,
       );
     }
-    const target = jsonl;
+    const { agentModel, agentEffort } = settings.get();
+    return {
+      sessionId,
+      variantId,
+      configDir,
+      liveId: item?.id ?? null,
+      cwd: session.cwd,
+      model: variantId === null ? null : agentModel,
+      effort: variantId === null ? null : agentEffort,
+      action,
+      latest,
+      target,
+      problems,
+      notes,
+    };
+  }
+
+  // Contracts 14.5：环境固定为 real，工作目录为 session 记录的 cwd；session 已属于某一项时在这一项上接着运行，
+  // 否则为它建一项。目标配置中已有另一份时按预检同步或要求用户选择
+  function resume(body: ResumeLiveBody): LiveDetail {
+    const plan = resumePlan(body.sessionId, body.variantId);
+    const problem = plan.problems[0];
+    if (problem !== undefined) throw new HttpError(409, problem.message);
+    if (plan.action === 'diverged' && body.onDiverged !== 'use-latest') {
+      throw new HttpError(
+        409,
+        '目标配置中的那份与最新的分叉了，要在对话框中选择"以最新的为准继续"',
+      );
+    }
+    const session = db.select().from(sessions).where(eq(sessions.id, body.sessionId)).get();
+    if (session === undefined) throw new HttpError(404, `session 不存在：${body.sessionId}`);
+    const cwd = plan.cwd;
+    if (cwd === null) throw new Error(`session ${session.id} 没有工作目录却通过了预检`);
+    const item = itemOfSession(session.id);
+    const liveId = item?.id ?? newId('l');
+    // 先读完最新那份，复制或同步后的字节与已导入的偏移量一致
+    ingestFile(db, session.filePath);
+    let target: string;
+    // 记进这次 resume 事件：复制、覆盖或改名保留了哪一份
+    const start: Record<string, unknown> = { copiedFrom: null };
+    if (plan.target === null) {
+      target = path.join(plan.configDir, 'projects', liveId, `${session.id}.jsonl`);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.copyFileSync(session.filePath, target);
+      syncSessionDir(session.filePath, target);
+      start.copiedFrom = session.filePath;
+    } else {
+      target = plan.target.path;
+      if (plan.action === 'diverged') {
+        const kept = divergedName(target, new Date());
+        fs.renameSync(target, kept);
+        start.divergedKept = kept;
+      }
+      if (plan.action === 'sync' || plan.action === 'diverged') {
+        fs.copyFileSync(session.filePath, target);
+        syncSessionDir(session.filePath, target);
+        start.syncedFrom = session.filePath;
+        start.overwrote = target;
+      }
+    }
     // 之后导入目标配置中的那份；原文件不动
     db.$client.transaction(() => {
       if (item === null) {
@@ -894,7 +1001,7 @@ export function createLive(deps: LiveDeps) {
       }
       // 从 Sessions 详情 resume 一个已关闭项的 session：这一项恢复显示（Contracts 14.5）
       if (item !== null) setHidden(item.id, false, { reason: 'resume' });
-      if (copied) {
+      if (target !== session.filePath) {
         const oldDir = path.join(path.dirname(session.filePath), session.id);
         const newDir = path.join(path.dirname(target), session.id);
         db.update(sessions).set({ filePath: target }).where(eq(sessions.id, session.id)).run();
@@ -925,7 +1032,7 @@ export function createLive(deps: LiveDeps) {
       persona: resumePersona(session, item),
       eval: null,
       extraEnv: {},
-      start: { copiedFrom: copied ? session.filePath : null },
+      start,
     });
   }
 
@@ -1107,6 +1214,7 @@ export function createLive(deps: LiveDeps) {
     resumeCodex: (id: string) => launchCodex(id, 'resume'),
     resume,
     resumeDefaults,
+    resumePlan,
     rename,
     importSessions,
     hide,

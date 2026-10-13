@@ -352,6 +352,15 @@ describe.each(samples)('ingest $id', (sample) => {
     expect(ingestFile(incremental, main).changed).toBe(true);
     expect(snapshot(incremental, sample.id)).toEqual(snap);
   });
+
+  // 导入勾选的来源时按段读（importCheckedSources）：每段 256 KB，段的边界落在行中间时停在上一个换行
+  test.runIf(sample.incremental)('分段导入（每段 256 KB）与一次导入完全相同', () => {
+    const chunked = openTestDb();
+    let passes = 0;
+    for (let more = true; more; passes++) more = ingestFile(chunked, main, 256 * 1024).more;
+    expect(passes).toBeGreaterThan(4);
+    expect(snapshot(chunked, sample.id)).toEqual(snap);
+  });
 });
 
 // fork 子代理（meta isFork）的 jsonl 以父代理对话的副本开头，直到派生它的 Agent 调用的 tool_result

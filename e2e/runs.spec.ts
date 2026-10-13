@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { expect, type Locator, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from './test.js';
 import { runsServerPort } from '../ports.js';
 import { e2eLocalReposDir } from './local-repos.js';
 

@@ -319,8 +319,9 @@ export function WorkflowPage() {
   }
   const w = workflow.data;
   const own = variants.data.filter((v) => v.workflowId === w.id);
+  // 换到另一个 workflow 时整页按 id 重新挂载：描述与配置的编辑状态跟着换
   return (
-    <div className="flex flex-col gap-6">
+    <div key={w.id} className="flex flex-col gap-6">
       <Button asChild variant="ghost" className="w-fit">
         <Link to="/workflows">
           <ArrowLeft />
@@ -335,7 +336,6 @@ export function WorkflowPage() {
         </p>
       </div>
       <DescriptionEditor
-        key={w.id}
         label="描述"
         value={w.description}
         onSave={async (description) => {
@@ -343,7 +343,7 @@ export function WorkflowPage() {
           await client.invalidateQueries({ queryKey: ['workflows'] });
         }}
       />
-      <ConfigSection key={w.id} workflow={w} variants={own} />
+      <ConfigSection workflow={w} variants={own} />
       <VariantsSection workflow={w} variants={own} />
     </div>
   );

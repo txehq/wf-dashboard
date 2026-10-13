@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test.js';
 
 // chromium 项目的服务端每次使用删除重建的数据库，其中没有已评分的 run：Compare 页面显示空状态
 test('没有已评分的 run 时提示先在 Runs 页面发起 batch', async ({ page, request }) => {

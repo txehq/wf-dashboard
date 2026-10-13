@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Page, test } from './test.js';
 import { z } from 'zod';
 import { liveFullscreenProjectsDir } from './services.js';
 

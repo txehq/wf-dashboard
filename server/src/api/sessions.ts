@@ -306,7 +306,7 @@ export const sessionsRoutes: FastifyPluginCallbackZod<SessionsRoutesOptions> = (
           .code(400)
           .send({ error: `不是 ${dirs.projectsDir} 下的目录：${unknown.join(', ')}` });
       setCheckedSources(db, dirs, request.body.paths);
-      const imported = importCheckedSources(db);
+      const imported = await importCheckedSources(db);
       return { sources: sourcesBody(), imported };
     },
   );

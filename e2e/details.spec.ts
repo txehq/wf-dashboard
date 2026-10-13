@@ -1,4 +1,4 @@
-import { type APIRequestContext, expect, type Page, test } from '@playwright/test';
+import { type APIRequestContext, expect, type Page, test } from './test.js';
 import { runsServerPort } from '../ports.js';
 
 // 数据目录与 runs.spec.ts 相同：W4 端到端导入的真实 run，它们的 session 在导入时已划分阶段；
@@ -41,23 +41,38 @@ test.beforeAll(async ({ request }) => {
   icSession = await sessionOf(request, icRuns[0] ?? '');
 });
 
-const noPageScroll = (page: Page) =>
-  page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth');
+// 页面级横向滚动：没有时为空；有时列出伸出窗口右边的最深的几个元素与宽度，失败时就是报错中的 Received
+const pageOverflow = (page: Page) =>
+  page.evaluate(() => {
+    const root = document.documentElement;
+    if (root.scrollWidth <= root.clientWidth) return [];
+    return [...document.querySelectorAll('body *')]
+      .filter((el) => el.getBoundingClientRect().right > root.clientWidth + 0.5)
+      .slice(-5)
+      .map((el) => {
+        const r = el.getBoundingClientRect();
+        return `<${el.tagName.toLowerCase()} class="${String(el.getAttribute('class'))}" data-testid="${String(el.getAttribute('data-testid'))}"> right=${String(r.right)}`;
+      })
+      .concat([`clientWidth=${String(root.clientWidth)} scrollWidth=${String(root.scrollWidth)}`]);
+  });
+
+const expectNoPageScroll = (page: Page, message: string) =>
+  expect.poll(() => pageOverflow(page), { message }).toEqual([]);
 
 // 加载、点开一个已完成的阶段、展开前几个 tool 调用，每一步都检查页面级横向滚动
 async function checkWidth(page: Page, url: string) {
   await page.goto(url);
   await expect(page.getByTestId('timeline').first()).toBeVisible({ timeout: 60_000 });
-  await expect.poll(() => noPageScroll(page), { message: `${url} 加载后` }).toBe(true);
+  await expectNoPageScroll(page, `${url} 加载后`);
   const stage = page.locator('[data-testid^="stage-"][data-status="done"]').first();
   await stage.click();
   await expect(page.getByTestId('stage-requests')).toBeVisible();
-  await expect.poll(() => noPageScroll(page), { message: `${url} 点开阶段后` }).toBe(true);
+  await expectNoPageScroll(page, `${url} 点开阶段后`);
   const tools = page.getByTestId('tool-call').locator('> button');
   const n = Math.min(await tools.count(), 8);
   // 从下往上展开：展开的内容只把下面的行推出虚拟滚动的渲染范围，不影响上面还没展开的行
   for (let i = n - 1; i >= 0; i--) await tools.nth(i).click();
-  await expect.poll(() => noPageScroll(page), { message: `${url} 展开 tool 调用后` }).toBe(true);
+  await expectNoPageScroll(page, `${url} 展开 tool 调用后`);
 }
 
 for (const width of [1280, 1440, 1920]) {

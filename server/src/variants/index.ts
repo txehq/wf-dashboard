@@ -265,21 +265,25 @@ export function createVariants({
     if (taken !== undefined) throw new HttpError(409, `名称已被使用：${name} (${workflowId})`);
   }
 
-  // source 的完整 src 复制到 dest：导入的 variant 只有 src/skills，由基线导出加上它的 skills 组成
+  // source 的完整 src 复制到 dest 时依次复制的目录（每一层先删去目标再复制）：
+  // 导入的 variant 只有 src/skills，由基线导出加上它的 skills 组成
+  function sourceLayers(source: Variant, dest: string): { from: string; to: string }[] {
+    if (source.installDir !== null) return [{ from: dirsOf(source).src, to: dest }];
+    const base = layout.base(source.baseCommit);
+    if (!fs.existsSync(base)) {
+      throw new HttpError(409, `基线 ${source.baseCommit} 的导出不存在：${base}`);
+    }
+    return [
+      { from: base, to: dest },
+      { from: dirsOf(source).skills, to: path.join(dest, 'skills') },
+    ];
+  }
+  const cpOptions = { recursive: true, verbatimSymlinks: true } as const;
+
   function copySourceTree(source: Variant, dest: string) {
-    const copy = (from: string, to: string) => {
-      fs.cpSync(from, to, { recursive: true, verbatimSymlinks: true });
-    };
-    if (source.installDir === null) {
-      const base = layout.base(source.baseCommit);
-      if (!fs.existsSync(base)) {
-        throw new HttpError(409, `基线 ${source.baseCommit} 的导出不存在：${base}`);
-      }
-      copy(base, dest);
-      fs.rmSync(path.join(dest, 'skills'), { recursive: true, force: true });
-      copy(dirsOf(source).skills, path.join(dest, 'skills'));
-    } else {
-      copy(dirsOf(source).src, dest);
+    for (const { from, to } of sourceLayers(source, dest)) {
+      fs.rmSync(to, { recursive: true, force: true });
+      fs.cpSync(from, to, cpOptions);
     }
   }
 
@@ -679,8 +683,12 @@ export function createVariants({
     },
 
     // Codex 草稿的 src/ 取自底子 variant 的完整 src（Contracts 17.2）
-    exportSource(id: string, dest: string) {
-      copySourceTree(get(id), dest);
+    // 草稿的准备在后台进行：异步复制，lfg、ic 的完整导出较大，复制时服务端照常响应其他请求
+    async exportSource(id: string, dest: string) {
+      for (const { from, to } of sourceLayers(get(id), dest)) {
+        await fs.promises.rm(to, { recursive: true, force: true });
+        await fs.promises.cp(from, to, cpOptions);
+      }
     },
 
     // 同一 workflow 中还没有被使用的名字：name，已有时依次加" #2"、" #3"（Contracts 17.4）

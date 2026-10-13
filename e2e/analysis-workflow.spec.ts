@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test.js';
 import { analysisWorkflowServerPort } from '../ports.js';
 
 // 分析由 workflow session-analysis 驱动（Contracts 19.2、19.3），基础档：数据由 prepare-analysis-workflow-e2e 每次重建

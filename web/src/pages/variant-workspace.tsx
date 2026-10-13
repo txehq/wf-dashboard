@@ -22,10 +22,10 @@ import {
 } from '@/components/fullscreen';
 import { SkillDiffEditor } from '@/components/skill-diff-editor';
 import { Button } from '@/components/ui/button';
+import { formatDateTime } from '@/lib/format';
 import { languageOf } from '@/lib/language';
 import { cn } from '@/lib/utils';
 import {
-  buildLabel,
   buildLogQuery,
   diffQuery,
   fileQuery,
@@ -340,6 +340,20 @@ function DiffPane({ variant }: { variant: Variant }) {
       </div>
     </div>
   );
+}
+
+// 日志面板标题：说的是面板中这份日志（最近一次构建）的结果。构建开始时清空 buildError，失败时写入，
+// 所以 buildError 不为空即最近一次构建失败；编辑后 buildStatus 回到 none，builtHash 仍是上次构建的内容
+function lastBuildLabel(variant: Variant): string {
+  const changed = variant.builtHash !== variant.skillsHash;
+  if (variant.buildError !== null) {
+    return variant.buildStatus === 'failed'
+      ? '最近一次构建失败'
+      : '最近一次构建失败；之后内容有修改';
+  }
+  if (variant.builtHash === null || variant.builtAt === null) return '未构建';
+  const at = formatDateTime(variant.builtAt);
+  return changed ? `${at} 构建完成；之后内容有修改，需要重新构建` : `${at} 构建完成`;
 }
 
 // 底部可收起的构建日志面板
@@ -758,8 +772,8 @@ export function VariantWorkspace({
         >
           <div className="flex h-7 shrink-0 items-center gap-2 border-b px-3 text-xs">
             <span className="font-medium">构建日志</span>
-            <span className="text-muted-foreground">
-              {building ? '构建中…' : isImported(variant) ? importedLabel : buildLabel(variant)}
+            <span className="text-muted-foreground" data-testid="build-log-status">
+              {building ? '构建中…' : isImported(variant) ? importedLabel : lastBuildLabel(variant)}
             </span>
             <Button
               size="icon-xs"

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { expect, type Page, type APIRequestContext, test } from '@playwright/test';
+import { expect, type Page, type APIRequestContext, test } from './test.js';
 import { serverPort } from '../ports.js';
 
 const api = `http://127.0.0.1:${String(serverPort)}/api`;
@@ -120,6 +120,7 @@ test('variant 页面：头部一行是面包屑、名字与四个操作，两种
   await expect(page.getByTestId('build-status')).toHaveText('已构建', { timeout: 60_000 });
   await expect(page.getByTestId('build-log-panel')).toBeVisible();
   await expect(page.getByTestId('build-log')).toContainText('=== 构建完成 skills.');
+  await expect(page.getByTestId('build-log-status')).toHaveText(/ 构建完成$/);
   await expect(install).toBeEnabled();
   await expect(install).toHaveAttribute('title', /~\/\.claude\/skills/);
   // 在访达中打开会在用户的桌面上打开窗口，这里只检查它可以点
@@ -281,6 +282,11 @@ test('全屏编辑 skill：按钮与 ⌃⇧F 进入退出，Esc 不退出，刷�
     await logToggle.click();
     await expect(logToggle).toHaveAttribute('aria-expanded', 'true');
     await expect(workspace.getByTestId('build-log')).toContainText('=== 构建完成 skills.');
+    // 构建后又保存了修改：标题与日志一致（上次构建完成），并说明要重新构建；页面上的状态相同
+    await expect(workspace.getByTestId('build-log-status')).toHaveText(
+      /构建完成；之后内容有修改，需要重新构建$/,
+    );
+    await expect(page.getByTestId('build-status')).toHaveText('需要重新构建');
     await expect.poll(() => height(page, 'skill-editor')).toBeGreaterThan(size.height * 0.5);
     expect(await singleButtonRows(page)).toEqual([]);
     await page.screenshot({

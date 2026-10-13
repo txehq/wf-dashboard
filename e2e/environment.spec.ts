@@ -1,4 +1,4 @@
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Page, test } from './test.js';
 
 // 服务端由 pnpm start 的方式启动（构建后一个端口提供页面与 API）。开始前在设置中把 judge 换成 gateway 上
 // 没有渠道的 claude-haiku-4-5-20251001-cc：环境清单中这一项真实未通过，其余各项按本机的真实状态

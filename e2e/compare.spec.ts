@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from './test.js';
 
 // 数据由 server/scripts/seed-compare-e2e.ts 写入专用数据目录：
 // 基线与 "interview 追问边界" 两个 variant × lfg-calculator 与 ic-money-format × 每格 3 次，
