@@ -11,7 +11,7 @@ import { config } from '../../src/config.js';
 import { openDatabase } from '../../src/db/index.js';
 import { liveSessions } from '../../src/db/schema.js';
 
-// 迁移 0017（Contracts 14.3）：live_sessions.purpose 按已有记录推出。有 optimize 草稿的项为 optimize，
+// 迁移 0018（Contracts 14.3）：live_sessions.purpose 按已有记录推出。有 optimize 草稿的项为 optimize，
 // 有 workflow 或 variant 草稿的项为 design，其余为 interaction；有草稿的项的 engine 为 codex
 const work = path.join(config.repoRoot, '.work', 'test-migrations', randomUUID());
 const dbFile = path.join(work, 'db.sqlite');
@@ -45,7 +45,7 @@ test('普通项、设计草稿的项、优化的项迁移后用途与引擎正�
   // 旧结构的数据库只执行迁移：openDatabase 还会按当前结构写入内置的 workflow
   const old = new Database(dbFile);
   old.pragma('foreign_keys = ON');
-  migrate(drizzle({ client: old }), { migrationsFolder: migrationsBefore('0017_live-purpose') });
+  migrate(drizzle({ client: old }), { migrationsFolder: migrationsBefore('0018_live-purpose') });
   const item = old.prepare(
     `insert into live_sessions (id, claude_session_id, engine, title, environment, cwd, updated_at)
      values (?, ?, ?, ?, ?, '/w', 0)`,
