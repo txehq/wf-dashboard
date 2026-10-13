@@ -296,6 +296,7 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
           ? `Codex：新 workflow ${body.workflowId}`
           : `Codex：${body.workflowId} 的新 variant`,
       workflow: body.mode === 'workflow' ? null : body.workflowId,
+      purpose: 'design',
     });
     db.insert(workflowDrafts)
       .values({
@@ -348,6 +349,7 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
       prompt,
       title: `Codex：优化 ${workflowId}（分析 ${analysisId}）`,
       workflow: null,
+      purpose: 'optimize',
     });
     db.insert(workflowDrafts)
       .values({

@@ -1,5 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ChevronsLeftRight, Hand, Plus, Power, Undo2, X } from 'lucide-react';
+import { ChevronDown, ChevronsLeftRight, Hand, Plus, Power, Undo2, X } from 'lucide-react';
+import { DropdownMenu } from 'radix-ui';
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { CodexDraftBar } from '@/components/codex-draft';
@@ -7,6 +8,13 @@ import { FullscreenArea, FullscreenButton, useFullscreen } from '@/components/fu
 import { FinderMenu } from '@/components/live/finder-menu';
 import { ImportSessionsButton } from '@/components/live/import-sessions';
 import { HideButton, ItemMenu, UnhideButton } from '@/components/live/item-actions';
+import {
+  EngineLogo,
+  PurposeBadge,
+  PurposeBand,
+  PurposeFilterBar,
+} from '@/components/live/live-identity';
+import { purposeLabel, usePurposeFilter } from '@/lib/live-purpose';
 import { LiveTerminal } from '@/components/live/live-terminal';
 import { LiveTitle } from '@/components/live/live-title';
 import { NewLiveForm } from '@/components/live/new-live-form';
@@ -85,7 +93,16 @@ function LiveList({
   active: string | null;
 }) {
   const [showHidden, setShowHidden] = useState(false);
+  const [filter, setFilter] = usePurposeFilter();
   const list = useQuery(liveListQuery(showHidden));
+  const all = list.data ?? [];
+  const shown = filter === 'all' ? all : all.filter((l) => l.purpose === filter);
+  const counts = {
+    all: all.length,
+    interaction: all.filter((l) => l.purpose === 'interaction').length,
+    design: all.filter((l) => l.purpose === 'design').length,
+    optimize: all.filter((l) => l.purpose === 'optimize').length,
+  };
   let body;
   if (list.isPending) body = <p className="text-sm text-muted-foreground">加载中…</p>;
   else if (list.isError) {
@@ -96,10 +113,12 @@ function LiveList({
     );
   } else if (list.data.length === 0) {
     body = <p className="text-sm text-muted-foreground">还没有交互 session。</p>;
+  } else if (shown.length === 0) {
+    body = <p className="text-sm text-muted-foreground">没有这种用途的项。</p>;
   } else {
     body = (
       <ul className="flex flex-col gap-1" aria-label="交互 session" data-testid="live-list">
-        {list.data.map((live) => {
+        {shown.map((live) => {
           const hidden = live.hiddenAt !== null;
           return (
             <li key={live.id}>
@@ -108,8 +127,9 @@ function LiveList({
                 tabIndex={0}
                 data-live={live.id}
                 data-hidden={hidden}
+                data-purpose={live.purpose}
                 aria-current={active === live.id}
-                className="flex w-full cursor-pointer flex-col gap-0.5 rounded-md border px-3 py-2 text-left hover:bg-muted/50 aria-[current=true]:border-foreground data-[hidden=true]:border-dashed data-[hidden=true]:opacity-70"
+                className="flex w-full cursor-pointer gap-2 rounded-md border py-2 pr-3 pl-1.5 text-left hover:bg-muted/50 aria-[current=true]:border-foreground data-[hidden=true]:border-dashed data-[hidden=true]:opacity-70"
                 onClick={() => {
                   onOpen(live.id);
                 }}
@@ -117,37 +137,42 @@ function LiveList({
                   if (event.key === 'Enter') onOpen(live.id);
                 }}
               >
-                <span className="flex items-start gap-1">
-                  <span className="min-w-0 flex-1">
-                    <LiveTitle
-                      liveId={live.id}
-                      title={live.title}
-                      className="line-clamp-2 text-sm font-medium"
-                    />
-                  </span>
-                  <ItemMenu
-                    live={live}
-                    onDeleted={() => {
-                      onGone(live.id);
-                    }}
-                  />
-                  {!hidden && (
-                    <HideButton
+                <PurposeBand purpose={live.purpose} />
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="flex items-start gap-1">
+                    <EngineLogo engine={live.engine} className="mt-0.5 size-4" />
+                    <span className="min-w-0 flex-1">
+                      <LiveTitle
+                        liveId={live.id}
+                        title={live.title}
+                        className="line-clamp-2 text-sm font-medium"
+                      />
+                    </span>
+                    <ItemMenu
                       live={live}
-                      onHidden={() => {
+                      onDeleted={() => {
                         onGone(live.id);
                       }}
                     />
-                  )}
-                </span>
-                <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                  <StatusBadge live={live} />
-                  {variantLabel(live)} · {environmentLabel[live.environment]} ·{' '}
-                  <span data-testid="live-resume-count">resume {live.resumeCount} 次</span>
-                </span>
-                <span className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                  {formatDateTime(new Date(live.updatedAt).toISOString())}
-                  {hidden && <UnhideButton live={live} />}
+                    {!hidden && (
+                      <HideButton
+                        live={live}
+                        onHidden={() => {
+                          onGone(live.id);
+                        }}
+                      />
+                    )}
+                  </span>
+                  <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                    <PurposeBadge live={live} />
+                    <StatusBadge live={live} />
+                    {variantLabel(live)} · {environmentLabel[live.environment]} ·{' '}
+                    <span data-testid="live-resume-count">resume {live.resumeCount} 次</span>
+                  </span>
+                  <span className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                    {formatDateTime(new Date(live.updatedAt).toISOString())}
+                    {hidden && <UnhideButton live={live} />}
+                  </span>
                 </span>
               </div>
             </li>
@@ -158,6 +183,7 @@ function LiveList({
   }
   return (
     <>
+      <PurposeFilterBar value={filter} onChange={setFilter} counts={counts} />
       {body}
       <label className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
         <input
@@ -474,16 +500,20 @@ function LivePanel({
   );
 }
 
+// 标签页标题：用途的颜色与引擎的 logo 在名字前面
 function TabLabel({ liveId }: { liveId: string }) {
   const live = useQuery(liveQuery(liveId));
-  return live.data === undefined ? (
-    <>{liveId}</>
-  ) : (
-    <LiveTitle liveId={liveId} title={live.data.title} className="truncate" />
+  if (live.data === undefined) return <>{liveId}</>;
+  return (
+    <span className="flex min-w-0 items-center gap-1.5" title={purposeLabel(live.data)}>
+      <PurposeBand purpose={live.data.purpose} className="h-4" />
+      <EngineLogo engine={live.data.engine} className="size-3.5" />
+      <LiveTitle liveId={liveId} title={live.data.title} className="truncate" />
+    </span>
   );
 }
 
-// 全屏中切换交互项的下拉（Contracts 20.3）：列出左侧列表中的项
+// 全屏中切换交互项的下拉（Contracts 20.3）：列出左侧列表中的项，每项同样显示用途的颜色与引擎的 logo
 function ItemSwitcher({
   items,
   active,
@@ -493,23 +523,53 @@ function ItemSwitcher({
   active: string;
   onSwitch: (id: string) => void;
 }) {
+  const current = items.find((i) => i.id === active);
   return (
-    <select
-      aria-label="切换交互项"
-      title={`切换交互项（${SWITCH_SHORTCUT_LABEL}）`}
-      className="h-8 max-w-[16rem] truncate rounded-md border bg-background px-2 text-sm"
-      data-testid="live-switcher"
-      value={active}
-      onChange={(event) => {
-        onSwitch(event.target.value);
-      }}
-    >
-      {items.map((item) => (
-        <option key={item.id} value={item.id}>
-          {item.title}
-        </option>
-      ))}
-    </select>
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <Button
+          size="sm"
+          variant="outline"
+          className="max-w-[18rem]"
+          aria-label="切换交互项"
+          title={`切换交互项（${SWITCH_SHORTCUT_LABEL}）`}
+          data-testid="live-switcher"
+        >
+          {current !== undefined && (
+            <>
+              <PurposeBand purpose={current.purpose} className="h-4" />
+              <EngineLogo engine={current.engine} className="size-3.5" />
+            </>
+          )}
+          <span className="truncate">{current?.title ?? active}</span>
+          <ChevronDown />
+        </Button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align="end"
+          className="z-[60] max-h-[60vh] w-[20rem] overflow-y-auto rounded-md border bg-background p-1 shadow-md"
+        >
+          {items.map((item) => (
+            <DropdownMenu.Item
+              key={item.id}
+              data-testid="live-switcher-item"
+              data-live={item.id}
+              aria-current={item.id === active}
+              className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm outline-none aria-[current=true]:font-medium data-[highlighted]:bg-muted"
+              onSelect={() => {
+                onSwitch(item.id);
+              }}
+            >
+              <PurposeBand purpose={item.purpose} className="h-4" />
+              <EngineLogo engine={item.engine} className="size-3.5" />
+              <span className="min-w-0 flex-1 truncate">{item.title}</span>
+              <span className="shrink-0 text-xs text-muted-foreground">{purposeLabel(item)}</span>
+            </DropdownMenu.Item>
+          ))}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
   );
 }
 

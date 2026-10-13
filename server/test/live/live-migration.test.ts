@@ -115,6 +115,8 @@ test('旧结构的交互记录合并成项与进程', () => {
       // 迁移来的项都显示在交互区
       hiddenAt: null,
       engine: 'claude',
+      // 没有草稿的项都是普通交互（迁移 0017）
+      purpose: 'interaction',
     },
     {
       id: 'l-20261012-bbbbb1',
@@ -130,6 +132,7 @@ test('旧结构的交互记录合并成项与进程', () => {
       updatedAt: new Date('2026-10-12T05:02:00Z'),
       hiddenAt: null,
       engine: 'claude',
+      purpose: 'interaction',
     },
   ]);
   const processes = db
