@@ -37,6 +37,7 @@ const live = createLive({
   localHome: path.join(config.dataDir, 'home'),
   repos: testRepos(),
   codex: testCodex(),
+  claudeBin: config.claudeBin,
 });
 const drafts = createDrafts({
   db,

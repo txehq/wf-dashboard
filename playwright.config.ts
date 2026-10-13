@@ -81,7 +81,7 @@ export default defineConfig({
     {
       // 交互项的关闭、删除、导入选择框与 Sessions 的 Live 按钮：只导入不启动，不调用 claude
       name: 'live-items',
-      testMatch: 'live-items.spec.ts',
+      testMatch: ['live-items.spec.ts', 'live-fullscreen.spec.ts'],
       use: {
         ...devices['Desktop Chrome'],
         baseURL: `http://127.0.0.1:${String(liveItemsWebPort)}`,

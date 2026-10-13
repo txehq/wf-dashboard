@@ -133,6 +133,9 @@ export const services = {
       WFD_DATA_DIR: path.join(liveItemsDir, 'data'),
       WFD_CLAUDE_PROJECTS: liveItemsProjectsDir,
       WFD_PORT: String(liveItemsServerPort),
+      // live-fullscreen.spec 用"本机配置"resume：Claude Code 换成回显按键与终端尺寸的替身，HOME 在这里的目录中
+      WFD_CLAUDE_BIN: path.join(root, 'server/test/fixtures/live/claude-stand-in.mjs'),
+      WFD_LOCAL_HOME: path.join(liveItemsDir, 'home'),
     },
   },
   liveItemsWeb: {

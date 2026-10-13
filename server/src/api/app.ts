@@ -159,6 +159,7 @@ export async function buildApp({
       sources: { authPath: config.codexAuthPath, configPath: config.codexConfigPath },
       sessionTimeoutMs: 60_000,
     },
+    claudeBin: config.claudeBin,
   });
   await app.register(liveRoutes, { live });
   app.addHook('onClose', async () => {

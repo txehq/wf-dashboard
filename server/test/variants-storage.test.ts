@@ -146,6 +146,7 @@ describe('在访达中打开', () => {
     localHome: path.join(dataDir, 'home'),
     repos: testRepos(),
     codex: testCodex(),
+    claudeBin: config.claudeBin,
   });
 
   test('variant 的整个目录；目录不存在与不认识的目标 404；不接受任意路径', async () => {

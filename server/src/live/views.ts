@@ -35,6 +35,9 @@ export const LiveProcessView = z.object({
   exitCode: z.number().int().nullable(),
   error: z.string().nullable(),
   driver: z.enum(liveDrivers),
+  // 实际传给 claude 的 --model 与 --effort；本机配置不传，为空
+  model: z.string().nullable(),
+  effort: z.string().nullable(),
   startedAt: z.number(),
   endedAt: z.number().nullable(),
 });
