@@ -45,6 +45,14 @@ test('variant 页面：任意 workflow 的 variant 编辑描述与 skill、派�
   const first = page.url().split('/').at(-1) ?? '';
   await expect(page.getByTestId('breadcrumb')).toHaveText(`Workflows › 自有 ${marker} › 初稿`);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(`初稿 /${id}`);
+  // variant 页面属于 Workflows：左侧导航高亮它，标签页标题取它
+  const nav = page.getByRole('navigation', { name: '主导航' });
+  await expect(nav.getByRole('link', { name: 'Workflows' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await expect(nav.getByRole('link', { name: 'Sessions' })).not.toHaveAttribute('aria-current');
+  await expect(page).toHaveTitle('Workflows · Magi Workflow Dashboard');
   await expect(page.getByTestId('variant-version')).toHaveText(/^skills\.[0-9a-f]{8}$/);
 
   // 描述

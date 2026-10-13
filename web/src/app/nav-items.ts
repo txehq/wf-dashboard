@@ -16,6 +16,8 @@ export interface NavItem {
   to: string;
   label: string;
   icon: LucideIcon;
+  // 也属于这一项的其他路径前缀（这些页面打开时这一项高亮，标签页标题取这一项）
+  also?: string[];
 }
 
 export interface NavGroup {
@@ -26,8 +28,8 @@ export interface NavGroup {
 
 export const navEntries: (NavItem | NavGroup)[] = [
   { to: '/sessions', label: 'Sessions', icon: History },
-  // variant 在它所属 workflow 的页面中，没有单独的 Variants 项（Contracts 16.7）
-  { to: '/workflows', label: 'Workflows', icon: Workflow },
+  // 没有单独的 Variants 项（Contracts 16.7）：variant 页面 /variants/:id 属于 Workflows
+  { to: '/workflows', label: 'Workflows', icon: Workflow, also: ['/variants'] },
   { to: '/live', label: 'Live', icon: SquareTerminal },
   {
     label: 'Evaluate',

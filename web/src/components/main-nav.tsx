@@ -1,14 +1,17 @@
 import { ChevronRight } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { NavLink, useLocation } from 'react-router';
+import { Link, useLocation } from 'react-router';
 import { type NavGroup, type NavItem, navEntries, pageTitles } from '@/app/nav-items';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 const isGroup = (entry: NavItem | NavGroup): entry is NavGroup => 'items' in entry;
 
-// 路径属于某个菜单项：它本身或它下面的详情页
-const within = (pathname: string, to: string) => pathname === to || pathname.startsWith(`${to}/`);
+// 路径属于某个路径前缀：它本身或它下面的详情页
+const under = (pathname: string, to: string) => pathname === to || pathname.startsWith(`${to}/`);
+// 路径属于某个菜单项：它的 to 或 also 中的前缀
+const within = (pathname: string, item: NavItem) =>
+  [item.to, ...(item.also ?? [])].some((prefix) => under(pathname, prefix));
 
 // 浏览器标签页标题：当前菜单项的名称，pageTitles 中的页面用自己的标题
 const APP_TITLE = 'Magi Workflow Dashboard';
@@ -17,7 +20,7 @@ function pageTitle(pathname: string): string {
   if (own !== undefined) return own;
   const item = navEntries
     .flatMap((e) => (isGroup(e) ? e.items : [e]))
-    .find((i) => within(pathname, i.to));
+    .find((i) => within(pathname, i));
   return item?.label ?? APP_TITLE;
 }
 
@@ -31,6 +34,7 @@ function readCollapsed(): string[] {
 
 function Item({ item, nested }: { item: NavItem; nested: boolean }) {
   const Icon = item.icon;
+  const { pathname } = useLocation();
   return (
     <Button
       asChild
@@ -41,10 +45,11 @@ function Item({ item, nested }: { item: NavItem; nested: boolean }) {
         nested && 'has-[>svg]:pl-8',
       )}
     >
-      <NavLink to={item.to}>
+      {/* 高亮按菜单项自己的路径与 also 中的前缀判断（NavLink 只认 to） */}
+      <Link to={item.to} aria-current={within(pathname, item) ? 'page' : undefined}>
         <Icon />
         {item.label}
-      </NavLink>
+      </Link>
     </Button>
   );
 }
@@ -70,7 +75,7 @@ export function MainNav() {
     <nav aria-label="主导航" className="flex flex-col gap-1 px-2">
       {navEntries.map((entry) => {
         if (!isGroup(entry)) return <Item key={entry.to} item={entry} nested={false} />;
-        const containsCurrent = entry.items.some((i) => within(pathname, i.to));
+        const containsCurrent = entry.items.some((i) => within(pathname, i));
         const open = containsCurrent || !collapsed.includes(entry.label);
         const Icon = entry.icon;
         const listId = `nav-group-${entry.label.toLowerCase()}`;
