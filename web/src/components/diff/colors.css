@@ -1,0 +1,31 @@
+/* GitHub 的 diff 配色（Contracts 21.3）：行的底色、行号栏、行内改动的词，明暗两种；
+   diff 与渲染后的 Markdown 对比共用 */
+:root {
+  --wfd-diff-add-line: #e6ffec;
+  --wfd-diff-add-gutter: #ccffd8;
+  --wfd-diff-add-word: #abf2bc;
+  --wfd-diff-delete-line: #ffebe9;
+  --wfd-diff-delete-gutter: #ffd7d5;
+  --wfd-diff-delete-word: #ff818266;
+  --wfd-diff-add-text: #1a7f37;
+  --wfd-diff-delete-text: #cf222e;
+  --wfd-diff-gap: #ddf4ff;
+  --wfd-diff-gap-text: #0969da;
+  --wfd-diff-gutter-text: #59636e;
+  --wfd-diff-empty: #f6f8fa;
+}
+
+.dark {
+  --wfd-diff-add-line: #2ea04326;
+  --wfd-diff-add-gutter: #3fb9504d;
+  --wfd-diff-add-word: #2ea04366;
+  --wfd-diff-delete-line: #f8514926;
+  --wfd-diff-delete-gutter: #f851494d;
+  --wfd-diff-delete-word: #f8514966;
+  --wfd-diff-add-text: #3fb950;
+  --wfd-diff-delete-text: #f85149;
+  --wfd-diff-gap: #388bfd26;
+  --wfd-diff-gap-text: #4493f8;
+  --wfd-diff-gutter-text: #9198a1;
+  --wfd-diff-empty: #151b23;
+}

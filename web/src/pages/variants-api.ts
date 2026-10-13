@@ -164,6 +164,30 @@ export const buildLogQuery = (id: string, building: boolean) =>
     refetchInterval: (query) => (building && notFailed(query) ? 1000 : false),
   });
 
+// variant 历史的一条（Contracts 16.4、17.4）：改名，或被 Codex 草稿覆盖、恢复时存下的原来的 src/
+export type HistoryEntry = { id: number; at: number } & (
+  | { kind: 'rename'; from: string; to: string }
+  | { kind: 'overwrite'; snapshot: string; draftId: string; analysisId: string | null }
+  | { kind: 'restore'; snapshot: string; restoredEventId: number }
+);
+
+export const historyQuery = (id: string) =>
+  queryOptions({
+    queryKey: ['variants', id, 'history'],
+    queryFn: () => request<HistoryEntry[]>('GET', `/api/variants/${id}/history`),
+    ...manualRetry,
+  });
+
+// 查看历史中存下的 src/：现在的内容恢复成它时逐文件的改动
+export const historyDiffQuery = (id: string, eventId: number) =>
+  queryOptions({
+    queryKey: ['variants', id, 'history', eventId, 'diff'],
+    queryFn: () =>
+      request<FileDiff[]>('GET', `/api/variants/${id}/history/${String(eventId)}/diff`),
+    staleTime: 0,
+    ...manualRetry,
+  });
+
 export const installQuery = (id: string) =>
   queryOptions({
     queryKey: ['variants', id, 'install'],

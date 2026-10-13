@@ -71,6 +71,8 @@ test('variant 页面：任意 workflow 的 variant 编辑描述与 skill、派�
   await tree.getByRole('button', { name: stage, exact: true }).click();
   await tree.getByTitle(`skills/${stage}/SKILL.md`).click();
   const editor = panel.getByTestId('skill-editor');
+  // .md 文件默认预览，点"编辑"进入编辑
+  await panel.getByRole('tab', { name: '编辑' }).click();
   await expect(editor.locator('.view-lines')).toContainText('在这里写这个阶段做什么。');
   await editor.locator('.view-lines').click();
   await page.keyboard.press('ControlOrMeta+End');
@@ -127,18 +129,16 @@ test('skill 目录的新增、重命名与删除', async ({ page, request }) => 
   const panel = page.getByTestId('variant-panel');
   const tree = panel.getByRole('navigation', { name: 'skills 文件' });
 
+  // 新的 SKILL.md 默认预览：frontmatter 表格中是 skill 的名字
+  const name = panel.getByTestId('md-preview').locator('table.frontmatter td').first();
   await panel.getByRole('button', { name: '新增 skill 目录' }).click();
   await expect(tree.getByRole('button', { name: 'e2e-extra', exact: true })).toBeVisible();
-  await expect(panel.getByTestId('skill-editor').locator('.view-lines')).toContainText(
-    'name: e2e-extra',
-  );
+  await expect(name).toHaveText('e2e-extra');
 
   await tree.getByRole('button', { name: '重命名 skill e2e-extra' }).click();
   await expect(tree.getByRole('button', { name: 'e2e-renamed', exact: true })).toBeVisible();
   await expect(tree.getByRole('button', { name: 'e2e-extra', exact: true })).toHaveCount(0);
-  await expect(panel.getByTestId('skill-editor').locator('.view-lines')).toContainText(
-    'name: e2e-renamed',
-  );
+  await expect(name).toHaveText('e2e-renamed');
 
   await tree.getByRole('button', { name: '删除 skill e2e-renamed' }).click();
   await expect(tree.getByRole('button', { name: 'e2e-renamed', exact: true })).toHaveCount(0);
@@ -150,8 +150,8 @@ test('skill 目录的新增、重命名与删除', async ({ page, request }) => 
   await expect(page.getByTestId('local-install')).toHaveCount(0);
 });
 
-// 切换文件时 DiffEditor 重新创建，第一处改动在文件中部时也要滚动到视野中
-test('在对比的文件之间切换，每个文件的第一处改动都在视野内', async ({ page, request }) => {
+// 对比中列出所有改过的文件，点左侧的文件，右侧滚动到它的 diff
+test('在对比的文件之间切换，每个文件的改动都在视野内', async ({ page, request }) => {
   const base = (await (
     await request.post(`${api}/variants`, { data: { name: `e2e 切换基线 ${marker}` } })
   ).json()) as Variant;
@@ -185,9 +185,14 @@ test('在对比的文件之间切换，每个文件的第一处改动都在视�
   const panel = page.getByTestId('variant-panel');
   await panel.getByRole('tab', { name: '对比' }).click();
   const diff = panel.getByTestId('skill-diff');
-  // Monaco 只渲染视野内的行，改动的文字出现在 view-lines 中即在视野内
+  // 点左侧的文件，右侧滚动到它的 diff
   for (const path of ['skills/plan/SKILL.md', 'skills/research/SKILL.md', 'skills/plan/SKILL.md']) {
-    await panel.getByRole('button', { name: new RegExp(path.replaceAll('.', '\\.')) }).click();
-    await expect(diff.locator('.modified .view-lines')).toContainText(`e2e-${marker}-${path}`);
+    await panel
+      .getByRole('navigation', { name: '改过的文件' })
+      .getByRole('button', { name: new RegExp(path.replaceAll('.', '\\.')) })
+      .click();
+    const card = diff.locator(`[data-path="${path}"]`);
+    await expect(card.locator('header')).toBeInViewport();
+    await expect(card.locator('td.diff-code-insert')).toContainText(`e2e-${marker}-${path}`);
   }
 });

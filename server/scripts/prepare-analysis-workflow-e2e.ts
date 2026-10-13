@@ -1,12 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createTwoFilesPatch } from 'diff';
 import { bindLiveSession } from '../src/bindings/index.js';
 import { config } from '../src/config.js';
 import { openDatabase } from '../src/db/index.js';
-import { analyses, analysisFindings } from '../src/db/schema.js';
+import { analyses, analysisFindings, analysisPatches } from '../src/db/schema.js';
 import { ingestFile } from '../src/ingest/ingest.js';
 import { ensureAnalysisBaseline } from '../src/insights/baseline.js';
 import { analysisLayout, newAnalysisId } from '../src/insights/index.js';
+import { validatePatches } from '../src/insights/validate.js';
 import { createVariants } from '../src/variants/index.js';
 import { createWorkflows, loadWorkflow } from '../src/workflows/index.js';
 import { makeSkillSources } from '../test/helpers/codex-skills.js';
@@ -51,6 +53,12 @@ createWorkflows({ db, variants }).create({
 });
 const analysed = variants.list().find((v) => v.workflowId === flowId);
 if (analysed === undefined) throw new Error(`workflow ${flowId} 没有建出初稿`);
+// 小阶段 remember 的 skill 写成一份有表格、任务列表、代码与 mermaid 的 Markdown，修改建议改其中相隔较远的三处
+const rememberSkill = fs.readFileSync(
+  path.join(config.repoRoot, 'server/scripts/fixtures/remember-skill.md'),
+  'utf8',
+);
+variants.writeFile(analysed.id, 'skills/remember/SKILL.md', rememberSkill);
 await variants.build(analysed.id);
 bindLiveSession(db, config.dataDir, SESSION, analysed.id);
 
@@ -125,11 +133,66 @@ for (const aspect of aspects) {
     })
     .run();
 }
-// 成功的分析在分析目录中留下修改建议的结果（这里没有修改建议）与引擎的输出
+// 成功的分析在分析目录中留下被分析 variant 的 skill 副本、引擎的输出与修改建议的结果。
+// patches.json 是对 remember/SKILL.md 的一个真实的 unified diff，与真实分析相同地经 validatePatches 校验并拆成逐处改动
 const dirs = analysisLayout(config.dataDir, id);
 fs.mkdirSync(dirs.output, { recursive: true });
-fs.writeFileSync(dirs.proposals, '[]\n');
-fs.writeFileSync(path.join(dirs.output, 'patches.json'), '[]\n');
+fs.cpSync(variants.layout(analysed.id).skills, path.join(dirs.input, 'skills'), {
+  recursive: true,
+});
+const proposedSkill = rememberSkill
+  .replace(
+    'answer with the single word they asked for.',
+    'answer with the single word they asked for, in the language of the request.',
+  )
+  .replace(
+    '- [ ] Reply with exactly "记住了"\n',
+    '- [ ] Reply with exactly "记住了"\n- [ ] Call the `remember` skill before replying\n',
+  )
+  .replace(
+    '| A later question about it | The passphrase, word for word |\n',
+    '| A later question about it | The passphrase, word for word |\n| Anything else | Nothing about the passphrase |\n',
+  )
+  .replace('Never translate it.\n', 'Never translate it, and never shorten it.\n');
+const patchesFile = path.join(dirs.output, 'patches.json');
+fs.writeFileSync(
+  patchesFile,
+  `${JSON.stringify(
+    [
+      {
+        file: 'remember/SKILL.md',
+        findingIds: ['process-adherence-1', 'user-interaction-1'],
+        rationale: '写明进入阶段前要调用 remember，并补上回复的语言与其他输入的规定。',
+        patch: createTwoFilesPatch(
+          'a/remember/SKILL.md',
+          'b/remember/SKILL.md',
+          rememberSkill,
+          proposedSkill,
+        ),
+      },
+    ],
+    null,
+    1,
+  )}\n`,
+);
+const proposal = await validatePatches(
+  patchesFile,
+  path.join(dirs.input, 'skills'),
+  dirs.check,
+  new Set(aspects.map((a) => `${a}-1`)),
+);
+fs.writeFileSync(dirs.proposals, `${JSON.stringify(proposal.files)}\n`);
+for (const p of proposal.patches) {
+  db.insert(analysisPatches)
+    .values({
+      analysisId: id,
+      file: p.file,
+      findingIds: p.findingIds,
+      rationale: p.rationale,
+      patch: p.patch,
+    })
+    .run();
+}
 console.log(
   JSON.stringify({ analysis: id, analysed: analysed.id, baseline: baseline.id, method: method.id }),
 );

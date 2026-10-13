@@ -17,6 +17,8 @@ import {
   runsServerPort,
   runsWebPort,
   serverPort,
+  variantRenameServerPort,
+  variantRenameWebPort,
   webPort,
 } from '../ports.js';
 
@@ -49,6 +51,9 @@ export const liveFullscreenProjectsDir = path.join(liveFullscreenDir, 'projects'
 export const resumeDialogDir = path.join(root, '.work/e2e/resume-dialog');
 export const resumeDialogProjectsDir = path.join(resumeDialogDir, 'projects');
 export const resumeDialogHome = path.join(resumeDialogDir, 'home');
+// variant 改名 e2e 的数据目录、来源目录与"本机配置"的 HOME：每次删除重建
+export const variantRenameDir = path.join(root, '.work/e2e/variant-rename');
+export const variantRenameProjectsDir = path.join(variantRenameDir, 'projects');
 // Codex 草稿（Contracts 第 17 节）：skill 的来源是 prepare-codex-skills-e2e 建的本地 git 仓库，Codex 换成测试中的
 // 替身命令（只验证页面与 API）
 const codexSkillsDir = path.join(root, '.work/e2e/codex-skills');
@@ -224,6 +229,29 @@ export const services = {
     env: {
       WFD_PORT: String(analysisWorkflowServerPort),
       WFD_WEB_PORT: String(analysisWorkflowWebPort),
+    },
+  },
+  variantRenameServer: {
+    // 与 Live 全屏相同：每次删除重建，Claude Code 换成替身命令；单独一对服务，交互项不混进别的用例的列表
+    command: `rm -rf ${variantRenameDir} && mkdir -p ${variantRenameProjectsDir} && pnpm --filter @wf-dashboard/server exec tsx src/main.ts`,
+    url: `http://127.0.0.1:${String(variantRenameServerPort)}/api/health`,
+    reuseExistingServer: false,
+    timeout: 120_000,
+    env: {
+      WFD_DATA_DIR: path.join(variantRenameDir, 'data'),
+      WFD_CLAUDE_PROJECTS: variantRenameProjectsDir,
+      WFD_PORT: String(variantRenameServerPort),
+      WFD_CLAUDE_BIN: path.join(root, 'server/test/fixtures/live/claude-stand-in.mjs'),
+      WFD_LOCAL_HOME: path.join(variantRenameDir, 'home'),
+    },
+  },
+  variantRenameWeb: {
+    command: 'pnpm --filter @wf-dashboard/web dev',
+    url: `http://127.0.0.1:${String(variantRenameWebPort)}`,
+    reuseExistingServer: false,
+    env: {
+      WFD_PORT: String(variantRenameServerPort),
+      WFD_WEB_PORT: String(variantRenameWebPort),
     },
   },
 } satisfies Record<string, WebServer>;

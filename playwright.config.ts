@@ -8,6 +8,7 @@ import {
   liveItemsWebPort,
   resumeDialogWebPort,
   runsWebPort,
+  variantRenameWebPort,
   webPort,
 } from './ports.js';
 import { guardBasicTier } from './server/test/setup/basic-tier.js';
@@ -33,6 +34,7 @@ const projectServices: Record<string, Service[]> = {
   'analysis-workflow': ['analysisWorkflowServer', 'analysisWorkflowWeb'],
   'live-purpose': ['analysisWorkflowServer', 'analysisWorkflowWeb'],
   'resume-dialog': ['resumeDialogServer', 'resumeDialogWeb'],
+  'variant-rename': ['variantRenameServer', 'variantRenameWeb'],
 };
 
 export default defineConfig({
@@ -108,6 +110,16 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         baseURL: `http://127.0.0.1:${String(liveFullscreenWebPort)}`,
+        viewport: { width: 1600, height: 1000 },
+      },
+    },
+    {
+      // variant 改名（Contracts 16.4）：交互项用同样的替身命令，Live 中显示 variant 的名字
+      name: 'variant-rename',
+      testMatch: 'variant-rename.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: `http://127.0.0.1:${String(variantRenameWebPort)}`,
         viewport: { width: 1600, height: 1000 },
       },
     },

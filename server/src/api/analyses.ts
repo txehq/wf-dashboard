@@ -220,8 +220,10 @@ export const analysisRoutes: FastifyPluginCallbackZod<{ insights: Insights }> = 
     {
       schema: {
         params: Params,
+        // 名字与描述必填（Contracts 19.3），由服务端校验，以原文 400
         body: z.object({
-          name: z.string().trim().min(1).max(100),
+          name: z.string(),
+          description: z.string(),
           files: z.array(z.object({ path: z.string().min(1), content: z.string() })).min(1),
         }),
         response: { 201: z.object({ id: z.string(), name: z.string() }) },

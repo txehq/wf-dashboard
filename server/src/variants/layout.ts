@@ -10,6 +10,9 @@ export function dataLayout(dataDir: string) {
     runtimeSrc: (commit: string) => path.join(dataDir, 'runtimes', commit, 'src'),
     runtimeBin: (commit: string) => path.join(dataDir, 'runtimes', commit, 'wf'),
     variant: (id: string) => variantLayout(path.join(dataDir, 'variants', id)),
+    // 覆盖与恢复前存下的 src/（Contracts 17.4）：variant-history/<variantId>/<snapshot>/src
+    historySrc: (variantId: string, snapshot: string) =>
+      path.join(dataDir, 'variant-history', variantId, snapshot, 'src'),
   };
 }
 

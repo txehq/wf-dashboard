@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Play, RotateCcw, Save, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
+import { CodexSaveDialog } from '@/components/codex-save-dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
@@ -11,7 +12,6 @@ import {
   draftQuery,
   resumeCodex,
   retryDraft,
-  saveDraft,
 } from '@/lib/drafts-api';
 import type { LiveDetail } from '@/lib/live-api';
 import { invalidateThrottled, useLiveEvent } from '@/lib/live-events';
@@ -194,15 +194,9 @@ export function CodexDraftBar({
   const client = useQueryClient();
   const draftId = live.draftId;
   const draft = useQuery({ ...draftQuery(draftId ?? ''), enabled: draftId !== null });
-  const save = useMutation({
-    mutationFn: () => saveDraft(draftId ?? ''),
-    onSuccess: async () => {
-      await client.invalidateQueries({ queryKey: ['drafts'] });
-      await client.invalidateQueries({ queryKey: ['workflows'] });
-      await client.invalidateQueries({ queryKey: ['variants'] });
-    },
-  });
   const resume = useMutation({ mutationFn: () => resumeCodex(live.id), onSuccess: onResumed });
+  // 保存对话框（Contracts 17.4）：保存到哪里、名字与描述、将要保存的改动
+  const [saving, setSaving] = useState(false);
   const retry = useMutation({
     mutationFn: () => retryDraft(draftId ?? ''),
     onSuccess: async () => {
@@ -214,9 +208,6 @@ export function CodexDraftBar({
     if (type === 'draft.updated') invalidateThrottled(client, ['drafts'], 300);
   });
   const d = draft.data;
-  // optimize：按 optimize/workflow.yaml 是否改动保存为新 variant 或新 workflow（Contracts 19.3）
-  const label =
-    d?.mode === 'variant' ? '保存为 variant' : d?.mode === 'optimize' ? '保存' : '保存为 workflow';
   const savable = d?.status === 'open' || d?.status === 'saved';
   return (
     <div className="flex flex-col gap-2" data-testid="codex-draft-bar">
@@ -236,14 +227,23 @@ export function CodexDraftBar({
             <Button
               size="sm"
               data-testid="codex-draft-save"
-              disabled={!savable || save.isPending}
+              disabled={!savable}
+              title="新建 variant 或覆盖已有 variant；保存后不构建"
               onClick={() => {
-                save.mutate();
+                setSaving(true);
               }}
             >
               <Save />
-              {save.isPending ? '校验并构建中…' : label}
+              保存
             </Button>
+            {saving && d !== undefined && (
+              <CodexSaveDialog
+                draft={d}
+                onClose={() => {
+                  setSaving(false);
+                }}
+              />
+            )}
           </>
         )}
         {live.status !== 'running' && live.process !== null && (
@@ -287,11 +287,11 @@ export function CodexDraftBar({
           ))}
         </p>
       )}
-      {(save.isError || resume.isError || retry.isError || draft.isError) && (
+      {(resume.isError || retry.isError || draft.isError) && (
         <Alert variant="destructive" data-testid="codex-draft-error">
-          <AlertTitle>{save.isError ? '保存失败，草稿保留' : '出错了'}</AlertTitle>
+          <AlertTitle>出错了</AlertTitle>
           <AlertDescription className="max-h-80 overflow-auto font-mono text-xs whitespace-pre-wrap">
-            {(save.error ?? resume.error ?? retry.error ?? draft.error)?.message}
+            {(resume.error ?? retry.error ?? draft.error)?.message}
           </AlertDescription>
         </Alert>
       )}

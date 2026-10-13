@@ -68,3 +68,67 @@ export const DraftView = z.object({
   createdAt: z.number(),
 });
 export type DraftView = z.infer<typeof DraftView>;
+
+// 保存前的改动预览（Contracts 21.3）：草稿的 src/ 相对底子 variant 逐文件的差异
+export const DraftDiffView = z.object({
+  // 从空白开始的草稿没有底子，文件都是新增
+  base: z.object({ id: z.string(), name: z.string() }).nullable(),
+  files: z.array(
+    z.object({
+      path: z.string(),
+      status: z.enum(['added', 'removed', 'modified']),
+      oldContent: z.string(),
+      newContent: z.string(),
+      // 统一 diff 文本
+      patch: z.string(),
+    }),
+  ),
+});
+export type DraftDiffView = z.infer<typeof DraftDiffView>;
+
+// 保存（Contracts 17.4）：新建 variant，或覆盖同一 workflow 中的某个 variant，名字与描述都必填；
+// 第一次保存为新 workflow 时另带 workflow 的名字与描述。必填与长度由服务端校验，以原文 400
+export const SaveTarget = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('new'), name: z.string(), description: z.string() }),
+  z.strictObject({
+    kind: z.literal('overwrite'),
+    variantId: z.string().min(1),
+    name: z.string(),
+    description: z.string(),
+  }),
+]);
+export type SaveTarget = z.infer<typeof SaveTarget>;
+
+export const SaveDraftBody = z.strictObject({
+  target: SaveTarget,
+  workflow: z.strictObject({ name: z.string(), description: z.string() }).optional(),
+});
+export type SaveDraftBody = z.infer<typeof SaveDraftBody>;
+
+// 保存对话框的内容：第一次保存为新 workflow，或保存到已有 workflow（列出它的 variant，不能覆盖的写明原因）
+export const SavePlanView = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('new-workflow'),
+    workflowId: z.string(),
+    workflowName: z.string(),
+    workflowDescription: z.string(),
+    variantName: z.string(),
+  }),
+  z.object({
+    kind: z.literal('variant'),
+    workflowId: z.string(),
+    workflowName: z.string(),
+    // 新建时的 parent，diff 的参照
+    parent: z.object({ id: z.string(), name: z.string() }).nullable(),
+    variants: z.array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        description: z.string().nullable(),
+        // 不能覆盖的原因（导入的、已冻结的、正在构建的）；可以覆盖时为 null
+        reason: z.string().nullable(),
+      }),
+    ),
+  }),
+]);
+export type SavePlanView = z.infer<typeof SavePlanView>;

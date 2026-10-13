@@ -397,6 +397,29 @@ export const liveEvents = sqliteTable(
   (t) => [index('live_events_live_idx').on(t.liveId, t.id)],
 );
 
+// variant 的历史（Contracts 16.4、17.4）：一张表承载两种记录，kind 区分——改名（rename）记旧名与新名；
+// 覆盖与恢复（overwrite、restore）前把原来的 src/ 存进 data/variant-history/<variantId>/<snapshot>/，
+// payload 记快照目录名与来源。kind 与 payload 在 SQLite 中都是 text，新增的 kind 不需要迁移
+export const variantEventKinds = ['rename', 'overwrite', 'restore'] as const;
+export type VariantEventKind = (typeof variantEventKinds)[number];
+export type VariantEventPayload =
+  | { from: string; to: string }
+  | { snapshot: string; draftId: string; analysisId: string | null }
+  | { snapshot: string; restoredEventId: number };
+export const variantEvents = sqliteTable(
+  'variant_events',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    variantId: text('variant_id')
+      .notNull()
+      .references(() => variants.id),
+    at: integer('at', { mode: 'timestamp_ms' }).notNull(),
+    kind: text('kind', { enum: variantEventKinds }).notNull(),
+    payload: text('payload', { mode: 'json' }).$type<VariantEventPayload>().notNull(),
+  },
+  (t) => [index('variant_events_variant_idx').on(t.variantId, t.id)],
+);
+
 // optimize：分析报告交给 Codex 优化（Contracts 19.3），目录是分析目录，保存时按 optimize/workflow.yaml 是否改动
 // 决定保存为原 workflow 的新 variant 还是新 workflow
 export const draftModes = ['workflow', 'variant', 'optimize'] as const;

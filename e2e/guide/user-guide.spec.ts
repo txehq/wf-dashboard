@@ -132,6 +132,8 @@ test('03 建基线 variant、派生并编辑 skill、构建', async ({ page, req
   await tree.getByRole('button', { name: 'research', exact: true }).click();
   await tree.getByTitle('skills/research/SKILL.md').click();
   const editor = panel.getByTestId('skill-editor');
+  // .md 文件默认预览，点"编辑"进入编辑
+  await panel.getByRole('tab', { name: '编辑' }).click();
   await expect(editor.locator('.view-lines')).toContainText('name: research');
   await editor.locator('.view-lines').click();
   await page.keyboard.press('ControlOrMeta+End');
@@ -145,7 +147,9 @@ test('03 建基线 variant、派生并编辑 skill、构建', async ({ page, req
   await expect(panel.getByText('未保存')).toHaveCount(0);
 
   await panel.getByRole('tab', { name: '对比' }).click();
-  await expect(panel.getByTestId('skill-diff').locator('.line-insert').first()).toBeVisible();
+  await expect(
+    panel.getByTestId('skill-diff').locator('td.diff-code-insert').first(),
+  ).toBeVisible();
   await showPanel();
   await shot(page, '09-skill-diff');
 

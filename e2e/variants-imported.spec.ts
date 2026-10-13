@@ -51,7 +51,9 @@ test('导入的 variant：只读标记、文件与对比；文件缺失时显示
   await expect(panel.getByRole('button', { name: '派生为可运行的 variant' })).toBeEnabled();
   const tree = panel.getByRole('navigation', { name: 'skills 文件' });
   await expect(tree.getByRole('button', { name: 'lfg', exact: true })).toBeVisible();
-  await expect(panel.getByTestId('skill-editor').locator('.view-lines')).toContainText('name: lfg');
+  await expect(panel.getByTestId('md-preview').locator('table.frontmatter td').first()).toHaveText(
+    'lfg',
+  );
   await expect(panel.getByRole('button', { name: '保存', exact: true })).toHaveCount(0);
   await panel.getByRole('tab', { name: '对比' }).click();
   await expect(panel.getByText('skills 内容相同，没有差异。')).toBeVisible();
@@ -59,7 +61,8 @@ test('导入的 variant：只读标记、文件与对比；文件缺失时显示
   await expect(panel.getByText(`${imported}，没有构建日志。`)).toBeVisible();
   await page.screenshot({ path: `${shots}/w14b-imported.png`, animations: 'disabled' });
 
-  // 移走 skills：files 返回 500，页面显示服务端的错误原文
+  // 移走 skills：files 返回 500，页面显示服务端的错误原文（先回到编辑：显示的选择刷新后保持）
+  await panel.getByRole('tab', { name: '编辑' }).click();
   fs.renameSync(skillsDir, moved());
   const filesRequests: Request[] = [];
   page.on('request', (r) => {

@@ -1,7 +1,7 @@
 import { DiffEditor } from '@monaco-editor/react';
 import { useEffect, useRef } from 'react';
 import { languageOf } from '@/lib/language';
-import { monaco } from '@/pages/variants-monaco';
+import { MONACO_THEME, monaco } from '@/pages/variants-monaco';
 
 export interface SkillDiffFile {
   path: string;
@@ -35,6 +35,7 @@ export function SkillDiffEditor({
       original={file.oldContent}
       modified={file.newContent}
       language={languageOf(file.path)}
+      theme={MONACO_THEME}
       keepCurrentOriginalModel
       keepCurrentModifiedModel
       onMount={(editor) => {

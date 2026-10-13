@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "a2d3123b-3fec-4ca8-b557-42cc5398962f",
+  "id": "55e9fcf4-e20b-44c9-85ef-0ecfcf9c553d",
   "prevId": "fb60f323-30ae-4ada-8c98-80a06a7acfd8",
   "tables": {
     "analyses": {
@@ -1063,14 +1063,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'claude'"
-        },
-        "purpose": {
-          "name": "purpose",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'interaction'"
         },
         "title": {
           "name": "title",
@@ -2759,6 +2751,74 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "variant_events": {
+      "name": "variant_events",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "variant_id": {
+          "name": "variant_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "at": {
+          "name": "at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payload": {
+          "name": "payload",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "variant_events_variant_idx": {
+          "name": "variant_events_variant_idx",
+          "columns": [
+            "variant_id",
+            "id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "variant_events_variant_id_variants_id_fk": {
+          "name": "variant_events_variant_id_variants_id_fk",
+          "tableFrom": "variant_events",
+          "tableTo": "variants",
+          "columnsFrom": [
+            "variant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
