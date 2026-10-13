@@ -81,7 +81,10 @@ const exportSessions = async (ids: string[], name: string) => {
     inputDir,
   });
   return (id: string) =>
-    fs.readFileSync(path.join(inputDir, 'sessions', `${id}.jsonl`), 'utf8').trim().split('\n');
+    fs
+      .readFileSync(path.join(inputDir, 'sessions', `${id}.jsonl`), 'utf8')
+      .trim()
+      .split('\n');
 };
 
 describe('导出的 thinking 块', () => {
