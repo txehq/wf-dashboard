@@ -23,7 +23,7 @@ export function EnvironmentStatus() {
     query.data === undefined && !query.isError
       ? 'text-muted-foreground'
       : failed === 0 && !query.isError
-        ? 'text-emerald-700'
+        ? 'text-status-good'
         : 'text-destructive';
 
   return (

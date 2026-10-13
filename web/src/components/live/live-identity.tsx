@@ -8,8 +8,8 @@ import { type PurposeFilter, purposeFilters, purposeLabel } from '@/lib/live-pur
 import { cn } from '@/lib/utils';
 
 // 交互项一眼能看出用途与引擎（Contracts 14.3）：左侧色带与带图标、文字的用途标签；引擎用各自的 logo。
-// logo 取自 SVG Logos（Gil Barbara，CC0-1.0，@iconify-icons/logos 中每个图标单独一个模块）：Claude 的标志保留自己的
-// 橙色，OpenAI 的标志没有填充色，跟随文字颜色，明暗主题下都清楚
+// logo 取自 SVG Logos（Gil Barbara，CC0-1.0，@iconify-icons/logos 中每个图标单独一个模块）：Claude 的标志用品牌的
+// 橙色（--engine-claude，亮色下取较深的一种），OpenAI 的标志没有填充色，跟随文字颜色，明暗主题下与底色都至少 3:1
 
 type Purpose = LiveSummary['purpose'];
 
@@ -34,29 +34,29 @@ export function EngineLogo({
     >
       <Icon
         icon={engine === 'claude' ? claudeIcon : openaiIcon}
-        className="size-full fill-current"
+        className={cn(
+          'size-full fill-current',
+          engine === 'claude' && '[&_path]:fill-engine-claude',
+        )}
         aria-hidden
       />
     </span>
   );
 }
 
-// 每种用途的颜色：色带、标签的底色与文字；交互为中性色
+// 每种用途的颜色（index.css 的 --purpose-* 与 --warning-*，明暗各一组）：色带、标签的底色与文字；交互为中性色
 const purposeStyle: Record<Purpose, { band: string; badge: string }> = {
   interaction: {
-    band: 'bg-zinc-300 dark:bg-zinc-600',
-    badge:
-      'border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200',
+    band: 'bg-purpose-interaction',
+    badge: 'border-border bg-muted text-muted-foreground',
   },
   design: {
-    band: 'bg-violet-500 dark:bg-violet-400',
-    badge:
-      'border-violet-300 bg-violet-50 text-violet-800 dark:border-violet-700 dark:bg-violet-950 dark:text-violet-200',
+    band: 'bg-purpose-design',
+    badge: 'border-purpose-design-border bg-purpose-design-muted text-purpose-design-muted-foreground',
   },
   optimize: {
-    band: 'bg-amber-500 dark:bg-amber-400',
-    badge:
-      'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200',
+    band: 'bg-purpose-optimize',
+    badge: 'border-warning-border bg-warning text-warning-foreground',
   },
 };
 

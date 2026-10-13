@@ -1,7 +1,7 @@
 import { DiffEditor } from '@monaco-editor/react';
 import { useEffect, useRef } from 'react';
 import { languageOf } from '@/lib/language';
-import { MONACO_THEME, monaco } from '@/pages/variants-monaco';
+import { monaco, useMonacoTheme } from '@/pages/variants-monaco';
 
 // 左侧为原文（只读），右侧为结果（可编辑）；右侧内容变化时回调。
 // model 的释放方式与 SkillDiffEditor 相同：等 DiffEditor 释放后再释放 model（monaco 0.57）
@@ -16,6 +16,7 @@ export function EditableDiffEditor({
   modified: string;
   onChange: (value: string) => void;
 }) {
+  const theme = useMonacoTheme();
   const models = useRef<monaco.editor.IDiffEditorModel | null>(null);
   const latest = useRef(onChange);
   useEffect(() => {
@@ -36,7 +37,7 @@ export function EditableDiffEditor({
       original={original}
       modified={modified}
       language={languageOf(path)}
-      theme={MONACO_THEME}
+      theme={theme}
       keepCurrentOriginalModel
       keepCurrentModifiedModel
       onMount={(editor) => {

@@ -55,7 +55,7 @@ function HunkHeader({
     <div
       className={cn(
         'flex items-center gap-3 border-y bg-muted/50 px-3 py-1 text-xs',
-        decision === 'accepted' && 'bg-emerald-100/70 dark:bg-emerald-950',
+        decision === 'accepted' && 'bg-success-muted',
       )}
       data-testid="hunk"
       data-decision={decision ?? 'pending'}
@@ -272,7 +272,7 @@ export function PatchReview({
         </p>
       ))}
       {state.edited !== null && (
-        <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs">
+        <div className="flex items-center gap-2 rounded-md border border-warning-border bg-warning px-3 py-1.5 text-xs text-warning-foreground">
           已在编辑器中修改；撤销编辑后才能重新选择各处修改。
           <Button
             size="xs"

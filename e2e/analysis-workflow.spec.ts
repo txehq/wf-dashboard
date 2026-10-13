@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test } from './test.js';
 import { analysisWorkflowServerPort } from '../ports.js';
+import { checkContrast } from './contrast.js';
 
 // 分析由 workflow session-analysis 驱动（Contracts 19.2、19.3），基础档：数据由 prepare-analysis-workflow-e2e 每次重建
 // （一轮的短 session cfa31f10 绑定到 workflow secret-keeper 的初稿，session-analysis 的基线与派生的"只看失败"，
@@ -89,6 +90,29 @@ test('报告页：报告的总结与结果、按九个方面分组的发现、�
     fullPage: true,
     animations: 'disabled',
   });
+});
+
+test('对比度：分析列表、报告页与修改建议（统一、并排、渲染后的对比）达到 WCAG AA，明暗两种主题', async ({
+  page,
+  request,
+}) => {
+  await page.goto('/analyses');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Analyses');
+  await checkContrast(page, 'analyses-list', { screenshot: true });
+
+  const id = await seeded(request);
+  await page.goto(`/analyses/${id}`);
+  await expect(page.getByTestId('analysis-report')).toContainText('agent 照做了');
+  const review = page.getByTestId('patch-review');
+  await expect(review.getByTestId('hunk')).toHaveCount(4);
+  await checkContrast(page, 'analysis-report', { screenshot: true });
+  await review.getByTestId('diff-view-type').getByRole('button', { name: '并排' }).click();
+  await expect(review.locator('table.diff-split').first()).toBeVisible();
+  await checkContrast(page, 'analysis-diff-split');
+  await review.getByTestId('diff-view-type').getByRole('button', { name: '统一' }).click();
+  await review.getByRole('button', { name: '渲染后的对比' }).click();
+  await expect(review.getByTestId('rendered-compare')).toBeVisible();
+  await checkContrast(page, 'analysis-rendered-compare', { screenshot: true });
 });
 
 test('修改建议：红绿 diff、统一与并排、展开未改动的行、按 hunk 接受与拒绝、渲染后的对比、编辑结果、另存为 variant', async ({

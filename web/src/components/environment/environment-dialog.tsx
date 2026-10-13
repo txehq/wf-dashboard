@@ -25,7 +25,7 @@ function CheckRow({ check }: { check: EnvironmentCheck }) {
       >
         <Chevron className="size-4 shrink-0 text-muted-foreground" />
         {check.ok ? (
-          <CircleCheck className="size-4 shrink-0 text-emerald-600" aria-label="通过" />
+          <CircleCheck className="size-4 shrink-0 text-status-good" aria-label="通过" />
         ) : (
           <CircleX className="size-4 shrink-0 text-destructive" aria-label="未通过" />
         )}

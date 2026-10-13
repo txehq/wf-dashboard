@@ -198,7 +198,7 @@ export function NewLiveForm({ onCreated }: { onCreated: (live: LiveDetail) => vo
                 />
                 <p
                   role="note"
-                  className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                  className="rounded-md border border-warning-border bg-warning px-3 py-2 text-xs text-warning-foreground"
                   data-testid="real-warning"
                 >
                   会在真实目录、真实仓库与真实工单上写入：用本机的 GitHub 与 Linear

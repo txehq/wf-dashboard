@@ -213,7 +213,7 @@ test('明暗两种主题随页面', async () => {
   const keyword = screen.container.querySelector('.hljs-keyword');
   if (article === null || keyword === null) throw new Error('没有渲染');
   expect(getComputedStyle(article).backgroundColor).toBe('rgb(255, 255, 255)');
-  expect(getComputedStyle(keyword).color).toBe('rgb(215, 58, 73)');
+  expect(getComputedStyle(keyword).color).toBe('rgb(207, 34, 46)');
   document.documentElement.classList.add('dark');
   expect(getComputedStyle(article).backgroundColor).toBe('rgb(13, 17, 23)');
   expect(getComputedStyle(keyword).color).toBe('rgb(255, 123, 114)');
