@@ -221,9 +221,9 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
         fs.rmSync(path.dirname(layout.agentSkills), { recursive: true, force: true });
         fs.rmSync(layout.skillsLock, { force: true });
       }
-      copyDraftSource(layout, (dest) => {
+      await copyDraftSource(layout, async (dest) => {
         if (d.baseVariantId === null) writeSkeleton(path.join(dest, 'skills'), definitionOf(d));
-        else variants.exportSource(d.baseVariantId, dest);
+        else await variants.exportSource(d.baseVariantId, dest);
       });
     } else if (stepId === 'write-docs') {
       writeDraftDocs(layout, d.mode, definitionOf(d));

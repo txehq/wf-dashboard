@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test.js';
 import { analysesServerPort } from '../ports.js';
 
 // 数据由 prepare-analyses-e2e 每次重建：dqva52（lfg）与 27yz3d（ic）两个真实 run 的 session，以本机来源导入，

@@ -1,4 +1,4 @@
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Page, test } from './test.js';
 import { z } from 'zod';
 
 // Sessions 列表的固定宽度与 Session 详情头部（Contracts 18.1、18.2），用导入的 W4 run（prepare-runs-e2e）：

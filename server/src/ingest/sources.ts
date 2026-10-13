@@ -1,5 +1,6 @@
 import { readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { setImmediate } from 'node:timers/promises';
 import { eq, notInArray } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
 import { sources } from '../db/schema.js';
@@ -119,8 +120,11 @@ export interface ImportSummary {
   durationMs: number;
 }
 
+// 导入时每段读的字节数：37 MB 的 session 分成约十段，每段之间让出事件循环，导入大的 session 时页面、Live 与其他请求照常响应
+const IMPORT_CHUNK_BYTES = 4 * 1024 * 1024;
+
 // 对全部勾选目录中的每个 session 做增量导入
-export function importCheckedSources(db: Db): ImportSummary {
+export async function importCheckedSources(db: Db): Promise<ImportSummary> {
   const started = performance.now();
   const dirs = db
     .select({ path: sources.path })
@@ -133,7 +137,14 @@ export function importCheckedSources(db: Db): ImportSummary {
   for (const dir of dirs)
     for (const file of sessionFiles(dir)) {
       files++;
-      if (ingestFile(db, file).changed) changedSessions++;
+      let changed = false;
+      for (;;) {
+        const result = ingestFile(db, file, IMPORT_CHUNK_BYTES);
+        changed ||= result.changed;
+        await setImmediate();
+        if (!result.more) break;
+      }
+      if (changed) changedSessions++;
     }
   return { files, changedSessions, durationMs: Math.round(performance.now() - started) };
 }

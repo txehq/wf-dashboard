@@ -57,26 +57,41 @@ export function initialParseState(): ParseState {
 }
 
 // 读取 offset 之后的全部完整行；末尾没有换行的半行留到下一次
-function readCompleteLines(file: string, offset: number): { lines: string[]; end: number } {
+// 从 offset 读到最后一个换行为止的完整行。给了 limit 时最多读 limit 字节（一行比 limit 长时读完这一行所在的剩余部分），
+// more 表示 limit 之后还有没读的内容
+function readCompleteLines(
+  file: string,
+  offset: number,
+  limit = Infinity,
+): { lines: string[]; end: number; more: boolean } {
   const fd = openSync(file, 'r');
   const size = fstatSync(fd).size;
   if (size < offset)
     throw new Error(`${file} 的大小 ${String(size)} 小于已解析的偏移量 ${String(offset)}`);
-  const buffer = Buffer.alloc(size - offset);
-  let read = 0;
-  while (read < buffer.length) {
-    const n = readSync(fd, buffer, read, buffer.length - read, offset + read);
-    if (n === 0) break;
-    read += n;
+  const readFrom = (length: number) => {
+    const buffer = Buffer.alloc(length);
+    let read = 0;
+    while (read < buffer.length) {
+      const n = readSync(fd, buffer, read, buffer.length - read, offset + read);
+      if (n === 0) break;
+      read += n;
+    }
+    return buffer.subarray(0, read);
+  };
+  let buffer = readFrom(Math.min(size - offset, limit));
+  let lastNewline = buffer.lastIndexOf(0x0a);
+  if (lastNewline === -1 && buffer.length < size - offset) {
+    buffer = readFrom(size - offset);
+    lastNewline = buffer.lastIndexOf(0x0a);
   }
   closeSync(fd);
-  const lastNewline = buffer.subarray(0, read).lastIndexOf(0x0a);
-  if (lastNewline === -1) return { lines: [], end: offset };
+  const more = offset + buffer.length < size;
+  if (lastNewline === -1) return { lines: [], end: offset, more: false };
   const lines = buffer
     .toString('utf8', 0, lastNewline)
     .split('\n')
     .filter((l) => l.length > 0);
-  return { lines, end: offset + lastNewline + 1 };
+  return { lines, end: offset + lastNewline + 1, more };
 }
 
 export function resultText(content: UserRecordToolResult['content']): string {
@@ -529,21 +544,25 @@ export interface IngestResult {
   sessionId: string;
   // 本次是否写入了新的请求、用户消息或子代理
   changed: boolean;
+  // 给了 limit 时：主 jsonl 中还有没读的内容，再调用一次接着读
+  more: boolean;
 }
 
-// 增量解析一个主 session jsonl 及其 subagents/；写入后发 session.updated
-export function ingestFile(db: Db, file: string): IngestResult {
+// 增量解析一个主 session jsonl 及其 subagents/；写入后发 session.updated。
+// limit：本次最多读主 jsonl 的多少字节；导入大的 session 时分段读，每段一个事务，段与段之间服务端可以处理其他请求
+export function ingestFile(db: Db, file: string, limit = Infinity): IngestResult {
   const absolute = path.resolve(file);
   if (!absolute.endsWith('.jsonl')) throw new Error(`不是 jsonl 文件：${absolute}`);
   const sessionId = path.basename(absolute, '.jsonl');
   const sessionDir = path.join(path.dirname(absolute), sessionId);
   const spillDir = path.join(sessionDir, 'tool-results');
 
-  const { changed, stageChanges, skillsAdded } = db.$client.transaction(() => {
-    const unchanged: { changed: boolean; stageChanges: StageChange[]; skillsAdded: boolean } = {
+  const { changed, stageChanges, skillsAdded, more } = db.$client.transaction(() => {
+    const unchanged = {
       changed: false,
-      stageChanges: [],
+      stageChanges: [] as StageChange[],
       skillsAdded: false,
+      more: false,
     };
     const existing = db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
     if (existing !== undefined && existing.filePath !== absolute) {
@@ -554,7 +573,7 @@ export function ingestFile(db: Db, file: string): IngestResult {
     }
     const offset = existing?.parseOffset ?? 0;
     const state = existing?.parseState ?? initialParseState();
-    const { lines, end } = readCompleteLines(absolute, offset);
+    const { lines, end, more } = readCompleteLines(absolute, offset, limit);
     let changed = false;
     let skillsAdded = false;
 
@@ -619,6 +638,7 @@ export function ingestFile(db: Db, file: string): IngestResult {
       changed,
       stageChanges: changed ? updateStages(db, sessionId) : [],
       skillsAdded,
+      more,
     };
   })();
 
@@ -626,7 +646,7 @@ export function ingestFile(db: Db, file: string): IngestResult {
   if (skillsAdded) rebindSession(db, config.dataDir, sessionId);
   if (changed) events.publish({ type: 'session.updated', sessionId });
   publishStageChanges(sessionId, stageChanges);
-  return { sessionId, changed };
+  return { sessionId, changed, more };
 }
 
 function runVariantId(db: Db, runId: string): string {

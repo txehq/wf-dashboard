@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { type APIRequestContext, expect, type Request, test } from '@playwright/test';
+import { type APIRequestContext, expect, type Request, test } from './test.js';
 import { runsServerPort } from '../ports.js';
 
 // 数据目录与 runs.spec.ts 相同（prepare-runs-e2e 导入 W4 的 run 并补齐导入的 variant 的内容）。

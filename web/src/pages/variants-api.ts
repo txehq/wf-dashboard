@@ -75,7 +75,12 @@ export interface InstallManifest {
 }
 
 export function buildLabel(variant: Variant): string {
-  if (variant.buildStatus === 'built' && variant.builtHash !== variant.skillsHash) {
+  // 构建过，之后编辑了内容（服务端把 buildStatus 改回 none，builtHash 仍是上次构建的内容）
+  if (
+    (variant.buildStatus === 'built' || variant.buildStatus === 'none') &&
+    variant.builtHash !== null &&
+    variant.builtHash !== variant.skillsHash
+  ) {
     return '需要重新构建';
   }
   return { none: '未构建', building: '构建中', built: '已构建', failed: '构建失败' }[

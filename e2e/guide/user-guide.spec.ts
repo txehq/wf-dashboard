@@ -1,7 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { expect, type Locator, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from '../test.js';
 
 // 使用手册各步骤的截图，只用种子数据：数据目录中有 W4 端到端导入的已结束的 run；
 // 基线从 txe-workflow 导入，派生的 variant 编辑后在本机构建（不调用模型）。不发起 run：

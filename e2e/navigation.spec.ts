@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Page, test } from './test.js';
 import { serverPort } from '../ports.js';
 
 // W35：导航的分组、展开与收起、键盘操作；W44b：variant 页面属于 Workflows

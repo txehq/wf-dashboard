@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Page, test } from './test.js';
 import { serverPort } from '../ports.js';
 
 const api = `http://127.0.0.1:${String(serverPort)}/api`;

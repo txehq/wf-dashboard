@@ -37,10 +37,13 @@ const yamlHeader: Record<DraftMode, string> = {
 };
 
 // 准备的第一步：底子 variant 的 src 由 copySource 复制到 src/。重试时先删去上次复制了一半的 src/
-export function copyDraftSource(layout: DraftLayout, copySource: (dest: string) => void) {
+export async function copyDraftSource(
+  layout: DraftLayout,
+  copySource: (dest: string) => Promise<void>,
+) {
   fs.mkdirSync(path.dirname(layout.src), { recursive: true });
   fs.rmSync(layout.src, { recursive: true, force: true });
-  copySource(layout.src);
+  await copySource(layout.src);
 }
 
 // 准备的第二步：workflow.yaml、PLATFORM.md 与例子 workflow；重试时整体重写。

@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test.js';
 
 // 真实数据（server/scripts/prepare-sessions-e2e.ts 放进 .work/e2e/projects，服务端以 WFD_CLAUDE_PROJECTS
 // 指向它）：两个 dashboard 发起的 run 的 session 原文——ic run 40f6915a（/ic TXE-3764，claim、readiness、
@@ -171,6 +171,7 @@ test('Sessions：来源勾选、列表、详情、导入即有的阶段、进入
 
 test('f0aca373：导入后立即看到 /interview 一轮 lfg 与三轮 ic，fix-pr 显示修复轮数', async ({
   page,
+  request,
 }) => {
   test.setTimeout(300_000);
   await page.goto('/sessions');
@@ -178,7 +179,24 @@ test('f0aca373：导入后立即看到 /interview 一轮 lfg 与三轮 ic，fix-
   const checkbox = page.getByRole('checkbox', { name: prsSource, exact: true });
   if (!(await checkbox.isVisible())) await sourcesToggle.click();
   const started = Date.now();
+  // 37 MB 的 f0aca373 分段导入：导入期间（PUT /api/sources 发出到返回）服务端照常响应其他请求
+  const putSent = page.waitForRequest(
+    (r) => r.method() === 'PUT' && r.url().endsWith('/api/sources'),
+  );
   await checkbox.click();
+  const put = await putSent;
+  const answeredAt: number[] = [];
+  const probe = (async () => {
+    for (let done = false; !done; done = put.timing().responseEnd > 0) {
+      expect((await request.get('/api/health')).ok()).toBe(true);
+      answeredAt.push(Date.now());
+    }
+  })();
+  const response = await put.response();
+  if (response === null) throw new Error('PUT /api/sources 没有响应');
+  const doneAt = Date.now();
+  await probe;
+  expect(answeredAt.filter((t) => t < doneAt).length).toBeGreaterThan(3);
   await expect(page.getByTestId('import-result')).toContainText('已导入', { timeout: 120_000 });
   const row = page.getByTestId('session-row').filter({ hasText: prsSession.slice(0, 8) });
   await row.getByRole('link').click();

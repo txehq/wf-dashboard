@@ -1,6 +1,6 @@
 import { rmSync } from 'node:fs';
 import path from 'node:path';
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Page, test } from './test.js';
 import { CALC_TICKET, CALC_TICKET_URL } from '../server/test/helpers/calc-repo.js';
 import { IMPORT_SOURCE } from '../server/test/helpers/import-source.js';
 
