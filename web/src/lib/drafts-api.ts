@@ -2,6 +2,7 @@ import { queryOptions } from '@tanstack/react-query';
 import {
   type CreateDraftBody,
   DraftDiffView,
+  type DraftEngine,
   type DraftStepView,
   DraftView,
   type SaveDraftBody,
@@ -10,8 +11,8 @@ import {
 import type { LiveDetail } from '@/lib/live-api';
 import { requestJson } from '@/lib/http';
 
-// 与 Contracts 第 17 节（用 Codex 生成 workflow 或 variant）的 API 对应
-export type { CreateDraftBody, DraftStepView, SaveDraftBody };
+// 与 Contracts 第 17 节、19.3、22（生成 workflow 或 variant、分析优化，引擎为 Codex 或 Claude Code）的 API 对应
+export type { CreateDraftBody, DraftEngine, DraftStepView, SaveDraftBody };
 export type Draft = DraftView;
 export type SavePlan = SavePlanView;
 
@@ -63,8 +64,9 @@ export async function saveDraft(id: string, body: SaveDraftBody): Promise<Draft>
   return DraftView.parse(await requestJson('POST', `/api/workflow-drafts/${id}/save`, body));
 }
 
-export async function resumeCodex(liveId: string): Promise<LiveDetail> {
-  return (await requestJson('POST', `/api/live/${liveId}/codex-resume`)) as LiveDetail;
+// 设计与分析优化会话的 resume（Contracts 17.3、22.2）：codex resume 或 claude --resume，接着同一个会话
+export async function resumeDraft(liveId: string): Promise<LiveDetail> {
+  return (await requestJson('POST', `/api/live/${liveId}/draft-resume`)) as LiveDetail;
 }
 
 // 重试准备：从失败的那一步接着做（Contracts 17.1）

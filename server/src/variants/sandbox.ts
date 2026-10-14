@@ -57,6 +57,29 @@ const protectedDirs = [
   '.local/bin',
 ];
 
+// 设计与分析优化的 Claude Code 会话的 profile（Contracts 22.2）：写——home 下只允许工作目录（其中有会话自己的
+// claude-config/ 与 .claude/skills/）与 npm 缓存；读——dashboard 仓库与数据目录中只放行工作目录与 files
+// （claude 读的 hooks 设置文件、在仓库中时的 claude 程序本身）。网络照常
+export function sessionSandboxProfile(
+  workDir: string,
+  files: string[],
+  roots: Pick<SandboxRoots, 'repoRoot' | 'dataDir' | 'home'> = defaultRoots(),
+): string {
+  const subpath = (dir: string) => `(subpath ${literal(dir)})`;
+  return [
+    '(version 1)(allow default)',
+    `(deny file-write* ${subpath(roots.home)})`,
+    `(allow file-write* ${subpath(workDir)} ${subpath(path.join(roots.home, '.npm'))})`,
+    ...protectedDirs.map(
+      (dir) =>
+        `(deny file-write* ${subpath(path.join(roots.home, dir))} (with send-signal SIGKILL))`,
+    ),
+    `(deny file-write* (literal ${literal(path.join(roots.home, '.claude.json'))}) (with send-signal SIGKILL))`,
+    `(deny file-read-data ${subpath(roots.repoRoot)} ${subpath(roots.dataDir)})`,
+    `(allow file-read-data ${subpath(workDir)}${files.map((f) => ` (literal ${literal(f)})`).join('')})`,
+  ].join('');
+}
+
 // claude 进程的 profile（Contracts 7.3），claude、hook、MCP 与 tool 子进程都继承：
 // 写——home 下只允许本 run 的目录、本 variant 的目录、vault 中本 run 的 feature 目录与工具缓存；
 // 读——整个 dashboard 仓库与数据目录都不能读，只放行本 run 的目录与本 variant 的目录（其中再禁止其他 run 的 session），

@@ -3,35 +3,69 @@ import path from 'node:path';
 import { expect, test } from './test.js';
 import { api, seeded, shots, sizes } from './analysis-helpers.js';
 
-// 交给 Codex 优化（Contracts 19.3）：Codex 是替身命令，测试代码代替它改 skill
+// 优化（Contracts 19.3、22）：选 Claude Code，会话在分析目录中（Claude Code 是回显按键的替身）；测试代码代替它
+// 改 skill，保存与 Codex 相同
 test.describe.configure({ mode: 'serial' });
 test.setTimeout(180_000);
 
-test('交给 Codex 优化：跳到 Live 的 Codex 项，准备完成后保存为原 workflow 的新 variant', async ({
+test('优化：选引擎（默认 Codex，选 Claude Code），跳到 Live 的 Claude Code 项，准备完成后保存为原 workflow 的新 variant', async ({
   page,
   request,
 }) => {
   const id = await seeded(request);
   await page.goto(`/analyses/${id}`);
   await page.getByTestId('analysis-optimize').click();
+  const choice = page.getByTestId('engine-choice');
+  await expect(choice).toHaveAttribute('data-engine', 'codex');
+  await expect(choice.getByRole('radio')).toHaveText(['Codex', 'Claude Code']);
+  await expect(choice.getByTestId('live-engine-logo')).toHaveCount(2);
+  await choice.getByRole('radio', { name: 'Claude Code' }).click();
+  await expect(choice).toHaveAttribute('data-engine', 'claude');
+  for (const size of sizes) {
+    await page.setViewportSize(size);
+    await choice.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: `${shots}/w59-optimize-engine-${String(size.width)}.png`,
+      animations: 'disabled',
+    });
+  }
+  await page.getByTestId('analysis-optimize-start').click();
   await expect(page).toHaveURL(/\/live\?item=l-\d{8}-[a-z0-9]{6}$/);
   const liveId = new URL(page.url()).searchParams.get('item') ?? '';
+  const panel = page.getByTestId('live-panel');
+  await expect(panel.getByTestId('live-engine')).toHaveText('Claude Code');
   const bar = page.getByTestId('codex-draft-bar');
   await expect(bar).toContainText(`分析 ${id}`);
   const save = bar.getByTestId('codex-draft-save');
   await expect(save).toHaveText('保存');
   await expect(save).toBeEnabled({ timeout: 120_000 });
-  await page.screenshot({ path: `${shots}/w45-codex-optimize.png`, animations: 'disabled' });
+  // 终端中是 Claude Code（替身）在分析目录中运行
+  await expect(page.locator('.xterm-rows')).toContainText('Claude Code 替身', { timeout: 30_000 });
+  await expect(
+    page.locator(`[data-live="${liveId}"] [data-testid="live-engine-logo"]`).first(),
+  ).toHaveAttribute('data-engine', 'claude');
+  for (const size of sizes) {
+    await page.setViewportSize(size);
+    await page.screenshot({
+      path: `${shots}/w59-optimize-claude-live-${String(size.width)}.png`,
+      animations: 'disabled',
+    });
+  }
 
-  // 测试代码代替 Codex 在 optimize/src 中改一个 skill；optimize/workflow.yaml 不变，保存为新 variant
+  // 测试代码代替 agent 在 optimize/src 中改一个 skill；optimize/workflow.yaml 不变，保存为新 variant
   const detail = (await (await request.get(`${api}/analyses/${id}`)).json()) as {
     optimizeDrafts: { id: string }[];
   };
   const draftId = detail.optimizeDrafts.at(-1)?.id ?? '';
   const draft = (await (await request.get(`${api}/workflow-drafts/${draftId}`)).json()) as {
     dir: string;
+    engine: string;
   };
+  expect(draft.engine).toBe('claude');
   expect(draft.dir).toMatch(new RegExp(`/analyses/${id}$`));
+  expect(fs.existsSync(path.join(draft.dir, '.claude/skills/optimize-from-report/SKILL.md'))).toBe(
+    true,
+  );
   fs.appendFileSync(
     path.join(draft.dir, 'optimize/src/skills/remember/SKILL.md'),
     '\n记住后只回答"记住了"。\n',
@@ -76,7 +110,7 @@ test('交给 Codex 优化：跳到 Live 的 Codex 项，准备完成后保存为
   };
   expect(result.savedWorkflowId).toBe('secret-keeper');
 
-  // 结束这一项的 Codex 进程（替身）
+  // 结束这一项的 Claude Code 进程（替身）
   const stopped = await request.post(`${api}/live/${liveId}/stop`);
   expect([200, 409]).toContain(stopped.status());
 });

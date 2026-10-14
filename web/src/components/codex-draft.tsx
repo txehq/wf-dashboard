@@ -3,14 +3,16 @@ import { Play, RotateCcw, Save, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { CodexSaveDialog } from '@/components/codex-save-dialog';
+import { EngineChoice } from '@/components/engine-choice';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
   createDraft,
   type Draft,
+  type DraftEngine,
   type DraftStepView,
   draftQuery,
-  resumeCodex,
+  resumeDraft,
   retryDraft,
 } from '@/lib/drafts-api';
 import type { LiveDetail } from '@/lib/live-api';
@@ -25,8 +27,8 @@ function earliest(variants: Variant[]): Variant | undefined {
   );
 }
 
-// Contracts 17.1："用 Codex 生成 workflow"（Workflows 列表）与"用 Codex 生成 variant"（Workflow 页面）。
-// 发起后服务端建草稿目录、装 skill、在 Live 中建 Codex 会话，页面跳到它
+// Contracts 17.1、22.1："生成 workflow"（Workflows 列表）与"生成 variant"（Workflow 页面），引擎为 Codex 或
+// Claude Code（每次打开默认 Codex）。发起后服务端建草稿目录、装 skill、在 Live 中建会话，页面跳到它
 export function CodexDraftForm({
   mode,
   workflowId,
@@ -43,6 +45,7 @@ export function CodexDraftForm({
   // mode 为 variant 时底子默认是这个 workflow 的第一个 variant；mode 为 workflow 时从空白骨架开始（Contracts 18.5）
   const choices = (variants.data ?? []).filter((v) => v.workflowId === workflowId);
   const fallback = earliest(choices);
+  const [engine, setEngine] = useState<DraftEngine>('codex');
   const [baseVariantId, setBaseVariantId] = useState('');
   const base = baseVariantId === '' ? (fallback?.id ?? '') : baseVariantId;
   const [id, setId] = useState('');
@@ -53,8 +56,8 @@ export function CodexDraftForm({
     mutationFn: () =>
       createDraft(
         mode === 'workflow'
-          ? { mode, workflowId: id, name, description, requirement }
-          : { mode, workflowId: workflowId ?? '', requirement, baseVariantId: base },
+          ? { mode, engine, workflowId: id, name, description, requirement }
+          : { mode, engine, workflowId: workflowId ?? '', requirement, baseVariantId: base },
       ),
     onSuccess: async ({ live }) => {
       await client.invalidateQueries({ queryKey: ['live'] });
@@ -72,11 +75,12 @@ export function CodexDraftForm({
         create.mutate();
       }}
     >
-      <h2 className="text-base font-semibold">
-        {mode === 'workflow'
-          ? '用 Codex 生成 workflow'
-          : `用 Codex 生成 /${workflowId ?? ''} 的 variant`}
-      </h2>
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 className="text-base font-semibold">
+          {mode === 'workflow' ? '生成 workflow' : `生成 /${workflowId ?? ''} 的 variant`}
+        </h2>
+        <EngineChoice value={engine} onChange={setEngine} />
+      </div>
       <div className="flex flex-wrap items-end gap-3">
         {mode === 'workflow' && (
           <>
@@ -155,8 +159,8 @@ export function CodexDraftForm({
       </label>
       <p className="text-sm text-muted-foreground">
         {mode === 'workflow'
-          ? '草稿从空白骨架开始（入口与一个小阶段的 SKILL.md）；Codex 写好 skill 与小阶段后，在 Live 中保存为新 workflow。'
-          : '只改 skill 内容，入口与小阶段不变；Codex 写好后，在 Live 中保存为新 variant。'}
+          ? '草稿从空白骨架开始（入口与一个小阶段的 SKILL.md）；写好 skill 与小阶段后，在 Live 中保存为新 workflow。'
+          : '只改 skill 内容，入口与小阶段不变；写好后，在 Live 中保存为新 variant。'}
       </p>
       {create.isError && (
         <Alert variant="destructive">
@@ -183,7 +187,7 @@ export function CodexDraftForm({
   );
 }
 
-// Live 中 Codex 会话的头部（Contracts 17.4）：保存为 workflow / variant、保存出的链接、resume
+// Live 中设计与分析优化会话的头部（Contracts 17.4、22）：保存、保存出的链接、resume；Codex 与 Claude Code 相同
 export function CodexDraftBar({
   live,
   onResumed,
@@ -194,7 +198,7 @@ export function CodexDraftBar({
   const client = useQueryClient();
   const draftId = live.draftId;
   const draft = useQuery({ ...draftQuery(draftId ?? ''), enabled: draftId !== null });
-  const resume = useMutation({ mutationFn: () => resumeCodex(live.id), onSuccess: onResumed });
+  const resume = useMutation({ mutationFn: () => resumeDraft(live.id), onSuccess: onResumed });
   // 保存对话框（Contracts 17.4）：保存到哪里、名字与描述、将要保存的改动
   const [saving, setSaving] = useState(false);
   const retry = useMutation({
@@ -213,7 +217,7 @@ export function CodexDraftBar({
     <div className="flex flex-col gap-2" data-testid="codex-draft-bar">
       <div className="flex flex-wrap items-center gap-2 text-sm">
         {draftId === null ? (
-          <span className="text-muted-foreground">这个 Codex 会话没有关联的草稿。</span>
+          <span className="text-muted-foreground">这个会话没有关联的草稿。</span>
         ) : (
           <>
             <span>
@@ -324,7 +328,7 @@ function DraftProgress({
     >
       <p className="font-medium">
         {draft.status === 'preparing'
-          ? '正在准备草稿目录，完成后启动 Codex（安装 skill 约需一分钟）'
+          ? `正在准备草稿目录，完成后启动 ${draft.engine === 'codex' ? 'Codex' : 'Claude Code'}（安装 skill 约需一分钟）`
           : '准备失败，草稿保留'}
       </p>
       <ol className="flex flex-col gap-1">

@@ -251,11 +251,12 @@ export function createAnalysis(
   });
 }
 
-// 交给 Codex 优化（Contracts 19.3）：返回 Live 中的 Codex 项
-export function startOptimize(id: string) {
+// 优化（Contracts 19.3、22.1）：用选的引擎在 Live 中建会话，返回草稿与 Live 中的项
+export function startOptimize(id: string, engine: 'codex' | 'claude') {
   return call<{ draft: { id: string }; live: { id: string } }>(
     'POST',
     `/api/analyses/${id}/optimize`,
+    { engine },
   );
 }
 

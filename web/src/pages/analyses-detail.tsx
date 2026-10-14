@@ -1,9 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Sparkles } from 'lucide-react';
+import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { FindingsReport } from '@/components/analyses/findings-report';
 import { PatchReview } from '@/components/analyses/patch-review';
+import { EngineChoice } from '@/components/engine-choice';
 import { Button } from '@/components/ui/button';
+import type { DraftEngine } from '@/lib/drafts-api';
 import {
   type AnalysisDetail,
   type AnalysisReport,
@@ -152,12 +155,14 @@ function ReportSummary({ analysis, report }: { analysis: AnalysisDetail; report:
   );
 }
 
-// "交给 Codex 优化"（Contracts 19.3）：在 Live 中建 Codex 会话，工作目录为分析目录，跳到它
+// "优化"（Contracts 19.3、22.1）：选引擎后在 Live 中建会话，工作目录为分析目录，跳到它；每次打开默认 Codex
 function OptimizeButton({ analysis }: { analysis: AnalysisDetail }) {
   const client = useQueryClient();
   const navigate = useNavigate();
+  const [choosing, setChoosing] = useState(false);
+  const [engine, setEngine] = useState<DraftEngine>('codex');
   const start = useMutation({
-    mutationFn: () => startOptimize(analysis.id),
+    mutationFn: () => startOptimize(analysis.id, engine),
     onSuccess: async ({ live }) => {
       await client.invalidateQueries({ queryKey: ['live'] });
       await navigate(`/live?item=${live.id}`);
@@ -166,20 +171,47 @@ function OptimizeButton({ analysis }: { analysis: AnalysisDetail }) {
   const sessions = analysis.optimizeDrafts.filter((d) => d.liveId !== null);
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm">
-      <Button
-        size="sm"
-        data-testid="analysis-optimize"
-        disabled={start.isPending}
-        onClick={() => {
-          start.mutate();
-        }}
-      >
-        <Sparkles />
-        {start.isPending ? '正在发起…' : '交给 Codex 优化'}
-      </Button>
+      {choosing ? (
+        <span className="contents" data-testid="analysis-optimize-form">
+          <EngineChoice value={engine} onChange={setEngine} />
+          <Button
+            size="sm"
+            data-testid="analysis-optimize-start"
+            disabled={start.isPending}
+            onClick={() => {
+              start.mutate();
+            }}
+          >
+            <Sparkles />
+            {start.isPending ? '正在发起…' : '在 Live 中开始'}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setChoosing(false);
+            }}
+          >
+            取消
+          </Button>
+        </span>
+      ) : (
+        <Button
+          size="sm"
+          data-testid="analysis-optimize"
+          title="把报告交给 agent，判断改 variant 还是新建 workflow，并把改动做出来"
+          onClick={() => {
+            setEngine('codex');
+            setChoosing(true);
+          }}
+        >
+          <Sparkles />
+          优化
+        </Button>
+      )}
       {sessions.map((d) => (
         <Link key={d.id} className="underline" to={`/live?item=${d.liveId ?? ''}`}>
-          Codex 优化 {d.id}
+          优化 {d.id}
         </Link>
       ))}
       {start.isError && (

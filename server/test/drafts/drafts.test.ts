@@ -174,6 +174,7 @@ describe('用 Codex 生成 workflow 或 variant（基础档）', { timeout: 60_0
     fs.renameSync(last.source, away);
     const { draft, live } = await startDraft({
       mode: 'variant',
+      engine: 'codex',
       workflowId: 'lfg',
       requirement: '重试的测试',
       baseVariantId: base.id,
@@ -232,6 +233,7 @@ describe('用 Codex 生成 workflow 或 variant（基础档）', { timeout: 60_0
   test('mode workflow：从空白骨架开始的草稿目录、装好的 skill、Live 中的 Codex 会话', async () => {
     const { draft, live } = await createDraft({
       mode: 'workflow',
+      engine: 'codex',
       workflowId: newId,
       name: `你好 ${marker}`,
       description: '打招呼',
@@ -332,6 +334,7 @@ describe('用 Codex 生成 workflow 或 variant（基础档）', { timeout: 60_0
   test('mode variant：workflow.yaml 是所属 workflow 定义的只读副本', async () => {
     const { draft, live } = await createDraft({
       mode: 'variant',
+      engine: 'codex',
       workflowId: 'lfg',
       requirement: '把 interview 改得更短',
       baseVariantId: base.id,
@@ -363,6 +366,7 @@ describe('用 Codex 生成 workflow 或 variant（基础档）', { timeout: 60_0
       url: '/api/workflow-drafts',
       payload: {
         mode: 'workflow',
+        engine: 'codex',
         workflowId: 'ic',
         name: 'x',
         description: '',
@@ -374,7 +378,13 @@ describe('用 Codex 生成 workflow 或 variant（基础档）', { timeout: 60_0
     const wrong = await app.inject({
       method: 'POST',
       url: '/api/workflow-drafts',
-      payload: { mode: 'variant', workflowId: 'ic', requirement: 'x', baseVariantId: base.id },
+      payload: {
+        mode: 'variant',
+        engine: 'codex',
+        workflowId: 'ic',
+        requirement: 'x',
+        baseVariantId: base.id,
+      },
     });
     expect(wrong.statusCode).toBe(400);
     expect(wrong.body).toContain('不是 ic 的 variant');
@@ -576,7 +586,7 @@ describe('用 Codex 生成 workflow 或 variant（基础档）', { timeout: 60_0
     expect(stopped.json<Live>().status).toBe('exited');
     const resumed = await app.inject({
       method: 'POST',
-      url: `/api/live/${workflowLive.id}/codex-resume`,
+      url: `/api/live/${workflowLive.id}/draft-resume`,
     });
     expect(resumed.statusCode, resumed.body).toBe(201);
     const live = resumed.json<Live>();
@@ -595,7 +605,7 @@ describe('用 Codex 生成 workflow 或 variant（基础档）', { timeout: 60_0
     ]);
     const again = await app.inject({
       method: 'POST',
-      url: `/api/live/${workflowLive.id}/codex-resume`,
+      url: `/api/live/${workflowLive.id}/draft-resume`,
     });
     expect(again.statusCode).toBe(409);
     await app.inject({ method: 'POST', url: `/api/live/${workflowLive.id}/stop` });

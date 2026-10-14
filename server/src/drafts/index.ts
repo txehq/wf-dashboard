@@ -12,6 +12,7 @@ import {
   type DraftMode,
   type DraftStatus,
   type DraftStep,
+  type LiveEngine,
   variants as variantsTable,
   workflowDrafts,
 } from '../db/schema.js';
@@ -36,9 +37,10 @@ import {
   draftLayout,
   initialMessage,
   optimizeMessage,
+  sessionSkillsDir,
   writeDraftDocs,
 } from './dir.js';
-import { installCodexSkill } from './skills.js';
+import { installSessionSkill } from './skills.js';
 import { checkDraftSkills, readDraftDefinition } from './validate.js';
 import type {
   CreateDraftBody,
@@ -62,9 +64,12 @@ export interface DraftsDeps {
 type DraftRow = typeof workflowDrafts.$inferSelect;
 
 const SKILL_STEP = 'skill:';
+// 启动会话的一步；id 沿用 W42 时的 start-codex，两种引擎相同，已有草稿记下的步骤照常重试
 const START_STEP = 'start-codex';
 // mode 为 optimize 时复制分析所用 variant 中的 optimize-from-report（Contracts 19.3）
 const OPTIMIZE_SKILL_STEP = 'copy-optimize-skill';
+
+const engineName: Record<LiveEngine, string> = { codex: 'Codex', claude: 'Claude Code' };
 
 const copyLabel: Record<DraftMode, string> = {
   workflow: '写入口与各小阶段的 SKILL.md 骨架',
@@ -72,8 +77,12 @@ const copyLabel: Record<DraftMode, string> = {
   optimize: '复制被分析 variant 的 src 到 optimize/src',
 };
 
-// 草稿准备的各步（Contracts 17.1、19.3）：复制 src（新 workflow 为写骨架）、写说明与例子、逐个安装 skill、启动 Codex
-function initialSteps(mode: DraftMode, sources: CodexSkillSources): DraftStep[] {
+// 草稿准备的各步（Contracts 17.1、19.3）：复制 src（新 workflow 为写骨架）、写说明与例子、逐个安装 skill、启动会话
+function initialSteps(
+  mode: DraftMode,
+  sources: CodexSkillSources,
+  engine: LiveEngine,
+): DraftStep[] {
   const step = (id: string, label: string): DraftStep => ({
     id,
     label,
@@ -87,7 +96,7 @@ function initialSteps(mode: DraftMode, sources: CodexSkillSources): DraftStep[] 
     step('write-docs', '写 workflow.yaml、PLATFORM.md 与例子 workflow'),
     ...sources.map((s) => step(`${SKILL_STEP}${s.name}`, `安装 ${s.name}`)),
     ...(mode === 'optimize' ? [step(OPTIMIZE_SKILL_STEP, `复制 ${OPTIMIZE_SKILL}`)] : []),
-    step(START_STEP, '启动 Codex'),
+    step(START_STEP, `启动 ${engineName[engine]}`),
   ];
 }
 
@@ -150,6 +159,7 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
     return {
       id: r.id,
       mode: r.mode,
+      engine: r.engine,
       workflowId: r.workflowId,
       name: r.name,
       description: r.description,
@@ -207,8 +217,8 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
     return a;
   }
 
-  // 分析所用的 session-analysis variant 中的 optimize-from-report 装进优化会话的 .agents/skills（Contracts 19.3）
-  function copyOptimizeSkill(d: DraftRow, agentSkills: string) {
+  // 分析所用的 session-analysis variant 中的 optimize-from-report 装进优化会话的 skill 目录（Contracts 19.3、22.2）
+  function copyOptimizeSkill(d: DraftRow, skillsDir: string) {
     if (d.analysisId === null) throw new Error(`草稿 ${d.id} 不是优化草稿`);
     const a = analysisRow(d.analysisId);
     if (a.analysisVariantId === null) {
@@ -220,7 +230,7 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
         `分析 ${a.id} 所用的 variant ${variants.get(a.analysisVariantId).name} 中没有 ${OPTIMIZE_SKILL}（应为 src/skills/${OPTIMIZE_SKILL}/SKILL.md）`,
       );
     }
-    const to = path.join(agentSkills, OPTIMIZE_SKILL);
+    const to = path.join(skillsDir, OPTIMIZE_SKILL);
     fs.rmSync(to, { recursive: true, force: true });
     fs.cpSync(from, to, { recursive: true });
   }
@@ -232,6 +242,7 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
       if (d.mode === 'optimize') {
         // 分析目录中可能有 Codex 引擎用过的 session-analysis skill，优化会话只装自己的 skill
         fs.rmSync(path.dirname(layout.agentSkills), { recursive: true, force: true });
+        fs.rmSync(layout.claudeSkills, { recursive: true, force: true });
         fs.rmSync(layout.skillsLock, { force: true });
       }
       await copyDraftSource(layout, async (dest) => {
@@ -246,13 +257,13 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
       if (source === undefined) {
         throw new Error(`没有 skill ${name} 的来源（WFD_CODEX_SKILL_SOURCES）`);
       }
-      const version = await installCodexSkill(layout, source);
+      const version = await installSessionSkill(layout, source, d.engine);
       update(id, { skills: [...row(id).skills.filter((s) => s.name !== name), version] });
     } else if (stepId === OPTIMIZE_SKILL_STEP) {
-      copyOptimizeSkill(d, layout.agentSkills);
+      copyOptimizeSkill(d, sessionSkillsDir(layout, d.engine));
     } else if (stepId === START_STEP) {
       if (d.liveId === null) throw new Error(`草稿 ${id} 的交互项已删除`);
-      await live.startCodex(d.liveId);
+      await live.startDraft(d.liveId);
     } else {
       throw new Error(`未知的准备步骤：${stepId}`);
     }
@@ -301,20 +312,22 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
       }
     }
     const id = newId('d');
-    const item = live.createCodexItem({
+    const item = live.createDraftItem({
       cwd: path.join(draftsDir, id),
-      prompt: initialMessage(body.mode, body.requirement),
+      prompt: initialMessage(body.mode, body.requirement, body.engine),
       title:
         body.mode === 'workflow'
-          ? `Codex：新 workflow ${body.workflowId}`
-          : `Codex：${body.workflowId} 的新 variant`,
+          ? `${engineName[body.engine]}：新 workflow ${body.workflowId}`
+          : `${engineName[body.engine]}：${body.workflowId} 的新 variant`,
       workflow: body.mode === 'workflow' ? null : body.workflowId,
       purpose: 'design',
+      engine: body.engine,
     });
     db.insert(workflowDrafts)
       .values({
         id,
         mode: body.mode,
+        engine: body.engine,
         workflowId: body.workflowId,
         name: body.mode === 'workflow' ? body.name : null,
         description: body.mode === 'workflow' ? body.description.trim() : null,
@@ -322,7 +335,7 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
         requirement: body.requirement,
         liveId: item.id,
         status: 'preparing',
-        steps: initialSteps(body.mode, skillSources),
+        steps: initialSteps(body.mode, skillSources, body.engine),
       })
       .run();
     events.publish({ type: 'draft.updated', draftId: id, status: 'preparing' });
@@ -330,11 +343,14 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
     return { draft: view(row(id)), live: live.get(item.id) };
   }
 
-  // 交给 Codex 优化（Contracts 19.3）：草稿目录即分析目录，底子是被分析的 variant，所属 workflow 是它的 workflow
-  function openOptimize(analysisId: string): { draft: DraftView; live: LiveDetail } {
+  // 交给 agent 优化（Contracts 19.3、22.1）：草稿目录即分析目录，底子是被分析的 variant，所属 workflow 是它的 workflow
+  function openOptimize(
+    analysisId: string,
+    engine: LiveEngine,
+  ): { draft: DraftView; live: LiveDetail } {
     const a = analysisRow(analysisId);
     if (a.status !== 'succeeded' || a.report === null) {
-      throw new HttpError(409, `分析 ${analysisId} 还没有成功完成，没有报告可以交给 Codex`);
+      throw new HttpError(409, `分析 ${analysisId} 还没有成功完成，没有报告可以优化`);
     }
     const base = variants.get(a.variantId);
     const workflowId = workflowOfVariant(db, base.id);
@@ -355,19 +371,22 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
         .from(analysisPatches)
         .where(eq(analysisPatches.analysisId, analysisId))
         .all().length,
+      engine,
     });
     const id = newId('d');
-    const item = live.createCodexItem({
+    const item = live.createDraftItem({
       cwd: analysisLayout(dataDir, analysisId).dir,
       prompt,
-      title: `Codex：优化 ${workflowId}（分析 ${analysisId}）`,
+      title: `${engineName[engine]}：优化 ${workflowId}（分析 ${analysisId}）`,
       workflow: null,
       purpose: 'optimize',
+      engine,
     });
     db.insert(workflowDrafts)
       .values({
         id,
         mode: 'optimize',
+        engine,
         workflowId,
         name: null,
         description: null,
@@ -376,7 +395,7 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
         requirement: prompt,
         liveId: item.id,
         status: 'preparing',
-        steps: initialSteps('optimize', skillSources),
+        steps: initialSteps('optimize', skillSources, engine),
       })
       .run();
     events.publish({ type: 'draft.updated', draftId: id, status: 'preparing' });
@@ -576,8 +595,8 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
     openOptimize,
 
     // 交给 Codex 优化（Contracts 19.3）：与发起相同，立即返回，分析目录中的准备在后台进行
-    optimize(analysisId: string): { draft: DraftView; live: LiveDetail } {
-      const created = openOptimize(analysisId);
+    optimize(analysisId: string, engine: LiveEngine): { draft: DraftView; live: LiveDetail } {
+      const created = openOptimize(analysisId, engine);
       void prepare(created.draft.id);
       return created;
     },

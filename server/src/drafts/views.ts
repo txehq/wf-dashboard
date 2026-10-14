@@ -1,28 +1,37 @@
 import { z } from 'zod';
-import { draftModes, draftStatuses } from '../db/schema.js';
+import { draftModes, draftStatuses, liveEngines } from '../db/schema.js';
 
-// 用 Codex 生成 workflow 或 variant 的 API 形状（Contracts 第 17 节）；web 直接引用
+// 生成 workflow、生成 variant 与分析优化的 API 形状（Contracts 第 17 节、19.3、22）；web 直接引用
 
 const Slug = z.string().regex(/^[a-z][a-z0-9-]*$/, '只能包含小写字母、数字与连字符，以字母开头');
 
+// 会话的引擎（Contracts 22.1）：Codex 或 Claude Code
+export const DraftEngine = z.enum(liveEngines);
+export type DraftEngine = z.infer<typeof DraftEngine>;
+
 export const CreateDraftBody = z.discriminatedUnion('mode', [
-  // Workflows 列表的"用 Codex 生成 workflow"：新 workflow 的 id、名字、描述与需求，草稿从空白骨架开始（18.5）
+  // Workflows 列表的"生成 workflow"：新 workflow 的 id、名字、描述与需求，草稿从空白骨架开始（18.5）
   z.strictObject({
     mode: z.literal('workflow'),
+    engine: DraftEngine,
     workflowId: Slug,
     name: z.string().trim().min(1).max(100),
     description: z.string().max(2000),
     requirement: z.string().trim().min(1),
   }),
-  // Workflow 页面的"用 Codex 生成 variant"：只改 skill 内容，不改入口与小阶段
+  // Workflow 页面的"生成 variant"：只改 skill 内容，不改入口与小阶段
   z.strictObject({
     mode: z.literal('variant'),
+    engine: DraftEngine,
     workflowId: z.string().min(1),
     requirement: z.string().trim().min(1),
     baseVariantId: z.string().min(1),
   }),
 ]);
 export type CreateDraftBody = z.infer<typeof CreateDraftBody>;
+
+// 分析报告的"优化"（Contracts 19.3、22.1）
+export const OptimizeBody = z.strictObject({ engine: DraftEngine });
 
 export const DraftSkillView = z.object({
   name: z.string(),
@@ -45,6 +54,7 @@ export type DraftStepView = z.infer<typeof DraftStepView>;
 export const DraftView = z.object({
   id: z.string(),
   mode: z.enum(draftModes),
+  engine: DraftEngine,
   workflowId: z.string(),
   // mode 为 workflow 时新 workflow 的名字与描述
   name: z.string().nullable(),

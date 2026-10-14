@@ -18,6 +18,7 @@ import { createSettingsStore } from '../../src/runs/settings.js';
 import { createVariants } from '../../src/variants/index.js';
 import { listSkillFiles } from '../../src/variants/skills.js';
 import { analysisBaselineSrc, createWorkflows, loadWorkflow } from '../../src/workflows/index.js';
+import { writeClaudeStandIn } from '../helpers/claude-stand-in.js';
 import { testCodex } from '../helpers/codex.js';
 import { makeSkillSources } from '../helpers/codex-skills.js';
 import { testRepos } from '../helpers/local-repos.js';
@@ -34,6 +35,7 @@ const variants = createVariants({
   repo: config.txeWorkflowRepo,
   ctxBin: config.ctxBin,
 });
+const work = path.join(config.repoRoot, '.work', 'test-analysis-workflow', randomUUID());
 const live = createLive({
   db,
   variants,
@@ -46,10 +48,10 @@ const live = createLive({
   localHome: path.join(config.dataDir, 'home'),
   repos: testRepos(),
   codex: testCodex(),
-  claudeBin: config.claudeBin,
+  // Claude Code 的优化会话用测试自己写的替身（Contracts 22.2），不调用真实的 claude
+  claudeBin: writeClaudeStandIn(path.join(work, 'bin')),
   autoStop: { idleMs: config.liveAutoStopMs, graceMs: config.liveStopGraceMs },
 });
-const work = path.join(config.repoRoot, '.work', 'test-analysis-workflow', randomUUID());
 const drafts = createDrafts({
   db,
   variants,
@@ -270,8 +272,8 @@ function succeededAnalysis(): string {
   return id;
 }
 
-async function openOptimize(analysisId: string) {
-  const { draft, live: item } = drafts.openOptimize(analysisId);
+async function openOptimize(analysisId: string, engine: 'codex' | 'claude' = 'codex') {
+  const { draft, live: item } = drafts.openOptimize(analysisId, engine);
   await drafts.prepare(draft.id);
   const ready = drafts.get(draft.id);
   expect(ready.status, ready.error ?? '').toBe('open');
@@ -482,14 +484,32 @@ describe('交给 Codex 优化（Contracts 19.3）', { timeout: 120_000 }, () => 
     ).toThrow(`名称已被使用：另存 ${marker} (${flowId})`);
   });
 
-  test('分析没有成功完成时不能交给 Codex', () => {
+  test('选 Claude Code 优化（Contracts 22.2）：skill 与 optimize-from-report 装进 .claude/skills，初始消息指向那里，配置目录在分析目录中', async () => {
+    const analysisId = succeededAnalysis();
+    const { draft, live: item } = await openOptimize(analysisId, 'claude');
+    expect(draft.engine).toBe('claude');
+    expect(item.engine).toBe('claude');
+    const dir = analysisLayout(dataDir, analysisId).dir;
+    expect(fs.readdirSync(path.join(dir, '.claude/skills')).sort()).toEqual(
+      ['find-skills', 'optimize-from-report', 'skill-creator', 'writing-for-agents'].sort(),
+    );
+    expect(fs.existsSync(path.join(dir, '.agents'))).toBe(false);
+    const prompt = live.get(item.id).input ?? '';
+    expect(prompt).toContain('用 .claude/skills/optimize-from-report 完成这次优化');
+    expect(prompt).not.toContain('.agents/skills');
+    expect(live.dirs(item.id).configDir).toBe(path.join(dir, 'claude-config'));
+    expect(fs.existsSync(path.join(dir, 'claude-config/settings.json'))).toBe(true);
+    await live.stop(item.id);
+  });
+
+  test('分析没有成功完成时不能优化', () => {
     const analysisId = succeededAnalysis();
     db.update(analyses)
       .set({ status: 'failed', report: null })
       .where(eq(analyses.id, analysisId))
       .run();
-    expect(() => drafts.openOptimize(analysisId)).toThrow(
-      `分析 ${analysisId} 还没有成功完成，没有报告可以交给 Codex`,
+    expect(() => drafts.openOptimize(analysisId, 'codex')).toThrow(
+      `分析 ${analysisId} 还没有成功完成，没有报告可以优化`,
     );
   });
 });

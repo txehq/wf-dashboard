@@ -279,7 +279,8 @@ function VariantsSection({
               setCodexing(!codexing);
             }}
           >
-            <Sparkles />用 Codex 生成 variant
+            <Sparkles />
+            生成 variant
           </Button>
         </div>
       </div>
