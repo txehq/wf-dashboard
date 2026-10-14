@@ -45,6 +45,8 @@ export async function checkContrast(
   const recorded: Record<string, unknown[]> = {};
   for (const theme of themes) {
     await setTheme(page, theme);
+    // 重新读取数据时列表变淡（opacity），检查的是读取完成后的颜色
+    await expect(page.locator('[data-refreshing="true"]')).toHaveCount(0);
     let builder = new AxeBuilder({ page }).withRules(['color-contrast']);
     if (options.include !== undefined) builder = builder.include(options.include);
     const result = await builder.analyze();
