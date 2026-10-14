@@ -41,7 +41,11 @@ const projectServices: Record<string, Service[]> = {
 export default defineConfig({
   testDir: './e2e',
   outputDir: './.work/playwright/results',
-  reporter: [['list'], ['html', { outputFolder: './.work/playwright/report', open: 'never' }]],
+  reporter: [
+    ['list'],
+    ['html', { outputFolder: './.work/playwright/report', open: 'never' }],
+    ['./e2e/file-durations.ts'],
+  ],
   // 多个 worktree 同时运行测试时 CPU 排队：渲染 37 MB 的 f0aca373 与保存 task 的用例超过默认的 30 秒与 5 秒
   timeout: 90_000,
   expect: { timeout: 15_000 },
@@ -77,7 +81,13 @@ export default defineConfig({
     },
     {
       name: 'compare',
-      testMatch: 'compare.spec.ts',
+      // 页面的选择不写服务端，几个文件可以在不同的 worker 中同时运行
+      testMatch: [
+        'compare-scores.spec.ts',
+        'compare-filters.spec.ts',
+        'compare-sections.spec.ts',
+        'compare-run-details.spec.ts',
+      ],
       use: {
         ...devices['Desktop Chrome'],
         baseURL: `http://127.0.0.1:${String(compareWebPort)}`,
@@ -89,7 +99,9 @@ export default defineConfig({
       testMatch: [
         'runs.spec.ts',
         'variants-imported.spec.ts',
-        'details.spec.ts',
+        'details-width-sessions.spec.ts',
+        'details-width-runs.spec.ts',
+        'details-navigation.spec.ts',
         'sessions-layout.spec.ts',
         'contrast-runs.spec.ts',
       ],
@@ -132,7 +144,11 @@ export default defineConfig({
     {
       // 分析由 session-analysis 驱动：新建分析时选 variant、报告页的方面分组、交给 Codex 优化（Codex 是替身命令）
       name: 'analysis-workflow',
-      testMatch: 'analysis-workflow.spec.ts',
+      testMatch: [
+        'analysis-report.spec.ts',
+        'analysis-patches.spec.ts',
+        'analysis-optimize.spec.ts',
+      ],
       use: {
         ...devices['Desktop Chrome'],
         baseURL: `http://127.0.0.1:${String(analysisWorkflowWebPort)}`,
