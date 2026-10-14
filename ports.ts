@@ -52,3 +52,7 @@ export const variantRenameWebPort = webPort + 10000;
 // 关闭页面后自动结束的 e2e（Contracts 14.3）：计时改短、只有这个 spec 的页面连接，另起一对服务，端口加 11000
 export const liveAutoStopServerPort = serverPort + 11000;
 export const liveAutoStopWebPort = webPort + 11000;
+
+// Magi Agent 的 e2e（Contracts 第 23 节）：主仓库与 worktree 在 .work/ 下、替身命令的一对服务，端口加 12000
+export const magiAgentServerPort = serverPort + 12000;
+export const magiAgentWebPort = webPort + 12000;

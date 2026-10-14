@@ -4,6 +4,7 @@ import { parseArgs } from 'node:util';
 import { buildApp } from './api/app.js';
 import { config } from './config.js';
 import { openDatabase } from './db/index.js';
+import { RESTART_EXIT_CODE } from './magi-agent/daemon.js';
 import { syncTasks } from './tasks/loader.js';
 
 // pnpm start 传入 --web <web/dist>：同一个端口提供 API 与构建好的页面；pnpm dev 不传，页面由 Vite 提供
@@ -22,6 +23,10 @@ const app = await buildApp({
   tasksDir: config.tasksDir,
   webDir,
   localHome: config.localHome,
+  // Magi Agent 部署后（Contracts 23.5）：结束全部子进程后以退出码 75 结束，pnpm start 的守护进程重新构建并启动
+  onRestart: () => {
+    void app.close().then(() => process.exit(RESTART_EXIT_CODE));
+  },
 });
 await app.listen({ host: config.host, port: config.port });
 

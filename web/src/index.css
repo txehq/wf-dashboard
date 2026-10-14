@@ -63,6 +63,11 @@
   --purpose-design-muted: oklch(0.969 0.016 293.756);
   --purpose-design-muted-foreground: oklch(0.432 0.232 292.759);
   --purpose-design-border: oklch(0.811 0.111 293.571);
+  /* Magi Agent（Contracts 23.1）：青色的色带与标签 */
+  --purpose-agent: oklch(0.511 0.096 186.391);
+  --purpose-agent-muted: oklch(0.984 0.014 180.72);
+  --purpose-agent-muted-foreground: oklch(0.386 0.063 188.416);
+  --purpose-agent-border: oklch(0.855 0.138 181.071);
   /* Claude 的标志：亮色下用品牌色中较深的一种，在浅色底上至少 3:1 */
   --engine-claude: #c15f3c;
 }
@@ -150,6 +155,10 @@
   --purpose-design-muted: oklch(0.283 0.141 291.089);
   --purpose-design-muted-foreground: oklch(0.894 0.057 293.283);
   --purpose-design-border: oklch(0.491 0.27 292.581);
+  --purpose-agent: oklch(0.777 0.152 181.912);
+  --purpose-agent-muted: oklch(0.277 0.046 192.524);
+  --purpose-agent-muted-foreground: oklch(0.953 0.051 180.801);
+  --purpose-agent-border: oklch(0.437 0.078 188.216);
   --engine-claude: #d97757;
 }
 
@@ -199,6 +208,10 @@
   --color-purpose-design-muted: var(--purpose-design-muted);
   --color-purpose-design-muted-foreground: var(--purpose-design-muted-foreground);
   --color-purpose-design-border: var(--purpose-design-border);
+  --color-purpose-agent: var(--purpose-agent);
+  --color-purpose-agent-muted: var(--purpose-agent-muted);
+  --color-purpose-agent-muted-foreground: var(--purpose-agent-muted-foreground);
+  --color-purpose-agent-border: var(--purpose-agent-border);
   --color-engine-claude: var(--engine-claude);
 }
 

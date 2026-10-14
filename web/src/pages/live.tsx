@@ -1,5 +1,14 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ChevronDown, ChevronsLeftRight, Hand, Plus, Power, Undo2, X } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronsLeftRight,
+  Hand,
+  Plus,
+  Power,
+  RotateCcw,
+  Undo2,
+  X,
+} from 'lucide-react';
 import { DropdownMenu } from 'radix-ui';
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
@@ -17,6 +26,7 @@ import {
 import { purposeLabel, usePurposeFilter } from '@/lib/live-purpose';
 import { LiveTerminal } from '@/components/live/live-terminal';
 import { LiveTitle } from '@/components/live/live-title';
+import { BranchStatus, DeployStatus, WorktreePreparation } from '@/components/live/magi-parts';
 import { NewLiveForm } from '@/components/live/new-live-form';
 import { ResumeButton } from '@/components/live/resume-dialog';
 import { SideDrawer } from '@/components/live/side-drawer';
@@ -26,6 +36,7 @@ import { StageBars } from '@/components/sessions/stage-bars';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatDateTime } from '@/lib/format';
+import { newMagiSession, resumeMagi, useMagi } from '@/lib/magi-api';
 import {
   type LiveDetail,
   type LiveSummary,
@@ -109,13 +120,82 @@ function LiveList({
   const [showHidden, setShowHidden] = useState(false);
   const [filter, setFilter] = usePurposeFilter();
   const list = useQuery(liveListQuery(showHidden));
+  const magi = useMagi();
   const all = list.data ?? [];
-  const shown = filter === 'all' ? all : all.filter((l) => l.purpose === filter);
+  // 每种引擎的 Magi Agent 当前会话固定在最上面，在用途筛选之外，始终显示（Contracts 23.6）
+  const pinnedIds = [magi.data?.current.codex, magi.data?.current.claude].filter(
+    (id): id is string => typeof id === 'string',
+  );
+  const pinned = pinnedIds.flatMap((id) => all.filter((l) => l.id === id));
+  const rest = all.filter((l) => !pinnedIds.includes(l.id));
+  const shown = filter === 'all' ? rest : rest.filter((l) => l.purpose === filter);
   const counts = {
     all: all.length,
     interaction: all.filter((l) => l.purpose === 'interaction').length,
     design: all.filter((l) => l.purpose === 'design').length,
     optimize: all.filter((l) => l.purpose === 'optimize').length,
+  };
+  const item = (live: LiveSummary, isPinned: boolean) => {
+    const hidden = live.hiddenAt !== null;
+    return (
+      <li key={live.id}>
+        <div
+          role="button"
+          tabIndex={0}
+          data-live={live.id}
+          data-hidden={hidden}
+          data-purpose={live.purpose}
+          data-pinned={isPinned}
+          aria-current={active === live.id}
+          className="flex w-full cursor-pointer gap-2 rounded-md border py-2 pr-3 pl-1.5 text-left hover:bg-muted/50 aria-[current=true]:border-foreground data-[hidden=true]:border-dashed data-[hidden=true]:opacity-70"
+          onClick={() => {
+            onOpen(live.id);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') onOpen(live.id);
+          }}
+        >
+          <PurposeBand purpose={live.purpose} />
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="flex items-start gap-1">
+              <EngineLogo engine={live.engine} className="mt-0.5 size-4" />
+              <span className="min-w-0 flex-1">
+                <LiveTitle
+                  liveId={live.id}
+                  title={live.title}
+                  className="line-clamp-2 text-sm font-medium"
+                />
+              </span>
+              <ItemMenu
+                live={live}
+                onDeleted={() => {
+                  onGone(live.id);
+                }}
+              />
+              {/* 当前会话始终显示，不能关闭 */}
+              {!hidden && !isPinned && (
+                <HideButton
+                  live={live}
+                  onHidden={() => {
+                    onGone(live.id);
+                  }}
+                />
+              )}
+            </span>
+            <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+              <PurposeBadge live={live} />
+              <StatusBadge live={live} />
+              {variantLabel(live)} · {environmentLabel[live.environment]} ·{' '}
+              <span data-testid="live-resume-count">resume {live.resumeCount} 次</span>
+            </span>
+            <span className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+              {formatDateTime(new Date(live.updatedAt).toISOString())}
+              {hidden && <UnhideButton live={live} />}
+            </span>
+          </span>
+        </div>
+      </li>
+    );
   };
   let body;
   if (list.isPending) body = <p className="text-sm text-muted-foreground">加载中…</p>;
@@ -128,75 +208,24 @@ function LiveList({
   } else if (list.data.length === 0) {
     body = <p className="text-sm text-muted-foreground">还没有交互 session。</p>;
   } else if (shown.length === 0) {
-    body = <p className="text-sm text-muted-foreground">没有这种用途的项。</p>;
+    body =
+      rest.length === 0 ? null : (
+        <p className="text-sm text-muted-foreground">没有这种用途的项。</p>
+      );
   } else {
     body = (
       <ul className="flex flex-col gap-1" aria-label="交互 session" data-testid="live-list">
-        {shown.map((live) => {
-          const hidden = live.hiddenAt !== null;
-          return (
-            <li key={live.id}>
-              <div
-                role="button"
-                tabIndex={0}
-                data-live={live.id}
-                data-hidden={hidden}
-                data-purpose={live.purpose}
-                aria-current={active === live.id}
-                className="flex w-full cursor-pointer gap-2 rounded-md border py-2 pr-3 pl-1.5 text-left hover:bg-muted/50 aria-[current=true]:border-foreground data-[hidden=true]:border-dashed data-[hidden=true]:opacity-70"
-                onClick={() => {
-                  onOpen(live.id);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') onOpen(live.id);
-                }}
-              >
-                <PurposeBand purpose={live.purpose} />
-                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className="flex items-start gap-1">
-                    <EngineLogo engine={live.engine} className="mt-0.5 size-4" />
-                    <span className="min-w-0 flex-1">
-                      <LiveTitle
-                        liveId={live.id}
-                        title={live.title}
-                        className="line-clamp-2 text-sm font-medium"
-                      />
-                    </span>
-                    <ItemMenu
-                      live={live}
-                      onDeleted={() => {
-                        onGone(live.id);
-                      }}
-                    />
-                    {!hidden && (
-                      <HideButton
-                        live={live}
-                        onHidden={() => {
-                          onGone(live.id);
-                        }}
-                      />
-                    )}
-                  </span>
-                  <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                    <PurposeBadge live={live} />
-                    <StatusBadge live={live} />
-                    {variantLabel(live)} · {environmentLabel[live.environment]} ·{' '}
-                    <span data-testid="live-resume-count">resume {live.resumeCount} 次</span>
-                  </span>
-                  <span className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                    {formatDateTime(new Date(live.updatedAt).toISOString())}
-                    {hidden && <UnhideButton live={live} />}
-                  </span>
-                </span>
-              </div>
-            </li>
-          );
-        })}
+        {shown.map((live) => item(live, false))}
       </ul>
     );
   }
   return (
     <>
+      {pinned.length > 0 && (
+        <ul className="flex flex-col gap-1" aria-label="Magi Agent" data-testid="live-pinned">
+          {pinned.map((live) => item(live, true))}
+        </ul>
+      )}
       <PurposeFilterBar value={filter} onChange={setFilter} counts={counts} />
       {body}
       <label className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
@@ -352,6 +381,18 @@ function LivePanel({
     </p>
   );
   const panelClass = 'flex min-h-0 min-w-0 flex-1 flex-col gap-2';
+  if (data.purpose === 'agent') {
+    return (
+      <AgentPanel
+        data={data}
+        stopButton={stopButton}
+        errors={errors}
+        fullscreen={fullscreen}
+        extra={extra}
+        onResumed={onResumed}
+      />
+    );
+  }
   if (data.engine === 'codex') {
     // 用 Codex 生成 workflow 或 variant 的会话（Contracts 17.3）：只有人驾驶，没有阶段与请求明细
     return (
@@ -514,6 +555,121 @@ function LivePanel({
           >
             <SessionSide sessionId={sessionId} />
           </SideDrawer>
+        )}
+      </WorkRow>
+    </div>
+  );
+}
+
+// Magi Agent 的会话（Contracts 23.6）：只有人驾驶；工具栏是引擎、结束进程或 resume、新会话、worktree 与分支状态、
+// 部署的进度与上一次部署的结果；终端可以全屏。第一次打开时终端的位置显示 worktree 的准备进度
+const engineName = { claude: 'Claude Code', codex: 'Codex' } as const;
+
+function AgentPanel({
+  data,
+  stopButton,
+  errors,
+  fullscreen,
+  extra,
+  onResumed,
+}: {
+  data: LiveDetail;
+  stopButton: ReactNode;
+  errors: ReactNode;
+  fullscreen: boolean;
+  extra: ReactNode;
+  onResumed: (live: LiveDetail) => void;
+}) {
+  const magi = useMagi();
+  const resume = useMutation({ mutationFn: () => resumeMagi(data.id), onSuccess: onResumed });
+  const fresh = useMutation({
+    mutationFn: () => newMagiSession(data.engine),
+    onSuccess: onResumed,
+  });
+  const running = data.status === 'running';
+  const state = magi.data;
+  const current = state?.current[data.engine] === data.id;
+  const failure = resume.error ?? fresh.error;
+  return (
+    <div
+      className="flex min-h-0 min-w-0 flex-1 flex-col gap-2"
+      data-testid="live-panel"
+      data-live={data.id}
+      data-purpose="agent"
+    >
+      <div className="flex items-center gap-2 whitespace-nowrap" data-testid="live-toolbar">
+        <StatusBadge live={data} />
+        <span
+          className="inline-flex items-center gap-1 text-sm font-medium"
+          data-testid="live-engine"
+        >
+          <EngineLogo engine={data.engine} className="size-4" />
+          {engineName[data.engine]}
+        </span>
+        {running
+          ? stopButton
+          : data.process !== null && (
+              <Button
+                size="sm"
+                variant="outline"
+                data-testid="magi-resume"
+                disabled={resume.isPending}
+                onClick={() => {
+                  resume.mutate();
+                }}
+              >
+                <RotateCcw />
+                resume
+              </Button>
+            )}
+        <Button
+          size="sm"
+          variant="outline"
+          data-testid="magi-new"
+          title={`新建一个 ${engineName[data.engine]} 的 Magi Agent 会话，记为当前会话`}
+          disabled={fresh.isPending}
+          onClick={() => {
+            fresh.mutate();
+          }}
+        >
+          <Plus />
+          新会话
+        </Button>
+        <FinderMenu items={[{ label: 'worktree', target: { kind: 'live-cwd', id: data.id } }]} />
+        {/* 分支状态在窄的窗口中缩短（悬停看全文），工具栏保持一行 */}
+        <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+          {state !== undefined && <BranchStatus worktree={state.worktree} />}
+        </span>
+        <span className="flex shrink-0 items-center gap-2">{extra}</span>
+      </div>
+      <p className="flex min-w-0 items-center gap-x-3 text-xs whitespace-nowrap text-muted-foreground">
+        <span data-testid="magi-current">{current ? '当前会话' : '之前的会话'}</span>
+        <span>本机配置</span>
+        {state !== undefined && <DeployStatus deploy={state.deploy} />}
+        <span className="min-w-0 truncate font-mono" title={data.cwd} data-testid="live-cwd">
+          {data.cwd}
+        </span>
+      </p>
+      {errors}
+      {failure !== null && (
+        <p role="alert" className="text-sm text-destructive">
+          {failure.message}
+        </p>
+      )}
+      {state?.worktree.startError != null && (
+        <p
+          role="alert"
+          className="rounded-md border border-destructive px-3 py-1 text-sm text-destructive"
+        >
+          {state.worktree.startError}
+        </p>
+      )}
+      <Notices live={data} />
+      <WorkRow fullscreen={fullscreen}>
+        {data.process === null ? (
+          state !== undefined && <WorktreePreparation magi={state} />
+        ) : (
+          <LiveTerminal key={data.process.id} liveId={data.id} />
         )}
       </WorkRow>
     </div>

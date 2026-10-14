@@ -8,6 +8,7 @@
     "./grading/schema": "./src/grading/schema.ts",
     "./live/views": "./src/live/views.ts",
     "./drafts/views": "./src/drafts/views.ts",
+    "./magi-agent/views": "./src/magi-agent/views.ts",
     "./workflows/schema": "./src/workflows/schema.ts",
     "./workflows/eval-kinds": "./src/workflows/eval-kinds.ts",
     "./variants/model-names": "./src/variants/model-names.ts"
@@ -28,6 +29,7 @@
     "prepare:analyses-e2e": "tsx scripts/prepare-analyses-e2e.ts",
     "prepare:analysis-workflow-e2e": "tsx scripts/prepare-analysis-workflow-e2e.ts",
     "prepare:codex-skills-e2e": "tsx scripts/prepare-codex-skills-e2e.ts",
+    "prepare:magi-agent-e2e": "tsx scripts/prepare-magi-agent-e2e.ts",
     "record:gh-fixtures": "tsx scripts/record-gh-fixtures.ts",
     "record:gh-error-fixtures": "tsx scripts/record-gh-error-fixtures.ts"
   },

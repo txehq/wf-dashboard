@@ -301,8 +301,8 @@ export type LiveStatus = (typeof liveStatuses)[number];
 export const liveEngines = ['claude', 'codex'] as const;
 export type LiveEngine = (typeof liveEngines)[number];
 // 交互项的用途（Contracts 14.3）：interaction 用 workflow 做事（新建、导入、resume）；design 为第 17 节的 Codex 草稿；
-// optimize 为 19.3 的 Codex 优化会话
-export const livePurposes = ['interaction', 'design', 'optimize'] as const;
+// optimize 为 19.3 的 Codex 优化会话；agent 为第 23 节的 Magi Agent 会话
+export const livePurposes = ['interaction', 'design', 'optimize', 'agent'] as const;
 export type LivePurpose = (typeof livePurposes)[number];
 
 // 交互（Contracts 14.1）：交互区的一项对应一个 Claude Code session，不评分、不进入对比。
@@ -380,6 +380,8 @@ export const liveEventKinds = [
   'trust',
   // 所有页面关闭后自动结束（Contracts 14.3）；payload 写明最后一个连接断开的时间
   'auto-stop',
+  // 部署后服务重新启动时 resume Magi Agent 的会话（Contracts 23.5）；payload 为部署的 id 与 merge 的 commit
+  'deploy',
 ] as const;
 export type LiveEventKind = (typeof liveEventKinds)[number];
 
@@ -967,3 +969,47 @@ export const analysisPatches = sqliteTable(
   },
   (t) => [index('analysis_patches_analysis_idx').on(t.analysisId)],
 );
+
+// Magi Agent 每种引擎的当前会话（Contracts 23.1）：打开时用它，"新会话"时换成新建的一项
+export const magiAgentCurrent = sqliteTable('magi_agent_current', {
+  engine: text('engine', { enum: liveEngines }).primaryKey(),
+  liveId: text('live_id')
+    .notNull()
+    .references(() => liveSessions.id),
+});
+
+// 部署的状态（Contracts 23.5）：running 正在执行某一步；failed 某一步失败；restarting 已合并、服务以退出码 75 结束，
+// 等重新启动后 resume；done 重新启动后已 resume
+export const magiDeployStatuses = ['running', 'failed', 'restarting', 'done'] as const;
+export type MagiDeployStatus = (typeof magiDeployStatuses)[number];
+
+export const magiDeployStepStatuses = ['pending', 'running', 'done', 'failed'] as const;
+export interface MagiDeployStep {
+  id: string;
+  label: string;
+  status: (typeof magiDeployStepStatuses)[number];
+  // 失败时的原文；成功时为这一步的结果（例如 merge 的 commit）
+  output: string | null;
+  startedAt: number | null;
+  endedAt: number | null;
+}
+
+export const magiDeploys = sqliteTable('magi_deploys', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  // 发起部署的 Magi Agent 会话，部署后 resume 它
+  liveId: text('live_id')
+    .notNull()
+    .references(() => liveSessions.id),
+  engine: text('engine', { enum: liveEngines }).notNull(),
+  status: text('status', { enum: magiDeployStatuses }).notNull(),
+  steps: text('steps', { mode: 'json' }).$type<MagiDeployStep[]>().notNull(),
+  // 失败的那一步的原文
+  error: text('error'),
+  // pnpm check 的输出，data/magi-agent/deploy-<时间>.log
+  logFile: text('log_file').notNull(),
+  // 主仓库中 merge 的 commit 与数据库备份
+  commit: text('commit'),
+  backupFile: text('backup_file'),
+  startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
+  endedAt: integer('ended_at', { mode: 'timestamp_ms' }),
+});

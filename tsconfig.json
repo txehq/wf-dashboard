@@ -10,6 +10,7 @@
   },
   "include": [
     "check.ts",
+    "start.ts",
     "e2e",
     "playwright.config.ts",
     "playwright.real.config.ts",

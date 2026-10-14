@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "concurrently --kill-others --names server,web --prefix-colors blue,magenta \"pnpm --filter @wf-dashboard/server dev\" \"pnpm --filter @wf-dashboard/web dev\"",
     "build": "pnpm --recursive build",
-    "start": "pnpm build && pnpm --filter @wf-dashboard/server start",
+    "start": "tsx start.ts",
     "test": "pnpm --recursive test",
     "test:real": "pnpm --filter @wf-dashboard/server test:real",
     "test:slow": "pnpm --filter @wf-dashboard/server test:slow",

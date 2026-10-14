@@ -37,6 +37,8 @@ import { workflowRoutes } from './workflows.js';
 import { openRoutes } from './open.js';
 import { createDrafts } from '../drafts/index.js';
 import { draftRoutes } from './drafts.js';
+import { createMagiAgent } from '../magi-agent/index.js';
+import { magiAgentRoutes } from './magi-agent.js';
 
 export interface AppOptions {
   db: Db;
@@ -47,6 +49,8 @@ export interface AppOptions {
   webDir?: string | undefined;
   // 交互"本机配置"的 HOME，默认真实 HOME；测试用 .work/ 下的目录
   localHome?: string | undefined;
+  // Magi Agent 部署的最后一步（Contracts 23.5）：pnpm start 中服务以退出码 75 结束；部署的测试传自己的函数
+  onRestart?: (() => void) | undefined;
 }
 
 export async function buildApp({
@@ -56,6 +60,7 @@ export async function buildApp({
   tasksDir,
   webDir,
   localHome,
+  onRestart,
 }: AppOptions) {
   const app = Fastify({ logger });
   await app.register(fastifySSE, { heartbeatInterval: sseHeartbeatMs });
@@ -172,6 +177,25 @@ export async function buildApp({
   });
   app.addHook('onClose', async () => {
     await live.shutdown();
+  });
+
+  // Magi Agent（Contracts 第 23 节）：服务监听端口之后处理"部署后 resume"
+  const magi = createMagiAgent({
+    db,
+    live,
+    repoDir: config.magiRepo,
+    worktree: config.magiWorktree,
+    check: config.magiCheck,
+    dataDir: config.dataDir,
+    restart:
+      onRestart ??
+      (() => {
+        throw new Error('这个服务没有设置部署后重新启动的方法（pnpm start 的 main.ts 设置）');
+      }),
+  });
+  await app.register(magiAgentRoutes, { magi });
+  app.addHook('onListen', () => {
+    magi.resumeAfterDeploy();
   });
 
   // 可配置的 workflow（Contracts 16.1）
