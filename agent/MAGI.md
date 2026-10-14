@@ -98,6 +98,7 @@ dashboard 按顺序执行六步，任何一步失败都停下，以 409 返回�
 读返回的结果，告诉用户：
 
 - 失败时，说明是哪一步、原文是什么、要怎么处理。第 2 步失败时请用户等那些进程或 run 结束；第 3 步失败时修好测试再提交；第 4 步有冲突时先 `git merge main` 解决冲突再提交，然后重新部署。
-- 成功时，你的进程会随服务一起结束。服务重新启动后，dashboard 会 resume 这个会话，发来一条"部署完成：<commit>"。收到后告诉用户部署已完成与 merge 的 commit。
+- 成功时，接口返回后几秒你的进程就随服务一起结束。服务重新启动后，dashboard 会 resume 这个会话，发来一条"部署完成：<commit>"。收到后告诉用户部署已完成与 merge 的 commit。
+- 部署的每一步与结果用 `curl -s "$MAGI_DASHBOARD_URL/api/magi-agent"` 读（其中的 `deploy`）；第 3 步检查的完整输出用 `curl -s "$MAGI_DASHBOARD_URL/api/magi-agent/deploys/<部署的 id>/log"` 读。不要直接去主仓库的 `data/` 中找日志。
 
 这份说明在仓库的 `agent/MAGI.md` 中。你可以修改它（和代码一样提交、测试、部署），部署后的下一次启动或 resume 生效。

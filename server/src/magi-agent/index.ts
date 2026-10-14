@@ -51,6 +51,9 @@ const CHECK_TAIL_LINES = 80;
 // 有这些状态的 run 时不部署（Contracts 23.5 第 2 步）
 const ACTIVE_RUN_STATUSES = ['queued', 'preparing', 'running', 'grading'] as const;
 
+// 部署接口的响应发出后到服务结束之间的间隔（实测 Claude Code 在服务立即结束时来不及把 curl 的返回记进会话）
+const RESTART_DELAY_MS = 3000;
+
 const engineTitle = { codex: 'Codex', claude: 'Claude Code' } as const;
 
 function deployStep(id: string, label: string): MagiDeployStep {
@@ -417,9 +420,9 @@ export function createMagiAgent(deps: MagiAgentDeps) {
 
     deploy,
 
-    // 部署后的 restart：在部署接口的响应发出之后调用
+    // 部署后的 restart：在部署接口的响应发出之后调用；等几秒，agent 的终端先把接口的返回记进会话
     restart: () => {
-      deps.restart();
+      setTimeout(deps.restart, RESTART_DELAY_MS);
     },
 
     deployLog(id: number): string {
