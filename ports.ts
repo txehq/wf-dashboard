@@ -48,3 +48,7 @@ export const resumeDialogWebPort = webPort + 9000;
 // variant 改名的 e2e（Contracts 16.4）：交互项用替身命令，另起一对服务，端口加 10000
 export const variantRenameServerPort = serverPort + 10000;
 export const variantRenameWebPort = webPort + 10000;
+
+// 关闭页面后自动结束的 e2e（Contracts 14.3）：计时改短、只有这个 spec 的页面连接，另起一对服务，端口加 11000
+export const liveAutoStopServerPort = serverPort + 11000;
+export const liveAutoStopWebPort = webPort + 11000;

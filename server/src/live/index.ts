@@ -81,6 +81,9 @@ export interface LiveDeps {
   codex: { bin: string; sources: CodexSources; sessionTimeoutMs: number };
   // Claude Code 会话运行的命令（config.claudeBin）
   claudeBin: string;
+  // 自动结束与"结束进程"（Contracts 14.3）：没有任何页面连接持续 idleMs 时结束全部运行中的交互进程；
+  // 结束时先 SIGINT，graceMs 后仍在则 SIGTERM
+  autoStop: { idleMs: number; graceMs: number };
 }
 
 export const LIVE_ID = /^l-\d{8}-[a-z0-9]{6}$/;
@@ -210,6 +213,79 @@ export function createLive(deps: LiveDeps) {
     return path.join(deps.liveDir, id);
   }
 
+  // "结束进程"（Contracts 14.3）：先 SIGINT，graceMs 后仍在则 SIGTERM，等进程退出
+  async function terminate(controller: LiveController | CodexRunner) {
+    controller.pty.kill('SIGINT');
+    let timer: NodeJS.Timeout | undefined;
+    const late = new Promise<'late'>((resolve) => {
+      timer = setTimeout(() => {
+        resolve('late');
+      }, deps.autoStop.graceMs);
+    });
+    const outcome = await Promise.race([controller.exited.then(() => 'exited' as const), late]);
+    clearTimeout(timer);
+    if (outcome === 'late' && controller.pty.alive) controller.pty.kill('SIGTERM');
+    await controller.exited;
+  }
+
+  // 自动结束（Contracts 14.3）：页面的连接（/api/events 的 SSE 与 PTY 的 WebSocket）为 0 时开始计时，
+  // idleMs 内有连接回来就取消；到时仍为 0 时结束全部运行中的交互进程，每项记一条 auto-stop。评测的 run 不在这里，不受影响
+  let connections = 0;
+  // 最后一个连接断开的时间；服务启动后还没有过连接时为空
+  let lastDisconnectAt: Date | null = null;
+  let idleTimer: NodeJS.Timeout | null = null;
+
+  function scheduleAutoStop() {
+    if (connections > 0 || idleTimer !== null || controllers.size === 0) return;
+    idleTimer = setTimeout(() => {
+      idleTimer = null;
+      void autoStopAll();
+    }, deps.autoStop.idleMs);
+  }
+
+  function cancelAutoStop() {
+    if (idleTimer === null) return;
+    clearTimeout(idleTimer);
+    idleTimer = null;
+  }
+
+  async function autoStopAll() {
+    if (connections > 0) return;
+    const running = [...controllers.values()].filter((c) => c.pty.alive);
+    for (const c of running) {
+      db.insert(liveEvents)
+        .values({
+          liveId: c.liveId,
+          processId: c.processId,
+          at: new Date(),
+          kind: 'auto-stop',
+          payload: {
+            lastDisconnectAt: lastDisconnectAt?.toISOString() ?? null,
+            idleMs: deps.autoStop.idleMs,
+          },
+        })
+        .run();
+      events.publish({ type: 'live.updated', liveId: c.liveId });
+    }
+    await Promise.all(running.map((c) => terminate(c)));
+  }
+
+  // 一个页面连接：打开时调用，返回关闭时调用的函数（重复调用只算一次）
+  function connect(): () => void {
+    connections += 1;
+    cancelAutoStop();
+    let open = true;
+    return () => {
+      if (!open) return;
+      open = false;
+      connections -= 1;
+      if (connections === 0) {
+        lastDisconnectAt = new Date();
+        scheduleAutoStop();
+      }
+    };
+  }
+
   function variantName(variantId: string | null): string | null {
     if (variantId === null) return null;
     return (
@@ -299,6 +375,14 @@ export function createLive(deps: LiveDeps) {
       createdAt: r.createdAt.getTime(),
       updatedAt: r.updatedAt.getTime(),
       hiddenAt: r.hiddenAt === null ? null : r.hiddenAt.getTime(),
+      // 最近的进程是页面全部关闭后自动结束的（Contracts 14.3）
+      autoStopped:
+        last?.status === 'exited' &&
+        db
+          .select({ id: liveEvents.id })
+          .from(liveEvents)
+          .where(and(eq(liveEvents.processId, last.id), eq(liveEvents.kind, 'auto-stop')))
+          .get() !== undefined,
     };
   }
 
@@ -509,6 +593,7 @@ export function createLive(deps: LiveDeps) {
     void controller.exited.then(() => {
       if (controllers.get(spec.liveId) === controller) controllers.delete(spec.liveId);
     });
+    scheduleAutoStop();
     events.publish({ type: 'live.updated', liveId: spec.liveId });
     return detail(spec.liveId);
   }
@@ -779,6 +864,7 @@ export function createLive(deps: LiveDeps) {
     void runner.exited.then(() => {
       if (controllers.get(liveId) === runner) controllers.delete(liveId);
     });
+    scheduleAutoStop();
     events.publish({ type: 'live.updated', liveId });
     return detail(liveId);
   }
@@ -1263,11 +1349,10 @@ export function createLive(deps: LiveDeps) {
       return detail(id);
     },
     async stop(id: string) {
-      const controller = controllerOf(id);
-      controller.pty.kill('SIGHUP');
-      await controller.exited;
+      await terminate(controllerOf(id));
       return detail(id);
     },
+    connect,
     // WebSocket 连接用：运行中的 controller，已退出时为空（只回放 pty.log）
     controller(id: string): LiveController | CodexRunner | null {
       row(id);
@@ -1278,6 +1363,7 @@ export function createLive(deps: LiveDeps) {
     },
     // 服务关闭：结束全部 PTY 进程
     async shutdown() {
+      cancelAutoStop();
       for (const controller of controllers.values()) {
         db.update(liveProcesses)
           .set({ error: '服务关闭，进程结束' })

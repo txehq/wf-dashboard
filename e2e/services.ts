@@ -19,6 +19,8 @@ import {
   serverPort,
   variantRenameServerPort,
   variantRenameWebPort,
+  liveAutoStopServerPort,
+  liveAutoStopWebPort,
   webPort,
 } from '../ports.js';
 
@@ -47,6 +49,11 @@ export const liveItemsProjectsDir = path.join(liveItemsDir, 'projects');
 // Live 全屏 e2e 的数据目录、来源目录与"本机配置"的 HOME：每次删除重建
 export const liveFullscreenDir = path.join(root, '.work/e2e/live-fullscreen');
 export const liveFullscreenProjectsDir = path.join(liveFullscreenDir, 'projects');
+// 关闭页面后自动结束 e2e 的数据目录、来源目录与"本机配置"的 HOME：每次删除重建
+export const liveAutoStopDir = path.join(root, '.work/e2e/live-auto-stop');
+export const liveAutoStopProjectsDir = path.join(liveAutoStopDir, 'projects');
+// 这个 spec 中没有页面连接持续多久后结束交互进程
+export const liveAutoStopMs = 3000;
 // resume 对话框 e2e 的数据目录、来源目录与"本机配置"的 HOME：每次删除重建，不碰真实的 ~/.claude
 export const resumeDialogDir = path.join(root, '.work/e2e/resume-dialog');
 export const resumeDialogProjectsDir = path.join(resumeDialogDir, 'projects');
@@ -176,6 +183,26 @@ export const services = {
       WFD_CLAUDE_BIN: path.join(root, 'server/test/fixtures/live/claude-stand-in.mjs'),
       WFD_LOCAL_HOME: path.join(liveFullscreenDir, 'home'),
     },
+  },
+  liveAutoStopServer: {
+    command: `rm -rf ${liveAutoStopDir} && mkdir -p ${liveAutoStopProjectsDir} && pnpm --filter @wf-dashboard/server exec tsx src/main.ts`,
+    url: `http://127.0.0.1:${String(liveAutoStopServerPort)}/api/health`,
+    reuseExistingServer: false,
+    timeout: 120_000,
+    env: {
+      WFD_DATA_DIR: path.join(liveAutoStopDir, 'data'),
+      WFD_CLAUDE_PROJECTS: liveAutoStopProjectsDir,
+      WFD_PORT: String(liveAutoStopServerPort),
+      WFD_CLAUDE_BIN: path.join(root, 'server/test/fixtures/live/claude-stand-in.mjs'),
+      WFD_LOCAL_HOME: path.join(liveAutoStopDir, 'home'),
+      WFD_LIVE_AUTO_STOP_MS: String(liveAutoStopMs),
+    },
+  },
+  liveAutoStopWeb: {
+    command: 'pnpm --filter @wf-dashboard/web dev',
+    url: `http://127.0.0.1:${String(liveAutoStopWebPort)}`,
+    reuseExistingServer: false,
+    env: { WFD_PORT: String(liveAutoStopServerPort), WFD_WEB_PORT: String(liveAutoStopWebPort) },
   },
   liveFullscreenWeb: {
     command: 'pnpm --filter @wf-dashboard/web dev',

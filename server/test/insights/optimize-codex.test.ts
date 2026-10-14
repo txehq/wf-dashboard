@@ -44,6 +44,7 @@ const live = createLive({
   repos: testRepos(),
   codex: { ...testCodex('codex'), sessionTimeoutMs: 120_000 },
   claudeBin: config.claudeBin,
+  autoStop: { idleMs: config.liveAutoStopMs, graceMs: config.liveStopGraceMs },
 });
 const drafts = createDrafts({
   db,

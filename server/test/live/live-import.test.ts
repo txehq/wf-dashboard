@@ -51,6 +51,7 @@ beforeAll(async () => {
     repos: testRepos(),
     codex: testCodex(),
     claudeBin: config.claudeBin,
+    autoStop: { idleMs: config.liveAutoStopMs, graceMs: config.liveStopGraceMs },
   });
   await app.register(liveRoutes, { live });
 });

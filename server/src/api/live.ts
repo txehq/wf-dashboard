@@ -196,6 +196,8 @@ export const liveRoutes: FastifyPluginCallbackZod<{ live: Live }> = (app, { live
   app.get('/api/live/:id/pty', { websocket: true }, (socket, request) => {
     const { id } = IdParams.parse(request.params);
     const controller = live.controller(id);
+    // 页面的连接（自动结束，Contracts 14.3）：从打开到关闭都算
+    socket.on('close', live.connect());
     const send = (message: unknown) => {
       socket.send(JSON.stringify(message));
     };
