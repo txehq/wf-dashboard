@@ -23,7 +23,7 @@ function LiveStatusBanner() {
     <div
       role="status"
       data-testid="live-lost"
-      className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+      className="mb-4 rounded-md border border-warning-border bg-warning px-3 py-2 text-sm text-warning-foreground"
     >
       实时连接已断开，正在重连；重连后页面自动刷新。
     </div>

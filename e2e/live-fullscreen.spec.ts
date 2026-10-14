@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { expect, type Page, test } from './test.js';
 import { z } from 'zod';
+import { checkContrast } from './contrast.js';
 import { liveFullscreenProjectsDir } from './services.js';
 
 // Live 的全屏（Contracts 20.1、20.3）与工具栏（20.4）。服务端的 Claude Code 是替身命令
@@ -227,6 +228,20 @@ test('全屏中的阶段与请求：右侧抽屉，打开时终端变窄，拖�
   await expect(drawer).toHaveCount(0);
   await expect.poll(async () => (await terminal.boundingBox())?.width ?? 0).toBe(wide);
   await expect.poll(() => lastSize(page)).toEqual(full);
+});
+
+test('对比度：运行中的交互项、全屏与打开的抽屉（阶段与请求）达到 WCAG AA，明暗两种主题', async ({
+  page,
+}) => {
+  await page.goto(`/live?item=${items[0] ?? ''}`);
+  await expect(page.getByTestId('live-terminal')).toHaveAttribute('data-connection', 'open');
+  await checkContrast(page, 'live-item', { screenshot: true });
+
+  await page.getByTestId('fullscreen-toggle').click();
+  await expect(page.getByTestId('live-fullscreen')).toHaveAttribute('data-fullscreen', 'true');
+  await page.getByTestId('toggle-side').click();
+  await expect(page.getByTestId('side-drawer')).toBeVisible();
+  await checkContrast(page, 'live-fullscreen-drawer', { screenshot: true });
 });
 
 test('全屏中切换交互项：⌃⇧] 与工具栏的下拉，切换后保持全屏', async ({ page }) => {

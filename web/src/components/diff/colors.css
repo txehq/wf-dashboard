@@ -12,6 +12,7 @@
   --wfd-diff-gap: #ddf4ff;
   --wfd-diff-gap-text: #0969da;
   --wfd-diff-gutter-text: #59636e;
+  --wfd-diff-change-gutter-text: #1f2328;
   --wfd-diff-empty: #f6f8fa;
 }
 
@@ -27,5 +28,6 @@
   --wfd-diff-gap: #388bfd26;
   --wfd-diff-gap-text: #4493f8;
   --wfd-diff-gutter-text: #9198a1;
+  --wfd-diff-change-gutter-text: #f0f6fc;
   --wfd-diff-empty: #151b23;
 }

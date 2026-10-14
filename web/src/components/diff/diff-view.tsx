@@ -102,7 +102,7 @@ export function DiffHunks({
               展开 {count} 行未改动
             </button>
           )}
-          {title !== null && <span className="font-mono opacity-70">{title}</span>}
+          {title !== null && <span className="wfd-diff-gap-title font-mono">{title}</span>}
         </div>
       </Decoration>
     );

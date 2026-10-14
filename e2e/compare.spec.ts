@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page, test } from './test.js';
+import { checkContrast } from './contrast.js';
 
 // 数据由 server/scripts/seed-compare-e2e.ts 写入专用数据目录：
 // 基线与 "interview 追问边界" 两个 variant × lfg-calculator 与 ic-money-format × 每格 3 次，
@@ -392,4 +393,18 @@ test('运行详情的评分区显示隐藏测试没能运行的原因', async ({
   await expect(error).toContainText('隐藏测试没有正常运行，测试记 0 分');
   await expect(error).toContainText('npm ci 退出码 1：npm error code EINTEGRITY');
   await page.screenshot({ path: '.work/screenshots/w18c-grade-error.png', animations: 'disabled' });
+});
+
+// 对比度（WCAG AA，明暗两种主题）：整页（分数表、展开的一行、产物并排、各阶段成本、skill 内容 diff），/lfg 与 /ic
+test('对比度：Compare 的 /lfg 与 /ic 达到 WCAG AA，明暗两种主题', async ({ page }) => {
+  await lfgRow(page)
+    .getByRole('button', { name: /课堂用的网页计算器/ })
+    .click();
+  await expect(page.getByTestId('rubric-detail')).toBeVisible();
+  await expect(sectionOf(page, 'skill 内容 diff').getByText('2 个文件不同')).toBeVisible();
+  await expect(page.getByTestId('compare-body')).toHaveAttribute('data-refreshing', 'false');
+  await checkContrast(page, 'compare-lfg', { screenshot: true });
+  await chooseScope(page, '/ic');
+  await expect(icRow(page)).toBeVisible();
+  await checkContrast(page, 'compare-ic', { screenshot: true });
 });

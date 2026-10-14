@@ -63,6 +63,8 @@ export default defineConfig({
         'workflows.spec.ts',
         'codex-drafts.spec.ts',
         'compare-empty.spec.ts',
+        'contrast.spec.ts',
+        'contrast-pages.spec.ts',
       ],
       use: {
         ...devices['Desktop Chrome'],
@@ -86,6 +88,7 @@ export default defineConfig({
         'variants-imported.spec.ts',
         'details.spec.ts',
         'sessions-layout.spec.ts',
+        'contrast-runs.spec.ts',
       ],
       use: {
         ...devices['Desktop Chrome'],
