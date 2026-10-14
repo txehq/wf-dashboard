@@ -64,6 +64,7 @@ export default defineConfig({
         'codex-drafts.spec.ts',
         'compare-empty.spec.ts',
         'contrast.spec.ts',
+        'contrast-pages.spec.ts',
       ],
       use: {
         ...devices['Desktop Chrome'],

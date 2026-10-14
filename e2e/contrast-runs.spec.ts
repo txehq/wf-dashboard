@@ -23,7 +23,9 @@ test('Sessions 列表与详情', async ({ page }) => {
 
 test('Runs 列表与详情', async ({ page }) => {
   await page.goto('/runs');
-  await expect(page.getByRole('link', { name: /r-20261009-dqva52|课堂用的网页计算器/ }).first()).toBeVisible();
+  await expect(
+    page.getByRole('link', { name: /r-20261009-dqva52|课堂用的网页计算器/ }).first(),
+  ).toBeVisible();
   await checkContrast(page, 'runs', { screenshot: true });
 
   await page.goto('/runs/r-20261009-dqva52');

@@ -3,9 +3,9 @@ import { checkContrast } from './contrast.js';
 import { expect, test } from './test.js';
 import { serverPort } from '../ports.js';
 
-// 对比度（WCAG AA，明暗两种主题）：chromium 这一对服务上的页面——Workflows、variant 页面（Markdown 预览、并排、
-// diff 的统一与并排、全屏）、Tasks、Analyses 的列表与新建、Live 与 Compare 的空状态、Runs 的设置、环境检查。
-// Sessions、Runs 的详情、Compare、Live 的列表与全屏、分析报告在有数据的那几对服务上检查（contrast-*.spec.ts）
+// 对比度（WCAG AA，明暗两种主题）：chromium 这一对服务上的 Workflows 列表与详情、variant 页面（Markdown 预览、并排、
+// 编辑、diff 的统一与并排、全屏）。同一对服务上的其余页面见 contrast-pages.spec.ts；Sessions、Runs 的详情、Compare、
+// Live 的列表与全屏、分析报告在有数据的那几对服务上检查（contrast-runs.spec.ts 与各自的 spec）
 const api = `http://127.0.0.1:${String(serverPort)}/api`;
 const marker = randomUUID().slice(0, 8);
 const workflowId = `w55-${marker}`;
@@ -105,12 +105,8 @@ test('variant 页面：预览、并排、编辑、diff（统一与并排）、�
   );
   await checkContrast(page, 'variant-split', { screenshot: true });
 
-  await page.goto(
-    `/variants/${variantId}?file=${encodeURIComponent(`skills/${stage}/scan.sh`)}`,
-  );
-  await expect(workspace.getByTestId('skill-editor').locator('.view-lines')).toContainText(
-    'echo',
-  );
+  await page.goto(`/variants/${variantId}?file=${encodeURIComponent(`skills/${stage}/scan.sh`)}`);
+  await expect(workspace.getByTestId('skill-editor').locator('.view-lines')).toContainText('echo');
   await checkContrast(page, 'variant-edit', { screenshot: true });
 
   await workspace.getByRole('tab', { name: '对比' }).click();
@@ -129,52 +125,4 @@ test('variant 页面：预览、并排、编辑、diff（统一与并排）、�
   await view.getByRole('tab', { name: '预览' }).click();
   await expect(article.getByTestId('mermaid').locator('svg')).toBeVisible();
   await checkContrast(page, 'variant-fullscreen-preview', { screenshot: true });
-});
-
-test('Tasks 列表、详情与新建', async ({ page }) => {
-  await page.goto('/tasks');
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Tasks');
-  await expect(page.getByRole('link', { name: /计算器/ }).first()).toBeVisible();
-  await checkContrast(page, 'tasks', { screenshot: true });
-
-  await page.goto('/tasks/lfg-calculator');
-  await expect(page.getByRole('heading', { level: 1 })).toContainText('计算器');
-  await checkContrast(page, 'task-detail', { screenshot: true });
-
-  await page.goto('/tasks/new');
-  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-  await checkContrast(page, 'task-new');
-});
-
-test('Analyses 列表与新建、Live 与 Compare 的空状态', async ({ page }) => {
-  await page.goto('/analyses');
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Analyses');
-  await checkContrast(page, 'analyses');
-
-  await page.goto('/analyses/new');
-  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-  await checkContrast(page, 'analysis-new');
-
-  await page.goto('/live');
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Live');
-  await checkContrast(page, 'live-empty');
-
-  await page.goto('/compare');
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Compare');
-  await checkContrast(page, 'compare-empty');
-});
-
-test('Runs 的设置与环境检查', async ({ page }) => {
-  await page.goto('/runs');
-  await page.getByTestId('run-settings').locator('summary').click();
-  await expect(page.getByTestId('settings-form')).toBeVisible();
-  await checkContrast(page, 'runs-settings', { screenshot: true });
-
-  // 基础档中 claude、codex 与 gateway 一律失败：清单中有未通过的项（红色）与通过的项
-  const status = page.getByTestId('environment-status');
-  await expect(status).toHaveText(/环境：|环境检查失败/, { timeout: 60_000 });
-  await status.click();
-  const dialog = page.getByTestId('environment-dialog');
-  await expect(dialog.getByTestId('environment-checks').getByRole('listitem').first()).toBeVisible();
-  await checkContrast(page, 'environment', { screenshot: true });
 });

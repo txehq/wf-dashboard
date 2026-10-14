@@ -52,7 +52,8 @@ const purposeStyle: Record<Purpose, { band: string; badge: string }> = {
   },
   design: {
     band: 'bg-purpose-design',
-    badge: 'border-purpose-design-border bg-purpose-design-muted text-purpose-design-muted-foreground',
+    badge:
+      'border-purpose-design-border bg-purpose-design-muted text-purpose-design-muted-foreground',
   },
   optimize: {
     band: 'bg-purpose-optimize',

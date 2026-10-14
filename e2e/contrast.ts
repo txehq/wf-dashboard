@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import AxeBuilder from '@axe-core/playwright';
+import { AxeBuilder } from '@axe-core/playwright';
 import { blend, parse, wcagContrast } from 'culori';
 import { expect, type Locator, type Page } from './test.js';
 
@@ -101,9 +101,7 @@ export async function nonTextContrast(
     return found;
   });
   // 从浏览器的白色画布、最外层向内层叠合成
-  const backdrop = blend(
-    ['white', ...layers.reverse()].map((c) => parse(c)).filter((c) => c !== undefined),
-  );
+  const backdrop = blend(['white', ...layers.reverse()]);
   const fg = parse(color);
   if (fg === undefined) throw new Error(`无法解析颜色：${color}`);
   return wcagContrast(blend([backdrop, fg]), backdrop);
