@@ -89,7 +89,10 @@ export function SessionBrowser({
       );
     } else {
       body = (
-        <div className={`flex flex-col gap-3 ${sessions.isFetching ? 'opacity-70' : ''}`}>
+        <div
+          className={`flex flex-col gap-3 ${sessions.isFetching ? 'opacity-70' : ''}`}
+          data-refreshing={sessions.isFetching}
+        >
           <SessionTable
             sessions={rows}
             mode={mode}
