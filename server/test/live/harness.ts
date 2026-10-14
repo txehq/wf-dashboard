@@ -47,6 +47,7 @@ export async function startLiveServer(options: { localHome?: string } = {}) {
     repos: testRepos(),
     codex: testCodex(),
     claudeBin: config.claudeBin,
+    autoStop: { idleMs: config.liveAutoStopMs, graceMs: config.liveStopGraceMs },
   });
   await app.register(liveRoutes, { live });
   // Sessions 列表与详情：交互项改名后显示新名字（Contracts 14.3）

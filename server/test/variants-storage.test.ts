@@ -147,6 +147,7 @@ describe('在访达中打开', () => {
     repos: testRepos(),
     codex: testCodex(),
     claudeBin: config.claudeBin,
+    autoStop: { idleMs: config.liveAutoStopMs, graceMs: config.liveStopGraceMs },
   });
 
   test('variant 的整个目录；目录不存在与不认识的目标 404；不接受任意路径', async () => {

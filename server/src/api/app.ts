@@ -65,16 +65,6 @@ export async function buildApp({
     return { status: 'ok' };
   });
 
-  // 实时事件推送：连接时先发 ready，之后转发事件总线上的全部事件
-  app.get('/api/events', { sse: 'only' }, async (_request, reply) => {
-    reply.sse.keepAlive();
-    const unsubscribe = events.subscribe((event) => {
-      void reply.sse.send({ event: event.type, data: event });
-    });
-    reply.sse.onClose(unsubscribe);
-    await reply.sse.send({ event: 'ready', data: {} });
-  });
-
   await app.register(sessionsRoutes, { prefix: '/api', db, dirs: defaultSourceDirs });
   registerStageRoutes(app, db);
   await app.register(taskRoutes({ db, tasksDir }));
@@ -163,8 +153,23 @@ export async function buildApp({
       sessionTimeoutMs: 60_000,
     },
     claudeBin: config.claudeBin,
+    autoStop: { idleMs: config.liveAutoStopMs, graceMs: config.liveStopGraceMs },
   });
   await app.register(liveRoutes, { live });
+
+  // 实时事件推送：连接时先发 ready，之后转发事件总线上的全部事件。每个连接是一个打开着的页面（自动结束，Contracts 14.3）
+  app.get('/api/events', { sse: 'only' }, async (_request, reply) => {
+    reply.sse.keepAlive();
+    const unsubscribe = events.subscribe((event) => {
+      void reply.sse.send({ event: event.type, data: event });
+    });
+    const release = live.connect();
+    reply.sse.onClose(() => {
+      unsubscribe();
+      release();
+    });
+    await reply.sse.send({ event: 'ready', data: {} });
+  });
   app.addHook('onClose', async () => {
     await live.shutdown();
   });

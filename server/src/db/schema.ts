@@ -378,6 +378,8 @@ export const liveEventKinds = [
   'hide',
   'unhide',
   'trust',
+  // 所有页面关闭后自动结束（Contracts 14.3）；payload 写明最后一个连接断开的时间
+  'auto-stop',
 ] as const;
 export type LiveEventKind = (typeof liveEventKinds)[number];
 

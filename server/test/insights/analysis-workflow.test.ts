@@ -47,6 +47,7 @@ const live = createLive({
   repos: testRepos(),
   codex: testCodex(),
   claudeBin: config.claudeBin,
+  autoStop: { idleMs: config.liveAutoStopMs, graceMs: config.liveStopGraceMs },
 });
 const work = path.join(config.repoRoot, '.work', 'test-analysis-workflow', randomUUID());
 const drafts = createDrafts({

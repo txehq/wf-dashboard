@@ -73,6 +73,20 @@ function StatusBadge({ live }: { live: LiveSummary }) {
     );
   }
   const code = live.process?.exitCode ?? null;
+  // 所有页面关闭后自动结束的（Contracts 14.3）：写明原因，不只显示退出码
+  if (live.autoStopped) {
+    return (
+      <Badge
+        variant="outline"
+        data-testid="live-status"
+        data-status="exited"
+        data-auto-stopped="true"
+        title="dashboard 的页面全部关闭后，进程被自动结束；resume 可以接着运行"
+      >
+        页面关闭后自动结束
+      </Badge>
+    );
+  }
   return (
     <Badge variant="outline" data-testid="live-status" data-status="exited">
       已退出{code === null ? '' : `（${String(code)}）`}
@@ -248,6 +262,11 @@ function Notices({ live }: { live: LiveDetail }) {
   const notice = 'rounded-md border px-3 py-1 text-sm';
   return (
     <>
+      {live.autoStopped && (
+        <p role="status" className={notice} data-testid="live-auto-stopped">
+          页面全部关闭后，这个进程被自动结束。下面是结束时的终端输出，点 resume 接着运行。
+        </p>
+      )}
       {live.starting && (
         <p role="status" className={notice} data-testid="live-starting">
           启动中，终端中的确认由你回答。
@@ -359,6 +378,7 @@ function LivePanel({
           {extra}
         </div>
         {errors}
+        <Notices live={data} />
         <CodexDraftBar live={data} onResumed={onResumed} />
         {data.process !== null && (
           <WorkRow fullscreen={fullscreen}>

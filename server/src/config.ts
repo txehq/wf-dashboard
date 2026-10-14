@@ -74,6 +74,16 @@ export const config = {
   codexBin: process.env.WFD_CODEX_BIN ?? 'codex',
   // Live 中 Claude Code 会话运行的命令；基础档的 e2e 用 WFD_CLAUDE_BIN 换成回显按键与终端尺寸的替身，只验证页面与终端
   claudeBin: process.env.WFD_CLAUDE_BIN ?? 'claude',
+  // 自动结束（Contracts 14.3）：没有任何 /api/events 的 SSE 连接、也没有任何 PTY 的 WebSocket 连接持续这么久时，
+  // 结束全部运行中的交互进程；e2e 用 WFD_LIVE_AUTO_STOP_MS 改小
+  liveAutoStopMs: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .default(120_000)
+    .parse(process.env.WFD_LIVE_AUTO_STOP_MS),
+  // "结束进程"：先 SIGINT，过了这么久仍在则 SIGTERM
+  liveStopGraceMs: 10_000,
   // Live"本机配置"的 HOME（claude 读 <HOME>/.claude）；e2e 用 WFD_LOCAL_HOME 指向 .work/ 下的目录
   localHome: path.resolve(process.env.WFD_LOCAL_HOME ?? os.homedir()),
   // 草稿发起时装进 <草稿目录>/.agents/skills/ 的 skill 与来源（Contracts 17.3）；测试用 WFD_CODEX_SKILL_SOURCES

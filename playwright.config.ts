@@ -4,6 +4,7 @@ import { type Service, webServersFor } from './e2e/services.js';
 import {
   analysisWorkflowWebPort,
   compareWebPort,
+  liveAutoStopWebPort,
   liveFullscreenWebPort,
   liveItemsWebPort,
   resumeDialogWebPort,
@@ -35,6 +36,7 @@ const projectServices: Record<string, Service[]> = {
   'live-purpose': ['analysisWorkflowServer', 'analysisWorkflowWeb'],
   'resume-dialog': ['resumeDialogServer', 'resumeDialogWeb'],
   'variant-rename': ['variantRenameServer', 'variantRenameWeb'],
+  'live-auto-stop': ['liveAutoStopServer', 'liveAutoStopWeb'],
 };
 
 export default defineConfig({
@@ -120,6 +122,16 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         baseURL: `http://127.0.0.1:${String(variantRenameWebPort)}`,
+        viewport: { width: 1600, height: 1000 },
+      },
+    },
+    {
+      // 关闭页面后自动结束（Contracts 14.3）：只有这个 spec 的页面连接这对服务，Claude Code 是替身
+      name: 'live-auto-stop',
+      testMatch: 'live-auto-stop.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: `http://127.0.0.1:${String(liveAutoStopWebPort)}`,
         viewport: { width: 1600, height: 1000 },
       },
     },

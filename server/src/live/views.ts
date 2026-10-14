@@ -85,6 +85,8 @@ export const LiveSummary = z.object({
   updatedAt: z.number(),
   // 在交互区关闭的时间；显示中为空
   hiddenAt: z.number().nullable(),
+  // 最近的进程是所有页面关闭后自动结束的（Contracts 14.3）
+  autoStopped: z.boolean(),
 });
 export type LiveSummary = z.infer<typeof LiveSummary>;
 
