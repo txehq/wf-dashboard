@@ -49,7 +49,7 @@ import {
 } from './codex.js';
 import { type HandBackReason, type HookPayload, LiveController } from './controller.js';
 import { claudeSessionDirsOf } from './claude-session.js';
-import { LivePty } from './pty.js';
+import { LivePty, unreleasedPtys } from './pty.js';
 import { divergedName, lastMessage, relationOf, syncSessionDir } from './resume-plan.js';
 import {
   type CreateLiveBody,
@@ -1434,6 +1434,23 @@ export function createLive(deps: LiveDeps) {
       return detail(id);
     },
     connect,
+    // GET /api/diagnostics（Contracts 第 5 节）：页面连接数、自动结束是否在计时、仍保留的各项 controller
+    diagnostics() {
+      return {
+        connections,
+        autoStopPending: idleTimer !== null,
+        controllers: [...controllers.values()].map((c) => ({
+          liveId: c.liveId,
+          engine: c.engine,
+          pid: c.pty.pid,
+          alive: c.pty.alive,
+          retainedBytes: c.pty.retainedBytesCount,
+          screenReleased: c.pty.screenReleased,
+          watching: c.watching,
+        })),
+        ptys: unreleasedPtys(),
+      };
+    },
     // WebSocket 连接用：运行中的 controller，已退出时为空（只回放 pty.log）
     controller(id: string): LiveController | CodexRunner | null {
       row(id);

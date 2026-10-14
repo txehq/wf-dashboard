@@ -192,7 +192,8 @@ export const liveRoutes: FastifyPluginCallbackZod<{ live: Live }> = (app, { live
     },
   );
 
-  // 终端：连接时先发保留的输出，之后实时转发；关掉页面不影响进程
+  // 终端：连接时先发保留的输出，之后实时转发；关掉页面不影响进程。进程结束后发 exit 并由服务端关闭连接
+  // （1000），连接不再引用这一项的 PTY；已结束的项从 pty.log 回放
   app.get('/api/live/:id/pty', { websocket: true }, (socket, request) => {
     const { id } = IdParams.parse(request.params);
     const controller = live.controller(id);
@@ -201,9 +202,18 @@ export const liveRoutes: FastifyPluginCallbackZod<{ live: Live }> = (app, { live
     const send = (message: unknown) => {
       socket.send(JSON.stringify(message));
     };
-    if (controller === null) {
+    const replayEnded = () => {
       send({ type: 'output', data: readLogTail(live.logFile(id)) });
       send({ type: 'exit' });
+      socket.close(1000, 'process exited');
+    };
+    if (controller === null) {
+      replayEnded();
+      return;
+    }
+    // 进程正在退出（controller 还没有移出）：pty.log 写完后同样回放
+    if (!controller.pty.alive) {
+      void controller.exited.then(replayEnded);
       return;
     }
     send({ type: 'output', data: controller.pty.backlog() });
@@ -211,7 +221,9 @@ export const liveRoutes: FastifyPluginCallbackZod<{ live: Live }> = (app, { live
       send({ type: 'output', data });
     });
     void controller.exited.then(() => {
+      unsubscribe();
       send({ type: 'exit' });
+      socket.close(1000, 'process exited');
     });
     socket.on('message', (raw: Buffer) => {
       // 不合约定的消息与已退出的进程：把原因发给这个客户端并关闭连接，进程与其他连接不受影响

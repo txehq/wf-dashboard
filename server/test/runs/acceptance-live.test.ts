@@ -9,12 +9,13 @@ import { artifacts, batches, runs, variants } from '../../src/db/schema.js';
 import { type AppEvent, events } from '../../src/events.js';
 import { ingestFile } from '../../src/ingest/ingest.js';
 import { watchAcceptanceReport } from '../../src/runs/acceptance-report.js';
-import { COST_REFRESH_MS } from '../../src/runs/cost-refresh.js';
 import { syncTasks } from '../../src/tasks/loader.js';
 import { openTestDb } from '../stages/db.js';
 
 // W19 的 ic run r-20261010-t5x8pr 的真实 session：/ic 整个是一轮，验收报告 3lpww2so 在轮中发布。
-// 先导入发布之前的部分，再导入其余部分；不经过轮结束，链接在 session.updated 的节流间隔内写入
+// 先导入发布之前的部分，再导入其余部分；不经过轮结束，链接在 session.updated 的节流间隔内写入。
+// runner 的间隔是 COST_REFRESH_MS（cost-refresh.test.ts 中确认为 30 秒）；这里用同一个实现的短间隔
+const INTERVAL_MS = 2_000;
 const sessionId = 'f40729f0-3944-40a8-b106-52d6a9b602d6';
 const fixture = path.join(import.meta.dirname, '../fixtures/runs', `${sessionId}.jsonl.gz`);
 const work = path.join(config.repoRoot, '.work', 'test-acceptance-live', randomUUID());
@@ -72,23 +73,36 @@ describe('watchAcceptanceReport', () => {
       fs.mkdirSync(work, { recursive: true });
       fs.writeFileSync(file, `${lines.slice(0, published).join('\n')}\n`);
       const pushed: AppEvent[] = [];
+      let recorded: () => void = () => undefined;
+      const artifactPushed = new Promise<void>((resolve) => {
+        recorded = resolve;
+      });
       const unsubscribe = events.subscribe((e) => {
-        if (e.type === 'run.artifact') pushed.push(e);
+        if (e.type !== 'run.artifact') return;
+        pushed.push(e);
+        recorded();
       });
       const errors: Error[] = [];
-      const stop = watchAcceptanceReport(db, runId, sessionId, (error) => errors.push(error));
+      const stop = watchAcceptanceReport(
+        db,
+        runId,
+        sessionId,
+        (error) => errors.push(error),
+        INTERVAL_MS,
+      );
 
-      // 第一次 session.updated 立即扫描：报告尚未发布
+      // 第一次 session.updated 立即扫描（work 在下一个微任务中调用）：报告尚未发布
       ingestFile(db, file);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setImmediate(resolve));
+      const firstScanAt = Date.now();
       expect(acceptance()).toBeUndefined();
 
       fs.writeFileSync(file, lines.join('\n'));
       ingestFile(db, file);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      // 距上次扫描不足节流间隔：还没有扫描
+      // 距上次扫描不足节流间隔：还没有扫描；满间隔时扫描并推送
       expect(acceptance()).toBeUndefined();
-      await new Promise((resolve) => setTimeout(resolve, COST_REFRESH_MS));
+      await artifactPushed;
+      expect(Date.now() - firstScanAt).toBeGreaterThanOrEqual(INTERVAL_MS - 50);
       const row = acceptance();
       expect(row?.location).toBe(REPORT);
       expect(JSON.parse(row?.snapshot ?? 'null')).toMatchObject({
@@ -104,6 +118,6 @@ describe('watchAcceptanceReport', () => {
       stop();
       unsubscribe();
     },
-    COST_REFRESH_MS + 30_000,
+    INTERVAL_MS + 30_000,
   );
 });
