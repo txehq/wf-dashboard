@@ -9,6 +9,7 @@ import { events } from '../events.js';
 import { closeLinearClient } from '../external/linear.js';
 import { runReposFor } from '../external/run-repos.js';
 import { defaultSourceDirs } from '../ingest/sources.js';
+import { watcherCount } from '../ingest/watch.js';
 import { createLive } from '../live/index.js';
 import { createRuns } from '../runs/index.js';
 import { createSettingsStore } from '../runs/settings.js';
@@ -57,7 +58,9 @@ export async function buildApp({
   webDir,
   localHome,
 }: AppOptions) {
-  const app = Fastify({ logger });
+  // 关闭服务时销毁全部连接：打开着的页面的 /api/events 是一直不结束的响应，server.close() 会一直等它，
+  // 服务不退出、交互进程也不结束（W58 实测）。终端的 WebSocket 由 @fastify/websocket 的 preClose 关闭
+  const app = Fastify({ logger, forceCloseConnections: true });
   await app.register(fastifySSE, { heartbeatInterval: sseHeartbeatMs });
 
   app.get('/api/health', () => {
@@ -188,6 +191,20 @@ export async function buildApp({
       dataDir: config.dataDir,
       skillSources: config.codexSkillSources,
     }),
+  });
+  // 诊断（Contracts 第 5 节，W58）：只读，测量与测试用它确认资源释放
+  app.get('/api/diagnostics', () => {
+    const activeResources: Record<string, number> = {};
+    for (const kind of process.getActiveResourcesInfo()) {
+      activeResources[kind] = (activeResources[kind] ?? 0) + 1;
+    }
+    return {
+      memory: process.memoryUsage(),
+      activeResources,
+      events: { subscribers: events.subscribers() },
+      live: live.diagnostics(),
+      ingest: { watchers: watcherCount() },
+    };
   });
 
   // 页面的路由在浏览器中：未匹配 /api 的路径都返回 index.html

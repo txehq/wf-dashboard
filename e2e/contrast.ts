@@ -21,8 +21,14 @@ export async function setTheme(page: Page, theme: Theme): Promise<void> {
   await page.evaluate((dark) => {
     document.documentElement.classList.toggle('dark', dark);
   }, theme === 'dark');
-  // 颜色的过渡动画结束、mermaid 与 Monaco 换好主题后再检查
-  await page.waitForTimeout(400);
+  // 颜色的过渡动画结束、mermaid 按这个主题重新渲染完、Monaco 换好主题（编辑器根元素带 vs 或 vs-dark）后再检查
+  await page.waitForFunction((dark) => {
+    if (document.getAnimations().some((a) => a.playState === 'running')) return false;
+    const mermaid = document.querySelectorAll<HTMLElement>('[data-testid="mermaid"]');
+    if ([...mermaid].some((el) => el.dataset.theme !== (dark ? 'dark' : 'light'))) return false;
+    const editors = document.querySelectorAll('.monaco-editor');
+    return [...editors].every((el) => el.classList.contains(dark ? 'vs-dark' : 'vs'));
+  }, theme === 'dark');
 }
 
 interface NodeData {

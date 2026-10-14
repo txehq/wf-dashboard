@@ -12,7 +12,9 @@ import { COST_REFRESH_MS, watchRunCost } from '../../src/runs/cost-refresh.js';
 import { syncTasks } from '../../src/tasks/loader.js';
 import { openTestDb } from '../stages/db.js';
 
-// 真实 session 分两次导入：第一次立即刷新成本缓存，30 秒内的第二次等满 30 秒再刷新
+// 真实 session 分两次导入：第一次立即刷新成本缓存，间隔内的第二次等满间隔再刷新。
+// runner 的间隔是 COST_REFRESH_MS（30 秒）；这里用同一个实现的短间隔，按推送事件的时间判定，不等满 30 秒
+const INTERVAL_MS = 2_000;
 const sessionId = '40f6915a-cd31-4312-866c-dcb377515c42';
 const fixture = path.join(import.meta.dirname, '../fixtures/runs', `${sessionId}.jsonl`);
 const work = path.join(config.repoRoot, '.work', 'test-cost-refresh', randomUUID());
@@ -54,36 +56,48 @@ afterAll(() => {
 const cached = () => db.select().from(runs).where(eq(runs.id, runId)).get()?.costUsd;
 
 describe('watchRunCost', () => {
+  test('runner 用的间隔是 30 秒', () => {
+    expect(COST_REFRESH_MS).toBe(30_000);
+  });
+
   test(
-    'session 有新请求写入时刷新 runs.cost_usd，同一 run 最多每 30 秒一次，并推送 run.cost',
+    'session 有新请求写入时刷新 runs.cost_usd，同一 run 最多每个间隔一次，并推送 run.cost',
     async () => {
       const lines = fs.readFileSync(fixture, 'utf8').split('\n');
       const file = path.join(work, `${sessionId}.jsonl`);
       fs.mkdirSync(work, { recursive: true });
       fs.writeFileSync(file, `${lines.slice(0, 40).join('\n')}\n`);
-      const published: AppEvent[] = [];
+      const published: { event: AppEvent; at: number }[] = [];
+      let second: () => void = () => undefined;
+      const secondPublished = new Promise<void>((resolve) => {
+        second = resolve;
+      });
       const unsubscribe = events.subscribe((e) => {
-        if (e.type === 'run.cost') published.push(e);
+        if (e.type !== 'run.cost') return;
+        published.push({ event: e, at: Date.now() });
+        if (published.length === 2) second();
       });
       const errors: Error[] = [];
-      const stop = watchRunCost(db, runId, sessionId, (error) => errors.push(error));
+      const stop = watchRunCost(db, runId, sessionId, (error) => errors.push(error), INTERVAL_MS);
 
       ingestFile(db, file);
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      // 第一次刷新立即进行（work 在下一个微任务中调用）
+      await new Promise((resolve) => setImmediate(resolve));
       const first = runCostBreakdown(db, runId).total;
       expect(first).toBeGreaterThan(0);
       expect(cached()).toBe(first);
+      const firstAt = published[0]?.at ?? 0;
 
       fs.writeFileSync(file, lines.join('\n'));
       ingestFile(db, file);
       const full = runCostBreakdown(db, runId).total;
       expect(full).toBeGreaterThan(first);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      // 距上次刷新不足 30 秒：还没有刷新
+      // 距上次刷新不足间隔：还没有刷新；满间隔时刷新并推送
       expect(cached()).toBe(first);
-      await new Promise((resolve) => setTimeout(resolve, COST_REFRESH_MS));
+      await secondPublished;
+      expect((published[1]?.at ?? 0) - firstAt).toBeGreaterThanOrEqual(INTERVAL_MS);
       expect(cached()).toBe(full);
-      expect(published).toEqual([
+      expect(published.map((p) => p.event)).toEqual([
         { type: 'run.cost', runId, costUsd: first },
         { type: 'run.cost', runId, costUsd: full },
       ]);
@@ -91,6 +105,6 @@ describe('watchRunCost', () => {
       stop();
       unsubscribe();
     },
-    COST_REFRESH_MS + 20_000,
+    INTERVAL_MS + 20_000,
   );
 });

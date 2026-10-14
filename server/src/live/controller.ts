@@ -91,10 +91,13 @@ const TRUST_POLL_MS = 200;
 export class LiveController {
   private readonly db: Db;
   readonly liveId: string;
+  readonly engine = 'claude';
   readonly processId: number;
   readonly pty: LivePty;
   private jsonl: string;
   private watcher: SessionWatcher;
+  // 增量导入是否还在进行（GET /api/diagnostics）；进程退出后停止
+  watching = true;
   private started = false;
   // 已经绑定到 variant 的 session
   private readonly bound = new Set<string>();
@@ -123,6 +126,7 @@ export class LiveController {
       stopTrust();
       this.generation?.abort.abort(new Error('进程已退出'));
       await this.watcher.close();
+      this.watching = false;
       if (fs.existsSync(this.jsonl)) ingestFile(this.db, this.jsonl);
       // 进程很快结束时，session 第一次导入发生在上面这次：同样绑定到这次所用的 variant
       this.bindImported();
