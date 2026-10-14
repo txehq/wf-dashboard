@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { stringify } from '@decimalturn/toml-patch';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
@@ -25,6 +26,41 @@ const SANDBOX_ARGS = [
 
 export const codexStartArgs = (prompt: string) => [...SANDBOX_ARGS, prompt];
 export const codexResumeArgs = (sessionId: string) => ['resume', ...SANDBOX_ARGS, sessionId];
+
+// Magi Agent 的 Codex（Contracts 23.3，codex-cli 0.162.0 实测，Reports/W60）：用户自己的 ~/.codex，不开沙箱；
+// worktree 的信任只认整张 projects 表的写法（projects."<路径>".trust_level 不起作用），不改 config.toml；
+// MAGI.md 作为 developer_instructions 传入；不在启动时检查更新（用户的配置默认检查，会在终端中自行 npm install -g）。
+// message 为空时不带初始消息，用户在终端中输入第一条
+function agentArgs(cwd: string, instructions: string): string[] {
+  return [
+    '--no-daemon',
+    '--dangerously-bypass-approvals-and-sandbox',
+    '-c',
+    'check_for_update_on_startup=false',
+    '-c',
+    stringify({ projects: { [cwd]: { trust_level: 'trusted' } } }, { inlineTableStart: 0 }).trim(),
+    '-c',
+    stringify({ developer_instructions: instructions }).trim(),
+  ];
+}
+
+export function codexAgentStartArgs(cwd: string, instructions: string, message: string | null) {
+  return [...agentArgs(cwd, instructions), ...(message === null ? [] : [message])];
+}
+
+export function codexAgentResumeArgs(
+  cwd: string,
+  instructions: string,
+  sessionId: string,
+  message: string | null,
+) {
+  return [
+    'resume',
+    ...agentArgs(cwd, instructions),
+    sessionId,
+    ...(message === null ? [] : [message]),
+  ];
+}
 
 // writeCodexHome 另写的键：草稿目录记为已信任（-c 覆盖不起作用，只认 config.toml）、不检查更新、
 // 关掉 Codex 自带的同名 skill-creator 等 bundled skill（只用 .agents/skills/ 中装的）
@@ -60,7 +96,10 @@ export function newSessionId(codexHome: string, cwd: string, known: Set<string>)
     const first = fs.readFileSync(file, 'utf8').split('\n')[0] ?? '';
     if (first.trim() === '') continue;
     const meta = SessionMeta.parse(JSON.parse(first));
-    if (fs.realpathSync(meta.payload.cwd) === real) return meta.payload.id;
+    // 用户自己的 ~/.codex 中也有别处的会话，它们的 cwd 可能已经不在
+    if (fs.existsSync(meta.payload.cwd) && fs.realpathSync(meta.payload.cwd) === real) {
+      return meta.payload.id;
+    }
   }
   return null;
 }
@@ -100,6 +139,8 @@ export class CodexRunner {
   readonly starting = false;
   readonly waiting = null;
   readonly driver = 'human';
+  // Codex 会话没有增量导入
+  readonly watching = false;
   readonly exited: Promise<void>;
 
   constructor(

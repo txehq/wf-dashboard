@@ -2,8 +2,10 @@ import { useQuery } from '@tanstack/react-query';
 import { Outlet } from 'react-router';
 import { EnvironmentStatus } from '@/components/environment/environment-status';
 import { MainNav } from '@/components/main-nav';
+import { MagiAgentButton } from '@/components/magi-agent-button';
 import { healthQuery } from '@/lib/api';
 import { useLiveConnection, useLiveStatus } from '@/lib/live-events';
+import { useMagiEvents } from '@/lib/magi-api';
 
 function ServerStatus() {
   const health = useQuery(healthQuery);
@@ -32,10 +34,15 @@ function LiveStatusBanner() {
 
 export function Layout() {
   useLiveConnection();
+  useMagiEvents();
   return (
     <div className="flex min-h-svh">
-      <aside className="flex w-56 shrink-0 flex-col gap-4 border-r bg-muted/40 py-4">
-        <div className="px-5 text-sm font-semibold">Magi Dashboard</div>
+      {/* 最上面一行：名字与 Magi Agent 按钮（Contracts 23.6）；宽度放得下两者 */}
+      <aside className="flex w-60 shrink-0 flex-col gap-4 border-r bg-muted/40 py-4">
+        <div className="flex items-center justify-between gap-1 pr-2 pl-5">
+          <span className="text-sm font-semibold whitespace-nowrap">Magi Dashboard</span>
+          <MagiAgentButton />
+        </div>
         <MainNav />
         <div className="mt-auto flex flex-col gap-2">
           <EnvironmentStatus />

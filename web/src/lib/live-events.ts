@@ -25,6 +25,8 @@ const EVENT_TYPES = [
   'live.updated',
   'draft.updated',
   'analysis.updated',
+  'magi.updated',
+  'magi.deploy',
 ] as const;
 export type LiveEventType = (typeof EVENT_TYPES)[number];
 

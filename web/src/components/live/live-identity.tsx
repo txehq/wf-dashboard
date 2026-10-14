@@ -1,7 +1,7 @@
 import { Icon } from '@iconify/react';
 import claudeIcon from '@iconify-icons/logos/claude-icon';
 import openaiIcon from '@iconify-icons/logos/openai-icon';
-import { Hammer, MessagesSquare, Sparkles } from 'lucide-react';
+import { Bot, Hammer, MessagesSquare, Sparkles } from 'lucide-react';
 import { Link } from 'react-router';
 import type { LiveSummary } from '@/lib/live-api';
 import { type PurposeFilter, purposeFilters, purposeLabel } from '@/lib/live-purpose';
@@ -59,6 +59,10 @@ const purposeStyle: Record<Purpose, { band: string; badge: string }> = {
     band: 'bg-purpose-optimize',
     badge: 'border-warning-border bg-warning text-warning-foreground',
   },
+  agent: {
+    band: 'bg-purpose-agent',
+    badge: 'border-purpose-agent-border bg-purpose-agent-muted text-purpose-agent-muted-foreground',
+  },
 };
 
 export function PurposeBand({ purpose, className }: { purpose: Purpose; className?: string }) {
@@ -72,7 +76,12 @@ export function PurposeBand({ purpose, className }: { purpose: Purpose; classNam
   );
 }
 
-const purposeIcon = { interaction: MessagesSquare, design: Hammer, optimize: Sparkles } as const;
+const purposeIcon = {
+  interaction: MessagesSquare,
+  design: Hammer,
+  optimize: Sparkles,
+  agent: Bot,
+} as const;
 
 // 用途标签：图标加文字；优化的项链接到对应的分析
 export function PurposeBadge({ live }: { live: LiveSummary }) {

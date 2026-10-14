@@ -23,6 +23,7 @@ export function watchRunCost(
   runId: string,
   sessionId: string,
   onError: (error: Error) => void,
+  intervalMs = COST_REFRESH_MS,
 ): () => void {
   return onSessionUpdates(
     sessionId,
@@ -30,16 +31,18 @@ export function watchRunCost(
       refreshRunCost(db, runId);
     },
     onError,
+    intervalMs,
   );
 }
 
-// session 收到 session.updated 时调用 work，最多每 COST_REFRESH_MS 一次。
-// 距上次调用不足 COST_REFRESH_MS 时推迟到满 COST_REFRESH_MS 再调用一次，最后一批写入不会漏掉。
+// session 收到 session.updated 时调用 work，最多每 intervalMs 一次（runner 用 COST_REFRESH_MS，测试用短的间隔）。
+// 距上次调用不足 intervalMs 时推迟到满 intervalMs 再调用一次，最后一批写入不会漏掉。
 // work 出错交给 onError（runner 让 run 失败）。返回停止函数
 export function onSessionUpdates(
   sessionId: string,
   work: () => void | Promise<void>,
   onError: (error: Error) => void,
+  intervalMs = COST_REFRESH_MS,
 ): () => void {
   let last = 0;
   let timer: NodeJS.Timeout | undefined;
@@ -55,7 +58,7 @@ export function onSessionUpdates(
   const unsubscribe = events.subscribe((event) => {
     if (event.type !== 'session.updated' || event.sessionId !== sessionId) return;
     if (timer !== undefined) return;
-    const wait = last + COST_REFRESH_MS - Date.now();
+    const wait = last + intervalMs - Date.now();
     if (wait <= 0) refresh();
     else timer = setTimeout(refresh, wait);
   });

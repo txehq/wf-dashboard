@@ -267,6 +267,12 @@ function DeleteDialog({
                   {choice === 'delete' && p.sessions.files.length > 0 && (
                     <Paths paths={p.sessions.files} testId="delete-session-files" />
                   )}
+                  {p.sessions.agent > 0 && (
+                    <p className="text-muted-foreground" data-testid="delete-agent-sessions">
+                      另有 Magi Agent 的 session {p.sessions.agent} 个：不删除，Live 中的 Magi Agent
+                      也不删除；选一起删除时改为本机配置。
+                    </p>
+                  )}
                 </div>
               </Section>
               <Section title="保留的记录（显示为「名字（已删除）」）">

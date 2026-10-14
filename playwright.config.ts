@@ -8,6 +8,7 @@ import {
   liveAutoStopWebPort,
   liveFullscreenWebPort,
   liveItemsWebPort,
+  magiAgentWebPort,
   resumeDialogWebPort,
   runsWebPort,
   variantRenameWebPort,
@@ -38,6 +39,7 @@ const projectServices: Record<string, Service[]> = {
   'resume-dialog': ['resumeDialogServer', 'resumeDialogWeb'],
   'variant-rename': ['variantRenameServer', 'variantRenameWeb'],
   'live-auto-stop': ['liveAutoStopServer', 'liveAutoStopWeb'],
+  'magi-agent': ['magiAgentServer', 'magiAgentWeb'],
 };
 
 export default defineConfig({
@@ -151,6 +153,16 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         baseURL: `http://127.0.0.1:${String(liveAutoStopWebPort)}`,
+        viewport: { width: 1600, height: 1000 },
+      },
+    },
+    {
+      // Magi Agent（Contracts 第 23 节）：主仓库与 worktree 在 .work/ 下，Claude Code 与 Codex 是替身
+      name: 'magi-agent',
+      testMatch: 'magi-agent.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: `http://127.0.0.1:${String(magiAgentWebPort)}`,
         viewport: { width: 1600, height: 1000 },
       },
     },

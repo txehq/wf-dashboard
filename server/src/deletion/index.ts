@@ -54,6 +54,18 @@ export function createDeletion({ db, variants, live, draftsDir, dataDir }: Delet
       .all();
   }
 
+  // Magi Agent 的 session（属于用途为 agent 的 Live 项，Contracts 23.1）：它用本机的 ~/.claude，不随 variant 删除，
+  // 它的 Live 项也不删；选一起删除时这些 session 改为本机配置
+  function isAgentSession(s: typeof sessions.$inferSelect): boolean {
+    if (s.liveId === null) return false;
+    const item = db
+      .select({ purpose: liveSessions.purpose })
+      .from(liveSessions)
+      .where(eq(liveSessions.id, s.liveId))
+      .get();
+    return item?.purpose === 'agent';
+  }
+
   // 一个 session 在磁盘上的原始文件：主 jsonl 与同名的子代理、tool-results 目录
   function sessionFiles(s: typeof sessions.$inferSelect): string[] {
     const dir = path.join(path.dirname(s.filePath), s.id);
@@ -152,7 +164,9 @@ export function createDeletion({ db, variants, live, draftsDir, dataDir }: Delet
     const relatedDrafts = draftsUsing(ids, workflowId);
     // 删除 workflow 时属于它的草稿一并删除；只删 variant 时草稿保留
     const removedDrafts = workflowId === null ? [] : relatedDrafts;
-    const bound = boundSessions(ids);
+    const all = boundSessions(ids);
+    const bound = all.filter((s) => !isAgentSession(s));
+    const agentSessions = all.length - bound.length;
     const sessionLiveIds = [
       ...new Set(bound.flatMap((s) => (s.liveId === null ? [] : [s.liveId]))),
     ];
@@ -199,7 +213,12 @@ export function createDeletion({ db, variants, live, draftsDir, dataDir }: Delet
         ...removedDrafts.flatMap(draftDirs).filter((d) => fs.existsSync(d)),
       ],
       installs: installs.map((i) => ({ variantId: i.variantId, dirs: i.manifest.dirs })),
-      sessions: { count: bound.length, files: bound.flatMap(sessionFiles), liveItems },
+      sessions: {
+        count: bound.length,
+        files: bound.flatMap(sessionFiles),
+        liveItems,
+        agent: agentSessions,
+      },
       retained: {
         runs:
           ids.length === 0
@@ -282,7 +301,9 @@ export function createDeletion({ db, variants, live, draftsDir, dataDir }: Delet
     }
     const ids = p.variants.map((v) => v.id);
     const rebindTo = rebindTarget(body.sessions, p);
-    const bound = boundSessions(ids);
+    const all = boundSessions(ids);
+    const bound = all.filter((s) => !isAgentSession(s));
+    const agent = all.filter(isAgentSession);
     // 一起删除的 Live 项要先结束进程：在改动任何东西之前检查
     const liveToRemove = [
       ...new Set([
@@ -309,6 +330,18 @@ export function createDeletion({ db, variants, live, draftsDir, dataDir }: Delet
     // 2. 关联的 session：一起删除（连同 Live 项与磁盘上的原始文件），或改绑；
     // 3. 删除 workflow 时属于它的草稿的 Live 项
     for (const id of liveToRemove) live.removeItem(id);
+    const rebind = (rows: typeof all, variantId: string | null) => {
+      if (rows.length === 0) return;
+      db.update(sessions)
+        .set({ variantId, variantBinding: 'manual' })
+        .where(
+          inArray(
+            sessions.id,
+            rows.map((s) => s.id),
+          ),
+        )
+        .run();
+    };
     if (body.sessions === 'delete') {
       const files = bound.flatMap(sessionFiles);
       if (bound.length > 0) {
@@ -322,16 +355,10 @@ export function createDeletion({ db, variants, live, draftsDir, dataDir }: Delet
           .run();
       }
       for (const f of files) fs.rmSync(f, { recursive: true, force: true });
-    } else if (bound.length > 0) {
-      db.update(sessions)
-        .set({ variantId: rebindTo, variantBinding: 'manual' })
-        .where(
-          inArray(
-            sessions.id,
-            bound.map((s) => s.id),
-          ),
-        )
-        .run();
+      // Magi Agent 的 session 不删除，改为本机配置
+      rebind(agent, null);
+    } else {
+      rebind(all, rebindTo);
     }
     const at = new Date();
     db.$client.transaction(() => {
@@ -357,13 +384,13 @@ export function createDeletion({ db, variants, live, draftsDir, dataDir }: Delet
     // 5. 文件：variant 的目录与存档（共用的最后一个引用删除时才删）、草稿目录
     variants.removeFiles([], p.dirs);
     console.info(
-      `[delete] ${subject}：variant ${ids.join(', ')}；session ${String(bound.length)} 个${body.sessions === 'delete' ? '一起删除' : `改绑到 ${rebindTo ?? '本机配置'}`}；目录 ${p.dirs.join(', ')}`,
+      `[delete] ${subject}：variant ${ids.join(', ')}；session ${String(bound.length)} 个${body.sessions === 'delete' ? '一起删除' : `改绑到 ${rebindTo ?? '本机配置'}`}，Magi Agent 的 session ${String(agent.length)} 个保留；目录 ${p.dirs.join(', ')}`,
     );
     for (const id of ids) events.publish({ type: 'variant.deleted', variantId: id });
     if (p.target.kind === 'workflow') {
       events.publish({ type: 'workflow.deleted', workflowId: p.target.id });
     }
-    for (const s of bound) events.publish({ type: 'session.updated', sessionId: s.id });
+    for (const s of all) events.publish({ type: 'session.updated', sessionId: s.id });
   }
 
   return {

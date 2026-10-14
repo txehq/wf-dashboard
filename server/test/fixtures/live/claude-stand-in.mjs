@@ -11,6 +11,13 @@ const size = () => {
 };
 
 process.stdout.write('Claude Code 替身（测试）\r\n');
+// 收到的参数与 Magi Agent 的两个环境变量（Magi Agent 的测试据此确认注入的说明与 resume 的会话）
+if (process.env.STAND_IN_ECHO_ARGV === '1') {
+  process.stdout.write(`argv ${JSON.stringify(process.argv.slice(2))}\r\n`);
+  process.stdout.write(
+    `magi ${JSON.stringify([process.env.MAGI_LIVE_ID ?? null, process.env.MAGI_DASHBOARD_URL ?? null])}\r\n`,
+  );
+}
 size();
 process.on('SIGWINCH', size);
 process.stdin.on('data', (data) => {

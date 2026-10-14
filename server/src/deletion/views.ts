@@ -34,11 +34,13 @@ export const DeletionPlan = z.object({
   dirs: z.array(z.string()),
   // 装在本机、删除前先按清单卸载的
   installs: z.array(z.object({ variantId: z.string(), dirs: z.array(z.string()) })),
-  // 关联的 session（run 的 session 不算，随 run 保留）：选一起删除时还删除这些文件与 Live 项
+  // 关联的 session（run 的 session 不算，随 run 保留）：选一起删除时还删除这些文件与 Live 项。
+  // agent：其中属于 Magi Agent 的 session 数（Contracts 23.1），它们与它们的 Live 项都不删除，选一起删除时改为本机配置
   sessions: z.object({
     count: z.number(),
     files: z.array(z.string()),
     liveItems: z.array(z.object({ id: z.string(), title: z.string() })),
+    agent: z.number(),
   }),
   // 保留的记录，显示"<名字>（已删除）"
   retained: z.object({

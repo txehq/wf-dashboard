@@ -7,12 +7,15 @@ import { sessionTitle } from '../api/user-text.js';
 import type { Db } from '../db/index.js';
 import {
   type LiveDriver,
+  type LiveEngine,
   type LiveEnvironment,
   liveEvents,
   type LiveProcessKind,
   liveProcesses,
   type LivePurpose,
   liveSessions,
+  magiAgentCurrent,
+  magiDeploys,
   runs,
   sessions,
   subagents,
@@ -41,16 +44,19 @@ import { evalSpecOf, workflowOfVariant, workflowRow } from '../workflows/index.j
 import type { EvalSpec } from '../workflows/schema.js';
 import {
   CodexRunner,
+  codexAgentResumeArgs,
+  codexAgentStartArgs,
   codexConfigExtra,
   codexDirsOf,
   codexResumeArgs,
   codexStartArgs,
+  newSessionId,
   rolloutFiles,
   waitForSession,
 } from './codex.js';
 import { type HandBackReason, type HookPayload, LiveController } from './controller.js';
 import { claudeSessionDirsOf } from './claude-session.js';
-import { LivePty } from './pty.js';
+import { LivePty, unreleasedPtys } from './pty.js';
 import { divergedName, lastMessage, relationOf, syncSessionDir } from './resume-plan.js';
 import {
   type CreateLiveBody,
@@ -945,7 +951,171 @@ export function createLive(deps: LiveDeps) {
     return detail(liveId);
   }
 
-  // 目标配置的 projects/ 下这个 session 的 jsonl；没有时为空
+  // Magi Agent 的会话（Contracts 23.1）：real 环境，cwd 为 worktree。Claude Code 的会话 id 建项时定下；
+  // Codex 的会话 id 等用户提交第一条消息、Codex 写出 rollout 后记下
+  function createAgentItem(input: { engine: LiveEngine; cwd: string; title: string }): LiveDetail {
+    const liveId = newId('l');
+    insertItem({
+      id: liveId,
+      claudeSessionId: input.engine === 'claude' ? randomUUID() : null,
+      engine: input.engine,
+      purpose: 'agent',
+      title: input.title,
+      environment: 'real',
+      workflow: null,
+      input: null,
+      taskId: null,
+      cwd: input.cwd,
+    });
+    events.publish({ type: 'live.updated', liveId });
+    return detail(liveId);
+  }
+
+  // 启动或 resume Magi Agent 的会话（Contracts 23.3）：本机配置，只有人驾驶，MAGI.md 的内容追加进系统提示；
+  // 还没有对话记录时（启动后没有提交过消息）以同一个会话重新启动。message 为 resume 时提交的消息（部署完成）
+  function launchAgent(
+    liveId: string,
+    opts: { instructions: string; message: string | null },
+  ): LiveDetail {
+    const item = row(liveId);
+    if (item.purpose !== 'agent') {
+      throw new HttpError(400, `交互 ${item.id} 不是 Magi Agent 的会话`);
+    }
+    if (launching.has(liveId) || controllers.has(liveId) || running(liveId)) {
+      throw new HttpError(409, `交互 ${item.id} 有运行中的进程`);
+    }
+    // agent 调用部署接口时带上自己的 live id；dashboard 的地址是服务实际监听的地址
+    const magiEnv = { MAGI_LIVE_ID: liveId, MAGI_DASHBOARD_URL: deps.serverUrl() };
+    const message = opts.message === null ? [] : [opts.message];
+    if (item.engine === 'codex') return startAgentCodex(item, opts, magiEnv);
+    const sessionId = item.claudeSessionId;
+    if (sessionId === null) throw new Error(`Magi Agent 的 Claude Code 会话 ${liveId} 没有会话 id`);
+    const kind = locate(configDirOf(null), sessionId) === null ? 'start' : 'resume';
+    return launch({
+      liveId,
+      kind,
+      variantId: null,
+      ...modelOf({}),
+      environment: 'real',
+      cwd: item.cwd,
+      claudeSessionId: sessionId,
+      sessionArgs:
+        kind === 'start'
+          ? ['--append-system-prompt', opts.instructions, '--session-id', sessionId, ...message]
+          : ['--resume', sessionId, '--append-system-prompt', opts.instructions, ...message],
+      projectDirName: liveId,
+      driver: 'human',
+      persona: { stage: null, persona: RESUME_PERSONA, hiddenRequirements: '' },
+      eval: null,
+      extraEnv: magiEnv,
+      start: { magiAgent: true, message: opts.message },
+      owned: null,
+    });
+  }
+
+  function startAgentCodex(
+    item: ItemRow,
+    opts: { instructions: string; message: string | null },
+    magiEnv: Record<string, string>,
+  ): LiveDetail {
+    const liveId = item.id;
+    const kind: LiveProcessKind = item.claudeSessionId === null ? 'start' : 'resume';
+    const args =
+      item.claudeSessionId === null
+        ? codexAgentStartArgs(item.cwd, opts.instructions, opts.message)
+        : codexAgentResumeArgs(item.cwd, opts.instructions, item.claudeSessionId, opts.message);
+    // 用户自己的 ~/.codex：不设 CODEX_HOME，不改 HOME
+    const env: Record<string, string> = {
+      ...isolatedBaseEnv(),
+      HOME: deps.localHome,
+      ...magiEnv,
+      COLORTERM: 'truecolor',
+    };
+    const codexHome = env.CODEX_HOME ?? path.join(deps.localHome, '.codex');
+    const known = new Set(rolloutFiles(codexHome));
+    const dir = liveDir(liveId);
+    fs.mkdirSync(dir, { recursive: true });
+    const startedAt = new Date();
+    const pty = new LivePty({
+      file: deps.codex.bin,
+      args,
+      cwd: item.cwd,
+      env,
+      cols: 120,
+      rows: 40,
+      logFile: path.join(dir, 'pty.log'),
+      separator: separatorLine(startedAt, kind, 'Codex'),
+    });
+    const processId = db.$client.transaction(() => {
+      setHidden(liveId, false, { reason: kind });
+      const inserted = db
+        .insert(liveProcesses)
+        .values({
+          liveId,
+          kind,
+          variantId: null,
+          pid: pty.pid,
+          status: 'running',
+          driver: 'human',
+          startedAt,
+        })
+        .returning({ id: liveProcesses.id })
+        .get();
+      db.insert(liveEvents)
+        .values({
+          liveId,
+          processId: inserted.id,
+          at: startedAt,
+          kind,
+          payload: {
+            engine: 'codex',
+            magiAgent: true,
+            argv: [deps.codex.bin, ...args],
+            codexHome,
+            sessionId: item.claudeSessionId,
+            message: opts.message,
+          },
+        })
+        .run();
+      db.update(liveSessions)
+        .set({ updatedAt: startedAt })
+        .where(eq(liveSessions.id, liveId))
+        .run();
+      return inserted.id;
+    })();
+    const runner = new CodexRunner(db, liveId, processId, pty);
+    controllers.set(liveId, runner);
+    void runner.exited.then(() => {
+      if (controllers.get(liveId) === runner) controllers.delete(liveId);
+    });
+    if (item.claudeSessionId === null) void recordCodexSession(liveId, pty, codexHome, known);
+    scheduleAutoStop();
+    events.publish({ type: 'live.updated', liveId });
+    return detail(liveId);
+  }
+
+  // 用户提交第一条消息后 Codex 才写出 rollout：进程运行期间每秒找一次 cwd 为 worktree 的新 rollout，找到后记下会话 id
+  async function recordCodexSession(
+    liveId: string,
+    pty: LivePty,
+    codexHome: string,
+    known: Set<string>,
+  ) {
+    const cwd = row(liveId).cwd;
+    // worktree 被删除后进程的 cwd 已不在，不再找
+    while (pty.alive && fs.existsSync(cwd)) {
+      const sessionId = newSessionId(codexHome, cwd, known);
+      if (sessionId !== null) {
+        db.update(liveSessions)
+          .set({ claudeSessionId: sessionId })
+          .where(eq(liveSessions.id, liveId))
+          .run();
+        events.publish({ type: 'live.updated', liveId });
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
   function locate(configDir: string, sessionId: string): string | null {
     const projects = path.join(configDir, 'projects');
     if (!fs.existsSync(projects)) return null;
@@ -1147,6 +1317,13 @@ export function createLive(deps: LiveDeps) {
     const cwd = plan.cwd;
     if (cwd === null) throw new Error(`session ${session.id} 没有工作目录却通过了预检`);
     const item = itemOfSession(session.id);
+    // Magi Agent 的会话带着 MAGI.md 启动，从 Magi Agent 打开或 resume（Contracts 23.1）
+    if (item?.purpose === 'agent') {
+      throw new HttpError(
+        409,
+        `session ${session.id} 是 Magi Agent 的会话，从 Magi Agent 打开或 resume`,
+      );
+    }
     const liveId = item?.id ?? newId('l');
     // 先读完最新那份，复制或同步后的字节与已导入的偏移量一致
     ingestFile(db, session.filePath);
@@ -1348,6 +1525,9 @@ export function createLive(deps: LiveDeps) {
         .run().changes;
       // Codex 会话的草稿保留（Contracts 17.3）
       db.update(workflowDrafts).set({ liveId: null }).where(eq(workflowDrafts.liveId, id)).run();
+      // Magi Agent 的会话：不再是当前会话，下次打开时新建；它发起的部署记录一起删除
+      db.delete(magiAgentCurrent).where(eq(magiAgentCurrent.liveId, id)).run();
+      db.delete(magiDeploys).where(eq(magiDeploys.liveId, id)).run();
       db.delete(liveSessions).where(eq(liveSessions.id, id)).run();
       return { unlinked: unlinked.map((s) => s.id), removedEvents, removedProcesses };
     })();
@@ -1409,6 +1589,10 @@ export function createLive(deps: LiveDeps) {
     createDraftItem,
     startDraft: (id: string) => launchDraft(id, 'start'),
     resumeDraft: (id: string) => launchDraft(id, 'resume'),
+    // Magi Agent（Contracts 第 23 节）
+    createAgentItem,
+    launchAgent,
+    running,
     resume,
     resumeDefaults,
     resumePlan,
@@ -1438,6 +1622,9 @@ export function createLive(deps: LiveDeps) {
       claudeControllerOf(id).hook(payload);
     },
     setDriver(id: string, driver: LiveDriver) {
+      if (row(id).purpose === 'agent') {
+        throw new HttpError(409, `交互 ${id} 是 Magi Agent 的会话，只有人驾驶`);
+      }
       const controller = claudeControllerOf(id);
       // 设计与分析优化的 Claude Code 会话只有人驾驶（Contracts 22.2）
       if (isDraftItem(row(id))) {
@@ -1453,6 +1640,23 @@ export function createLive(deps: LiveDeps) {
       return detail(id);
     },
     connect,
+    // GET /api/diagnostics（Contracts 第 5 节）：页面连接数、自动结束是否在计时、仍保留的各项 controller
+    diagnostics() {
+      return {
+        connections,
+        autoStopPending: idleTimer !== null,
+        controllers: [...controllers.values()].map((c) => ({
+          liveId: c.liveId,
+          engine: c.engine,
+          pid: c.pty.pid,
+          alive: c.pty.alive,
+          retainedBytes: c.pty.retainedBytesCount,
+          screenReleased: c.pty.screenReleased,
+          watching: c.watching,
+        })),
+        ptys: unreleasedPtys(),
+      };
+    },
     // WebSocket 连接用：运行中的 controller，已退出时为空（只回放 pty.log）
     controller(id: string): LiveController | CodexRunner | null {
       row(id);

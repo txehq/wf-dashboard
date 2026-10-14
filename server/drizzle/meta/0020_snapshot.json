@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "305ce2eb-ce79-4bcd-8aac-b6d8eb5ffa29",
+  "id": "43b8e84f-658e-4c23-9285-f1138b4e3dc4",
   "prevId": "a0b27950-f293-49d5-9572-ba83e20c585e",
   "tables": {
     "analyses": {
@@ -1165,6 +1165,145 @@
             "id"
           ],
           "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "magi_agent_current": {
+      "name": "magi_agent_current",
+      "columns": {
+        "engine": {
+          "name": "engine",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "live_id": {
+          "name": "live_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "magi_agent_current_live_id_live_sessions_id_fk": {
+          "name": "magi_agent_current_live_id_live_sessions_id_fk",
+          "tableFrom": "magi_agent_current",
+          "tableTo": "live_sessions",
+          "columnsFrom": [
+            "live_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "magi_deploys": {
+      "name": "magi_deploys",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "live_id": {
+          "name": "live_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "engine": {
+          "name": "engine",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "steps": {
+          "name": "steps",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "error": {
+          "name": "error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "log_file": {
+          "name": "log_file",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "commit": {
+          "name": "commit",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "backup_file": {
+          "name": "backup_file",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ended_at": {
+          "name": "ended_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "magi_deploys_live_id_live_sessions_id_fk": {
+          "name": "magi_deploys_live_id_live_sessions_id_fk",
+          "tableFrom": "magi_deploys",
+          "tableTo": "live_sessions",
+          "columnsFrom": [
+            "live_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -2979,13 +3118,6 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         }
       },
       "indexes": {
@@ -3002,8 +3134,7 @@
             "workflow_id",
             "name"
           ],
-          "isUnique": true,
-          "where": "\"variants\".\"deleted_at\" is null"
+          "isUnique": true
         }
       },
       "foreignKeys": {
@@ -3263,13 +3394,6 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         }
       },

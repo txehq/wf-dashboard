@@ -456,6 +456,41 @@ describe('删除 variant 与 workflow（基础档）', { timeout: 60_000 }, () =
     expect(fs.existsSync(shared)).toBe(false);
   });
 
+  test('Magi Agent 的 session 与 Live 项不随 variant 删除：选一起删除时 session 改为本机配置，文件与 Live 项都在', async () => {
+    const flow = await newFlow('magi', 1);
+    const [victim] = flow.others;
+    if (victim === undefined) throw new Error('没有派生出 variant');
+    const normal = boundSession(victim);
+    const agent = boundSession(victim, 'auto');
+    const agentLive = liveItemFor(agent.sessionId, victim, 'exited');
+    db.update(schema.liveSessions)
+      .set({ purpose: 'agent' })
+      .where(eq(schema.liveSessions.id, agentLive.liveId))
+      .run();
+    db.insert(schema.magiAgentCurrent)
+      .values({ engine: 'claude', liveId: agentLive.liveId })
+      .onConflictDoUpdate({
+        target: schema.magiAgentCurrent.engine,
+        set: { liveId: agentLive.liveId },
+      })
+      .run();
+    const plan = await get<Plan & { sessions: { agent: number } }>(
+      `/api/variants/${victim}/delete-plan`,
+    );
+    expect(plan.sessions).toMatchObject({ count: 1, agent: 1, liveItems: [] });
+    expect(plan.sessions.files.sort()).toEqual([normal.file, normal.dir].sort());
+    expect((await del(`/api/variants/${victim}`, 'delete')).statusCode).toBe(200);
+    expect(sessionRow(normal.sessionId)).toBeUndefined();
+    expect(sessionRow(agent.sessionId)).toMatchObject({
+      variantId: null,
+      variantBinding: 'manual',
+    });
+    expect(fs.existsSync(agent.file)).toBe(true);
+    expect(fs.existsSync(agent.dir)).toBe(true);
+    expect(liveRow(agentLive.liveId)).toMatchObject({ purpose: 'agent' });
+    expect(fs.existsSync(agentLive.dir)).toBe(true);
+  });
+
   test('删除 workflow：全部 variant 按同一个选择处理，另删属于它的草稿、草稿目录与草稿的 Live 项；保留一行记录', async () => {
     const flow = await newFlow('whole', 1);
     const [second] = flow.others;
