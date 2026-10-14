@@ -25,6 +25,7 @@ import { models } from '../llm/client.js';
 import { writeCodexHome } from '../variants/codex-home.js';
 import { HttpError } from '../variants/errors.js';
 import type { Variants } from '../variants/index.js';
+import { displayName } from '../variants/names.js';
 import { loadWorkflow, workflowOfVariant } from '../workflows/index.js';
 import { ANALYSIS_WORKFLOW, SYNTHESIZE_STAGE } from '../workflows/schema.js';
 import { currentAnalysisBaseline } from './baseline.js';
@@ -112,6 +113,8 @@ export interface Scope {
 export interface AnalysisDetail extends Analysis {
   variantName: string;
   analysisVariantName: string | null;
+  variantDeleted: boolean;
+  analysisVariantDeleted: boolean;
   sessions: ScopeSession[];
   findings: (typeof analysisFindings.$inferSelect)[];
   patches: (typeof analysisPatches.$inferSelect)[];
@@ -218,15 +221,19 @@ export function createInsights({
     updateStep(id, key, { events: count });
   }
 
-  function variantName(variantId: string): string {
+  // 显示用的名字：已删除的 variant 显示"<名字>（已删除）"（Contracts 24.3）
+  function variantRecord(variantId: string) {
     const v = db
-      .select({ name: variantsTable.name })
+      .select({ name: variantsTable.name, deletedAt: variantsTable.deletedAt })
       .from(variantsTable)
       .where(eq(variantsTable.id, variantId))
       .get();
     if (v === undefined) throw new Error(`variant 不存在：${variantId}`);
-    return v.name;
+    return v;
   }
+  const variantName = (variantId: string) => displayName(variantRecord(variantId));
+  const isDeleted = (variantId: string | null) =>
+    variantId !== null && variantRecord(variantId).deletedAt !== null;
 
   function scopeSessions(sessionIds: string[]): ScopeSession[] {
     const rows = db
@@ -660,6 +667,9 @@ export function createInsights({
         variantName: variantName(row.variantId),
         analysisVariantName:
           row.analysisVariantId === null ? null : variantName(row.analysisVariantId),
+        // 已删除的 variant 不能再点进 variant 页面
+        variantDeleted: isDeleted(row.variantId),
+        analysisVariantDeleted: isDeleted(row.analysisVariantId),
         sessions: scopeSessions(row.sessionIds),
         findings: db
           .select()

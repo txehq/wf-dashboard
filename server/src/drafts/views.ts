@@ -72,7 +72,9 @@ export const DraftView = z.object({
   savedWorkflowId: z.string().nullable(),
   savedVariantId: z.string().nullable(),
   // 每次保存出的 variant，按保存的先后
-  savedVariants: z.array(z.object({ id: z.string(), name: z.string(), workflowId: z.string() })),
+  savedVariants: z.array(
+    z.object({ id: z.string(), name: z.string(), workflowId: z.string(), deleted: z.boolean() }),
+  ),
   skills: z.array(DraftSkillView),
   dir: z.string(),
   createdAt: z.number(),

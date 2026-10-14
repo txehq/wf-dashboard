@@ -93,6 +93,9 @@ const Report = z.object({
 });
 
 const Detail = Summary.extend({
+  // 被分析的与驱动分析的 variant 已删除（Contracts 24.3）：显示名字，不能点进 variant 页面
+  variantDeleted: z.boolean(),
+  analysisVariantDeleted: z.boolean(),
   sessions: z.array(ScopeSession),
   report: Report.nullable(),
   // 交给 Codex 优化的草稿与它在 Live 中的项（Contracts 19.3）

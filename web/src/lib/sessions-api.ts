@@ -42,7 +42,8 @@ export interface SessionSummary {
   liveId: string | null;
   // 所属的交互项已关闭
   liveHidden: boolean;
-  variant: { id: string; name: string } | null;
+  // deleted：绑定的 variant 已删除（Contracts 24.3），名字后有「（已删除）」，不能点进 variant 页面
+  variant: { id: string; name: string; deleted: boolean } | null;
   variantBinding: 'run' | 'auto' | 'manual' | null;
 }
 

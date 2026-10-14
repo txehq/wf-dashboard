@@ -8,6 +8,7 @@
     "./grading/schema": "./src/grading/schema.ts",
     "./live/views": "./src/live/views.ts",
     "./drafts/views": "./src/drafts/views.ts",
+    "./deletion/views": "./src/deletion/views.ts",
     "./magi-agent/views": "./src/magi-agent/views.ts",
     "./workflows/schema": "./src/workflows/schema.ts",
     "./workflows/eval-kinds": "./src/workflows/eval-kinds.ts",

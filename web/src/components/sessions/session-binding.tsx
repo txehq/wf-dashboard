@@ -67,9 +67,13 @@ export function SessionBinding({ sessionId, title }: { sessionId: string; title:
           </span>
         ) : (
           <span data-testid="binding-variant">
-            <Link className="font-medium underline" to={`/variants/${b.variant.id}`}>
-              {b.variant.name}
-            </Link>
+            {b.variant.deleted ? (
+              <span className="font-medium">{b.variant.name}</span>
+            ) : (
+              <Link className="font-medium underline" to={`/variants/${b.variant.id}`}>
+                {b.variant.name}
+              </Link>
+            )}
             {b.binding !== null && (
               <span
                 className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs"

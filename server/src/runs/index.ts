@@ -24,6 +24,7 @@ import {
   updateStages,
 } from '../stages/report.js';
 import { HttpError } from '../variants/errors.js';
+import { displayName } from '../variants/names.js';
 import { evalSpecOf } from '../workflows/index.js';
 import { artifactView, listMessages, messageView } from './records.js';
 import { RunDriver, type RunnerDeps } from './runner.js';
@@ -196,7 +197,7 @@ export function createRuns(deps: RunnerDeps) {
         kind: task.kind,
         taskTitle: task.title,
         variantId: r.variantId,
-        variantName: variant.name,
+        variantName: displayName(variant),
         model: r.model,
         effort: r.effort,
         repeatIndex: r.repeatIndex,

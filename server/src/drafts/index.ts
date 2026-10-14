@@ -22,6 +22,7 @@ import type { Live } from '../live/index.js';
 import type { LiveDetail } from '../live/views.js';
 import { newId } from '../runs/index.js';
 import { HttpError } from '../variants/errors.js';
+import { displayName } from '../variants/names.js';
 import type { Variant, Variants } from '../variants/index.js';
 import { writeSkeleton } from '../variants/skills.js';
 import {
@@ -172,16 +173,24 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
       steps: r.steps,
       savedWorkflowId: r.savedWorkflowId,
       savedVariantId: r.savedVariantId,
+      // 已删除的显示"<名字>（已删除）"，不能点进 variant 页面（Contracts 24.3）
       savedVariants: db
         .select({
           id: variantsTable.id,
           name: variantsTable.name,
           workflowId: variantsTable.workflowId,
+          deletedAt: variantsTable.deletedAt,
         })
         .from(variantsTable)
         .where(eq(variantsTable.draftId, r.id))
         .orderBy(asc(variantsTable.createdAt))
-        .all(),
+        .all()
+        .map((v) => ({
+          id: v.id,
+          name: displayName(v),
+          workflowId: v.workflowId,
+          deleted: v.deletedAt !== null,
+        })),
       skills: r.skills,
       dir: layoutOf(r).dir,
       createdAt: r.createdAt.getTime(),
@@ -461,12 +470,13 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
         variantName: FIRST_VARIANT,
       };
     }
-    const parent = parentId === null ? null : variants.get(parentId);
+    // 底子已删除时照常显示它的名字（"（已删除）"，Contracts 24.3）
+    const parent = parentId === null ? null : variants.record(parentId);
     return {
       kind: 'variant',
       workflowId: definition.id,
       workflowName: definition.name,
-      parent: parent === null ? null : { id: parent.id, name: parent.name },
+      parent: parent === null ? null : { id: parent.id, name: displayName(parent) },
       variants: variants
         .list()
         .filter((v) => v.workflowId === definition.id)
@@ -522,7 +532,7 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
     const source = draft.analysisId === null ? '' : `，分析 ${draft.analysisId}`;
     let variant: Variant;
     if (target.kind === 'new') {
-      const parent = parentId === null ? null : variants.get(parentId);
+      const parent = parentId === null ? null : variants.record(parentId);
       variant = variants.createFromSource({
         srcDir: layout.src,
         workflowId: saved.id,
@@ -531,7 +541,7 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
         parentId,
         draftId: id,
         analysisId: draft.analysisId,
-        note: `从 Codex 草稿 ${id} 保存（${parent === null ? '没有底子' : `底子 ${parent.name}，${parent.id}`}${source}），需要构建`,
+        note: `从 Codex 草稿 ${id} 保存（${parent === null ? '没有底子' : `底子 ${displayName(parent)}，${parent.id}`}${source}），需要构建`,
       });
     } else {
       const existing = variants.get(target.variantId);
@@ -567,14 +577,14 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
     get: (id: string) => view(row(id)),
 
     // 保存前的改动预览（Contracts 17.4、21.3）：将要保存的 src/ 相对目标的 diff。against 为被覆盖的 variant；
-    // 不传时相对底子（新建时），从空白开始的草稿没有底子
+    // 不传时相对底子（新建时），从空白开始的草稿没有底子；底子已删除时它的文件已不在，全部算作新增（Contracts 24.3）
     diff(id: string, against: string | undefined): DraftDiffView {
       const d = savableRow(id);
       const baseId = against ?? d.baseVariantId;
-      const base = baseId === null ? null : variants.get(baseId);
+      const base = baseId === null ? null : variants.record(baseId);
       return {
-        base: base === null ? null : { id: base.id, name: base.name },
-        files: variants.diffSource(baseId, layoutOf(d).src),
+        base: base === null ? null : { id: base.id, name: displayName(base) },
+        files: variants.diffSource(base?.deletedAt === null ? base.id : null, layoutOf(d).src),
       };
     },
 

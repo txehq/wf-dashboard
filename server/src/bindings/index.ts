@@ -15,6 +15,7 @@ import { publishStageChanges, updateStages } from '../stages/report.js';
 import { HttpError } from '../variants/errors.js';
 import type { Variants } from '../variants/index.js';
 import { dataLayout } from '../variants/layout.js';
+import { displayName } from '../variants/names.js';
 
 // Contracts 15.1：session 绑定 variant
 
@@ -108,6 +109,7 @@ export function matchingVariants(
   const all = db
     .select()
     .from(variantsTable)
+    .where(isNull(variantsTable.deletedAt))
     .orderBy(asc(variantsTable.createdAt), asc(variantsTable.id))
     .all();
   return all.filter((v) => matches(loads, v, read));
@@ -193,7 +195,8 @@ export function bindLiveSession(
 }
 
 export interface BindingView {
-  variant: { id: string; name: string } | null;
+  // deleted：绑定的 variant 已删除（run 的 session 随 run 保留，Contracts 24.3），不能点进 variant 页面
+  variant: { id: string; name: string; deleted: boolean } | null;
   binding: VariantBinding | null;
   // 与 session 的 skill 一致的全部 variant（含已绑定的），按创建时间
   matching: { id: string; name: string }[];
@@ -209,13 +212,7 @@ export function bindingView(db: Db, dataDir: string, sessionId: string): Binding
     .get();
   if (row === undefined) throw new HttpError(404, `session ${sessionId} 不存在`);
   const variant =
-    row.variantId === null
-      ? undefined
-      : db
-          .select({ id: variantsTable.id, name: variantsTable.name })
-          .from(variantsTable)
-          .where(eq(variantsTable.id, row.variantId))
-          .get();
+    row.variantId === null ? undefined : boundVariantNames(db, [row.variantId]).get(row.variantId);
   const skills: { name: string; loads: number }[] = [];
   for (const load of sessionSkillLoads(db, sessionId)) {
     const entry = skills.find((s) => s.name === load.name);
@@ -223,23 +220,31 @@ export function bindingView(db: Db, dataDir: string, sessionId: string): Binding
     else entry.loads += 1;
   }
   return {
-    variant: variant ?? null,
+    variant:
+      row.variantId === null || variant === undefined ? null : { id: row.variantId, ...variant },
     binding: row.binding,
     matching: matchingVariants(db, dataDir, sessionId).map((v) => ({ id: v.id, name: v.name })),
     skills,
   };
 }
 
-// 列表用：一批 session 绑定的 variant 名称
-export function boundVariantNames(db: Db, variantIds: string[]): Map<string, string> {
+// 列表用：一批 session 绑定的 variant 的显示名字（已删除的为"<名字>（已删除）"，Contracts 24.3）与是否已删除
+export function boundVariantNames(
+  db: Db,
+  variantIds: string[],
+): Map<string, { name: string; deleted: boolean }> {
   if (variantIds.length === 0) return new Map();
   return new Map(
     db
-      .select({ id: variantsTable.id, name: variantsTable.name })
+      .select({
+        id: variantsTable.id,
+        name: variantsTable.name,
+        deletedAt: variantsTable.deletedAt,
+      })
       .from(variantsTable)
       .where(inArray(variantsTable.id, variantIds))
       .all()
-      .map((v) => [v.id, v.name]),
+      .map((v) => [v.id, { name: displayName(v), deleted: v.deletedAt !== null }]),
   );
 }
 
@@ -266,11 +271,16 @@ export function setManualBinding(
   }
   if (choice.variantId !== null) {
     const v = db
-      .select({ id: variantsTable.id })
+      .select({
+        id: variantsTable.id,
+        name: variantsTable.name,
+        deletedAt: variantsTable.deletedAt,
+      })
       .from(variantsTable)
       .where(eq(variantsTable.id, choice.variantId))
       .get();
     if (v === undefined) throw new HttpError(404, `variant 不存在：${choice.variantId}`);
+    if (v.deletedAt !== null) throw new HttpError(404, `variant ${v.name} 已删除`);
   }
   setBinding(db, sessionId, choice.variantId, 'manual');
 }
@@ -280,6 +290,7 @@ export function defaultBaseVariant(db: Db): Variant | null {
   const all = db
     .select()
     .from(variantsTable)
+    .where(isNull(variantsTable.deletedAt))
     .orderBy(asc(variantsTable.createdAt), asc(variantsTable.id))
     .all();
   return all.find((v) => v.parentId === null && v.installDir !== null) ?? all[0] ?? null;

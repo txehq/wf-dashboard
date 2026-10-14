@@ -27,6 +27,9 @@ export type AppEvent =
     }
   // variant 改了名字、被覆盖或恢复（Contracts 16.4、17.4）；各处都按 id 取名字，页面重新读取
   | { type: 'variant.updated'; variantId: string }
+  // variant 或 workflow 删除后（Contracts 24.6），已打开的页面重新读取
+  | { type: 'variant.deleted'; variantId: string }
+  | { type: 'workflow.deleted'; workflowId: string }
   | { type: 'run.status'; runId: string; status: RunStatus }
   | { type: 'run.message'; runId: string; message: RunMessageView }
   | { type: 'run.pending'; runId: string; pending: Pending | null }

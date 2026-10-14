@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { parse, patch } from '@decimalturn/toml-patch';
 import { createTwoFilesPatch } from 'diff';
-import { and, asc, count, desc, eq, isNotNull } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { execa } from 'execa';
 import { z } from 'zod';
 import { config } from '../config.js';
@@ -174,10 +174,28 @@ export function createVariants({
     .where(eq(variants.buildStatus, 'building'))
     .run();
 
-  function get(id: string): Variant {
+  // 包括已删除的 variant：只用于显示名字与保留的记录（Contracts 24.3）
+  function record(id: string): Variant {
     const row = db.select().from(variants).where(eq(variants.id, id)).get();
     if (row === undefined) throw new HttpError(404, `variant 不存在：${id}`);
     return row;
+  }
+
+  // 已删除的 variant 不能再编辑、构建、运行、派生或安装
+  function get(id: string): Variant {
+    const row = record(id);
+    if (row.deletedAt !== null) throw new HttpError(404, `variant ${row.name} 已删除`);
+    return row;
+  }
+
+  // 这些 variant 中装在本机的：清单与安装后被改过的文件（Contracts 18.6、24.4）
+  function installsOf(ids: string[]) {
+    return ids.flatMap((id) => {
+      const manifest = installs.status(id);
+      return manifest === null
+        ? []
+        : [{ variantId: id, manifest, modified: installs.modifiedFiles(id) }];
+    });
   }
 
   // 安装清单的显示：variant 的名字按 id 取当前的（Contracts 16.4）
@@ -197,6 +215,7 @@ export function createVariants({
     const sharing = db
       .select({ id: variants.id, storageId: variants.storageId })
       .from(variants)
+      .where(isNull(variants.deletedAt))
       .all()
       .filter((v) => v.id !== row.id && storageOf(v) === storage);
     if (sharing.length === 0) return row;
@@ -241,12 +260,18 @@ export function createVariants({
     }
   }
 
-  // 名字在同一 workflow 内唯一（Contracts 16.4）
+  // 名字在同一 workflow 内没有删除的 variant 中唯一（Contracts 16.4、24.3）
   function assertNameFree(workflowId: string, name: string) {
     const taken = db
       .select()
       .from(variants)
-      .where(and(eq(variants.workflowId, workflowId), eq(variants.name, name)))
+      .where(
+        and(
+          eq(variants.workflowId, workflowId),
+          eq(variants.name, name),
+          isNull(variants.deletedAt),
+        ),
+      )
       .get();
     if (taken !== undefined) throw new HttpError(409, `名称已被使用：${name} (${workflowId})`);
   }
@@ -623,8 +648,55 @@ export function createVariants({
   }
 
   return {
-    list(): Variant[] {
-      return db.select().from(variants).orderBy(desc(variants.createdAt)).all();
+    // 已删除的不在列表中；includeDeleted 时也列出（Compare 显示保留的 run，Contracts 24.3）
+    list(includeDeleted = false): Variant[] {
+      return db
+        .select()
+        .from(variants)
+        .where(includeDeleted ? undefined : isNull(variants.deletedAt))
+        .orderBy(desc(variants.createdAt))
+        .all();
+    },
+
+    record,
+
+    // 删除这些 variant 时要删的目录（Contracts 24.4）：各自在 data/variants/ 下的目录（与没有删除的其他 variant
+    // 共用时不删，最后一个引用它的 variant 删除时才删）与覆盖前的存档；只列出存在的
+    deletionDirs(ids: string[]): string[] {
+      const removing = new Set(ids);
+      const rows = ids.map(record);
+      const others = db
+        .select()
+        .from(variants)
+        .where(isNull(variants.deletedAt))
+        .all()
+        .filter((v) => !removing.has(v.id));
+      const kept = new Set(others.map(storageOf));
+      const dirs = new Set<string>();
+      for (const row of rows) {
+        if (!kept.has(storageOf(row))) dirs.add(dirsOf(row).dir);
+        // data/variant-history/<id>/：覆盖与恢复前存下的全部 src/
+        dirs.add(path.dirname(path.dirname(layout.historySrc(row.id, 'x'))));
+      }
+      return [...dirs].filter((d) => fs.existsSync(d)).sort();
+    },
+
+    // 装在本机的（Contracts 18.6）：清单与安装后被改过的文件
+    installsOf,
+
+    // 删除的文件部分：先卸载本机安装（被改过时 409 原文），再删 deletionDirs 列出的目录
+    removeFiles(ids: string[], dirs: string[]) {
+      for (const { variantId } of installsOf(ids)) installs.uninstall(variantId);
+      for (const dir of dirs) fs.rmSync(dir, { recursive: true, force: true });
+    },
+
+    // 数据库中标为已删除（在调用方的事务中）：只保留名字与所属 workflow 用于显示
+    markDeleted(ids: string[], at: Date) {
+      if (ids.length === 0) return;
+      db.update(variants)
+        .set({ deletedAt: at, buildStatus: 'none', builtHash: null, builtAt: null })
+        .where(inArray(variants.id, ids))
+        .run();
     },
 
     // 每个 variant 绑定的 session 数（Workflow 页面的 variant 列表，Contracts 16.7）
@@ -780,7 +852,7 @@ export function createVariants({
         db
           .select({ name: variants.name })
           .from(variants)
-          .where(eq(variants.workflowId, workflowId))
+          .where(and(eq(variants.workflowId, workflowId), isNull(variants.deletedAt)))
           .all()
           .map((v) => v.name),
       );
@@ -804,7 +876,8 @@ export function createVariants({
       // 构建日志的第一行
       note: string;
     }): Variant {
-      const parent = input.parentId === null ? null : get(input.parentId);
+      // parent 可以是已删除的 variant（草稿的底子保留原来的 id，Contracts 24.3）：只取它的基线 commit
+      const parent = input.parentId === null ? null : record(input.parentId);
       loadWorkflow(db, input.workflowId);
       const name = checkName(input.name);
       const description = input.description === null ? null : checkDescription(input.description);

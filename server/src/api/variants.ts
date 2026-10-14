@@ -36,6 +36,8 @@ const Variant = z.object({
   sourceSessionId: z.string().nullable(),
   // 由 Codex 草稿保存出时的草稿 id（Contracts 17.4）
   draftId: z.string().nullable(),
+  // 删除的时间（Contracts 24.3）；没有删除时为空
+  deletedAt: z.date().nullable(),
 });
 
 const IdParams = z.object({ id: z.string() });
@@ -75,10 +77,18 @@ export const variantRoutes: FastifyPluginCallbackZod<{ variants: Variants }> = (
 
   app.get(
     '/api/variants',
-    { schema: { response: { 200: z.array(Variant.extend({ boundSessions: z.number() })) } } },
-    () => {
+    {
+      schema: {
+        // includeDeleted：也列出已删除的（Compare 显示保留的 run，Contracts 24.3）
+        querystring: z.object({ includeDeleted: z.enum(['1']).optional() }),
+        response: { 200: z.array(Variant.extend({ boundSessions: z.number() })) },
+      },
+    },
+    (request) => {
       const bound = variants.boundSessions();
-      return variants.list().map((v) => ({ ...v, boundSessions: bound.get(v.id) ?? 0 }));
+      return variants
+        .list(request.query.includeDeleted === '1')
+        .map((v) => ({ ...v, boundSessions: bound.get(v.id) ?? 0 }));
     },
   );
 
@@ -101,10 +111,11 @@ export const variantRoutes: FastifyPluginCallbackZod<{ variants: Variants }> = (
     },
   );
 
+  // 包括已删除的 variant：只用于显示名字（parent、run 等保留的记录，Contracts 24.3）
   app.get(
     '/api/variants/:id',
     { schema: { params: IdParams, response: { 200: Variant } } },
-    (request) => variants.get(request.params.id),
+    (request) => variants.record(request.params.id),
   );
 
   // 派生只能在同一 workflow 内：给出与来源不同的 workflowId 时 400

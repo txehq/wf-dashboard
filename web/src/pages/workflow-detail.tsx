@@ -25,6 +25,7 @@ import {
 } from '@/pages/variants-api';
 import { DefinitionForm, DefinitionYamlEditor } from '@/pages/workflow-config';
 import { VariantRows } from '@/pages/workflows';
+import { DeleteButton } from '@/components/delete-dialog';
 
 type ConfigTab = 'form' | 'yaml';
 
@@ -330,7 +331,15 @@ export function WorkflowPage() {
         </Link>
       </Button>
       <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold">{w.name}</h1>
+        {/* 删除与标题在同一行（Contracts 24.6）；内置的 workflow 不能删除 */}
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-semibold">{w.name}</h1>
+          {!w.builtin && (
+            <span className="ml-auto">
+              <DeleteButton kind="workflow" id={w.id} name={w.name} after="/workflows" />
+            </span>
+          )}
+        </div>
         <p className="text-sm text-muted-foreground" data-testid="workflow-summary">
           入口 <span className="font-mono text-foreground">/{w.id}</span> · 评测类型{' '}
           {evalKindLabel(w.evalKind)}

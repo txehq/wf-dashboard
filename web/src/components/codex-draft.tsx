@@ -284,11 +284,16 @@ export function CodexDraftBar({
                 workflow /{d.savedWorkflowId}
               </Link>
             )}
-          {d.savedVariants.map((v) => (
-            <Link key={v.id} className="underline" to={variantHref(v)}>
-              {variantLabel(v)}
-            </Link>
-          ))}
+          {d.savedVariants.map((v) =>
+            // 已删除的只显示名字（服务端已加上「（已删除）」，Contracts 24.3）
+            v.deleted ? (
+              <span key={v.id}>{variantLabel(v)}</span>
+            ) : (
+              <Link key={v.id} className="underline" to={variantHref(v)}>
+                {variantLabel(v)}
+              </Link>
+            ),
+          )}
         </p>
       )}
       {(resume.isError || retry.isError || draft.isError) && (

@@ -38,6 +38,8 @@ import { workflowRoutes } from './workflows.js';
 import { openRoutes } from './open.js';
 import { createDrafts } from '../drafts/index.js';
 import { draftRoutes } from './drafts.js';
+import { createDeletion } from '../deletion/index.js';
+import { deletionRoutes } from './deletion.js';
 import { createMagiAgent } from '../magi-agent/index.js';
 import { magiAgentRoutes } from './magi-agent.js';
 
@@ -214,6 +216,16 @@ export async function buildApp({
       draftsDir: config.workflowDraftsDir,
       dataDir: config.dataDir,
       skillSources: config.codexSkillSources,
+    }),
+  });
+  // 删除 variant 与 workflow（Contracts 第 24 节）
+  await app.register(deletionRoutes, {
+    deletion: createDeletion({
+      db,
+      variants,
+      live,
+      draftsDir: config.workflowDraftsDir,
+      dataDir: config.dataDir,
     }),
   });
   // 诊断（Contracts 第 5 节，W58）：只读，测量与测试用它确认资源释放

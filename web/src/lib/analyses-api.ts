@@ -13,7 +13,8 @@ export interface Named {
 }
 
 export interface SessionBinding {
-  variant: Named | null;
+  // deleted：绑定的 variant 已删除（run 的 session 随 run 保留，Contracts 24.3），不能点进 variant 页面
+  variant: (Named & { deleted: boolean }) | null;
   binding: VariantBinding | null;
   // 与 session 的 skill 逐字节一致的全部 variant，按创建时间
   matching: Named[];
@@ -186,6 +187,9 @@ export interface AnalysisReport {
 }
 
 export interface AnalysisDetail extends AnalysisSummary {
+  // 被分析的与驱动分析的 variant 已删除（Contracts 24.3）：只显示名字
+  variantDeleted: boolean;
+  analysisVariantDeleted: boolean;
   sessions: ScopeSession[];
   report: AnalysisReport | null;
   // 交给 Codex 优化的草稿与它在 Live 中的项（Contracts 19.3）

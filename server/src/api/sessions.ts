@@ -66,8 +66,8 @@ const SessionSummary = z.object({
   liveId: z.string().nullable(),
   // 所属的交互项已关闭（Contracts 14.5）：导入选择框中这类 session 可选，选了即恢复显示
   liveHidden: z.boolean(),
-  // 绑定的 variant 与方式（Contracts 15.1）
-  variant: z.object({ id: z.string(), name: z.string() }).nullable(),
+  // 绑定的 variant 与方式（Contracts 15.1）；deleted：已删除（Contracts 24.3），名字后有"（已删除）"，不能点进 variant 页面
+  variant: z.object({ id: z.string(), name: z.string(), deleted: z.boolean() }).nullable(),
   variantBinding: z.enum(variantBindings).nullable(),
 });
 type SessionSummary = z.infer<typeof SessionSummary>;
@@ -250,7 +250,7 @@ function summaries(db: Db, rows: SummaryRow[]): SessionSummary[] {
       variant:
         r.variantId === null || variantName === undefined
           ? null
-          : { id: r.variantId, name: variantName },
+          : { id: r.variantId, ...variantName },
       variantBinding: r.variantBinding,
     };
   });

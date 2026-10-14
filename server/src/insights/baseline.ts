@@ -18,6 +18,8 @@ function baselines(db: Db): Variant[] {
         eq(variantsTable.workflowId, ANALYSIS_WORKFLOW),
         isNull(variantsTable.parentId),
         isNull(variantsTable.draftId),
+        // 删除的基线不再使用：启动时按仓库内容重新建出（Contracts 24.3）
+        isNull(variantsTable.deletedAt),
       ),
     )
     .orderBy(desc(variantsTable.createdAt))

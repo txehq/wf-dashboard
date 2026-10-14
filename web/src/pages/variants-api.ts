@@ -29,6 +29,8 @@ export interface Variant {
   sourceSessionId: string | null;
   // 由 Codex 草稿保存出时的草稿 id（Contracts 17.4）
   draftId: string | null;
+  // 删除的时间（Contracts 24.3）：已删除的只保留名字用于显示，不再出现在列表与选择中
+  deletedAt: string | null;
 }
 
 export interface VariantOptions {
@@ -56,9 +58,18 @@ export interface VariantDiff {
 
 export const statusLabel: Record<Variant['status'], string> = { draft: '草稿', frozen: '已冻结' };
 
-// 页面中 variant 的名字：名字 (workflow)，例如 基线 (lfg)
-export const variantLabel = (variant: Pick<Variant, 'name' | 'workflowId'>) =>
-  `${variant.name} (${variant.workflowId})`;
+// 页面中 variant 的名字：名字 (workflow)，例如 基线 (lfg)；已删除的为 名字（已删除） (workflow)
+export const variantLabel = (
+  variant: Pick<Variant, 'name' | 'workflowId'> & { deletedAt?: string | null },
+) =>
+  `${variant.name}${variant.deletedAt === undefined || variant.deletedAt === null ? '' : '（已删除）'} (${variant.workflowId})`;
+
+// 全部 variant，包括已删除的（Compare 显示保留的 run，Contracts 24.3）
+export const allVariantsQuery = queryOptions({
+  queryKey: ['variants', 'with-deleted'],
+  queryFn: () =>
+    request<(Variant & { boundSessions: number })[]>('GET', '/api/variants?includeDeleted=1'),
+});
 
 // variant 的独立页面（Contracts 18.3）
 export const variantHref = (variant: Pick<Variant, 'id'>) => `/variants/${variant.id}`;

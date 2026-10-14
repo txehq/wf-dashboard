@@ -148,6 +148,13 @@
       "when": 1791956727259,
       "tag": "0020_magi-agent",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1791963169447,
+      "tag": "0021_deletion",
+      "breakpoints": true
     }
   ]
 }

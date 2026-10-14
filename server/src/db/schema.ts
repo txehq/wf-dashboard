@@ -78,6 +78,8 @@ export const workflowTable = sqliteTable('workflows', {
   description: text('description'),
   createdAt: createdAt(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+  // 删除后保留一行，只用于显示名字（Contracts 24.5）；列表与选择框中不再出现，id 也不能再用
+  deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
 });
 
 // tasks/<id>/task.yaml 的镜像，启动时由 tasks/loader.ts 同步；评测类型不需要的字段为空
@@ -165,10 +167,16 @@ export const variants = sqliteTable(
     draftId: text('draft_id').references((): AnySQLiteColumn => workflowDrafts.id, {
       onDelete: 'set null',
     }),
+    // 删除后保留一行（Contracts 24.3）：run、分析、Live 项、子 variant 与草稿按 id 取名字，显示"<名字>（已删除）"；
+    // 列表与选择框中不再出现
+    deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
   },
   (t) => [
     index('variants_skills_hash_idx').on(t.skillsHash),
-    uniqueIndex('variants_workflow_name_idx').on(t.workflowId, t.name),
+    // 名字只在没有删除的 variant 中唯一：删除后同名的新 variant 可以再建
+    uniqueIndex('variants_workflow_name_idx')
+      .on(t.workflowId, t.name)
+      .where(sql`${t.deletedAt} is null`),
   ],
 );
 
