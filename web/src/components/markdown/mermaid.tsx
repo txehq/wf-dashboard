@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useDarkMode } from '@/lib/dark-mode';
 
-type Rendered = { svg: string } | { error: string } | null;
+type Rendered = { svg: string; dark: boolean } | { error: string } | null;
 
 // mermaid.render(id) 先删去页面中 id 相同的元素：每次渲染用新的 id，已经显示的图不会被删去
 let renders = 0;
@@ -27,7 +27,7 @@ export function MermaidDiagram({ code }: { code: string }) {
     };
     void render().then(
       ({ svg }) => {
-        if (current) setRendered({ svg });
+        if (current) setRendered({ svg, dark });
       },
       (error: unknown) => {
         if (current) setRendered({ error: error instanceof Error ? error.message : String(error) });
@@ -48,11 +48,13 @@ export function MermaidDiagram({ code }: { code: string }) {
       </div>
     );
   }
+  // data-theme：已显示的图按哪种主题渲染（换主题后重新渲染完成之前仍是之前的主题）
   return (
     <div
       className="md-mermaid"
       data-testid="mermaid"
       data-rendered={rendered !== null}
+      data-theme={rendered === null ? undefined : rendered.dark ? 'dark' : 'light'}
       dangerouslySetInnerHTML={{ __html: rendered?.svg ?? '' }}
     />
   );

@@ -4,7 +4,7 @@ import type { Db } from '../db/index.js';
 import { requests } from '../db/schema.js';
 import { inputString, type RequestRow } from '../stages/rows.js';
 import { commandsOf } from '../stages/shell.js';
-import { onSessionUpdates } from './cost-refresh.js';
+import { COST_REFRESH_MS, onSessionUpdates } from './cost-refresh.js';
 import { upsertArtifact } from './records.js';
 
 // Contracts 7.2：被测 agent 的 /acceptance 用 `wf publish-artifact` 发布到 engapp.dev 的验收报告
@@ -80,6 +80,7 @@ export function watchAcceptanceReport(
   runId: string,
   sessionId: string,
   onError: (error: Error) => void,
+  intervalMs = COST_REFRESH_MS,
 ): () => void {
   return onSessionUpdates(
     sessionId,
@@ -87,5 +88,6 @@ export function watchAcceptanceReport(
       recordAcceptanceReport(db, runId, sessionId);
     },
     onError,
+    intervalMs,
   );
 }

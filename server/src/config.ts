@@ -14,6 +14,9 @@ export const CodexSkillSources = z
   .min(1);
 export type CodexSkillSources = z.infer<typeof CodexSkillSources>;
 
+// "结束进程"在 SIGINT 之后等待的默认时长（Contracts 14.3）
+export const LIVE_STOP_GRACE_MS = 10_000;
+
 export const config = {
   repoRoot,
   host: '127.0.0.1',
@@ -82,8 +85,13 @@ export const config = {
     .min(1)
     .default(120_000)
     .parse(process.env.WFD_LIVE_AUTO_STOP_MS),
-  // "结束进程"：先 SIGINT，过了这么久仍在则 SIGTERM
-  liveStopGraceMs: 10_000,
+  // "结束进程"：先 SIGINT，过了这么久仍在则 SIGTERM；测试用 WFD_LIVE_STOP_GRACE_MS 改小
+  liveStopGraceMs: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .default(LIVE_STOP_GRACE_MS)
+    .parse(process.env.WFD_LIVE_STOP_GRACE_MS),
   // Live"本机配置"的 HOME（claude 读 <HOME>/.claude）；e2e 用 WFD_LOCAL_HOME 指向 .work/ 下的目录
   localHome: path.resolve(process.env.WFD_LOCAL_HOME ?? os.homedir()),
   // Magi Agent（Contracts 第 23 节）：主仓库是正在运行的 dashboard 所在的目录（部署合并进它的 main，MAGI.md 从它读取），

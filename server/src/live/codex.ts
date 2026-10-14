@@ -139,6 +139,8 @@ export class CodexRunner {
   readonly starting = false;
   readonly waiting = null;
   readonly driver = 'human';
+  // Codex 会话没有增量导入
+  readonly watching = false;
   readonly exited: Promise<void>;
 
   constructor(

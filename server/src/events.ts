@@ -65,4 +65,8 @@ export const events = {
       emitter.off('event', listener);
     };
   },
+  // 当前的订阅数（GET /api/diagnostics）
+  subscribers() {
+    return emitter.listenerCount('event');
+  },
 };

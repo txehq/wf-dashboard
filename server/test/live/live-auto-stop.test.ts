@@ -6,18 +6,20 @@ import { sessionLines } from '../helpers/session-copies.js';
 
 // 自动结束（Contracts 14.3），基础档：真实的服务（buildApp，真实的 /api/events SSE 与 PTY WebSocket），
 // Claude Code 换成替身（test/fixtures/live/claude-stand-in.mjs，收到 SIGINT 即退出），"本机配置"的 HOME 在 .work/ 下。
-// 计时改为 800 ms；"结束进程"的 SIGINT 之后 10 秒补发 SIGTERM 保持原值
+// 计时改为 800 ms；"结束进程"在 SIGINT 之后补发 SIGTERM 前等待的时长改为 1.5 秒（默认 10 秒，下面的用例确认）
 const work = path.join(import.meta.dirname, '../../../.work/test-live-auto-stop', randomUUID());
 const home = path.join(work, 'home');
 const projects = path.join(work, 'projects');
 const cwd = path.join(work, 'cwd');
 const IDLE_MS = 800;
+const GRACE_MS = 1_500;
 process.env.WFD_LIVE_AUTO_STOP_MS = String(IDLE_MS);
+process.env.WFD_LIVE_STOP_GRACE_MS = String(GRACE_MS);
 process.env.WFD_CLAUDE_BIN = path.join(import.meta.dirname, '../fixtures/live/claude-stand-in.mjs');
 process.env.WFD_LOCAL_HOME = home;
 process.env.WFD_CLAUDE_PROJECTS = projects;
 
-const { config } = await import('../../src/config.js');
+const { config, LIVE_STOP_GRACE_MS } = await import('../../src/config.js');
 const { buildApp } = await import('../../src/api/app.js');
 const { openDatabase } = await import('../../src/db/index.js');
 const { ingestFile } = await import('../../src/ingest/ingest.js');
@@ -238,7 +240,9 @@ test('在页面之间切换（SSE 一直连着、终端开开关关）时不结�
   await closeSse();
 });
 
-test('"结束进程"先发 SIGINT，进程不理会时 10 秒后补发 SIGTERM', { timeout: 30_000 }, async () => {
+test('"结束进程"先发 SIGINT，进程不理会时等待的时长过后补发 SIGTERM（默认 10 秒）', async () => {
+  expect(LIVE_STOP_GRACE_MS).toBe(10_000);
+  expect(config.liveStopGraceMs).toBe(GRACE_MS);
   process.env.STAND_IN_IGNORE_SIGINT = '1';
   const closeSse = await openSse();
   const live = await resumed();

@@ -37,6 +37,14 @@ export interface LivePtyOptions {
   separator: string;
 }
 
+// 还没有释放保留的输出与屏幕副本的 PTY（GET /api/diagnostics 的 live.ptys）
+const unreleased = new Set<LivePty>();
+export function unreleasedPtys(): { unreleased: number; retainedBytes: number } {
+  let retainedBytes = 0;
+  for (const p of unreleased) retainedBytes += p.retainedBytesCount;
+  return { unreleased: unreleased.size, retainedBytes };
+}
+
 // 一个交互进程的 PTY：保留这一项最近的输出（之前进程的输出加这个进程的输出）供新连接的客户端回放，
 // 完整输出追加到 pty.log
 export class LivePty {
@@ -50,6 +58,7 @@ export class LivePty {
   private exit: PtyExit | null = null;
   // 屏幕副本：模拟用户回答选项菜单前读取光标所在行与勾选状态
   private readonly screen: xtermHeadless.Terminal;
+  private screenDisposed = false;
 
   constructor(opts: LivePtyOptions) {
     const before = readLogTail(opts.logFile);
@@ -70,19 +79,40 @@ export class LivePty {
       env: opts.env,
     });
     this.pid = this.proc.pid;
+    unreleased.add(this);
     this.proc.onData((data) => {
       this.retain(data);
       this.log.write(data);
       this.screen.write(data);
       for (const listener of this.listeners) listener(data);
     });
+    // 进程退出：pty.log 写完后 exited 才完成（之后连上的终端从 pty.log 回放完整的输出）；
+    // 等 exited 的各方（controller 中止模拟回答、终端发 exit 并关闭连接）处理完的下一轮释放保留的输出与屏幕副本
     this.exited = new Promise((resolve) => {
       this.proc.onExit(({ exitCode, signal }) => {
-        this.exit = { exitCode, signal: signal ?? null };
-        this.log.end();
-        resolve(this.exit);
+        const exit = { exitCode, signal: signal ?? null };
+        this.exit = exit;
+        this.log.end(() => {
+          resolve(exit);
+          setImmediate(() => {
+            void this.release();
+          });
+        });
       });
     });
+  }
+
+  // 释放之后留下的最后一屏（进程提前退出时报错要用，Codex 的 waitForSession）
+  private finalScreen: string[] | null = null;
+
+  private async release() {
+    this.finalScreen = await this.visibleLines();
+    this.screen.dispose();
+    this.screenDisposed = true;
+    this.retained = [];
+    this.retainedBytes = 0;
+    this.listeners.clear();
+    unreleased.delete(this);
   }
 
   private retain(data: string) {
@@ -101,6 +131,15 @@ export class LivePty {
     return Buffer.concat(this.retained).toString('utf8');
   }
 
+  // GET /api/diagnostics：保留的输出的字节数，屏幕副本是否已释放
+  get retainedBytesCount(): number {
+    return this.retainedBytes;
+  }
+
+  get screenReleased(): boolean {
+    return this.screenDisposed;
+  }
+
   get alive(): boolean {
     return this.exit === null;
   }
@@ -117,8 +156,13 @@ export class LivePty {
     this.proc.write(data);
   }
 
-  // 屏幕上当前可见的各行（写入是异步处理的，读取前先等已写入的输出处理完）
+  // 屏幕上当前可见的各行；进程退出、屏幕副本释放之后为最后一屏
   async viewport(): Promise<string[]> {
+    return this.finalScreen ?? this.visibleLines();
+  }
+
+  // 写入是异步处理的，读取前先等已写入的输出处理完
+  private async visibleLines(): Promise<string[]> {
     await new Promise<void>((resolve) => {
       this.screen.write('', resolve);
     });
