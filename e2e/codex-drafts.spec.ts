@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { expect, type Page, test } from './test.js';
+import { expect, type Locator, type Page, test } from './test.js';
 import { stringify } from 'yaml';
 import { serverPort } from '../ports.js';
 
@@ -55,6 +55,17 @@ async function stopLive(page: Page, liveId: string) {
   expect([200, 409]).toContain(response.status());
 }
 
+// 点击发起：立即返回，响应中的草稿还在准备（草稿目录在后台准备，完成后 Codex 启动）
+async function submitDraft(page: Page, form: Locator) {
+  const response = page.waitForResponse(
+    (r) => r.url().endsWith('/api/workflow-drafts') && r.request().method() === 'POST',
+  );
+  await form.getByTestId('codex-draft-submit').click();
+  const created = await response;
+  expect(created.status()).toBe(201);
+  expect(((await created.json()) as { draft: Draft }).draft.status).toBe('preparing');
+}
+
 test('用 Codex 生成 workflow：表单、跳到 Live 的 Codex 会话、保存失败时显示原文', async ({
   page,
 }) => {
@@ -74,9 +85,8 @@ test('用 Codex 生成 workflow：表单、跳到 Live 的 Codex 会话、保存
     animations: 'disabled',
   });
 
-  await form.getByTestId('codex-draft-submit').click();
-  // 发起立即返回并跳到 Live；草稿在后台准备，完成后 Codex 启动
-  await expect(page).toHaveURL(/\/live\?item=l-\d{8}-[a-z0-9]{6}$/, { timeout: 5_000 });
+  await submitDraft(page, form);
+  await expect(page).toHaveURL(/\/live\?item=l-\d{8}-[a-z0-9]{6}$/);
   const liveId = new URL(page.url()).searchParams.get('item') ?? '';
   const panel = page.getByTestId('live-panel');
   await expect(panel.getByTestId('live-engine')).toHaveText('Codex');
@@ -149,8 +159,8 @@ test('用 Codex 生成 variant：Workflow 页面的表单默认第一个 variant
   await form.getByTestId('codex-draft-base').selectOption(base.id);
   await form.getByLabel('需求').fill('让 interview 一次只问一个问题');
   await page.screenshot({ path: '.work/screenshots/w42-variant-form.png', animations: 'disabled' });
-  await form.getByTestId('codex-draft-submit').click();
-  await expect(page).toHaveURL(/\/live\?item=/, { timeout: 5_000 });
+  await submitDraft(page, form);
+  await expect(page).toHaveURL(/\/live\?item=/);
   const liveId = new URL(page.url()).searchParams.get('item') ?? '';
   const panel = page.getByTestId('live-panel');
   await expect(panel.getByTestId('codex-draft-save')).toHaveText('保存');

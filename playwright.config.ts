@@ -1,3 +1,4 @@
+import { availableParallelism } from 'node:os';
 import { defineConfig, devices } from '@playwright/test';
 import { e2eLocalReposDir } from './e2e/local-repos.js';
 import { type Service, webServersFor } from './e2e/services.js';
@@ -44,6 +45,8 @@ export default defineConfig({
   // 多个 worktree 同时运行测试时 CPU 排队：渲染 37 MB 的 f0aca373 与保存 task 的用例超过默认的 30 秒与 5 秒
   timeout: 90_000,
   expect: { timeout: 15_000 },
+  // 同时运行的用例最多为本机核数的四分之一：每个 worker 有自己的 Chromium，加上各 project 的服务端与 vite
+  workers: Math.max(1, Math.floor(availableParallelism() / 4)),
   use: {
     trace: 'retain-on-failure',
   },
