@@ -21,6 +21,8 @@ import {
   variantRenameWebPort,
   liveAutoStopServerPort,
   liveAutoStopWebPort,
+  magiAgentServerPort,
+  magiAgentWebPort,
   webPort,
 } from '../ports.js';
 
@@ -54,6 +56,10 @@ export const liveAutoStopDir = path.join(root, '.work/e2e/live-auto-stop');
 export const liveAutoStopProjectsDir = path.join(liveAutoStopDir, 'projects');
 // 这个 spec 中没有页面连接持续多久后结束交互进程
 export const liveAutoStopMs = 3000;
+// Magi Agent e2e 的数据目录、"本机配置"的 HOME、主仓库（本地 git 仓库）与它旁边的 worktree：每次删除重建
+export const magiAgentDir = path.join(root, '.work/e2e/magi-agent');
+export const magiAgentRepo = path.join(magiAgentDir, 'repo');
+export const magiAgentWorktree = path.join(magiAgentDir, 'wf-dashboard-magi-agent');
 // resume 对话框 e2e 的数据目录、来源目录与"本机配置"的 HOME：每次删除重建，不碰真实的 ~/.claude
 export const resumeDialogDir = path.join(root, '.work/e2e/resume-dialog');
 export const resumeDialogProjectsDir = path.join(resumeDialogDir, 'projects');
@@ -203,6 +209,30 @@ export const services = {
     url: `http://127.0.0.1:${String(liveAutoStopWebPort)}`,
     reuseExistingServer: false,
     env: { WFD_PORT: String(liveAutoStopServerPort), WFD_WEB_PORT: String(liveAutoStopWebPort) },
+  },
+  magiAgentServer: {
+    // Claude Code 与 Codex 都是替身命令；部署的检查换成一条很快的 node 命令
+    command: `rm -rf ${magiAgentDir} && mkdir -p ${path.join(magiAgentDir, 'projects')} && pnpm --filter @wf-dashboard/server prepare:magi-agent-e2e ${magiAgentRepo} && pnpm --filter @wf-dashboard/server exec tsx src/main.ts`,
+    url: `http://127.0.0.1:${String(magiAgentServerPort)}/api/health`,
+    reuseExistingServer: false,
+    timeout: 120_000,
+    env: {
+      WFD_DATA_DIR: path.join(magiAgentDir, 'data'),
+      WFD_CLAUDE_PROJECTS: path.join(magiAgentDir, 'projects'),
+      WFD_PORT: String(magiAgentServerPort),
+      WFD_CLAUDE_BIN: path.join(root, 'server/test/fixtures/live/claude-stand-in.mjs'),
+      WFD_CODEX_BIN: codexEnv.WFD_CODEX_BIN,
+      WFD_LOCAL_HOME: path.join(magiAgentDir, 'home'),
+      WFD_MAGI_REPO: magiAgentRepo,
+      WFD_MAGI_WORKTREE: magiAgentWorktree,
+      WFD_MAGI_CHECK: JSON.stringify(['node', '-e', "console.log('检查通过')"]),
+    },
+  },
+  magiAgentWeb: {
+    command: 'pnpm --filter @wf-dashboard/web dev',
+    url: `http://127.0.0.1:${String(magiAgentWebPort)}`,
+    reuseExistingServer: false,
+    env: { WFD_PORT: String(magiAgentServerPort), WFD_WEB_PORT: String(magiAgentWebPort) },
   },
   liveFullscreenWeb: {
     command: 'pnpm --filter @wf-dashboard/web dev',

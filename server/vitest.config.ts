@@ -31,6 +31,8 @@ export const gatewayTests = [
   'test/drafts/drafts-claude.test.ts',
   // 交给 Codex 优化的会话在分析目录中写一行（Contracts 19.3），一次 Codex 调用
   'test/insights/optimize-codex.test.ts',
+  // Magi Agent 的注入与 resume（Contracts 23.3、23.4）：Claude Code 与 Codex 各两问
+  'test/magi/magi-real.test.ts',
 ];
 
 // 同样属于真实档：读取真实 GitHub（只读）的测试。基础档不依赖网络，其中的 gh 一律报错

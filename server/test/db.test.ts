@@ -136,6 +136,8 @@ describe('database', () => {
       'live_events',
       'live_processes',
       'live_sessions',
+      'magi_agent_current',
+      'magi_deploys',
       'requests',
       'run_messages',
       'runs',

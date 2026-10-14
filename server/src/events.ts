@@ -1,5 +1,11 @@
 import { EventEmitter } from 'node:events';
-import type { AnalysisStatus, DraftStatus, RunStatus, StageStatus } from './db/schema.js';
+import type {
+  AnalysisStatus,
+  DraftStatus,
+  MagiDeployStatus,
+  RunStatus,
+  StageStatus,
+} from './db/schema.js';
 import type { ArtifactView, Pending, RunMessageView } from './runs/views.js';
 
 // 进程内事件；run.* 由 runs 模块发布（Contracts 7.6）；workflow 为 workflow id（Contracts 16.6）
@@ -38,7 +44,11 @@ export type AppEvent =
   // Codex 草稿的状态或准备的进度变化（Contracts 17.1）
   | { type: 'draft.updated'; draftId: string; status: DraftStatus }
   // 分析的状态或步骤进度变化（Contracts 15.2）
-  | { type: 'analysis.updated'; analysisId: string; status: AnalysisStatus };
+  | { type: 'analysis.updated'; analysisId: string; status: AnalysisStatus }
+  // Magi Agent 的 worktree 准备进度或当前会话变化（Contracts 23.1、23.2），页面重新读取 /api/magi-agent
+  | { type: 'magi.updated' }
+  // 部署的每一步开始与结束（Contracts 23.5）
+  | { type: 'magi.deploy'; deployId: number; status: MagiDeployStatus };
 
 const emitter = new EventEmitter();
 // 每个 SSE 连接一个监听者

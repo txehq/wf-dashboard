@@ -94,6 +94,25 @@ export const config = {
     .parse(process.env.WFD_LIVE_STOP_GRACE_MS),
   // Live"本机配置"的 HOME（claude 读 <HOME>/.claude）；e2e 用 WFD_LOCAL_HOME 指向 .work/ 下的目录
   localHome: path.resolve(process.env.WFD_LOCAL_HOME ?? os.homedir()),
+  // Magi Agent（Contracts 第 23 节）：主仓库是正在运行的 dashboard 所在的目录（部署合并进它的 main，MAGI.md 从它读取），
+  // 演示与 e2e 用 WFD_MAGI_REPO 指向 .work/ 下的仓库副本；worktree 默认在主仓库的上一级目录
+  magiRepo: path.resolve(process.env.WFD_MAGI_REPO ?? repoRoot),
+  magiWorktree: path.resolve(
+    process.env.WFD_MAGI_WORKTREE ??
+      path.join(
+        path.dirname(path.resolve(process.env.WFD_MAGI_REPO ?? repoRoot)),
+        'wf-dashboard-magi-agent',
+      ),
+  ),
+  // 部署第 3 步在 worktree 中运行的检查（Contracts 23.5）；测试用 WFD_MAGI_CHECK（JSON 数组）换成一条快的真实命令
+  magiCheck: z
+    .array(z.string().min(1))
+    .min(1)
+    .parse(
+      process.env.WFD_MAGI_CHECK === undefined
+        ? ['pnpm', 'check']
+        : JSON.parse(process.env.WFD_MAGI_CHECK),
+    ),
   // 草稿发起时装进 <草稿目录>/.agents/skills/ 的 skill 与来源（Contracts 17.3）；测试用 WFD_CODEX_SKILL_SOURCES
   // （JSON 数组）换成 .work/ 下的本地 git 仓库
   codexSkillSources: CodexSkillSources.parse(

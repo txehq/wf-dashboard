@@ -6,6 +6,7 @@ import type { LiveSummary } from '@/lib/live-api';
 export function purposeLabel(live: Pick<LiveSummary, 'purpose' | 'designMode'>): string {
   if (live.purpose === 'interaction') return '交互';
   if (live.purpose === 'optimize') return '优化';
+  if (live.purpose === 'agent') return 'Magi Agent';
   return live.designMode === 'variant' ? '设计 variant' : '设计 workflow';
 }
 
