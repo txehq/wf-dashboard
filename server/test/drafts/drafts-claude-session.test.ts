@@ -49,6 +49,7 @@ interface Live {
   id: string;
   engine: string;
   status: string;
+  starting: boolean;
   claudeSessionId: string | null;
   variantName: string | null;
   processes: { kind: string; status: string }[];
@@ -216,6 +217,29 @@ describe('Claude Code 的设计会话（基础档，替身）', { timeout: 60_00
     });
     expect(driver.statusCode).toBe(409);
     expect(driver.body).toContain('只有人驾驶');
+    // "启动中"的提示：收到 SessionStart 之前为 starting；hook 请求的字段与真实 Claude Code 2.1.295 发出的相同
+    // （Reports/W59，在实例上实测），之后提示消失
+    expect((await getLive(live.id)).starting).toBe(true);
+    const projects = path.join(draft.dir, 'claude-config/projects', live.id);
+    const transcript = path.join(projects, `${sessionId}.jsonl`);
+    const hook = await app.inject({
+      method: 'POST',
+      url: `/api/live/${live.id}/hook`,
+      payload: {
+        hook_event_name: 'SessionStart',
+        session_id: sessionId,
+        transcript_path: transcript,
+        source: 'startup',
+        cwd: draft.dir,
+        model: 'claude-opus-5-5[1m]',
+      },
+    });
+    expect(hook.statusCode, hook.body).toBeLessThan(300);
+    const started = await getLive(live.id);
+    expect(started.starting).toBe(false);
+    expect(
+      started.events.some((e) => e.kind === 'hook' && e.payload.hook_event_name === 'SessionStart'),
+    ).toBe(true);
   });
 
   test('resume：claude --resume <同一个会话>，同一个配置目录；结束后可以再 resume', async () => {
