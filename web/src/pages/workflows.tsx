@@ -218,7 +218,7 @@ function WorkflowRow({
   );
 }
 
-// Contracts 16.7、18.3：Workflows 列表与新建（从空白新建，或用 Codex 生成）
+// Contracts 16.7、18.3、22.1：Workflows 列表与新建（从空白新建，或用 Codex、Claude Code 生成）
 export function WorkflowsPage() {
   const list = useQuery(workflowsQuery);
   const variants = useQuery(variantsQuery);
@@ -246,7 +246,8 @@ export function WorkflowsPage() {
               setCreating('codex');
             }}
           >
-            <Sparkles />用 Codex 生成 workflow
+            <Sparkles />
+            生成 workflow
           </Button>
         </div>
       </div>

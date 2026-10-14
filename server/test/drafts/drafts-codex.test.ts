@@ -99,6 +99,7 @@ describe('Live 中的 Codex 会话（真实 Codex，一次）', { timeout: 600_0
     // 草稿目录只做前两步（复制 src、写说明与例子），不装 skill；Codex 的项换成一句话的提示，不跑完整的生成
     const { draft } = drafts.open({
       mode: 'variant',
+      engine: 'codex',
       workflowId: 'lfg',
       requirement: '测试',
       baseVariantId: base.id,
@@ -109,14 +110,15 @@ describe('Live 中的 Codex 会话（真实 Codex，一次）', { timeout: 600_0
     writeDraftDocs(draftLayout(draft.dir, 'variant'), 'variant', loadWorkflow(db, 'lfg'));
     const file = path.join(draft.dir, 'src/skills/hello-flow/SKILL.md');
     const started = Date.now();
-    const item = live.createCodexItem({
+    const item = live.createDraftItem({
       cwd: draft.dir,
       prompt: '在 src/skills/hello-flow/SKILL.md 末尾加一行 ok',
       title: 'W42 真实 Codex',
       workflow: 'lfg',
       purpose: 'design',
+      engine: 'codex',
     });
-    const detail = await live.startCodex(item.id);
+    const detail = await live.startDraft(item.id);
     expect(detail.engine).toBe('codex');
     expect(detail.status).toBe('running');
     let lines: string[] = [];

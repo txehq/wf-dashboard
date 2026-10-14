@@ -24,6 +24,6 @@ description: Improve a workflow from a session-analysis report — decide whethe
 4. **新建 workflow**：
    1. 改 `optimize/workflow.yaml`：新的 `id`（入口命令，不能与已有的 workflow 相同）、`name` 与小阶段。
    2. 让 `optimize/src/skills/` 中有入口 skill（与新 id 同名）与每个小阶段的同名 skill，删去或改名不再使用的阶段 skill。
-5. 写 skill 时用 `.agents/skills/writing-for-agents` 的原则，用 `.agents/skills/skill-creator` 建结构。
+5. 写 skill 时用 writing-for-agents 的原则，用 skill-creator 建结构（两者与本 skill 装在同一个 skill 目录中）。
 6. **自查**（与保存时的校验相同）：入口与每个小阶段的 skill 目录都在 `optimize/src/skills/` 中；每个 `SKILL.md` 以 YAML frontmatter 开头，有 `name`（与目录名相同）与 `description`。
 7. 完成条件：每条 high 的发现在 `optimize/DECISION.md` 中有去处（改了哪个文件，或为什么不改）。最后告诉用户：改动已在 `optimize/`，可以点"保存"。

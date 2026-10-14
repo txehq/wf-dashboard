@@ -9,6 +9,7 @@ import {
   CreateDraftBody,
   DraftDiffView,
   DraftView,
+  OptimizeBody,
   SaveDraftBody,
   SavePlanView,
 } from '../drafts/views.js';
@@ -88,11 +89,12 @@ export const draftRoutes: FastifyPluginCallbackZod<{ drafts: Drafts }> = (
     {
       schema: {
         params: IdParams,
+        body: OptimizeBody,
         response: { 201: z.object({ draft: DraftView, live: LiveDetail }) },
       },
     },
     (request, reply) => {
-      const created = drafts.optimize(request.params.id);
+      const created = drafts.optimize(request.params.id, request.body.engine);
       void reply.code(201);
       return created;
     },

@@ -3,15 +3,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import { writeClaudeStandIn } from '../helpers/claude-stand-in.js';
 import { codexStandIn, makeSkillSources } from '../helpers/codex-skills.js';
 
-// 基础档（Contracts 17.4）：Codex 草稿保存时新建 variant 或覆盖同一 workflow 中的 variant，名字与描述必填，不构建；
-// 覆盖前原来的 src/ 进 variant 的历史，可以查看与恢复；导入的与已冻结的不能覆盖。
-// 测试代码直接写出草稿中的 skill 后保存，不调用 Codex（Codex 是替身命令），skill 来源是 .work/ 下的本地 git 仓库
+// 基础档（Contracts 17.4、22.1）：草稿保存时新建 variant 或覆盖同一 workflow 中的 variant，名字与描述必填，不构建；
+// 覆盖前原来的 src/ 进 variant 的历史，可以查看与恢复；导入的与已冻结的不能覆盖。保存与引擎无关：Codex 与
+// Claude Code 的草稿各走一遍。测试代码直接写出草稿中的 skill 后保存，不调用 Codex 与 Claude Code（两者都是替身
+// 命令），skill 来源是 .work/ 下的本地 git 仓库
 const work = path.resolve(import.meta.dirname, '../../../.work/test-drafts', randomUUID());
 const sources = makeSkillSources(path.join(work, 'skill-sources'));
 process.env.WFD_CODEX_SKILL_SOURCES = JSON.stringify(sources);
 process.env.WFD_CODEX_BIN = codexStandIn;
+process.env.WFD_CLAUDE_BIN = writeClaudeStandIn(path.join(work, 'bin'));
 
 const { buildApp } = await import('../../src/api/app.js');
 const { config } = await import('../../src/config.js');
@@ -35,7 +38,8 @@ const variants = createVariants({
   ctxBin: config.ctxBin,
 });
 const marker = randomUUID().slice(0, 6);
-const flowId = `save-${marker}`;
+const engines = ['codex', 'claude'] as const;
+type Engine = (typeof engines)[number];
 
 interface Draft {
   id: string;
@@ -85,11 +89,17 @@ const sleep = (ms: number) =>
   });
 
 // 发起 mode variant 的草稿并等准备完成
-async function openDraft(baseVariantId: string): Promise<Draft> {
+async function openDraft(baseVariantId: string, engine: Engine, flowId: string): Promise<Draft> {
   const created = await app.inject({
     method: 'POST',
     url: '/api/workflow-drafts',
-    payload: { mode: 'variant', workflowId: flowId, requirement: '改 scan', baseVariantId },
+    payload: {
+      mode: 'variant',
+      engine,
+      workflowId: flowId,
+      requirement: '改 scan',
+      baseVariantId,
+    },
   });
   expect(created.statusCode, created.body).toBe(201);
   const { draft } = created.json<{ draft: Draft }>();
@@ -107,41 +117,48 @@ const writeScan = (draft: Draft, body: string) => {
 const readScan = (v: Variant) =>
   fs.readFileSync(path.join(v.installDir, 'src/skills/scan/SKILL.md'), 'utf8');
 
-let first: Variant;
-let draft: Draft;
-
 beforeAll(async () => {
-  await app.ready();
-  // 从空白新建的 workflow 与它的第一个 variant「初稿」（Contracts 18.5）
-  const created = await app.inject({
-    method: 'POST',
-    url: '/api/workflows',
-    payload: {
-      id: flowId,
-      name: `保存 ${marker}`,
-      description: '',
-      definition: { id: flowId, name: `保存 ${marker}`, stages: [{ id: 'scan' }] },
-    },
-  });
-  expect(created.statusCode, created.body).toBe(201);
-  const initial = variants.list().find((v) => v.workflowId === flowId);
-  if (initial === undefined) throw new Error(`workflow ${flowId} 没有建出初稿`);
-  first = await getVariant(initial.id);
-  draft = await openDraft(first.id);
+  // Claude Code 的 hooks 指向服务实际监听的地址
+  await app.listen({ host: '127.0.0.1', port: 0 });
 });
 
 afterAll(async () => {
-  for (const id of [draft.liveId]) {
-    if (id !== null) await app.inject({ method: 'POST', url: `/api/live/${id}/stop` });
-  }
   await app.close();
   db.$client.close();
   for (const suffix of ['', '-wal', '-shm']) fs.rmSync(dbFile + suffix, { force: true });
   fs.rmSync(work, { recursive: true, force: true });
 });
 
-describe('Codex 草稿的保存：新建或覆盖，不构建（基础档）', { timeout: 60_000 }, () => {
+describe.each(engines)('%s 草稿的保存：新建或覆盖，不构建', { timeout: 60_000 }, (engine) => {
+  const flowId = `save-${engine}-${marker}`;
+  let first: Variant;
+  let draft: Draft;
   let created: Variant;
+
+  beforeAll(async () => {
+    // 从空白新建的 workflow 与它的第一个 variant「初稿」（Contracts 18.5）
+    const made = await app.inject({
+      method: 'POST',
+      url: '/api/workflows',
+      payload: {
+        id: flowId,
+        name: `保存 ${marker}`,
+        description: '',
+        definition: { id: flowId, name: `保存 ${marker}`, stages: [{ id: 'scan' }] },
+      },
+    });
+    expect(made.statusCode, made.body).toBe(201);
+    const initial = variants.list().find((v) => v.workflowId === flowId);
+    if (initial === undefined) throw new Error(`workflow ${flowId} 没有建出初稿`);
+    first = await getVariant(initial.id);
+    draft = await openDraft(first.id, engine, flowId);
+  });
+
+  afterAll(async () => {
+    if (draft.liveId !== null) {
+      await app.inject({ method: 'POST', url: `/api/live/${draft.liveId}/stop` });
+    }
+  });
 
   test('新建：名字或描述为空 400、同名 409；保存出的 variant 为 draft、未构建，src 为草稿的 src，记录来源草稿与 parent', async () => {
     writeScan(draft, '先列出要扫描的目录。');
@@ -340,7 +357,7 @@ describe('Codex 草稿的保存：新建或覆盖，不构建（基础档）', {
     expect(frozenRestore.statusCode).toBe(409);
 
     // 另一个 workflow 的 variant
-    const otherId = `save-other-${marker}`;
+    const otherId = `save-other-${engine}-${marker}`;
     const otherFlow = await app.inject({
       method: 'POST',
       url: '/api/workflows',

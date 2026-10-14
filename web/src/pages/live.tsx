@@ -352,20 +352,28 @@ function LivePanel({
     </p>
   );
   const panelClass = 'flex min-h-0 min-w-0 flex-1 flex-col gap-2';
-  if (data.engine === 'codex') {
-    // 用 Codex 生成 workflow 或 variant 的会话（Contracts 17.3）：只有人驾驶，没有阶段与请求明细
+  if (data.purpose === 'design' || data.purpose === 'optimize') {
+    // 设计 workflow 或 variant、分析优化的会话（Contracts 17.3、22）：Codex 或 Claude Code，只有人驾驶，
+    // 没有阶段与请求明细
+    const codex = data.engine === 'codex';
     return (
       <div className={panelClass} data-testid="live-panel" data-live={liveId}>
         <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="live-toolbar">
           <StatusBadge live={data} />
           <span className="font-medium" data-testid="live-engine">
-            Codex
+            {codex ? 'Codex' : 'Claude Code'}
           </span>
           {running && stopButton}
           <FinderMenu
             items={[
-              { label: '草稿目录', target: { kind: 'live-cwd', id: liveId } },
-              { label: 'CODEX_HOME', target: { kind: 'live-config', id: liveId } },
+              {
+                label: data.purpose === 'optimize' ? '分析目录' : '草稿目录',
+                target: { kind: 'live-cwd', id: liveId },
+              },
+              {
+                label: codex ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR',
+                target: { kind: 'live-config', id: liveId },
+              },
             ]}
           />
           <span
@@ -388,7 +396,7 @@ function LivePanel({
       </div>
     );
   }
-  // Claude Code 的项建出时就有 session id（只有 Codex 草稿的项会暂时为空）
+  // 交互的项建出时就有 session id（只有设计与分析优化的项在第一次启动前为空）
   const sessionId = data.claudeSessionId;
   if (sessionId === null) throw new Error(`交互 ${liveId} 没有 session id`);
   const model = data.process?.model ?? null;

@@ -39,6 +39,8 @@ stages: # 小阶段，名字即 skill 名
 
 ## 写 skill
 
-- 用 `.agents/skills/writing-for-agents` 的原则写：短，只写 agent 不知道的东西。
-- 用 `.agents/skills/skill-creator` 建 skill 的结构。
-- 需要现成的 skill 时用 `.agents/skills/find-skills` 搜索；安装时用项目范围（不加 `-g`），装进本目录的 `.agents/skills/`。要把它变成 workflow 的一部分，复制进 `src/skills/`。
+下面的三个 skill 已装在本目录的 skill 目录中：Codex 为 `.agents/skills/`，Claude Code 为 `.claude/skills/`（初始消息中写明是哪一个）。
+
+- 用 writing-for-agents 的原则写：短，只写 agent 不知道的东西。
+- 用 skill-creator 建 skill 的结构。
+- 需要现成的 skill 时用 find-skills 搜索；安装时用项目范围（不加 `-g`），装进本目录的 skill 目录。要把它变成 workflow 的一部分，复制进 `src/skills/`。

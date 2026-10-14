@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { stringify } from 'yaml';
 import { config } from '../config.js';
-import type { AnalysisReport, DraftMode } from '../db/schema.js';
+import type { AnalysisReport, DraftMode, LiveEngine } from '../db/schema.js';
+import { claudeSessionDirsOf } from '../live/claude-session.js';
 import { codexDirsOf } from '../live/codex.js';
 import { isWfWorkflow, type WorkflowDefinition } from '../workflows/schema.js';
 
@@ -20,13 +21,23 @@ export function draftLayout(dir: string, mode: DraftMode) {
     workflowYaml: path.join(work, 'workflow.yaml'),
     platform: path.join(dir, 'PLATFORM.md'),
     example: path.join(dir, 'examples', 'simple-workflow'),
-    // find-skills 等装到这里（Contracts 17.3），Codex 从 cwd 的 .agents/skills 加载
+    // find-skills 等装到这里（Contracts 17.3），Codex 从 cwd 的 .agents/skills 加载；Claude Code 的会话装到
+    // .claude/skills（22.2）
     agentSkills: path.join(dir, '.agents', 'skills'),
     skillsLock: path.join(dir, 'skills-lock.json'),
     ...codexDirsOf(dir),
+    ...claudeSessionDirsOf(dir),
   };
 }
 export type DraftLayout = ReturnType<typeof draftLayout>;
+
+// 这个引擎从工作目录中的哪里加载项目范围的 skill
+export const sessionSkillsDir = (layout: DraftLayout, engine: LiveEngine) =>
+  engine === 'codex' ? layout.agentSkills : layout.claudeSkills;
+
+// 写进初始消息的 skill 位置（相对工作目录）
+const skillsPath = (engine: LiveEngine) =>
+  engine === 'codex' ? '.agents/skills' : '.claude/skills';
 
 const yamlHeader: Record<DraftMode, string> = {
   workflow: '# 新 workflow 的定义（结构见 PLATFORM.md）：由你修改；保存时以它为准\n',
@@ -69,8 +80,13 @@ export function writeDraftDocs(
   fs.cpSync(path.join(assetsDir, 'simple-workflow'), layout.example, { recursive: true });
 }
 
-// 初始消息（Contracts 17.3）：需求原文，加读什么、写到哪里、用哪些 skill
-export function initialMessage(mode: 'workflow' | 'variant', requirement: string): string {
+// 初始消息（Contracts 17.3、22.2）：需求原文，加读什么、写到哪里、用哪些 skill；两种引擎相同，只有 skill 的位置不同
+export function initialMessage(
+  mode: 'workflow' | 'variant',
+  requirement: string,
+  engine: LiveEngine,
+): string {
+  const skills = skillsPath(engine);
   const target =
     mode === 'workflow'
       ? '这是一个新 workflow：在 src/skills/ 中写入口 skill 与每个小阶段的 skill，并按需要修改 workflow.yaml 的小阶段。'
@@ -81,11 +97,11 @@ export function initialMessage(mode: 'workflow' | 'variant', requirement: string
     '---',
     '先读 PLATFORM.md 与 examples/simple-workflow/。',
     target,
-    '写 skill 时使用 .agents/skills/writing-for-agents 与 .agents/skills/skill-creator；需要现成的 skill 时用 .agents/skills/find-skills（只用项目范围，装进本目录的 .agents/skills/）。',
+    `写 skill 时使用 ${skills}/writing-for-agents 与 ${skills}/skill-creator；需要现成的 skill 时用 ${skills}/find-skills（只用项目范围，装进本目录的 ${skills}/）。`,
   ].join('\n');
 }
 
-// 交给 Codex 优化的初始消息（Contracts 19.3）：报告的总结与发现的条数，指向 output/ 与 optimize/
+// 交给 agent 优化的初始消息（Contracts 19.3）：报告的总结与发现的条数，指向 output/ 与 optimize/
 export function optimizeMessage(input: {
   analysisId: string;
   workflowId: string;
@@ -93,8 +109,10 @@ export function optimizeMessage(input: {
   report: AnalysisReport;
   findings: { high: number; medium: number; low: number };
   patches: number;
+  engine: LiveEngine;
 }): string {
   const { report, findings } = input;
+  const skills = skillsPath(input.engine);
   return [
     `分析 ${input.analysisId} 分析了 workflow ${input.workflowId} 的 variant「${input.variantName}」，报告的总结：`,
     '',
@@ -103,7 +121,7 @@ export function optimizeMessage(input: {
     `发现 ${String(findings.high + findings.medium + findings.low)} 条（high ${String(findings.high)}、medium ${String(findings.medium)}、low ${String(findings.low)}），skill 的修改建议 ${String(input.patches)} 个，需要新建 workflow 的建议 ${String(report.workflowChanges.length)} 条。`,
     '',
     '---',
-    '用 .agents/skills/optimize-from-report 完成这次优化：先读 PLATFORM.md，再读 output/report.json、output/findings-*.json 与 output/patches.json，判断改 variant 还是新建 workflow，然后在 optimize/src/skills/（新建 workflow 时还有 optimize/workflow.yaml）中把改动做出来。',
-    '写 skill 时使用 .agents/skills/writing-for-agents 与 .agents/skills/skill-creator；需要现成的 skill 时用 .agents/skills/find-skills（只用项目范围，装进本目录的 .agents/skills/）。',
+    `用 ${skills}/optimize-from-report 完成这次优化：先读 PLATFORM.md，再读 output/report.json、output/findings-*.json 与 output/patches.json，判断改 variant 还是新建 workflow，然后在 optimize/src/skills/（新建 workflow 时还有 optimize/workflow.yaml）中把改动做出来。`,
+    `写 skill 时使用 ${skills}/writing-for-agents 与 ${skills}/skill-creator；需要现成的 skill 时用 ${skills}/find-skills（只用项目范围，装进本目录的 ${skills}/）。`,
   ].join('\n');
 }

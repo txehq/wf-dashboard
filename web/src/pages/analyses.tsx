@@ -19,8 +19,8 @@ export function AnalysesPage() {
         <h1 className="text-2xl font-semibold">Analyses</h1>
         <p className="text-sm text-muted-foreground">
           用 workflow session-analysis 的 variant 分析 session：按发现修改 skill 另存为新的
-          variant，或把报告交给 Codex 优化。在 Sessions 中选择 session，或在 Runs 的 batch
-          上开始分析。
+          variant，或把报告交给 Codex 或 Claude Code 优化。在 Sessions 中选择 session，或在 Runs 的
+          batch 上开始分析。
         </p>
       </header>
       {list.isPending ? (

@@ -241,6 +241,8 @@ export const services = {
       WFD_CLAUDE_PROJECTS: path.join(analysisWorkflowDir, 'projects'),
       WFD_PORT: String(analysisWorkflowServerPort),
       WFD_CODEX_BIN: codexEnv.WFD_CODEX_BIN,
+      // 选 Claude Code 优化时的会话（Contracts 22.2）：换成回显按键的替身，只验证页面、终端与保存
+      WFD_CLAUDE_BIN: path.join(root, 'server/test/fixtures/live/claude-stand-in.mjs'),
       WFD_CODEX_SKILL_SOURCES: JSON.stringify(
         ['find-skills', 'skill-creator', 'writing-for-agents'].map((name) => ({
           name,

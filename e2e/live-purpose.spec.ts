@@ -33,6 +33,7 @@ test.beforeAll(async ({ request }) => {
   const workflowDraft = await request.post(`${api}/workflow-drafts`, {
     data: {
       mode: 'workflow',
+      engine: 'codex',
       workflowId: `w53-${String(Date.now())}`,
       name: 'W53 新 workflow',
       description: '',
@@ -50,6 +51,7 @@ test.beforeAll(async ({ request }) => {
   const variantDraft = await request.post(`${api}/workflow-drafts`, {
     data: {
       mode: 'variant',
+      engine: 'codex',
       workflowId: 'secret-keeper',
       requirement: '回答更短',
       baseVariantId: base.id,
@@ -62,7 +64,9 @@ test.beforeAll(async ({ request }) => {
     status: string;
   }[];
   analysisId = analyses.find((a) => a.status === 'succeeded')?.id ?? '';
-  const optimized = await request.post(`${api}/analyses/${analysisId}/optimize`);
+  const optimized = await request.post(`${api}/analyses/${analysisId}/optimize`, {
+    data: { engine: 'codex' },
+  });
   expect(optimized.status()).toBe(201);
   ids.optimize = ((await optimized.json()) as { live: Item }).live.id;
 });
