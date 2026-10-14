@@ -31,7 +31,11 @@ function daemon(buildCode = 0) {
   const lines: string[] = [];
   return {
     lines,
-    run: runDaemon({ cwd: work, build: build(buildCode), serve, log: (l) => lines.push(l) }),
+    run: runDaemon({
+      build: { command: build(buildCode), cwd: work },
+      serve: { command: serve, cwd: work },
+      log: (l) => lines.push(l),
+    }),
   };
 }
 

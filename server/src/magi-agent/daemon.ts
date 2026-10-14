@@ -5,9 +5,9 @@ import { execa } from 'execa';
 export const RESTART_EXIT_CODE = 75;
 
 export interface DaemonOptions {
-  cwd: string;
-  build: string[];
-  serve: string[];
+  build: { command: string[]; cwd: string };
+  // 服务的命令直接运行 node：经 pnpm 运行时 pnpm 把服务的任何非零退出码都变成 1，看不到 75
+  serve: { command: string[]; cwd: string };
   log: (line: string) => void;
 }
 
@@ -15,11 +15,11 @@ export interface DaemonOptions {
 // 构建失败时以构建的退出码结束。守护进程收到 SIGINT 或 SIGTERM 时转给服务
 export async function runDaemon(opts: DaemonOptions): Promise<number> {
   for (;;) {
-    const [buildFile, ...buildArgs] = opts.build;
-    const [serveFile, ...serveArgs] = opts.serve;
+    const [buildFile, ...buildArgs] = opts.build.command;
+    const [serveFile, ...serveArgs] = opts.serve.command;
     if (buildFile === undefined || serveFile === undefined) throw new Error('构建或启动的命令为空');
     const build = await execa(buildFile, buildArgs, {
-      cwd: opts.cwd,
+      cwd: opts.build.cwd,
       stdio: 'inherit',
       reject: false,
     });
@@ -27,7 +27,11 @@ export async function runDaemon(opts: DaemonOptions): Promise<number> {
       opts.log(`构建失败，退出码 ${String(build.exitCode)}`);
       return build.exitCode ?? 1;
     }
-    const serve = execa(serveFile, serveArgs, { cwd: opts.cwd, stdio: 'inherit', reject: false });
+    const serve = execa(serveFile, serveArgs, {
+      cwd: opts.serve.cwd,
+      stdio: 'inherit',
+      reject: false,
+    });
     const forward = (signal: NodeJS.Signals) => {
       serve.kill(signal);
     };
