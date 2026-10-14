@@ -38,6 +38,9 @@ export function WorkspaceLink({ session }: { session: SessionDetail }) {
 
 export function VariantLink({ session }: { session: SessionDetail }) {
   if (session.variant === null) return <span>未绑定</span>;
+  if (session.variant.deleted) {
+    return <span data-testid="session-variant-link">{session.variant.name}</span>;
+  }
   return (
     <Link
       to={`/variants/${session.variant.id}`}

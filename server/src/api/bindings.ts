@@ -17,7 +17,8 @@ import type { Variants } from '../variants/index.js';
 const Named = z.object({ id: z.string(), name: z.string() });
 
 const Binding = z.object({
-  variant: Named.nullable(),
+  // deleted：绑定的 variant 已删除（Contracts 24.3）
+  variant: Named.extend({ deleted: z.boolean() }).nullable(),
   binding: z.enum(variantBindings).nullable(),
   matching: z.array(Named),
   skills: z.array(z.object({ name: z.string(), loads: z.number().int() })),

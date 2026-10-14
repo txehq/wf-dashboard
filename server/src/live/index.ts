@@ -34,6 +34,7 @@ import { type CodexSources, writeCodexHome } from '../variants/codex-home.js';
 import { isolatedBaseEnv, writeSessionClaudeConfig } from '../variants/claude-config.js';
 import { HttpError } from '../variants/errors.js';
 import type { Variants } from '../variants/index.js';
+import { displayName } from '../variants/names.js';
 import { sessionSandboxProfile } from '../variants/sandbox.js';
 import { entryOf, evalSpec } from '../workflows/eval-kinds.js';
 import { evalSpecOf, workflowOfVariant, workflowRow } from '../workflows/index.js';
@@ -288,15 +289,15 @@ export function createLive(deps: LiveDeps) {
     };
   }
 
+  // 显示用的名字：已删除的 variant 为"<名字>（已删除）"（Contracts 24.3）
   function variantName(variantId: string | null): string | null {
     if (variantId === null) return null;
-    return (
-      db
-        .select({ name: variantsTable.name })
-        .from(variantsTable)
-        .where(eq(variantsTable.id, variantId))
-        .get()?.name ?? null
-    );
+    const v = db
+      .select({ name: variantsTable.name, deletedAt: variantsTable.deletedAt })
+      .from(variantsTable)
+      .where(eq(variantsTable.id, variantId))
+      .get();
+    return v === undefined ? null : displayName(v);
   }
 
   function processView(p: ProcessRow): LiveProcessView {
@@ -1012,10 +1013,18 @@ export function createLive(deps: LiveDeps) {
     const session = db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
     if (session === undefined) throw new HttpError(404, `session 不存在：${sessionId}`);
     const item = itemOfSession(sessionId);
-    // 默认为 session 绑定的 variant（Contracts 15.1）；没有绑定时为本机配置
+    // 默认为 session 绑定的 variant（Contracts 15.1）；没有绑定、或绑定的 variant 已删除（24.3）时为本机配置
+    const bound =
+      session.variantId === null
+        ? undefined
+        : db
+            .select({ deletedAt: variantsTable.deletedAt })
+            .from(variantsTable)
+            .where(eq(variantsTable.id, session.variantId))
+            .get();
     return {
       sessionId,
-      variantId: session.variantId,
+      variantId: bound?.deletedAt === null ? session.variantId : null,
       cwd: session.cwd,
       cwdExists: session.cwd !== null && fs.existsSync(session.cwd),
       liveId: item?.id ?? null,
@@ -1317,6 +1326,14 @@ export function createLive(deps: LiveDeps) {
     if (confirmTitle !== item.title) {
       throw new HttpError(400, `输入的名字与这一项的名字不同：${JSON.stringify(confirmTitle)}`);
     }
+    removeItem(id);
+  }
+
+  // 删除一项与它的目录（没有运行中的进程）；session 只解除与它的关联。删除 variant 或 workflow 时连同 session
+  // 一起删除的项也走这里（Contracts 24.2、24.5）
+  function removeItem(id: string) {
+    const item = row(id);
+    requireStopped(id, '删除');
     const counts = db.$client.transaction(() => {
       const unlinked = db
         .update(sessions)
@@ -1400,6 +1417,8 @@ export function createLive(deps: LiveDeps) {
     hide,
     unhide,
     remove,
+    removeItem,
+    dirOf: liveDir,
     // "在访达中打开"的两个目录（Contracts 14.2）：工作目录与最近一次进程的配置目录（本机配置时为 <HOME>/.claude，
     // 设计与分析优化的会话为工作目录中的 CODEX_HOME 或 claude-config/）
     dirs(id: string): { cwd: string; configDir: string } {

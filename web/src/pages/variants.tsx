@@ -7,6 +7,7 @@ import { VariantName } from '@/components/variant-name';
 import { OpenInFinder } from '@/components/open-in-finder';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { DeleteButton } from '@/components/delete-dialog';
 import { VariantHistoryButton } from '@/components/variant-history';
 import { formatDateTime } from '@/lib/format';
 import { type WorkflowRecord, workflowsQuery } from '@/lib/workflows-api';
@@ -114,6 +115,12 @@ function HeaderActions({
       </Button>
       <OpenInFinder target={{ kind: 'variant', id: variant.id }} label="在访达中打开" />
       <VariantHistoryButton variant={variant} />
+      <DeleteButton
+        kind="variant"
+        id={variant.id}
+        name={variant.name}
+        after={`/workflows/${workflow.id}`}
+      />
       {/* 安装到本机只对不用 wf 管理的 workflow（Contracts 18.6） */}
       {!workflow.wf && (
         <span className="contents" data-testid="local-install">
@@ -198,6 +205,9 @@ function StatusLine({
           派生自{' '}
           {parent.data === undefined ? (
             variant.parentId
+          ) : parent.data.deletedAt !== null ? (
+            // 已删除的 parent 只显示名字，不能点进去（Contracts 24.3）
+            variantLabel(parent.data)
           ) : (
             <Link className="underline" to={variantHref(parent.data)}>
               {variantLabel(parent.data)}
@@ -379,6 +389,17 @@ export function VariantPage() {
   }
   if (workflows.isError) {
     return <p className="text-sm text-destructive">{workflows.error.message}</p>;
+  }
+  // 已删除的 variant（Contracts 24.3）：只保留名字用于显示，页面不再提供编辑与操作
+  if (variant.data.deletedAt !== null) {
+    return (
+      <p className="text-sm text-muted-foreground" data-testid="variant-deleted">
+        variant {variantLabel(variant.data)} 已删除。
+        <Link className="ml-2 underline" to="/workflows">
+          回到 Workflows
+        </Link>
+      </p>
+    );
   }
   const workflow = workflows.data.find((w) => w.id === variant.data.workflowId);
   if (workflow === undefined) throw new Error(`没有 workflow ${variant.data.workflowId}`);

@@ -250,19 +250,27 @@ function AnalysisView({ analysis }: { analysis: AnalysisDetail }) {
         <p className="text-sm text-muted-foreground">
           {engineLabel[analysis.engine]} · <span className="font-mono">{analysis.model}</span> ·
           variant{' '}
-          <Link className="underline" to={`/variants/${analysis.variantId}`}>
-            {analysis.variantName}
-          </Link>{' '}
+          {analysis.variantDeleted ? (
+            <span>{analysis.variantName}</span>
+          ) : (
+            <Link className="underline" to={`/variants/${analysis.variantId}`}>
+              {analysis.variantName}
+            </Link>
+          )}{' '}
           {analysis.analysisVariantId !== null && (
             <>
               · 分析方法{' '}
-              <Link
-                className="underline"
-                to={`/variants/${analysis.analysisVariantId}`}
-                data-testid="analysis-method"
-              >
-                {analysis.analysisVariantName}
-              </Link>{' '}
+              {analysis.analysisVariantDeleted ? (
+                <span data-testid="analysis-method">{analysis.analysisVariantName}</span>
+              ) : (
+                <Link
+                  className="underline"
+                  to={`/variants/${analysis.analysisVariantId}`}
+                  data-testid="analysis-method"
+                >
+                  {analysis.analysisVariantName}
+                </Link>
+              )}{' '}
             </>
           )}
           · {formatDateTime(analysis.createdAt)} · {costText(analysis)}

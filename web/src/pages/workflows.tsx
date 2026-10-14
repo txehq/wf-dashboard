@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, Plus, Sparkles } from 'lucide-react';
 import { Fragment, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { CodexDraftForm } from '@/components/codex-draft';
+import { DeleteButton } from '@/components/delete-dialog';
 import { PageShell } from '@/components/page-shell';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -140,17 +141,21 @@ export function VariantRows({ variants }: { variants: (Variant & { boundSessions
         {variants.map((v) => (
           <tr key={v.id} className="border-b last:border-b-0" data-testid={`variant-row-${v.name}`}>
             <td className="py-1.5">
-              <VariantName
-                variant={v}
-                link={(name) => (
-                  <Link
-                    className="font-medium underline-offset-4 hover:underline"
-                    to={variantHref(v)}
-                  >
-                    {name}
-                  </Link>
-                )}
-              />
+              <span className="flex items-center gap-1">
+                <VariantName
+                  variant={v}
+                  link={(name) => (
+                    <Link
+                      className="font-medium underline-offset-4 hover:underline"
+                      to={variantHref(v)}
+                    >
+                      {name}
+                    </Link>
+                  )}
+                />
+                {/* 与改名的铅笔放在一起（Contracts 24.6）；一个 workflow 的最后一个 variant 在对话框中写明不能单独删除 */}
+                <DeleteButton kind="variant" id={v.id} name={v.name} icon />
+              </span>
             </td>
             <td className="max-w-md truncate text-muted-foreground" title={v.description ?? ''}>
               {v.description ?? ''}
@@ -196,7 +201,11 @@ function WorkflowRow({
             >
               {workflow.name}
             </Link>
-            {workflow.builtin && <span className="ml-1 text-xs text-muted-foreground">内置</span>}
+            {workflow.builtin ? (
+              <span className="ml-1 text-xs text-muted-foreground">内置</span>
+            ) : (
+              <DeleteButton kind="workflow" id={workflow.id} name={workflow.name} icon />
+            )}
           </span>
         </td>
         <td className="max-w-md truncate text-muted-foreground" title={workflow.description ?? ''}>

@@ -69,17 +69,24 @@ export function createLocalInstalls({ installsDir, home }: { installsDir: string
       });
   }
 
+  // 装在本机时安装后被改过的文件（sha256 不同）；没有装时为空
+  function modifiedFiles(variantId: string): string[] {
+    const manifest = read(variantId);
+    if (manifest === null) return [];
+    return manifest.files
+      .filter((f) => fs.existsSync(f.path) && sha256(f.path) !== f.sha256)
+      .map((f) => f.path);
+  }
+
   // 按清单删除文件与空目录；文件被改过（sha256 不同）时拒绝并列出。已经不存在的文件不再删除
   function uninstall(variantId: string): InstallManifest {
     const manifest = read(variantId);
     if (manifest === null) throw new HttpError(404, `variant ${variantId} 没有装在本机`);
-    const changed = manifest.files.filter(
-      (f) => fs.existsSync(f.path) && sha256(f.path) !== f.sha256,
-    );
+    const changed = modifiedFiles(variantId);
     if (changed.length > 0) {
       throw new HttpError(
         409,
-        `这些文件在安装后被改过，没有卸载（先把改动移走或恢复原样）：\n${changed.map((f) => f.path).join('\n')}`,
+        `这些文件在安装后被改过，没有卸载（先把改动移走或恢复原样）：\n${changed.join('\n')}`,
       );
     }
     for (const f of manifest.files) fs.rmSync(f.path, { force: true });
@@ -142,6 +149,7 @@ export function createLocalInstalls({ installsDir, home }: { installsDir: string
     },
 
     uninstall,
+    modifiedFiles,
   };
 }
 

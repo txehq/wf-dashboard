@@ -70,6 +70,7 @@ export default defineConfig({
         'variants.spec.ts',
         'variant-workspace.spec.ts',
         'workflows.spec.ts',
+        'deletion.spec.ts',
         'codex-drafts.spec.ts',
         'compare-empty.spec.ts',
         'contrast.spec.ts',

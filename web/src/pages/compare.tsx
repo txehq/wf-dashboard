@@ -20,7 +20,7 @@ import { ArtifactSideBySide } from '@/pages/compare-artifacts';
 import { CostComparison } from '@/pages/compare-costs';
 import { ScoreTable } from '@/pages/compare-scores';
 import { SkillDiffSection } from '@/pages/compare-skills';
-import { type Variant, variantLabel, variantsQuery } from '@/pages/variants-api';
+import { allVariantsQuery, type Variant, variantLabel } from '@/pages/variants-api';
 
 interface Selection {
   // 对比范围：一个有评测类型的 workflow（Contracts 16.5），写作 workflow id
@@ -492,7 +492,8 @@ function CompareBody({
 }
 
 export function ComparePage() {
-  const variants = useQuery(variantsQuery);
+  // 包括已删除的 variant：它们的 run 与评分保留，名字显示「（已删除）」（Contracts 24.3）
+  const variants = useQuery(allVariantsQuery);
   const tasks = useQuery(tasksQuery);
   const runs = useQuery(compareRunsQuery);
   const workflows = useQuery(workflowsQuery);
