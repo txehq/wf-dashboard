@@ -29,11 +29,14 @@ export const codexResumeArgs = (sessionId: string) => ['resume', ...SANDBOX_ARGS
 
 // Magi Agent 的 Codex（Contracts 23.3，codex-cli 0.162.0 实测，Reports/W60）：用户自己的 ~/.codex，不开沙箱；
 // worktree 的信任只认整张 projects 表的写法（projects."<路径>".trust_level 不起作用），不改 config.toml；
-// MAGI.md 作为 developer_instructions 传入。message 为空时不带初始消息，用户在终端中输入第一条
+// MAGI.md 作为 developer_instructions 传入；不在启动时检查更新（用户的配置默认检查，会在终端中自行 npm install -g）。
+// message 为空时不带初始消息，用户在终端中输入第一条
 function agentArgs(cwd: string, instructions: string): string[] {
   return [
     '--no-daemon',
     '--dangerously-bypass-approvals-and-sandbox',
+    '-c',
+    'check_for_update_on_startup=false',
     '-c',
     stringify({ projects: { [cwd]: { trust_level: 'trusted' } } }, { inlineTableStart: 0 }).trim(),
     '-c',

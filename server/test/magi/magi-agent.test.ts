@@ -80,10 +80,12 @@ test('第一次打开 Codex：从 main 建 magi-agent 分支的 worktree、pnpm 
     await git(magi.repo, 'rev-parse', 'main'),
   );
   expect(fs.existsSync(path.join(magi.worktree, 'node_modules'))).toBe(true);
-  // 不开沙箱、整张 projects 表记 worktree 为已信任、MAGI.md 作为 developer_instructions；没有初始消息
+  // 不开沙箱、不检查更新、整张 projects 表记 worktree 为已信任、MAGI.md 作为 developer_instructions；没有初始消息
   expect(lastArgv(started).slice(1)).toEqual([
     '--no-daemon',
     '--dangerously-bypass-approvals-and-sandbox',
+    '-c',
+    'check_for_update_on_startup=false',
     '-c',
     trust(magi.worktree),
     '-c',
@@ -126,6 +128,8 @@ test('第一次打开 Codex：从 main 建 magi-agent 分支的 worktree、pnpm 
     'resume',
     '--no-daemon',
     '--dangerously-bypass-approvals-and-sandbox',
+    '-c',
+    'check_for_update_on_startup=false',
     '-c',
     trust(magi.worktree),
     '-c',
