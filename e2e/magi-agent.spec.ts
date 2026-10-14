@@ -37,7 +37,9 @@ test('左上角的 Magi Agent：打开当前会话、第一次打开时建 workt
     timeout: 60_000,
   });
   await expect(page.locator('.xterm-rows')).toContainText('Codex 替身');
-  await expect(page.locator('.xterm-rows')).toContainText('dangerously-bypass-approvals-and-sandbox');
+  await expect(page.locator('.xterm-rows')).toContainText(
+    'dangerously-bypass-approvals-and-sandbox',
+  );
   expect(fs.existsSync(path.join(magiAgentWorktree, 'node_modules'))).toBe(true);
   await expect(panel.getByTestId('live-engine')).toHaveText('Codex');
   await expect(panel.getByTestId('magi-branch')).toContainText('magi-agent');
@@ -99,7 +101,9 @@ test('左上角的 Magi Agent：打开当前会话、第一次打开时建 workt
   const status = panel.getByTestId('magi-deploy');
   await expect(status).toHaveAttribute('data-status', 'failed');
   await expect(status).toContainText('上一次部署失败：worktree 没有未提交的改动');
-  const log = await request.get(String(await status.getByTestId('magi-deploy-log').getAttribute('href')));
+  const log = await request.get(
+    String(await status.getByTestId('magi-deploy-log').getAttribute('href')),
+  );
   expect(await log.text()).toContain('draft.md');
   await shoot(page, 'magi-deploy-failed');
 
