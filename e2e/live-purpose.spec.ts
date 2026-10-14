@@ -1,5 +1,6 @@
 import { expect, type Page, test } from './test.js';
 import { analysisWorkflowServerPort } from '../ports.js';
+import { checkContrast, nonTextContrast, setTheme, themes } from './contrast.js';
 
 // Live 列表中每项一眼能看出用途与引擎（Contracts 14.3），基础档。用 analysis-workflow 的数据（这个 project 在它之后运行）：
 // 导入一轮的短 session cfa31f10（交互，Claude Code）；新建一个 workflow 的 Codex 草稿与 secret-keeper 的 variant 草稿
@@ -199,4 +200,45 @@ test('标签页标题与全屏中的切换下拉显示用途的颜色与引擎�
   await option.click();
   await expect(page.getByTestId('live-panel')).toHaveAttribute('data-live', ids.interaction);
   await expect(page.getByTestId('live-fullscreen')).toHaveAttribute('data-fullscreen', 'true');
+});
+
+test('对比度：列表、交互项、全屏与切换下拉的文字达到 WCAG AA；色带与 logo 与底色至少 3:1（明暗两种主题）', async ({
+  page,
+}) => {
+  await page.goto(`/live?tabs=${ids.interaction},${ids.optimize}&item=${ids.interaction}`);
+  await expectIdentity(page, ids.optimize, 'optimize', '优化', 'Codex');
+  await checkContrast(page, 'live-list', { screenshot: true });
+  for (const theme of themes) {
+    await setTheme(page, theme);
+    for (const id of [ids.interaction, ids.designWorkflow, ids.optimize]) {
+      const item = itemOf(page, id);
+      const band = item.getByTestId('live-purpose-band');
+      expect(
+        await nonTextContrast(band, 'background-color', item),
+        `${theme} ${id} 的色带`,
+      ).toBeGreaterThanOrEqual(3);
+    }
+    for (const [id, engine] of [
+      [ids.interaction, 'Claude Code'],
+      [ids.optimize, 'Codex'],
+    ] as const) {
+      const item = itemOf(page, id);
+      const logoPath = item.getByRole('img', { name: engine }).locator('path').first();
+      expect(
+        await nonTextContrast(logoPath, 'fill', item),
+        `${theme} ${engine} 的 logo`,
+      ).toBeGreaterThanOrEqual(3);
+    }
+  }
+  await setTheme(page, 'light');
+
+  await page.goto(`/live?item=${ids.optimize}`);
+  await expect(page.getByTestId('live-panel')).toHaveAttribute('data-live', ids.optimize);
+  await checkContrast(page, 'live-codex-item', { screenshot: true });
+
+  await page.goto(`/live?item=${ids.interaction}&fullscreen=1`);
+  await expect(page.getByTestId('live-fullscreen')).toHaveAttribute('data-fullscreen', 'true');
+  await page.getByTestId('live-switcher').click();
+  await expect(page.getByTestId('live-switcher-item').first()).toBeVisible();
+  await checkContrast(page, 'live-fullscreen-switcher', { screenshot: true });
 });

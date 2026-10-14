@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { expect, type Page, test } from './test.js';
 import { z } from 'zod';
+import { checkContrast } from './contrast.js';
 import { liveFullscreenProjectsDir } from './services.js';
 
 // Live 的全屏（Contracts 20.1、20.3）与工具栏（20.4）。服务端的 Claude Code 是替身命令
@@ -58,6 +59,16 @@ async function terminalLines(page: Page): Promise<string[]> {
   return page
     .locator('.xterm-rows > div')
     .evaluateAll((rows) => rows.map((r) => r.textContent.replaceAll(' ', ' ')));
+}
+
+// 替身收到的全部输入按顺序连起来：同一段时间内的按键可能作为一段到达 PTY（`key "hi"`），也可能分开到达
+async function receivedInput(page: Page): Promise<string> {
+  return (await terminalLines(page))
+    .flatMap((l) => {
+      const m = /^key (".*")$/.exec(l);
+      return m?.[1] === undefined ? [] : [z.string().parse(JSON.parse(m[1]))];
+    })
+    .join('');
 }
 
 // 替身最近一次读到的终端尺寸
@@ -173,9 +184,9 @@ test('全屏：终端铺满窗口并获得焦点，PTY 收到新尺寸；Esc 写
 
   // Esc 进入终端（Claude Code 用它打断），全屏不变
   await page.keyboard.press('Escape');
-  await expect.poll(() => terminalLines(page)).toContainEqual('key "\\u001b"');
+  await expect.poll(() => receivedInput(page)).toBe('\u001b');
   await page.keyboard.type('hi');
-  await expect.poll(() => terminalLines(page)).toContainEqual('key "i"');
+  await expect.poll(() => receivedInput(page)).toBe('\u001bhi');
   await expect(area).toHaveAttribute('data-fullscreen', 'true');
   await page.screenshot({ path: `${shots}/w47-fullscreen.png` });
 
@@ -227,6 +238,20 @@ test('全屏中的阶段与请求：右侧抽屉，打开时终端变窄，拖�
   await expect(drawer).toHaveCount(0);
   await expect.poll(async () => (await terminal.boundingBox())?.width ?? 0).toBe(wide);
   await expect.poll(() => lastSize(page)).toEqual(full);
+});
+
+test('对比度：运行中的交互项、全屏与打开的抽屉（阶段与请求）达到 WCAG AA，明暗两种主题', async ({
+  page,
+}) => {
+  await page.goto(`/live?item=${items[0] ?? ''}`);
+  await expect(page.getByTestId('live-terminal')).toHaveAttribute('data-connection', 'open');
+  await checkContrast(page, 'live-item', { screenshot: true });
+
+  await page.getByTestId('fullscreen-toggle').click();
+  await expect(page.getByTestId('live-fullscreen')).toHaveAttribute('data-fullscreen', 'true');
+  await page.getByTestId('toggle-side').click();
+  await expect(page.getByTestId('side-drawer')).toBeVisible();
+  await checkContrast(page, 'live-fullscreen-drawer', { screenshot: true });
 });
 
 test('全屏中切换交互项：⌃⇧] 与工具栏的下拉，切换后保持全屏', async ({ page }) => {

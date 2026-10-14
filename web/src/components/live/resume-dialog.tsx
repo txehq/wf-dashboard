@@ -99,7 +99,11 @@ function PlanNotice({ plan }: { plan: ResumePlan }) {
   if (plan.action === 'diverged') {
     if (plan.latest === null || plan.target === null) throw new Error('分叉的预检缺少两份的摘要');
     return (
-      <div className={`${box} border-amber-500`} data-testid="resume-plan" data-action="diverged">
+      <div
+        className={`${box} border-warning-border`}
+        data-testid="resume-plan"
+        data-action="diverged"
+      >
         <span className="font-medium">这个配置中的那份与最新的不一致</span>
         <span className="text-xs">
           两份从某一处起各自接着写过。「以最新的为准继续」会把这个配置中的那份改名保留（.diverged-时间），

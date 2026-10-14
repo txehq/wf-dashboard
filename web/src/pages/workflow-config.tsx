@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { DefinitionIssue } from '@/lib/workflow-yaml';
-import { MONACO_THEME, monaco } from '@/pages/variants-monaco';
+import { monaco, useMonacoTheme } from '@/pages/variants-monaco';
 
 type MonacoEditor = Parameters<NonNullable<Parameters<typeof Editor>[0]['onMount']>>[0];
 
@@ -21,6 +21,7 @@ export function DefinitionYamlEditor({
   issues: DefinitionIssue[];
   onChange: (text: string) => void;
 }) {
+  const theme = useMonacoTheme();
   const editorRef = useRef<MonacoEditor | null>(null);
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
@@ -44,7 +45,7 @@ export function DefinitionYamlEditor({
       <Editor
         value={text}
         language="yaml"
-        theme={MONACO_THEME}
+        theme={theme}
         options={{
           readOnly,
           minimap: { enabled: false },

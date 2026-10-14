@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useDarkMode } from './theme';
+import { useDarkMode } from '@/lib/dark-mode';
 
 type Rendered = { svg: string } | { error: string } | null;
 

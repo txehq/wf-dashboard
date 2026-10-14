@@ -1,0 +1,118 @@
+/* 代码块的语法高亮（highlight.js 的 class）：颜色取 GitHub 现在的 prettylights（与 github-markdown-css 的 pl-* 相同），
+   明暗两种，在代码块的底色上都达到 WCAG AA 的 4.5:1 */
+:root {
+  --wfd-syntax-keyword: #cf222e;
+  --wfd-syntax-entity: #6639ba;
+  --wfd-syntax-constant: #0550ae;
+  --wfd-syntax-string: #0a3069;
+  --wfd-syntax-variable: #953800;
+  --wfd-syntax-comment: #59636e;
+  --wfd-syntax-tag: #116329;
+  --wfd-syntax-list: #3b2300;
+  --wfd-syntax-inserted: #116329;
+  --wfd-syntax-inserted-bg: #dafbe1;
+  --wfd-syntax-deleted: #82071e;
+  --wfd-syntax-deleted-bg: #ffebe9;
+}
+
+.dark {
+  --wfd-syntax-keyword: #ff7b72;
+  --wfd-syntax-entity: #d2a8ff;
+  --wfd-syntax-constant: #79c0ff;
+  --wfd-syntax-string: #a5d6ff;
+  --wfd-syntax-variable: #ffa657;
+  --wfd-syntax-comment: #9198a1;
+  --wfd-syntax-tag: #7ee787;
+  --wfd-syntax-list: #f2cc60;
+  --wfd-syntax-inserted: #aff5b4;
+  --wfd-syntax-inserted-bg: #033a16;
+  --wfd-syntax-deleted: #ffdcd7;
+  --wfd-syntax-deleted-bg: #67060c;
+}
+
+/* 底色与正文颜色随所在的代码块（github-markdown-css 的 pre） */
+.hljs {
+  color: inherit;
+  background: transparent;
+}
+
+.hljs-doctag,
+.hljs-keyword,
+.hljs-meta .hljs-keyword,
+.hljs-template-tag,
+.hljs-template-variable,
+.hljs-type,
+.hljs-variable.language_ {
+  color: var(--wfd-syntax-keyword);
+}
+
+.hljs-title,
+.hljs-title.class_,
+.hljs-title.class_.inherited__,
+.hljs-title.function_ {
+  color: var(--wfd-syntax-entity);
+}
+
+.hljs-attr,
+.hljs-attribute,
+.hljs-literal,
+.hljs-meta,
+.hljs-number,
+.hljs-operator,
+.hljs-variable,
+.hljs-selector-attr,
+.hljs-selector-class,
+.hljs-selector-id {
+  color: var(--wfd-syntax-constant);
+}
+
+.hljs-regexp,
+.hljs-string,
+.hljs-meta .hljs-string {
+  color: var(--wfd-syntax-string);
+}
+
+.hljs-built_in,
+.hljs-symbol {
+  color: var(--wfd-syntax-variable);
+}
+
+.hljs-comment,
+.hljs-code,
+.hljs-formula {
+  color: var(--wfd-syntax-comment);
+}
+
+.hljs-name,
+.hljs-quote,
+.hljs-selector-tag,
+.hljs-selector-pseudo {
+  color: var(--wfd-syntax-tag);
+}
+
+.hljs-section {
+  color: var(--wfd-syntax-constant);
+  font-weight: bold;
+}
+
+.hljs-bullet {
+  color: var(--wfd-syntax-list);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: bold;
+}
+
+.hljs-addition {
+  color: var(--wfd-syntax-inserted);
+  background-color: var(--wfd-syntax-inserted-bg);
+}
+
+.hljs-deletion {
+  color: var(--wfd-syntax-deleted);
+  background-color: var(--wfd-syntax-deleted-bg);
+}

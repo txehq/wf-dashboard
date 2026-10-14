@@ -1,7 +1,7 @@
 import { DiffEditor } from '@monaco-editor/react';
 import { useEffect, useRef } from 'react';
 import { languageOf } from '@/lib/language';
-import { MONACO_THEME, monaco } from '@/pages/variants-monaco';
+import { monaco, useMonacoTheme } from '@/pages/variants-monaco';
 
 export interface SkillDiffFile {
   path: string;
@@ -19,6 +19,7 @@ export function SkillDiffEditor({
   // 折叠未改动的段落，只留改动及其上下文
   collapseUnchanged?: boolean;
 }) {
+  const theme = useMonacoTheme();
   const models = useRef<monaco.editor.IDiffEditorModel | null>(null);
   useEffect(
     () => () => {
@@ -35,7 +36,7 @@ export function SkillDiffEditor({
       original={file.oldContent}
       modified={file.newContent}
       language={languageOf(file.path)}
-      theme={MONACO_THEME}
+      theme={theme}
       keepCurrentOriginalModel
       keepCurrentModifiedModel
       onMount={(editor) => {

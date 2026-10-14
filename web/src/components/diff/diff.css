@@ -22,6 +22,12 @@
   cursor: default;
 }
 
+/* 新增与删除的行号在红绿的行号栏上，用正文的颜色（GitHub 相同） */
+.wfd-diff .diff-gutter-insert,
+.wfd-diff .diff-gutter-delete {
+  color: var(--wfd-diff-change-gutter-text);
+}
+
 .wfd-diff .diff-gutter-col {
   width: 6ch;
 }
@@ -55,6 +61,11 @@
 .wfd-diff .wfd-diff-gap {
   background: var(--wfd-diff-gap);
   color: var(--wfd-diff-gap-text);
+}
+
+/* hunk 的位置（@@ -1,6 +1,27 @@）：次要的文字 */
+.wfd-diff .wfd-diff-gap-title {
+  color: var(--wfd-diff-gutter-text);
 }
 
 .wfd-diff .wfd-diff-hunk-header {

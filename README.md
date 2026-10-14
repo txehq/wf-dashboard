@@ -54,6 +54,7 @@ pnpm e2e
 | `pnpm start`             | 构建后由服务端一个端口提供页面与 API                                    |
 | `pnpm dev`               | 同时启动服务端（tsx watch）与页面（Vite）                               |
 | `pnpm build`             | 编译服务端到 `server/dist/`，构建页面到 `web/dist/`                     |
+| `pnpm check`             | 完整的基础档，全机同一时间只运行一份（见「测试」）                      |
 | `pnpm test`              | 基础档的 Vitest（见「测试」）                                           |
 | `pnpm test:real [文件…]` | 真实档的 Vitest                                                         |
 | `pnpm test:slow [文件…]` | 慢档的 Vitest                                                           |
@@ -74,8 +75,10 @@ pnpm e2e
 ### 基础档：每次改动后全部运行
 
 ```sh
-pnpm typecheck && pnpm lint && pnpm test && pnpm e2e
+pnpm check
 ```
+
+`pnpm check`（`check.ts`）依次运行 `pnpm typecheck`、`pnpm lint`、`pnpm test` 与 `pnpm e2e`，打印每一步的耗时与其间的 load average。全机同一时间只运行一份：开始前获取 `WFD_TEST_LOCK` 指向的锁（默认主仓库的 `.work/locks/basic-tier.lock`，各 worktree 共用这一个），另一份正在运行时打印「等待另一份基础档结束」并等待。同时运行的 Vitest 文件最多为本机核数的一半，Playwright 的 worker 最多为四分之一（写在 `server/vitest.config.ts`、`web/vitest.config.ts` 与 `playwright.config.ts` 中）。
 
 - `pnpm test`：Vitest 的 `local` 项目（`server/vitest.config.ts`）与 web 的测试。真实 SQLite、真实 jsonl 样本、录下的真实 gateway 与 GitHub 响应、本地 fixture 仓库上的真实 vitest 与计分，不访问网络。
 - `pnpm e2e`：`playwright.config.ts`，种子数据与导入的真实 run，只启动这些 spec 用到的服务。可以只给文件，例如 `pnpm e2e e2e/home.spec.ts`，这时只启动这个文件所在 project 的服务。

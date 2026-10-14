@@ -61,7 +61,7 @@ import {
   type Variant,
 } from '@/pages/variants-api';
 import { QueryError } from '@/pages/variants-error';
-import { MONACO_THEME, monaco } from '@/pages/variants-monaco';
+import { monaco, useMonacoTheme } from '@/pages/variants-monaco';
 
 type MonacoEditor = Parameters<NonNullable<Parameters<typeof Editor>[0]['onMount']>>[0];
 
@@ -255,6 +255,7 @@ function FileEditor({
   // 预览中指向 variant 内其他文件的链接
   onOpenFile: (path: string) => void;
 }) {
+  const theme = useMonacoTheme();
   const queryClient = useQueryClient();
   const file = useQuery(fileQuery(variant.id, path));
   const [draft, setDraft] = useState<string | null>(null);
@@ -310,7 +311,7 @@ function FileEditor({
           key={path}
           defaultValue={file.data.content}
           language={languageOf(path)}
-          theme={MONACO_THEME}
+          theme={theme}
           options={{
             readOnly,
             minimap: { enabled: false },

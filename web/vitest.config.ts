@@ -1,3 +1,4 @@
+import { availableParallelism } from 'node:os';
 import path from 'node:path';
 import react from '@vitejs/plugin-react';
 import { playwright } from '@vitest/browser-playwright';
@@ -11,6 +12,8 @@ export default defineConfig({
     alias: { '@': path.resolve(import.meta.dirname, 'src') },
   },
   test: {
+    // 与 server 相同，同时运行的测试文件最多为本机核数的一半
+    maxWorkers: Math.max(1, Math.floor(availableParallelism() / 2)),
     projects: [
       {
         extends: true,

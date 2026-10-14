@@ -4,9 +4,9 @@ import { cn } from '@/lib/utils';
 
 const severityLabel: Record<Finding['severity'], string> = { high: '高', medium: '中', low: '低' };
 const severityClass: Record<Finding['severity'], string> = {
-  high: 'border-red-300 bg-red-50 text-red-900',
-  medium: 'border-amber-300 bg-amber-50 text-amber-900',
-  low: 'border-slate-300 bg-slate-50 text-slate-700',
+  high: 'border-critical-muted-border bg-critical-muted text-critical-muted-foreground',
+  medium: 'border-warning-border bg-warning text-warning-foreground',
+  low: 'border-border bg-muted text-muted-foreground',
 };
 
 export function SeverityBadge({ severity }: { severity: Finding['severity'] }) {
