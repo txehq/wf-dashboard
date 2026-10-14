@@ -27,6 +27,8 @@ export const gatewayTests = [
   'test/bindings-build.test.ts',
   // 唯一一次真实调用 Codex（Contracts 17.5）
   'test/drafts/drafts-codex.test.ts',
+  // 唯一一次真实调用 Claude Code 的设计会话（Contracts 22.2）
+  'test/drafts/drafts-claude.test.ts',
   // 交给 Codex 优化的会话在分析目录中写一行（Contracts 19.3），一次 Codex 调用
   'test/insights/optimize-codex.test.ts',
   // Magi Agent 的注入与 resume（Contracts 23.3、23.4）：Claude Code 与 Codex 各两问

@@ -77,9 +77,9 @@ test('Workflows 列表：描述列；每行展开列出 variant，名字链接�
     '3',
     '1',
   ]);
-  // 新建只有从空白新建与用 Codex 生成
+  // 新建只有从空白新建与生成
   await expect(page.getByRole('button', { name: '从空白新建' })).toBeEnabled();
-  await expect(page.getByRole('button', { name: '用 Codex 生成 workflow' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '生成 workflow' })).toBeEnabled();
   await expect(page.getByRole('button', { name: /复制/ })).toHaveCount(0);
 
   await row.getByRole('button', { name: `展开 我的评审 ${marker} 的 variant` }).click();

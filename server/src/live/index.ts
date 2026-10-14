@@ -34,8 +34,10 @@ import { ensureImportedBundle, previewLinearImport } from '../tasks/linear-impor
 import { loadTask, withRepo, withTicket } from '../tasks/loader.js';
 import type { Task } from '../tasks/schema.js';
 import { type CodexSources, writeCodexHome } from '../variants/codex-home.js';
+import { isolatedBaseEnv, writeSessionClaudeConfig } from '../variants/claude-config.js';
 import { HttpError } from '../variants/errors.js';
 import type { Variants } from '../variants/index.js';
+import { sessionSandboxProfile } from '../variants/sandbox.js';
 import { entryOf, evalSpec } from '../workflows/eval-kinds.js';
 import { evalSpecOf, workflowOfVariant, workflowRow } from '../workflows/index.js';
 import type { EvalSpec } from '../workflows/schema.js';
@@ -52,6 +54,7 @@ import {
   waitForSession,
 } from './codex.js';
 import { type HandBackReason, type HookPayload, LiveController } from './controller.js';
+import { claudeSessionDirsOf } from './claude-session.js';
 import { LivePty } from './pty.js';
 import { divergedName, lastMessage, relationOf, syncSessionDir } from './resume-plan.js';
 import {
@@ -87,6 +90,8 @@ export interface LiveDeps {
   codex: { bin: string; sources: CodexSources; sessionTimeoutMs: number };
   // Claude Code 会话运行的命令（config.claudeBin）
   claudeBin: string;
+  // 设计与分析优化的 Claude Code 会话的凭据与模型配置的来源（Contracts 22.2），默认 config.claudeSettingsPath
+  claudeSettingsPath?: string | undefined;
   // 自动结束与"结束进程"（Contracts 14.3）：没有任何页面连接持续 idleMs 时结束全部运行中的交互进程；
   // 结束时先 SIGINT，graceMs 后仍在则 SIGTERM
   autoStop: { idleMs: number; graceMs: number };
@@ -103,19 +108,6 @@ const HOOK_EVENTS = ['Stop', 'Notification', 'UserPromptSubmit', 'SessionStart']
 
 // 新建的项的默认名字：输入的前 40 个字（Contracts 14.3）
 const DEFAULT_TITLE_LENGTH = 40;
-
-// 父进程是 Claude Code 或 Orca 时，这些变量会覆盖子进程的配置
-function strippedEnv(): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] =>
-        entry[1] !== undefined &&
-        !entry[0].startsWith('CLAUDE') &&
-        !entry[0].startsWith('ANTHROPIC') &&
-        !entry[0].startsWith('ORCA_AGENT'),
-    ),
-  );
-}
 
 // 改名的名字：去掉首尾空白后非空，最多 200 字；不满足时以原文报错
 export function checkTitle(title: string): string {
@@ -152,6 +144,16 @@ interface Launch {
   eval: EvalFacts | null;
   extraEnv: Record<string, string>;
   start: Record<string, unknown>;
+  // 设计与分析优化的 Claude Code 会话（Contracts 22.2）：配置目录、完整的 env 与 sandbox 由会话自己所有，
+  // 不属于任何 variant，也不是本机配置；其余的项为空
+  owned: OwnedClaude | null;
+}
+
+interface OwnedClaude {
+  claudeDir: string;
+  env: Record<string, string>;
+  // claude 要读的 hooks 设置文件由 launch 写出，sandbox 放行它
+  sandboxProfile: (hooksFile: string) => string;
 }
 
 type ItemRow = typeof liveSessions.$inferSelect;
@@ -368,9 +370,14 @@ export function createLive(deps: LiveDeps) {
       cwd: r.cwd,
       process,
       variantId: process?.variantId ?? null,
-      // Codex 会话没有 variant，显示 Codex
+      // 设计与分析优化的会话没有 variant，显示引擎的名字
       variantName:
-        process?.variantName ?? (r.engine === 'codex' && process !== null ? 'Codex' : null),
+        process?.variantName ??
+        (isDraftItem(r) && process !== null
+          ? r.engine === 'codex'
+            ? 'Codex'
+            : 'Claude Code'
+          : null),
       status: process?.status ?? 'idle',
       driver: process?.driver ?? 'human',
       error: process?.error ?? null,
@@ -489,16 +496,24 @@ export function createLive(deps: LiveDeps) {
     let model: string | null = null;
     let effort: string | null = null;
     let sandboxProfile: string | null = null;
-    if (spec.variantId === null) {
-      // 本机配置：不设 CLAUDE_CONFIG_DIR，claude 用 <HOME>/.claude
-      env = { ...strippedEnv(), HOME: deps.localHome };
+    let configDir: string;
+    if (spec.owned !== null) {
+      env = { ...spec.owned.env };
       variantArgs = [];
+      sandboxProfile = spec.owned.sandboxProfile(hooksFile);
+      configDir = spec.owned.claudeDir;
+    } else if (spec.variantId === null) {
+      // 本机配置：不设 CLAUDE_CONFIG_DIR，claude 用 <HOME>/.claude
+      env = { ...isolatedBaseEnv(), HOME: deps.localHome };
+      variantArgs = [];
+      configDir = configDirOf(null);
     } else {
       variants.refreshAuthEnv(spec.variantId);
       // 工作目录的信任确认（Contracts 14.2）：variant 的配置目录中先记为已信任
       variants.trustDirectory(spec.variantId, spec.cwd);
       const runtime = variants.runtimeEnv(spec.variantId);
       env = { ...runtime.env };
+      configDir = runtime.env.CLAUDE_CONFIG_DIR;
       model = spec.model;
       effort = spec.effort;
       variantArgs = ['--model', model, '--effort', effort, ...runtime.claudeArgs];
@@ -526,7 +541,7 @@ export function createLive(deps: LiveDeps) {
       ...spec.sessionArgs,
     ];
     const jsonl = path.join(
-      configDirOf(spec.variantId),
+      configDir,
       'projects',
       spec.projectDirName,
       `${spec.claudeSessionId}.jsonl`,
@@ -540,7 +555,11 @@ export function createLive(deps: LiveDeps) {
       cols: 120,
       rows: 40,
       logFile: path.join(dir, 'pty.log'),
-      separator: separatorLine(startedAt, spec.kind, variantName(spec.variantId) ?? '本机配置'),
+      separator: separatorLine(
+        startedAt,
+        spec.kind,
+        spec.owned !== null ? 'Claude Code' : (variantName(spec.variantId) ?? '本机配置'),
+      ),
     });
     const processId = db.$client.transaction(() => {
       const inserted = db
@@ -569,7 +588,7 @@ export function createLive(deps: LiveDeps) {
             ...spec.start,
             argv: ['claude', ...args],
             sandboxed: sandboxProfile !== null,
-            configDir: spec.variantId === null ? null : env.CLAUDE_CONFIG_DIR,
+            configDir: spec.variantId === null && spec.owned === null ? null : configDir,
             jsonl,
             initialDriver: spec.driver,
           },
@@ -738,26 +757,28 @@ export function createLive(deps: LiveDeps) {
       eval: evalFacts,
       extraEnv,
       start: { ...start, initial },
+      owned: null,
     });
   }
 
-  // Codex 草稿与优化的项（Contracts 17.1、19.3）：发起时立即建出，没有进程，也还没有会话 id；草稿准备完后由
-  // launchCodex 启动
-  function createCodexItem(input: {
+  // 设计与分析优化的项（Contracts 17.1、19.3、22.1）：发起时立即建出，没有进程，也还没有会话 id；草稿准备完后由
+  // launchDraft 启动。engine 为发起时选的 Codex 或 Claude Code
+  function createDraftItem(input: {
     cwd: string;
     prompt: string;
     title: string;
     workflow: string | null;
     purpose: 'design' | 'optimize';
+    engine: 'codex' | 'claude';
   }): LiveDetail {
     const liveId = newId('l');
     insertItem({
       id: liveId,
       claudeSessionId: null,
-      engine: 'codex',
+      engine: input.engine,
       purpose: input.purpose,
       title: Array.from(input.title.trim()).slice(0, DEFAULT_TITLE_LENGTH).join(''),
-      // Codex 自己的沙箱只允许写草稿目录
+      // Codex 自己的沙箱与 Claude Code 外面的 sandbox 都只允许写工作目录
       environment: 'isolated',
       workflow: input.workflow,
       input: input.prompt,
@@ -768,26 +789,80 @@ export function createLive(deps: LiveDeps) {
     return detail(liveId);
   }
 
-  // 正在启动、还没有登记进 controllers 的 Codex 项
+  // 设计与分析优化的项：只有人驾驶，没有模拟用户（Contracts 17.3、22.2）
+  const isDraftItem = (r: ItemRow) => r.purpose === 'design' || r.purpose === 'optimize';
+
+  // 正在启动、还没有登记进 controllers 的项
   const launching = new Set<string>();
 
-  // Codex 会话的一个进程（Contracts 17.3）：项还没有会话 id 时以初始消息第一次启动，等 Codex 写出会话记录后记下
-  // 会话 id；已有会话 id 时 resume 接着同一个会话
-  async function launchCodex(liveId: string, kind: LiveProcessKind): Promise<LiveDetail> {
+  // 设计与分析优化会话的一个进程：项还没有会话 id 时以初始消息第一次启动，已有时 resume 接着同一个会话
+  async function launchDraft(liveId: string, kind: LiveProcessKind): Promise<LiveDetail> {
     const item = row(liveId);
-    if (item.engine !== 'codex') throw new HttpError(400, `交互 ${item.id} 不是 Codex 会话`);
+    if (!isDraftItem(item)) {
+      throw new HttpError(400, `交互 ${item.id} 不是设计或分析优化的会话`);
+    }
     if (launching.has(liveId) || controllers.has(liveId) || running(liveId)) {
       throw new HttpError(409, `交互 ${item.id} 有运行中的进程`);
     }
     if (kind === 'resume' && item.claudeSessionId === null) {
-      throw new HttpError(409, `交互 ${item.id} 的 Codex 还没有启动过，没有可以 resume 的会话`);
+      throw new HttpError(409, `交互 ${item.id} 还没有启动过，没有可以 resume 的会话`);
     }
     if (kind === 'start' && item.claudeSessionId !== null) {
-      throw new HttpError(409, `交互 ${item.id} 的 Codex 已经启动过，用 resume 接着会话`);
+      throw new HttpError(409, `交互 ${item.id} 已经启动过，用 resume 接着会话`);
     }
     launching.add(liveId);
-    return startCodexProcess(item, kind).finally(() => {
+    const started =
+      item.engine === 'codex'
+        ? startCodexProcess(item, kind)
+        : Promise.resolve().then(() => startDraftClaude(item, kind));
+    return started.finally(() => {
       launching.delete(liveId);
+    });
+  }
+
+  // Claude Code 的设计与分析优化会话（Contracts 22.2）：配置目录为工作目录中的 claude-config/，每次启动与 resume
+  // 前重写凭据、引导与信任；进程在 sandbox 中，只能写工作目录与 npm 缓存；会话 id 在第一次启动时生成
+  function startDraftClaude(item: ItemRow, kind: LiveProcessKind): LiveDetail {
+    const { claudeDir } = claudeSessionDirsOf(item.cwd);
+    writeSessionClaudeConfig(claudeDir, item.cwd, deps.claudeSettingsPath);
+    const sessionId = item.claudeSessionId ?? randomUUID();
+    if (item.claudeSessionId === null) {
+      db.update(liveSessions)
+        .set({ claudeSessionId: sessionId })
+        .where(eq(liveSessions.id, item.id))
+        .run();
+    }
+    setHidden(item.id, false, { reason: kind });
+    const program = path.isAbsolute(deps.claudeBin) ? [fs.realpathSync(deps.claudeBin)] : [];
+    return launch({
+      liveId: item.id,
+      kind,
+      variantId: null,
+      model: '',
+      effort: '',
+      environment: 'isolated',
+      cwd: item.cwd,
+      claudeSessionId: sessionId,
+      sessionArgs:
+        kind === 'start' ? ['--session-id', sessionId, item.input ?? ''] : ['--resume', sessionId],
+      projectDirName: item.id,
+      driver: 'human',
+      persona: { stage: null, persona: INPUT_PERSONA, hiddenRequirements: '' },
+      eval: null,
+      extraEnv: {},
+      start: { engine: 'claude', claudeDir },
+      owned: {
+        claudeDir,
+        env: {
+          ...isolatedBaseEnv(),
+          CLAUDE_CONFIG_DIR: claudeDir,
+          // 进程本来就在 sandbox 中，Claude Code 不再询问是否信任工作目录
+          CLAUDE_CODE_SANDBOXED: '1',
+          // npx 的缓存仍用用户自己的 ~/.npm
+          npm_config_cache: path.join(os.homedir(), '.npm'),
+        },
+        sandboxProfile: (hooksFile) => sessionSandboxProfile(item.cwd, [hooksFile, ...program]),
+      },
     });
   }
 
@@ -805,7 +880,7 @@ export function createLive(deps: LiveDeps) {
     // 每次启动前重写：认证与模型配置可能变了；Codex 自己写进 config.toml 的键随之丢弃，下次启动时重新生成
     const { model, effort } = writeCodexHome(codexHome, deps.codex.sources, codexConfigExtra(cwd));
     const env = {
-      ...strippedEnv(),
+      ...isolatedBaseEnv(),
       HOME: home,
       CODEX_HOME: codexHome,
       // npx 的缓存仍用用户自己的 ~/.npm
@@ -933,6 +1008,7 @@ export function createLive(deps: LiveDeps) {
       eval: null,
       extraEnv: magiEnv,
       start: { magiAgent: true, message: opts.message },
+      owned: null,
     });
   }
 
@@ -949,7 +1025,7 @@ export function createLive(deps: LiveDeps) {
         : codexAgentResumeArgs(item.cwd, opts.instructions, item.claudeSessionId, opts.message);
     // 用户自己的 ~/.codex：不设 CODEX_HOME，不改 HOME
     const env: Record<string, string> = {
-      ...strippedEnv(),
+      ...isolatedBaseEnv(),
       HOME: deps.localHome,
       ...magiEnv,
       COLORTERM: 'truecolor',
@@ -1313,6 +1389,7 @@ export function createLive(deps: LiveDeps) {
       eval: null,
       extraEnv: {},
       start,
+      owned: null,
     });
   }
 
@@ -1491,10 +1568,10 @@ export function createLive(deps: LiveDeps) {
     },
     get: detail,
     create,
-    // 用 Codex 生成 workflow 或 variant 的会话（Contracts 17.1、17.3）：草稿模块发起时建项，准备完后启动
-    createCodexItem,
-    startCodex: (id: string) => launchCodex(id, 'start'),
-    resumeCodex: (id: string) => launchCodex(id, 'resume'),
+    // 设计与分析优化的会话（Contracts 17.1、19.3、22）：草稿模块发起时建项，准备完后启动，Codex 或 Claude Code
+    createDraftItem,
+    startDraft: (id: string) => launchDraft(id, 'start'),
+    resumeDraft: (id: string) => launchDraft(id, 'resume'),
     // Magi Agent（Contracts 第 23 节）
     createAgentItem,
     launchAgent,
@@ -1508,10 +1585,11 @@ export function createLive(deps: LiveDeps) {
     unhide,
     remove,
     // "在访达中打开"的两个目录（Contracts 14.2）：工作目录与最近一次进程的配置目录（本机配置时为 <HOME>/.claude，
-    // Codex 会话为草稿的 CODEX_HOME）
+    // 设计与分析优化的会话为工作目录中的 CODEX_HOME 或 claude-config/）
     dirs(id: string): { cwd: string; configDir: string } {
       const r = row(id);
       if (r.engine === 'codex') return { cwd: r.cwd, configDir: codexDirsOf(r.cwd).codexHome };
+      if (isDraftItem(r)) return { cwd: r.cwd, configDir: claudeSessionDirsOf(r.cwd).claudeDir };
       const variantId = latestProcess(id)?.variantId ?? null;
       return {
         cwd: r.cwd,
@@ -1529,6 +1607,10 @@ export function createLive(deps: LiveDeps) {
         throw new HttpError(409, `交互 ${id} 是 Magi Agent 的会话，只有人驾驶`);
       }
       const controller = claudeControllerOf(id);
+      // 设计与分析优化的 Claude Code 会话只有人驾驶（Contracts 22.2）
+      if (isDraftItem(row(id))) {
+        throw new HttpError(409, `交互 ${id} 是设计或分析优化的会话，只有人驾驶，没有模拟用户`);
+      }
       if (controller.driver === driver) throw new HttpError(409, `驾驶者已经是 ${driver}`);
       if (driver === 'simulated') controller.release();
       else controller.setDriver('human', 'manual' satisfies HandBackReason);

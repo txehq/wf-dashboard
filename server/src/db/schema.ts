@@ -489,6 +489,8 @@ export const workflowDrafts = sqliteTable('workflow_drafts', {
   analysisId: text('analysis_id').references((): AnySQLiteColumn => analyses.id, {
     onDelete: 'restrict',
   }),
+  // 会话的引擎（Contracts 22.1）：发起时选，Live 项的 engine 取它；已有的草稿都是 Codex
+  engine: text('engine', { enum: liveEngines }).notNull().default('codex'),
   createdAt: createdAt(),
 });
 

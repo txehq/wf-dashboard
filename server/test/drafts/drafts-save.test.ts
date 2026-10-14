@@ -76,6 +76,7 @@ describe('保存 lfg 的 Codex 草稿后构建：真实的 wf 构建', { timeout
     created.push(base);
     const draft = await openReady({
       mode: 'variant',
+      engine: 'codex',
       workflowId: 'lfg',
       requirement: '让 interview 先说明目的',
       baseVariantId: base.id,

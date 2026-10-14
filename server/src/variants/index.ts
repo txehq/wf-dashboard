@@ -17,10 +17,17 @@ import {
   variants,
 } from '../db/schema.js';
 import { events } from '../events.js';
-import { claudeSettingsEnv } from '../llm/client.js';
 import { loadWorkflow } from '../workflows/index.js';
 import { isWfWorkflow, requiredSkills } from '../workflows/schema.js';
 import { BuildLog } from './build-log.js';
+import {
+  type IsolatedSettings,
+  isolatedBaseEnv,
+  markOnboardingDone,
+  realClaudeMdExcludes,
+  trustDirectory,
+  writeIsolatedSettings as writeClaudeSettings,
+} from './claude-config.js';
 import { writeCodexHome } from './codex-home.js';
 import { HttpError } from './errors.js';
 import { dataLayout, type VariantLayout } from './layout.js';
@@ -98,19 +105,6 @@ const CargoManifest = z.looseObject({
   workspace: z.looseObject({ package: z.looseObject({ version: z.string() }) }),
 });
 
-const IsolatedSettings = z.looseObject({
-  env: z.record(z.string(), z.unknown()).optional(),
-  claudeMdExcludes: z.array(z.string()).optional(),
-});
-
-const ClaudeState = z.looseObject({
-  hasCompletedOnboarding: z.boolean().optional(),
-  // 按目录记录的状态；信任确认记在 projects[<目录>].hasTrustDialogAccepted（Reports/W39 实测，祖先目录的信任也覆盖子目录）
-  projects: z
-    .record(z.string(), z.looseObject({ hasTrustDialogAccepted: z.boolean().optional() }))
-    .optional(),
-});
-
 // variant 历史的一条（Contracts 16.4、17.4）：覆盖与恢复的 snapshot 是存下的原来的 src/
 export const VariantHistoryEntry = z.discriminatedUnion('kind', [
   z.object({
@@ -155,16 +149,6 @@ function processEnv(): Record<string, string> {
   );
 }
 
-// 父进程是 Claude Code 或 Orca 时，这些变量会覆盖 variant 的隔离设置
-function isolatedBaseEnv(): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(processEnv()).filter(
-      ([key]) =>
-        !key.startsWith('CLAUDE') && !key.startsWith('ANTHROPIC') && !key.startsWith('ORCA_AGENT'),
-    ),
-  );
-}
-
 export function createVariants({
   db,
   dataDir,
@@ -180,50 +164,9 @@ export function createVariants({
   const runtimeBuilds = new Map<string, Promise<void>>();
   const installs = createLocalInstalls({ installsDir: path.join(dataDir, 'installs'), home });
 
-  // 把 settings 源的 env 块合并进 variant 的 settings.json，其他字段原样保留；返回合并的键。
-  // 先写临时文件再 rename：同一 variant 的并发 run 不会读到写了一半的文件
-  function writeIsolatedSettings(
-    claudeDir: string,
-    edit: (settings: z.infer<typeof IsolatedSettings>) => void = () => undefined,
-  ): string[] {
-    const file = path.join(claudeDir, 'settings.json');
-    const settings = IsolatedSettings.parse(JSON.parse(fs.readFileSync(file, 'utf8')));
-    const sourceEnv = claudeSettingsEnv(claudeSettingsPath);
-    settings.env = { ...settings.env, ...sourceEnv };
-    edit(settings);
-    const tmp = `${file}.${randomUUID()}.tmp`;
-    fs.writeFileSync(tmp, `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600 });
-    fs.renameSync(tmp, file);
-    return Object.keys(sourceEnv);
-  }
-
-  // Claude Code 的首次引导（主题、安全提示）只在交互启动时出现，状态记在 <CLAUDE_CONFIG_DIR>/.claude.json；
-  // variant 的配置目录由 dashboard 所有，写入引导已完成（Contracts 14.2）。已经写过时不改动文件
-  function markOnboardingDone(claudeDir: string) {
-    const file = path.join(claudeDir, '.claude.json');
-    const state = fs.existsSync(file)
-      ? ClaudeState.parse(JSON.parse(fs.readFileSync(file, 'utf8')))
-      : {};
-    if (state.hasCompletedOnboarding === true) return;
-    const tmp = `${file}.${randomUUID()}.tmp`;
-    const content = `${JSON.stringify({ ...state, hasCompletedOnboarding: true }, null, 2)}\n`;
-    fs.writeFileSync(tmp, content, { mode: 0o600 });
-    fs.renameSync(tmp, file);
-  }
-
-  // 交互启动与 resume 前把 cwd 记为已信任（Contracts 14.2），Claude Code 不再询问；已信任时不改动文件。
-  // cwd 经过符号链接时，原路径与真实路径都记上
-  function trustDirectory(claudeDir: string, cwd: string) {
-    const file = path.join(claudeDir, '.claude.json');
-    const state = ClaudeState.parse(JSON.parse(fs.readFileSync(file, 'utf8')));
-    const dirs = [...new Set([path.resolve(cwd), fs.realpathSync(cwd)])];
-    const projects = { ...state.projects };
-    if (dirs.every((d) => projects[d]?.hasTrustDialogAccepted === true)) return;
-    for (const d of dirs) projects[d] = { ...projects[d], hasTrustDialogAccepted: true };
-    const tmp = `${file}.${randomUUID()}.tmp`;
-    fs.writeFileSync(tmp, `${JSON.stringify({ ...state, projects }, null, 2)}\n`, { mode: 0o600 });
-    fs.renameSync(tmp, file);
-  }
+  // 把 settings 源的 env 块合并进 variant 的 settings.json，其他字段原样保留；返回合并的键
+  const writeIsolatedSettings = (claudeDir: string, edit?: (settings: IsolatedSettings) => void) =>
+    writeClaudeSettings(claudeDir, claudeSettingsPath, edit);
 
   // 上次服务退出时仍在构建的 variant 不会再完成
   db.update(variants)
@@ -1158,11 +1101,8 @@ export function createVariants({
 
       let started = performance.now();
       // 认证与 gateway 模型别名只来自 settings 源的 env 块，其他字段不复制
-      const home = os.homedir();
-      let excludes: string[] = [];
+      const excludes = realClaudeMdExcludes();
       const merged = writeIsolatedSettings(dirs.claudeDir, (settings) => {
-        // cwd 在 $HOME 之下时，真实 ~/.claude/CLAUDE.md 会被当作祖先目录的文件读入
-        excludes = [path.join(home, '.claude/CLAUDE.md'), path.join(home, '.claude/rules/**')];
         settings.claudeMdExcludes = excludes;
       });
       log.note(

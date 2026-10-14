@@ -5,7 +5,7 @@ import { expect, type Locator, type Page, test } from './test.js';
 import { stringify } from 'yaml';
 import { serverPort } from '../ports.js';
 
-// 用 Codex 生成 workflow 或 variant（Contracts 第 17 节）：两个入口的表单、跳到 Live 的 Codex 会话、保存对话框
+// 生成 workflow 或 variant（Contracts 第 17 节、22.1）：两个入口的表单与引擎的选择、跳到 Live 的会话、保存对话框
 // （新建或覆盖、名字与描述必填、diff 预览、保存不构建）与 variant 的历史。
 // 服务端的 Codex 是测试中的替身命令（e2e/services.ts），只验证页面与 API，不验证 Codex 本身；skill 来源是本地仓库
 const api = `http://127.0.0.1:${String(serverPort)}/api`;
@@ -66,14 +66,22 @@ async function submitDraft(page: Page, form: Locator) {
   expect(((await created.json()) as { draft: Draft }).draft.status).toBe('preparing');
 }
 
-test('用 Codex 生成 workflow：表单、跳到 Live 的 Codex 会话、保存失败时显示原文', async ({
+test('生成 workflow：表单（引擎默认 Codex）、跳到 Live 的 Codex 会话、保存失败时显示原文', async ({
   page,
 }) => {
   const workflowId = `hello-${marker}`;
   await page.goto('/workflows');
   await page.getByTestId('codex-workflow-toggle').click();
   const form = page.getByTestId('codex-draft-workflow');
-  await expect(form.getByRole('heading')).toHaveText('用 Codex 生成 workflow');
+  await expect(form.getByRole('heading')).toHaveText('生成 workflow');
+  // 引擎（Contracts 22.1）：两个带 logo 的按钮，每次打开默认 Codex
+  const choice = form.getByTestId('engine-choice');
+  await expect(choice).toHaveAttribute('data-engine', 'codex');
+  await expect(choice.getByRole('radio', { name: 'Codex' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await expect(choice.getByTestId('live-engine-logo')).toHaveCount(2);
   await form.getByLabel('id（入口命令 /id）').fill(workflowId);
   await form.getByLabel('名字').fill(`你好 ${marker}`);
   // 从空白骨架开始：没有底子 variant
@@ -84,6 +92,13 @@ test('用 Codex 生成 workflow：表单、跳到 Live 的 Codex 会话、保存
     path: '.work/screenshots/w42-workflow-form.png',
     animations: 'disabled',
   });
+  for (const size of sizes) {
+    await page.setViewportSize(size);
+    await page.screenshot({
+      path: `${shots}/w59-generate-workflow-${String(size.width)}.png`,
+      animations: 'disabled',
+    });
+  }
 
   await submitDraft(page, form);
   await expect(page).toHaveURL(/\/live\?item=l-\d{8}-[a-z0-9]{6}$/);
@@ -144,13 +159,14 @@ test('用 Codex 生成 workflow：表单、跳到 Live 的 Codex 会话、保存
   await stopLive(page, liveId);
 });
 
-test('用 Codex 生成 variant：Workflow 页面的表单默认第一个 variant，会话头部有"保存"', async ({
+test('生成 variant：Workflow 页面的表单默认第一个 variant 与 Codex，会话头部有"保存"', async ({
   page,
 }) => {
   await page.goto('/workflows/lfg');
   await page.getByTestId('codex-variant-toggle').click();
   const form = page.getByTestId('codex-draft-variant');
-  await expect(form.getByRole('heading')).toHaveText('用 Codex 生成 /lfg 的 variant');
+  await expect(form.getByRole('heading')).toHaveText('生成 /lfg 的 variant');
+  await expect(form.getByTestId('engine-choice')).toHaveAttribute('data-engine', 'codex');
   await expect(form.getByLabel('id（入口命令 /id）')).toHaveCount(0);
   // 选项只有 lfg 的 variant
   const options = await form.getByTestId('codex-draft-base').locator('option').allTextContents();
@@ -182,6 +198,7 @@ test('准备失败：显示失败那一步的原文与"重试准备"，重试从
   const created = await request.post(`${api}/workflow-drafts`, {
     data: {
       mode: 'variant',
+      engine: 'codex',
       workflowId: 'lfg',
       requirement: '准备失败的测试',
       baseVariantId: base.id,
@@ -256,6 +273,7 @@ test('保存为新 workflow：对话框填 workflow 与第一个 variant，预�
   const created = await request.post(`${api}/workflow-drafts`, {
     data: {
       mode: 'workflow',
+      engine: 'codex',
       workflowId,
       name: `你好 ${marker}`,
       description: '打招呼',
@@ -325,6 +343,7 @@ test('保存到已有 workflow：新建或覆盖，已冻结的灰显并写明�
   const created = await request.post(`${api}/workflow-drafts`, {
     data: {
       mode: 'variant',
+      engine: 'codex',
       workflowId: 'session-analysis',
       requirement: '让 synthesize 先写总结',
       baseVariantId: baseline.id,

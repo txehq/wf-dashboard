@@ -1,0 +1,1 @@
+ALTER TABLE `workflow_drafts` ADD `engine` text DEFAULT 'codex' NOT NULL;
