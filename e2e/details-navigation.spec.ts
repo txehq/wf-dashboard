@@ -1,106 +1,25 @@
-import { type APIRequestContext, expect, type Page, test } from './test.js';
-import { runsServerPort } from '../ports.js';
+import { expect, test } from './test.js';
+import {
+  api,
+  checkTxeWorkflowSource,
+  f0,
+  lfgRun,
+  runSessions,
+  shots,
+  type StageView,
+  visibleSeqs,
+} from './details-helpers.js';
 
-// 数据目录与 runs.spec.ts 相同：W4 端到端导入的真实 run，它们的 session 在导入时已划分阶段；
-// 另外勾选本机 txe-workflow 的来源目录，用其中 f0aca373 的对话区（含 AskUserQuestion）
-const api = `http://127.0.0.1:${String(runsServerPort)}/api`;
-const source = '/Users/linhaoz/.claude/projects/-Users-linhaoz-Project-txe-txe-workflow';
-const f0 = 'f0aca373-863f-4d62-babd-f48055092328';
-const lfgRun = 'r-20261009-dqva52';
-const icRuns = ['r-20261009-a26chw', 'r-20261009-27yz3d'];
-const shots = '.work/screenshots';
-
+// 详情页中阶段与请求明细、对话区与请求明细之间的跳转
 test.describe.configure({ mode: 'serial' });
 test.setTimeout(10 * 60_000);
 
-interface StageView {
-  stage: string;
-  status: string;
-  startSeq: number | null;
-  endSeq: number | null;
-}
-
 let lfgSession = '';
-let icSession = '';
-
-const sessionOf = async (request: APIRequestContext, run: string) =>
-  ((await (await request.get(`${api}/runs/${run}`)).json()) as { sessionId: string }).sessionId;
 
 test.beforeAll(async ({ request }) => {
-  const sources = (await (await request.get(`${api}/sources`)).json()) as {
-    path: string;
-    variant: string | null;
-    checked: boolean;
-  }[];
-  if (sources.find((s) => s.path === source)?.checked !== true) {
-    const paths = sources.filter((s) => s.checked && s.variant === null).map((s) => s.path);
-    const put = await request.put(`${api}/sources`, { data: { paths: [...paths, source] } });
-    expect(put.ok()).toBe(true);
-  }
-  lfgSession = await sessionOf(request, lfgRun);
-  icSession = await sessionOf(request, icRuns[0] ?? '');
+  await checkTxeWorkflowSource(request);
+  ({ lfgSession } = await runSessions(request));
 });
-
-// 页面级横向滚动：没有时为空；有时列出伸出窗口右边的最深的几个元素与宽度，失败时就是报错中的 Received
-const pageOverflow = (page: Page) =>
-  page.evaluate(() => {
-    const root = document.documentElement;
-    if (root.scrollWidth <= root.clientWidth) return [];
-    return [...document.querySelectorAll('body *')]
-      .filter((el) => el.getBoundingClientRect().right > root.clientWidth + 0.5)
-      .slice(-5)
-      .map((el) => {
-        const r = el.getBoundingClientRect();
-        return `<${el.tagName.toLowerCase()} class="${String(el.getAttribute('class'))}" data-testid="${String(el.getAttribute('data-testid'))}"> right=${String(r.right)}`;
-      })
-      .concat([`clientWidth=${String(root.clientWidth)} scrollWidth=${String(root.scrollWidth)}`]);
-  });
-
-const expectNoPageScroll = (page: Page, message: string) =>
-  expect.poll(() => pageOverflow(page), { message }).toEqual([]);
-
-// 加载、点开一个已完成的阶段、展开前几个 tool 调用，每一步都检查页面级横向滚动
-async function checkWidth(page: Page, url: string) {
-  await page.goto(url);
-  await expect(page.getByTestId('timeline').first()).toBeVisible({ timeout: 60_000 });
-  await expectNoPageScroll(page, `${url} 加载后`);
-  const stage = page.locator('[data-testid^="stage-"][data-status="done"]').first();
-  await stage.click();
-  await expect(page.getByTestId('stage-requests')).toBeVisible();
-  await expectNoPageScroll(page, `${url} 点开阶段后`);
-  const tools = page.getByTestId('tool-call').locator('> button');
-  const n = Math.min(await tools.count(), 8);
-  // 从下往上展开：展开的内容只把下面的行推出虚拟滚动的渲染范围，不影响上面还没展开的行
-  for (let i = n - 1; i >= 0; i--) await tools.nth(i).click();
-  await expectNoPageScroll(page, `${url} 展开 tool 调用后`);
-}
-
-for (const width of [1280, 1440, 1920]) {
-  test(`${String(width)}px：两个详情页没有页面级横向滚动`, async ({ page }) => {
-    await page.setViewportSize({ width, height: 1000 });
-    for (const url of [`/sessions/${icSession}`, `/sessions/${lfgSession}`]) {
-      await checkWidth(page, url);
-    }
-    for (const run of [lfgRun, ...icRuns]) await checkWidth(page, `/runs/${run}`);
-    if (width === 1280) {
-      await page.goto(`/sessions/${icSession}`);
-      await expect(page.getByTestId('workflow-ic')).toBeVisible();
-      await page.screenshot({ path: `${shots}/w20-session-1280.png`, animations: 'disabled' });
-      await page.goto(`/runs/${icRuns[1] ?? ''}`);
-      await expect(page.getByTestId('timeline')).toBeVisible();
-      await page.screenshot({ path: `${shots}/w20-run-1280.png`, animations: 'disabled' });
-    }
-  });
-}
-
-// 请求明细中已渲染的主 session 行的 seq（虚拟滚动：timeline > 高度容器 > 行容器 > 行；子代理的嵌套行不算）
-async function visibleSeqs(page: Page): Promise<number[]> {
-  const texts = await page
-    .locator('[data-testid="timeline"] > div > div > [data-testid="request-row"]')
-    .locator('header > span:first-child')
-    .allTextContents();
-  return texts.map((t) => Number(t.replace('#', '')));
-}
 
 test('Runs 详情：点击阶段后请求明细只含该阶段，再点恢复，"显示全部"恢复', async ({
   page,

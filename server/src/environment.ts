@@ -151,18 +151,39 @@ async function modelCheck(role: keyof Models, model: string): Promise<Environmen
   };
 }
 
-async function githubCheck(): Promise<EnvironmentCheck> {
+const GH_NETWORK_ERROR =
+  /TLS handshake timeout|connection refused|connection reset|no such host|error connecting to|dial tcp|i\/o timeout|network is unreachable|context deadline exceeded|timed out after|: EOF$/im;
+const GH_AUTH_ERROR = /not logged into any GitHub hosts|gh auth login|Bad credentials|HTTP 401/i;
+type GhFailure = 'network' | 'auth' | 'other';
+
+function ghFailure(output: string): GhFailure {
+  if (GH_NETWORK_ERROR.test(output)) return 'network';
+  if (GH_AUTH_ERROR.test(output)) return 'auth';
+  return 'other';
+}
+
+// gh 失败时的修复方法按 gh 的实际错误给出：只有未登录或 token 失效时才提示登录
+function ghFix(output: string): string {
+  switch (ghFailure(output)) {
+    case 'network':
+      return '网络问题，连不上 GitHub：检查网络或代理后点「重新检查」';
+    case 'auth':
+      return 'gh auth login --hostname github.com --git-protocol https --web';
+    case 'other':
+      return '按上面 gh 的输出处理后点「重新检查」';
+  }
+}
+
+export async function githubCheck(): Promise<EnvironmentCheck> {
   const base = { id: 'gh', label: `GitHub：gh 已登录且是 ${ORG} 成员` };
   const status = await command('gh', ['auth', 'status']);
-  if (!status.ok) {
-    return {
-      ...base,
-      ok: false,
-      detail: status.output,
-      fix: 'gh auth login --hostname github.com --git-protocol https --web',
-    };
+  const user = await command('gh', ['api', 'user', '--jq', '.login']);
+  if (!status.ok || !user.ok) {
+    // gh auth status 在连不上 GitHub 时同样报 token 无效：原因以 gh api user 的输出为准
+    const output = user.ok ? status.output : user.output;
+    return { ...base, ok: false, detail: output, fix: ghFix(output) };
   }
-  const login = (await command('gh', ['api', 'user', '--jq', '.login'])).stdout.trim();
+  const login = user.stdout.trim();
   const membership = await command('gh', [
     'api',
     `user/memberships/orgs/${ORG}`,
@@ -170,13 +191,16 @@ async function githubCheck(): Promise<EnvironmentCheck> {
     '.state + " " + .role',
   ]);
   const active = membership.ok && membership.stdout.startsWith('active ');
+  const orgFix = `用 ${ORG} 的成员账号重新登录：gh auth login --hostname github.com --web；或请 ${ORG} 管理员邀请 ${login} 加入组织`;
   return {
     ...base,
     ok: active,
     detail: active
       ? `账号 ${login}，${ORG} 成员（${membership.stdout.trim()}）`
       : `账号 ${login}：${membership.output}`,
-    fix: `用 ${ORG} 的成员账号重新登录：gh auth login --hostname github.com --web；或请 ${ORG} 管理员邀请 ${login} 加入组织`,
+    // 不是成员（404 或邀请未接受）时提示换账号或邀请；网络与认证错误按类型给出
+    fix:
+      membership.ok || ghFailure(membership.output) === 'other' ? orgFix : ghFix(membership.output),
   };
 }
 
