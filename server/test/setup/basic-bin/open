@@ -1,0 +1,6 @@
+#!/bin/bash
+# 基础档与慢档 PATH 中的 open（test/setup/basic-tier.ts 放入）："在访达中打开"不真的打开访达，
+# 只把参数记进 WFD_BASIC_TIER_LOG 同目录的 open.log，测试读它确认服务端打开的是哪个目录
+set -euo pipefail
+: "${WFD_BASIC_TIER_LOG:?WFD_BASIC_TIER_LOG 未设置：这个 open 只能经 test/setup/basic-tier.ts 使用}"
+echo "$*" >>"$(dirname "$WFD_BASIC_TIER_LOG")/open.log"

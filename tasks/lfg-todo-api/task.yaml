@@ -1,0 +1,123 @@
+id: lfg-todo-api
+kind: lfg
+title: 移动 App 用的待办清单 HTTP API
+persona: |
+  王磊，一家 20 人创业公司的 iOS 工程师，公司 App 要加待办功能，原来的后端同事离职了，后端暂时由他负责。
+  关心：接口稳定、能配合 App 的离线编辑；上线后他自己要能维护，所以希望用他熟悉的 TypeScript；不想因为后端出问题被叫起来。
+  说话方式：技术熟练，回答直接简短，常用 App 端的具体场景举例（地铁里没网、重复点击提交）；拿不准时会反问"你建议呢？"，听完理由后给出明确决定。
+hiddenRequirements: |
+  调用方与规模
+  - 只有公司自己的 iOS App 通过 HTTPS 调用；约 5 万月活，峰值约 200 请求/秒；没有网页端。
+  - 6 周后 App 新版本提审，API 需要在那之前上线 staging 并稳定。
+  技术与部署
+  - TypeScript + Node 22；数据库用公司已有的 PostgreSQL（AWS RDS）；以 Docker 镜像部署到公司已有的 AWS ECS。
+  认证
+  - 沿用公司已有的 JWT：RS256 签名，公钥从公司的 JWKS 地址获取；API 不负责注册与登录。
+  - 每个用户只能读写自己的清单与待办，访问别人的资源返回 404。
+  数据
+  - 待办：标题（必填，最多 200 个字符）、备注（最多 2000 个字符）、截止时间（可选）、优先级（低、中、高）、完成状态、所属清单。
+  - 清单：名称、颜色、排序位置。
+  - 用户删除账号时，公司已有的 user.deleted 事件（经 SQS）到达后删除他的全部数据。
+  接口
+  - REST + JSON，路径前缀 /v1；自动生成 OpenAPI 文档。
+  - 待办列表支持按清单、完成状态、截止时间范围筛选，按截止时间或创建时间排序，cursor 分页，每页最多 100 条。
+  - 错误统一为 { "error": { "code", "message" } }；校验错误返回 422 并列出出错字段。
+  离线同步
+  - App 离线修改，上线后同步：提供 GET /v1/changes?since=<cursor>，返回之后新增、修改、删除的清单与待办和新的 cursor。
+  - 删除为软删除，墓碑保留 30 天；cursor 早于 30 天时返回 410，App 做全量同步。
+  - 冲突按最后写入者胜，依据客户端提交的 updatedAt。
+  可靠性
+  - 创建接口接受 Idempotency-Key 头：24 小时内用同一个 key 重复提交返回第一次的结果（App 在弱网下会重试）。
+  - p95 延迟低于 200ms；每个用户每分钟 60 次请求的限流，超出返回 429 并带 Retry-After。
+  不做
+  - 网页端；推送通知（App 自己做本地提醒）；共享或协作清单；附件；全文搜索；标签与子任务；管理后台；注册登录；数据导出。
+  授权
+  - agent 可以新建仓库、写代码、开 PR；不能碰生产数据库与 AWS 生产环境；部署到 staging 之前要先问他。
+input: 做一个待办清单的 HTTP API
+rubric:
+  - artifact: brief
+    items:
+      - id: b1
+        criterion: Brief 是否写明调用方只有自家 iOS App、规模（约 5 万月活、峰值约 200 请求/秒），且没有网页端。
+        maxScore: 3
+      - id: b2
+        criterion: Brief 是否写明认证沿用公司已有 JWT（RS256、JWKS 公钥）、API 不做注册登录，且用户只能访问自己的数据。
+        maxScore: 5
+      - id: b3
+        criterion: Brief 是否写明待办与清单的字段及长度限制，并明确不做标签、子任务、附件与共享清单。
+        maxScore: 4
+      - id: b4
+        criterion: Brief 是否写明离线增量同步：变更接口、软删除墓碑保留 30 天、过期 cursor 的处理、最后写入者胜。
+        maxScore: 5
+      - id: b5
+        criterion: Brief 是否写明创建接口的幂等要求（Idempotency-Key，24 小时内返回第一次的结果）。
+        maxScore: 3
+      - id: b6
+        criterion: Brief 是否写明非功能要求：p95 低于 200ms、每用户每分钟 60 次限流与 429。
+        maxScore: 3
+      - id: b7
+        criterion: Brief 是否写明技术与部署约束：TypeScript + Node 22、已有 PostgreSQL、Docker 部署到已有 ECS。
+        maxScore: 3
+      - id: b8
+        criterion: Brief 是否写明授权上限：可以建仓库与开 PR，不碰生产环境，部署到 staging 前要询问。
+        maxScore: 3
+  - artifact: research
+    items:
+      - id: r1
+        criterion: Research 是否比较了至少两种 Node HTTP 框架或数据库访问方案，给出选择理由并附出处。
+        maxScore: 3
+      - id: r2
+        criterion: Research 是否调研了增量同步的做法（单调递增的 cursor 或变更序号、软删除墓碑、过期处理）并附出处。
+        maxScore: 5
+      - id: r3
+        criterion: Research 是否调研了 Idempotency-Key 的实现（存储位置、过期、同一 key 并发请求的处理）并附出处。
+        maxScore: 4
+      - id: r4
+        criterion: Research 是否调研了 RS256 JWT 校验与 JWKS 公钥获取、缓存所用的库。
+        maxScore: 3
+      - id: r5
+        criterion: Research 是否调研了 cursor 分页与按用户限流的实现方式。
+        maxScore: 3
+      - id: r6
+        criterion: Research 的 spec 是否拆成部分，每部分有测试计划与验收标准。
+        maxScore: 4
+  - artifact: plan
+    items:
+      - id: p1
+        criterion: Plan 是否带有锁定状态与锁定日期。
+        maxScore: 2
+      - id: p2
+        criterion: Plan 的顺序是否合理：数据模型与认证先于业务接口，同步接口排在软删除之后。
+        maxScore: 3
+      - id: p3
+        criterion: Plan 中同步部分的验证是否包含离线修改、冲突与删除三类场景。
+        maxScore: 5
+      - id: p4
+        criterion: Plan 是否写明数据库迁移的做法与回退方式。
+        maxScore: 3
+      - id: p5
+        criterion: Plan 是否写明 user.deleted 事件的处理方式与验证方法。
+        maxScore: 3
+      - id: p6
+        criterion: Plan 是否没有包含超出范围的工作（推送、共享、全文搜索、管理后台、注册登录）。
+        maxScore: 3
+  - artifact: tickets
+    items:
+      - id: t1
+        criterion: Tickets.md 是否存在并列出每张工单的 Linear 编号与标题。
+        maxScore: 2
+      - id: t2
+        criterion: 依赖关系是否正确：认证与数据模型的工单阻塞业务接口工单，同步工单依赖软删除。
+        maxScore: 4
+      - id: t3
+        criterion: 每张工单是否有可验证的验收标准，并写出具体的状态码与错误格式。
+        maxScore: 4
+      - id: t4
+        criterion: 幂等、限流、增量同步是否各自出现在某张工单的验收标准中。
+        maxScore: 4
+      - id: t5
+        criterion: 每张工单是否有估算与推荐负责人，并各附一句理由。
+        maxScore: 2
+      - id: t6
+        criterion: Tickets 阶段是否停在 dispatch gate，没有派发任何 /ic。
+        maxScore: 3

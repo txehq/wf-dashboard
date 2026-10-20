@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.interview/
+.spikes/
+.work/
+data/
+# 用户自己的脚本（只是根目录的 scripts/，server/scripts/ 照常跟踪）
+/scripts/
+*.tsbuildinfo
+*.log
+.DS_Store
+# 生成 bundle 时的临时克隆（进程中途退出时可能留下）
+tasks/*/.bundle-tmp-*/

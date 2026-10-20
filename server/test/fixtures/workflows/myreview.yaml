@@ -1,0 +1,9 @@
+# Contracts 16.1 的例子：入口 /myreview，小阶段 scan、fix、report；fix 可重复，其中调用 scan 不算切换
+id: myreview
+name: 我的 review 流程
+stages:
+  - id: scan
+  - id: fix
+    repeatable: true
+    allowInside: [scan]
+  - id: report

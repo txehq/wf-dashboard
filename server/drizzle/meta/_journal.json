@@ -1,0 +1,188 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1791623149094,
+      "tag": "0000_init",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1791632949692,
+      "tag": "0001_run_invalid_and_grading",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1791675967788,
+      "tag": "0002_stage_analysis_version_4",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1791704450432,
+      "tag": "0003_clear_llm_stage_results",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1791704567543,
+      "tag": "0004_linear_stage_partition",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1791714416696,
+      "tag": "0005_task_source_and_criteria_grades",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1791739538646,
+      "tag": "0006_session_variant_and_analyses",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1791756355694,
+      "tag": "0007_live_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1791769679066,
+      "tag": "0008_run_source_refs",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1791791287045,
+      "tag": "0009_live_items",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1791805119041,
+      "tag": "0010_live_hidden",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1791808394058,
+      "tag": "0011_workflows",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1791827637942,
+      "tag": "0012_workflow-instances",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1791835394924,
+      "tag": "0013_workflow-drafts",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1791838473509,
+      "tag": "0014_draft-preparing",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1791860750565,
+      "tag": "0015_workflow-descriptions",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1791865353537,
+      "tag": "0016_analysis-workflow",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1791885331358,
+      "tag": "0017_variant-events",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1791900569761,
+      "tag": "0018_live-purpose",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1791949577482,
+      "tag": "0019_draft-engine",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1791956727259,
+      "tag": "0020_magi-agent",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1791963169447,
+      "tag": "0021_deletion",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1791966653561,
+      "tag": "0022_magi-agent-config",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1791978754137,
+      "tag": "0023_sessions-engine",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1791989230570,
+      "tag": "0024_session-imports",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1792417034988,
+      "tag": "0025_release-tag",
+      "breakpoints": true
+    }
+  ]
+}

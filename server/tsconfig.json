@@ -1,0 +1,17 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": [
+    "src",
+    "test",
+    "scripts",
+    "drizzle.config.ts",
+    "vitest.config.ts",
+    "vitest.external.config.ts"
+  ]
+}

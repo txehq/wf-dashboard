@@ -1,0 +1,47 @@
+/* 设计与优化会话的面板（Contracts 26.2、26.3）：节点与文件树中新增、修改、删除（缺少）的标记，颜色与 diff 一致
+   （GitHub 的 success、attention、danger），明暗两种，文字在底色上都达到 4.5:1 */
+:root {
+  --wfd-mark-added: #1a7f37;
+  --wfd-mark-added-bg: #dafbe1;
+  --wfd-mark-modified: #7d4e00;
+  --wfd-mark-modified-bg: #fff8c5;
+  --wfd-mark-removed: #cf222e;
+  --wfd-mark-removed-bg: #ffebe9;
+}
+
+.dark {
+  --wfd-mark-added: #3fb950;
+  --wfd-mark-added-bg: #033a16;
+  --wfd-mark-modified: #e3b341;
+  --wfd-mark-modified-bg: #3b2300;
+  --wfd-mark-removed: #ff7b72;
+  --wfd-mark-removed-bg: #67060c;
+}
+
+.ws-mark-badge-added {
+  color: var(--wfd-mark-added);
+  background: var(--wfd-mark-added-bg);
+}
+
+.ws-mark-badge-modified {
+  color: var(--wfd-mark-modified);
+  background: var(--wfd-mark-modified-bg);
+}
+
+.ws-mark-badge-missing,
+.ws-mark-badge-removed {
+  color: var(--wfd-mark-removed);
+  background: var(--wfd-mark-removed-bg);
+}
+
+.ws-mark-added {
+  color: var(--wfd-mark-added);
+}
+
+.ws-mark-modified {
+  color: var(--wfd-mark-modified);
+}
+
+.ws-mark-removed {
+  color: var(--wfd-mark-removed);
+}

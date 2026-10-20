@@ -1,0 +1,560 @@
+import fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { afterAll, describe, expect, it } from 'vitest';
+import { buildApp } from '../../src/api/app.js';
+import { config } from '../../src/config.js';
+import { runCostBreakdown } from '../../src/cost.js';
+import type { Db } from '../../src/db/index.js';
+import {
+  gradeItems,
+  grades,
+  requests,
+  runMessages,
+  runs,
+  type ToolCall,
+} from '../../src/db/schema.js';
+import { eq } from 'drizzle-orm';
+import { compareRuns } from '../../src/grading/compare.js';
+import { CompareResult, type CrossRunRef } from '../../src/grading/schema.js';
+import { upsertFriction } from '../../src/runs/records.js';
+import { updateStages } from '../../src/stages/report.js';
+import { loadTask, syncTasks, withRubric } from '../../src/tasks/loader.js';
+import { loadWorkflow } from '../../src/workflows/index.js';
+import { openTestDb } from '../stages/db.js';
+import { insertRun, insertVariant } from './seed.js';
+
+const workDir = path.join(config.repoRoot, '.work/test-compare', randomUUID());
+const tasksDir = path.join(workDir, 'tasks');
+fs.cpSync(
+  fileURLToPath(new URL('../fixtures/lfg-tasks/optional-mcp-install', import.meta.url)),
+  path.join(tasksDir, 'optional-mcp-install'),
+  { recursive: true },
+);
+fs.cpSync(path.join(config.tasksDir, 'ic-money-format'), path.join(tasksDir, 'ic-money-format'), {
+  recursive: true,
+});
+
+const { db, close } = openTestDb();
+syncTasks(db, tasksDir);
+// lfg 的 run 用 lfg 的 variant，ic 的 run 用 ic 的 variant（Contracts 16.4）
+insertVariant(db, 'baseline');
+insertVariant(db, 'modified');
+insertVariant(db, 'baseline-ic', 'ic');
+insertVariant(db, 'modified-ic', 'ic');
+const lfgTask = withRubric(loadTask(db, 'optional-mcp-install'));
+const icTask = loadTask(db, 'ic-money-format');
+// 内置 lfg 与 ic 的小阶段
+const LFG_STAGES = loadWorkflow(db, 'lfg').stages.map((s) => s.id);
+const IC_STAGES = loadWorkflow(db, 'ic').stages.map((s) => s.id);
+
+afterAll(() => {
+  close();
+  fs.rmSync(workDir, { recursive: true, force: true });
+});
+
+const t0 = new Date('2026-10-09T08:00:00Z').getTime();
+
+function call(name: string, subagentId: string | null = null): ToolCall {
+  return {
+    id: `toolu_${randomUUID()}`,
+    name,
+    input: {},
+    result: 'ok',
+    resultChars: 2,
+    isError: false,
+    spillPath: null,
+    subagentId,
+  };
+}
+
+function request(sessionId: string, seq: number, costUsd: number, at: number, calls: ToolCall[]) {
+  return {
+    sessionId,
+    messageId: `msg_${randomUUID()}`,
+    seq,
+    agentId: null as string | null,
+    timestamp: new Date(at),
+    // 每条请求自身的耗时：seq 0–3 依次为 400、500、600、700 ms
+    durationMs: 400 + seq * 100,
+    model: 'claude-opus-5-5',
+    toolCalls: calls,
+    inputTokens: 100,
+    outputTokens: 10,
+    cacheCreationTokens: 0,
+    cacheReadTokens: 1000,
+    costUsd,
+  };
+}
+
+// 主 session 4 条请求，花费按 factor 放大：seq 0 调用第一阶段的 Skill（阶段 seq 0–1），seq 2 调用第二阶段的
+// Skill（阶段 seq 2–3），其余未到达。withSubagent 时 seq 2 的 Agent 调用带一个子代理，子代理有一条花费 1 美元的请求
+function seedSession(
+  db: Db,
+  sessionId: string,
+  workflow: 'lfg' | 'ic',
+  factor: number,
+  withSubagent: boolean,
+) {
+  const agentId = withSubagent ? `agent-${sessionId}` : null;
+  const [first, second] = workflow === 'lfg' ? LFG_STAGES : IC_STAGES;
+  if (first === undefined || second === undefined) throw new Error(`${workflow} 少于两个小阶段`);
+  const skill = (stage: string) => ({ ...call('Skill'), input: { skill: stage } });
+  const rows = [
+    request(sessionId, 0, 0.1 * factor, t0, [skill(first)]),
+    request(sessionId, 1, 0.2 * factor, t0 + 1000, []),
+    request(sessionId, 2, 0.3 * factor, t0 + 3000, [
+      skill(second),
+      call('Read'),
+      call('Agent', agentId),
+    ]),
+    request(sessionId, 3, 0.4 * factor, t0 + 6000, []),
+  ];
+  if (agentId !== null) {
+    rows.push({ ...request(sessionId, 0, 1, t0 + 4000, [call('Bash')]), agentId });
+  }
+  for (const r of rows) db.insert(requests).values(r).run();
+  updateStages(db, sessionId);
+}
+
+function seedRunMessage(db: Db, runId: string) {
+  db.insert(runMessages)
+    .values({ runId, seq: 0, role: 'simulated_user', content: '好的', costUsd: 0.05 })
+    .run();
+}
+
+// 每组一次 judge 调用（花费 0.02）；score(artifact) 为该组的得分比例，只取 0 或 1
+function seedLfgGrades(db: Db, runId: string, full: (artifact: string) => boolean) {
+  for (const group of lfgTask.rubric) {
+    const grade = db
+      .insert(grades)
+      .values({
+        runId,
+        kind: 'rubric',
+        artifact: group.artifact,
+        judgeModel: 'claude-opus-5-5',
+        inputTokens: 1000,
+        outputTokens: 100,
+        costUsd: 0.02,
+      })
+      .returning({ id: grades.id })
+      .get();
+    for (const item of group.items) {
+      db.insert(gradeItems)
+        .values({
+          gradeId: grade.id,
+          itemId: item.id,
+          criterion: item.criterion,
+          score: full(group.artifact) ? item.maxScore : 0,
+          maxScore: item.maxScore,
+          reasoning: full(group.artifact) ? '满足' : '不满足',
+        })
+        .run();
+    }
+  }
+}
+
+function seedIcGrades(db: Db, runId: string, passed: number, reachedEnd: boolean) {
+  db.insert(grades)
+    .values({
+      runId,
+      kind: 'ic',
+      testsPassed: passed,
+      testsDeclared: 8,
+      reachedEnd,
+      icDetail: { pr: null, outcomes: [], fileErrors: [], endpoint: null, error: null },
+    })
+    .run();
+}
+
+function lfgRun(
+  id: string,
+  variantId: string,
+  factor: number,
+  full: (a: string) => boolean,
+  extra: {
+    humanIntervened?: boolean;
+    crossRef?: boolean;
+    withSubagent?: boolean;
+    model?: string;
+  } = {},
+) {
+  const sessionId = insertRun(db, {
+    id,
+    taskId: lfgTask.id,
+    variantId,
+    status: 'succeeded',
+    humanIntervened: extra.humanIntervened ?? false,
+    crossRunRefs: extra.crossRef === true ? [crossRef] : [],
+    createdAt: new Date(t0 + factor),
+    ...(extra.model === undefined ? {} : { model: extra.model }),
+  });
+  seedSession(db, sessionId, 'lfg', factor, extra.withSubagent ?? false);
+  seedRunMessage(db, id);
+  seedLfgGrades(db, id, full);
+}
+
+const crossRef: CrossRunRef = {
+  runId: 'i1',
+  kind: 'repo',
+  requestSeq: 2,
+  toolCallId: 'toolu_cross',
+  excerpt: 'gh api repos/txehq/wfe-i1/contents/package.json',
+};
+
+// lfg：baseline 三个正常 run、一个有人工干预的 run、一个失败的 run、一个参考了其他 run 的 run、
+// 一个两者都有的 run；modified 一个 run
+lfgRun('l1', 'baseline', 1, () => true, { withSubagent: true });
+lfgRun('l2', 'baseline', 2, (a) => a === 'brief');
+lfgRun('l3', 'baseline', 3, (a) => a !== 'brief');
+lfgRun('l4', 'baseline', 4, () => false, { humanIntervened: true });
+insertRun(db, { id: 'l5', taskId: lfgTask.id, variantId: 'baseline', status: 'failed' });
+lfgRun('l6', 'modified', 1, () => true);
+// 同一 variant 换模型（Contracts 16.5）：groupBy=model 时与 l6 分在两格
+lfgRun('l12', 'modified', 12, () => false, { model: 'sonnet' });
+lfgRun('l7', 'baseline', 7, () => true, { crossRef: true });
+lfgRun('l8', 'baseline', 8, () => true, { humanIntervened: true, crossRef: true });
+// 标为无效的 run（Contracts 7.12）：有评分结果、status 不变，任何开关下都不参与对比
+lfgRun('l9', 'baseline', 9, () => true);
+db.update(runs).set({ invalidReason: '评估环境出错' }).where(eq(runs.id, 'l9')).run();
+// 被取消的 run（Contracts 7.5）：l10 取消后评分了已写出的产物；l11 在排队中被取消，没有评分
+lfgRun('l10', 'baseline', 10, (a) => a === 'brief');
+db.update(runs).set({ status: 'cancelled' }).where(eq(runs.id, 'l10')).run();
+insertRun(db, { id: 'l11', taskId: lfgTask.id, variantId: 'baseline', status: 'cancelled' });
+
+// ic：baseline-ic 两个 run
+for (const [id, factor, passed, reached] of [
+  ['i1', 1, 3, true],
+  ['i2', 2, 8, false],
+] as const) {
+  const sessionId = insertRun(db, {
+    id,
+    taskId: icTask.id,
+    variantId: 'baseline-ic',
+    status: 'succeeded',
+    createdAt: new Date(t0 + factor),
+  });
+  seedSession(db, sessionId, 'ic', factor, false);
+  seedRunMessage(db, id);
+  seedIcGrades(db, id, passed, reached);
+}
+
+// friction issue（Contracts 7.10）：l1 两个，有人工干预的 l4 一个
+const frictionUrl = (n: number) => `https://github.com/txehq/txe-workflow/issues/${String(n)}`;
+upsertFriction(db, 'l1', frictionUrl(101), 'ctx 未安装时 /history 报错');
+upsertFriction(db, 'l1', frictionUrl(102), 'wf obsidian 找不到 product 目录');
+upsertFriction(db, 'l4', frictionUrl(103), 'gh 认证过期');
+
+// 与实现无关的样本标准差，用来核对
+function sampleStd(xs: number[]) {
+  const m = xs.reduce((a, b) => a + b, 0) / xs.length;
+  return Math.sqrt(xs.reduce((s, x) => s + (x - m) ** 2, 0) / (xs.length - 1));
+}
+
+function cell(
+  result: CompareResult,
+  variantId: string,
+  taskId: string,
+  model: string | null = null,
+) {
+  const c = result.cells.find(
+    (x) => x.variantId === variantId && x.taskId === taskId && x.model === model,
+  );
+  if (c === undefined) throw new Error(`没有 ${variantId}（${String(model)}）× ${taskId}`);
+  return c;
+}
+
+function rubricQuality(c: CompareResult['cells'][number]) {
+  if (c.quality.rubric === null) throw new Error(`${c.taskId} 应有 rubric 评分`);
+  return c.quality.rubric;
+}
+
+describe('compare', () => {
+  // 只在同一个 workflow 内对比：lfg 与 ic 分开查询
+  const query = {
+    variants: ['baseline', 'modified'],
+    tasks: [lfgTask.id],
+    groupBy: 'variant' as const,
+    includeIntervened: false,
+    includeCrossRef: false,
+    includeSourceRef: false,
+    includeCancelled: false,
+  };
+  const icQuery = { ...query, variants: ['baseline-ic', 'modified-ic'], tasks: [icTask.id] };
+
+  it('variant 属于不同 workflow、task 的 kind 与评测类型不同时 400；结果带上 workflow 与评测类型', () => {
+    expect(() => compareRuns(db, { ...query, variants: ['baseline', 'baseline-ic'] })).toThrow(
+      '只能对比同一个 workflow 的 variant，所选 variant 属于 baseline (lfg)、baseline-ic (ic)：不同 workflow 之间不对比',
+    );
+    expect(() => compareRuns(db, { ...query, tasks: [lfgTask.id, icTask.id] })).toThrow(
+      `workflow lfg 的评测类型是 lfg，task ${icTask.id} (ic) 不是这种评测类型`,
+    );
+    expect(compareRuns(db, query)).toMatchObject({
+      workflowId: 'lfg',
+      kind: 'lfg',
+      groupBy: 'variant',
+    });
+    expect(compareRuns(db, icQuery)).toMatchObject({ workflowId: 'ic', kind: 'ic' });
+  });
+
+  it('includeCancelled 放回取消后评分过的 run；排队中被取消、没有评分的 run 不放回', () => {
+    const ids = (q: Partial<typeof query>) =>
+      cell(compareRuns(db, { ...query, ...q }), 'baseline', lfgTask.id).runIds;
+    expect(ids({})).not.toContain('l10');
+    expect(ids({ includeCancelled: true })).toEqual(['l1', 'l2', 'l3', 'l10']);
+    const result = compareRuns(db, { ...query, includeCancelled: true });
+    expect(result.includeCancelled).toBe(true);
+    expect(cell(result, 'baseline', lfgTask.id).runIds).not.toContain('l11');
+  });
+
+  it('两个开关各自只放回一类：includeIntervened 放回人工干预的 run，includeCrossRef 放回参考了其他 run 的 run', () => {
+    const ids = (q: Partial<typeof query>) =>
+      cell(compareRuns(db, { ...query, ...q }), 'baseline', lfgTask.id).runIds;
+    expect(ids({})).toEqual(['l1', 'l2', 'l3']);
+    expect(ids({ includeIntervened: true })).toEqual(['l1', 'l2', 'l3', 'l4']);
+    expect(ids({ includeCrossRef: true })).toEqual(['l1', 'l2', 'l3', 'l7']);
+    expect(ids({ includeIntervened: true, includeCrossRef: true })).toEqual([
+      'l1',
+      'l2',
+      'l3',
+      'l4',
+      'l7',
+      'l8',
+    ]);
+  });
+
+  it('标为无效的 run 在任何开关下都被排除', () => {
+    for (const includeIntervened of [false, true]) {
+      for (const includeCrossRef of [false, true]) {
+        const result = compareRuns(db, { ...query, includeIntervened, includeCrossRef });
+        expect(cell(result, 'baseline', lfgTask.id).runIds).not.toContain('l9');
+      }
+    }
+  });
+
+  it('lfg：排除有人工干预与未评分的 run，得分率的均值、标准差、最小值、最大值与原始值', () => {
+    const c = cell(compareRuns(db, query), 'baseline', lfgTask.id);
+    expect(c.runIds).toEqual(['l1', 'l2', 'l3']);
+    expect(c.model).toBeNull();
+    expect(c.quality).toMatchObject({ passRate: null, criteriaRate: null, reachedEnd: null });
+    const quality = rubricQuality(c);
+    const totals = [1, 19 / 55, 36 / 55];
+    expect(quality.total.values).toEqual([
+      { runId: 'l1', value: 1 },
+      { runId: 'l2', value: 19 / 55 },
+      { runId: 'l3', value: 36 / 55 },
+    ]);
+    expect(quality.total.n).toBe(3);
+    expect(quality.total.mean).toBeCloseTo(2 / 3, 12);
+    expect(quality.total.stdDev).toBeCloseTo(sampleStd(totals), 12);
+    expect(quality.total.min).toBeCloseTo(19 / 55, 12);
+    expect(quality.total.max).toBe(1);
+    const brief = quality.artifacts.find((a) => a.artifact === 'brief')?.rate;
+    expect(brief?.values.map((v) => v.value)).toEqual([1, 1, 0]);
+    expect(brief?.mean).toBeCloseTo(2 / 3, 12);
+    expect(brief?.stdDev).toBeCloseTo(Math.sqrt(1 / 3), 12);
+    expect(quality.artifacts.map((a) => a.artifact)).toEqual([
+      'brief',
+      'research',
+      'plan',
+      'tickets',
+    ]);
+
+    // 每条 rubric 的平均得分：b1 满分 5，三个 run 为 5、5、0
+    const b1 = c.rubricItems.find((i) => i.itemId === 'b1');
+    expect(b1).toMatchObject({ artifact: 'brief', maxScore: 5 });
+    expect(b1?.score.mean).toBeCloseTo(10 / 3, 12);
+    expect(c.rubricItems.map((i) => i.itemId)).toEqual(
+      lfgTask.rubric.flatMap((g) => g.items.map((i) => i.id)),
+    );
+  });
+
+  it('lfg：includeIntervened 时包含有人工干预的 run；单个 run 的标准差为空', () => {
+    const result = compareRuns(db, { ...query, includeIntervened: true });
+    const c = cell(result, 'baseline', lfgTask.id);
+    expect(c.runIds).toEqual(['l1', 'l2', 'l3', 'l4']);
+    expect(rubricQuality(c).total.mean).toBeCloseTo(0.5, 12);
+    expect(rubricQuality(c).total.stdDev).toBeCloseTo(sampleStd([1, 19 / 55, 36 / 55, 0]), 12);
+
+    // groupBy=variant 不分模型：modified 的 opus 与 sonnet 两个 run 在同一格
+    expect(cell(result, 'modified', lfgTask.id).runIds).toEqual(['l6', 'l12']);
+    const byModel = compareRuns(db, { ...query, includeIntervened: true, groupBy: 'model' });
+    const modified = cell(byModel, 'modified', lfgTask.id, 'opus');
+    expect(modified.runIds).toEqual(['l6']);
+    expect(rubricQuality(modified).total).toMatchObject({
+      n: 1,
+      mean: 1,
+      stdDev: null,
+      min: 1,
+      max: 1,
+    });
+  });
+
+  it('groupBy=model：每个 variant 按它的 run 中实际出现的模型分格', () => {
+    const result = compareRuns(db, { ...query, groupBy: 'model' });
+    expect(result.groupBy).toBe('model');
+    expect(result.cells.map((c) => [c.variantId, c.model, c.taskId])).toEqual([
+      ['baseline', 'opus', lfgTask.id],
+      ['modified', 'opus', lfgTask.id],
+      ['modified', 'sonnet', lfgTask.id],
+    ]);
+    expect(cell(result, 'baseline', lfgTask.id, 'opus').runIds).toEqual(
+      cell(compareRuns(db, query), 'baseline', lfgTask.id).runIds,
+    );
+    const sonnet = cell(result, 'modified', lfgTask.id, 'sonnet');
+    expect(sonnet.runIds).toEqual(['l12']);
+    expect(rubricQuality(sonnet).total.mean).toBe(0);
+  });
+
+  it('成本：每个阶段的均值（子代理计入所在阶段，未到达按 0）与三项总成本的均值', () => {
+    const c = cell(compareRuns(db, query), 'baseline', lfgTask.id);
+    const stages = c.cost?.stages ?? [];
+    expect(stages.map((s) => [s.stage, s.reached])).toEqual([
+      ['interview', 3],
+      ['research', 3],
+      ['plan', 0],
+      ['ticketing', 0],
+    ]);
+    const [interview, research, plan] = stages;
+    // interview：每个 run 0.3 × factor，factor 为 1、2、3
+    expect(interview?.costUsd).toBeCloseTo(0.6, 12);
+    expect(interview).toMatchObject({ inputTokens: 200, outputTokens: 20, cacheReadTokens: 2000 });
+    // 阶段耗时是其中各条主请求自身耗时之和（W15 Medium 3：以前是首尾两条请求开始时间之差，少算最后一条）
+    expect(interview?.durationMs).toBe(400 + 500);
+    expect(interview?.toolCalls).toBe(1);
+    // research：0.7 × factor，l1 另有子代理的 1 美元与一次 Bash 调用
+    expect(research?.costUsd).toBeCloseTo((1.7 + 1.4 + 2.1) / 3, 12);
+    // Skill research、Read、Agent 各一次，l1 另有子代理的一次 Bash 调用
+    expect(research?.toolCalls).toBeCloseTo(10 / 3, 12);
+    expect(research?.durationMs).toBe(600 + 700);
+    expect(research?.inputTokens).toBeCloseTo(700 / 3, 12);
+    expect(plan).toMatchObject({ costUsd: 0, toolCalls: 0, durationMs: 0 });
+
+    // agent：1 + 1（子代理）、2、3；模拟用户 0.05；评分 4 × 0.02
+    expect(runCostBreakdown(db, 'l1')).toEqual({
+      agent: expect.closeTo(2, 12) as number,
+      simulatedUser: 0.05,
+      grading: expect.closeTo(0.08, 12) as number,
+      total: expect.closeTo(2.13, 12) as number,
+    });
+    expect(c.cost?.total.agent).toBeCloseTo(7 / 3, 12);
+    expect(c.cost?.total.simulatedUser).toBeCloseTo(0.05, 12);
+    expect(c.cost?.total.grading).toBeCloseTo(0.08, 12);
+    expect(c.cost?.total.total).toBeCloseTo(7 / 3 + 0.13, 12);
+  });
+
+  it('friction：每次 run 的平均 issue 数量与 issue 列表，只算参与对比的 run（Contracts 7.10）', () => {
+    const c = cell(compareRuns(db, query), 'baseline', lfgTask.id);
+    expect(c.runIds).toEqual(['l1', 'l2', 'l3']);
+    // l1 两个、l2 l3 没有；l4 有人工干预，默认不参与
+    expect(c.cost?.friction.perRun).toBeCloseTo(2 / 3, 12);
+    expect(c.cost?.friction.issues).toEqual([
+      { runId: 'l1', url: frictionUrl(101), title: 'ctx 未安装时 /history 报错' },
+      { runId: 'l1', url: frictionUrl(102), title: 'wf obsidian 找不到 product 目录' },
+    ]);
+    const all = cell(
+      compareRuns(db, { ...query, includeIntervened: true }),
+      'baseline',
+      lfgTask.id,
+    );
+    expect(all.cost?.friction.perRun).toBeCloseTo(3 / 4, 12);
+    expect(all.cost?.friction.issues.map((i) => i.runId)).toEqual(['l1', 'l1', 'l4']);
+    // 没有 friction 的格子为 0
+    expect(cell(compareRuns(db, icQuery), 'baseline-ic', icTask.id).cost?.friction).toEqual({
+      perRun: 0,
+      issues: [],
+    });
+  });
+
+  it('ic：测试通过率的分布与到达终点的比例；没有 run 的格子质量为空、成本为空', () => {
+    const result = compareRuns(db, icQuery);
+    const c = cell(result, 'baseline-ic', icTask.id);
+    expect(c.runIds).toEqual(['i1', 'i2']);
+    // 有隐藏测试的 task 用隐藏测试，不用验收标准；没有 rubric
+    expect(c.quality).toMatchObject({ rubric: null, criteriaRate: null });
+    const passRate = c.quality.passRate;
+    expect(passRate?.values).toEqual([
+      { runId: 'i1', value: 3 / 8 },
+      { runId: 'i2', value: 1 },
+    ]);
+    expect(passRate?.mean).toBeCloseTo(11 / 16, 12);
+    expect(passRate?.stdDev).toBeCloseTo(sampleStd([3 / 8, 1]), 12);
+    expect(c.quality.reachedEnd).toEqual({
+      ratio: 0.5,
+      values: [
+        { runId: 'i1', reached: true },
+        { runId: 'i2', reached: false },
+      ],
+    });
+    expect(c.rubricItems).toEqual([]);
+    expect(c.criteriaItems).toEqual([]);
+    expect(c.cost?.stages.map((s) => s.stage)).toEqual(IC_STAGES);
+    expect(c.cost?.stages[0]?.costUsd).toBeCloseTo(0.45, 12);
+
+    const empty = cell(result, 'modified-ic', icTask.id);
+    expect(empty.runIds).toEqual([]);
+    expect(empty.cost).toBeNull();
+    expect(empty.quality.passRate).toEqual({
+      n: 0,
+      mean: null,
+      stdDev: null,
+      min: null,
+      max: null,
+      values: [],
+    });
+    expect(empty.quality.reachedEnd?.ratio).toBeNull();
+  });
+
+  it('GET /api/compare：逗号分隔的参数、includeIntervened、groupBy，跨 workflow 返回 400，不存在的 variant 或 task 返回 404', async () => {
+    const app = await buildApp({
+      db,
+      sseHeartbeatMs: config.sseHeartbeatMs,
+      logger: false,
+      tasksDir,
+    });
+    const qs = `variants=baseline,modified&tasks=${lfgTask.id}`;
+    const ok = await app.inject({ method: 'GET', url: `/api/compare?${qs}` });
+    expect(ok.statusCode).toBe(200);
+    expect(CompareResult.parse(ok.json())).toEqual(compareRuns(db, query));
+    const ic = await app.inject({
+      method: 'GET',
+      url: `/api/compare?variants=baseline-ic,modified-ic&tasks=${icTask.id}`,
+    });
+    expect(CompareResult.parse(ic.json())).toEqual(compareRuns(db, icQuery));
+    const byModel = await app.inject({ method: 'GET', url: `/api/compare?${qs}&groupBy=model` });
+    expect(CompareResult.parse(byModel.json())).toEqual(
+      compareRuns(db, { ...query, groupBy: 'model' }),
+    );
+    const mixed = await app.inject({
+      method: 'GET',
+      url: `/api/compare?variants=baseline,baseline-ic&tasks=${lfgTask.id}`,
+    });
+    expect(mixed.statusCode).toBe(400);
+    expect(mixed.body).toContain('不同 workflow 之间不对比');
+    const all = await app.inject({
+      method: 'GET',
+      url: `/api/compare?${qs}&includeIntervened=true`,
+    });
+    expect(cell(CompareResult.parse(all.json()), 'baseline', lfgTask.id).runIds).toHaveLength(4);
+    const crossRefs = await app.inject({
+      method: 'GET',
+      url: `/api/compare?${qs}&includeCrossRef=true`,
+    });
+    const crossResult = CompareResult.parse(crossRefs.json());
+    expect(crossResult.includeCrossRef).toBe(true);
+    expect(cell(crossResult, 'baseline', lfgTask.id).runIds).toEqual(['l1', 'l2', 'l3', 'l7']);
+    const missing = await app.inject({
+      method: 'GET',
+      url: `/api/compare?variants=baseline,nope&tasks=${lfgTask.id}`,
+    });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.body).toContain('nope');
+    const bad = await app.inject({
+      method: 'GET',
+      url: `/api/compare?variants=&tasks=${lfgTask.id}`,
+    });
+    expect(bad.statusCode).toBe(400);
+    await app.close();
+  });
+});

@@ -1,0 +1,16 @@
+{
+  "kind": "network",
+  "commands": [
+    {
+      "args": ["auth", "status"],
+      "exitCode": 1,
+      "output": "github.com\n  X Failed to log in to github.com using token (GH_TOKEN)\n  - Active account: true\n  - The token in GH_TOKEN is invalid."
+    },
+    {
+      "args": ["api", "user", "--jq", ".login"],
+      "exitCode": 1,
+      "output": "error connecting to nonexistent.invalid\ncheck your internet connection or https://githubstatus.com"
+    }
+  ],
+  "recordedAt": "2026-10-14T02:22:54.090Z"
+}

@@ -1,0 +1,17 @@
+{
+  "args": [
+    "api",
+    "graphql",
+    "-f",
+    "query=query($owner: String!, $name: String!, $number: Int!) {\n  repository(owner: $owner, name: $name) {\n    pullRequest(number: $number) {\n      reviewThreads(first: 100) {\n        pageInfo { hasNextPage }\n        nodes {\n          path line isResolved isOutdated\n          comments(first: 100) {\n            pageInfo { hasNextPage }\n            nodes { author { login } body createdAt url }\n          }\n        }\n      }\n    }\n  }\n}",
+    "-f",
+    "owner=txehq",
+    "-f",
+    "name=wfe-test-grade-pr-20261012014905144",
+    "-F",
+    "number=1"
+  ],
+  "exitCode": 0,
+  "stdout": "{\"data\":{\"repository\":{\"pullRequest\":{\"reviewThreads\":{\"pageInfo\":{\"hasNextPage\":false},\"nodes\":[{\"path\":\"src/math.js\",\"line\":1,\"isResolved\":false,\"isOutdated\":false,\"comments\":{\"pageInfo\":{\"hasNextPage\":false},\"nodes\":[{\"author\":{\"login\":\"luolin101\"},\"body\":\"W31 快照：文件评论\",\"createdAt\":\"2026-10-12T01:52:02Z\",\"url\":\"https://github.com/txehq/wfe-test-grade-pr-20261012014905144/pull/1#discussion_r4244125850\"}]}}]}}}}}",
+  "stderr": ""
+}

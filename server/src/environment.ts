@@ -1,0 +1,457 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { execa } from 'execa';
+import { z } from 'zod';
+import {
+  callLinear,
+  LINEAR_MCP_URL,
+  EVAL_TEAM,
+  linearLoggedIn,
+  renewLinearClient,
+} from './external/linear.js';
+import { ORG } from './external/github.js';
+import {
+  anthropic,
+  type Models,
+  parseStructuredResponse,
+  structuredRequest,
+} from './llm/client.js';
+import type { VaultSource } from './config.js';
+import { writeCodexHome } from './variants/codex-home.js';
+
+// Contracts 第 8 节：逐项检查本机运行评估所需的条件，每项实际执行一次
+export const EnvironmentCheck = z.object({
+  id: z.string(),
+  label: z.string(),
+  ok: z.boolean(),
+  // 通过时为检查到的版本、账号等；未通过时为真实输出的摘录
+  detail: z.string(),
+  // 未通过时要运行的命令或要做的事
+  fix: z.string(),
+});
+export type EnvironmentCheck = z.infer<typeof EnvironmentCheck>;
+
+export const EnvironmentReport = z.object({
+  checkedAt: z.number(),
+  checks: z.array(EnvironmentCheck),
+});
+export type EnvironmentReport = z.infer<typeof EnvironmentReport>;
+
+export interface EnvironmentOptions {
+  // 当前生效的三个角色模型（Settings 修改后立即变化）
+  models: () => Models;
+  vaultDir: string;
+  vaultSource: VaultSource;
+  product: string;
+  txeWorkflowRepo: string;
+  ctxBin: string;
+  codexAuthPath: string;
+  codexConfigPath: string;
+  // data/environment：Codex 检查的 CODEX_HOME 与工作目录
+  workDir: string;
+}
+
+const CACHE_MS = 10 * 60_000;
+const EXCERPT_CHARS = 1500;
+
+// 输出只保留末尾：错误原因通常在最后
+function excerpt(text: string): string {
+  const trimmed = text.trim();
+  return trimmed.length <= EXCERPT_CHARS ? trimmed : `…${trimmed.slice(-EXCERPT_CHARS)}`;
+}
+
+interface CommandOutcome {
+  ok: boolean;
+  stdout: string;
+  output: string;
+}
+
+// 命令不存在、非零退出、超时都记为未通过，输出原样保留给 detail
+async function command(
+  file: string,
+  args: string[],
+  options: { cwd?: string; env?: Record<string, string>; timeoutMs?: number } = {},
+): Promise<CommandOutcome> {
+  const result = await execa(file, args, {
+    reject: false,
+    stdin: 'ignore',
+    all: true,
+    timeout: options.timeoutMs ?? 30_000,
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    ...(options.env === undefined ? {} : { env: options.env }),
+  });
+  const output = result.failed
+    ? [result.shortMessage, result.all].filter((s) => s !== undefined && s !== '').join('\n')
+    : result.all;
+  return { ok: !result.failed, stdout: result.stdout, output: excerpt(output) };
+}
+
+// 检查本身的操作（模型请求、Linear 调用、Codex 配置准备）抛出的错误就是未通过的原因
+async function attempt<T>(
+  run: () => T | Promise<T>,
+): Promise<{ ok: true; value: T } | { ok: false; error: string }> {
+  return Promise.resolve()
+    .then(run)
+    .then(
+      (value) => ({ ok: true as const, value }),
+      (error: unknown) => ({
+        ok: false as const,
+        error: excerpt(error instanceof Error ? error.message : String(error)),
+      }),
+    );
+}
+
+async function versionCheck(
+  id: string,
+  label: string,
+  file: string,
+  fix: string,
+): Promise<EnvironmentCheck> {
+  const result = await command(file, ['--version']);
+  return { id, label, ok: result.ok, detail: result.output, fix };
+}
+
+const roleLabels: Record<keyof Models, string> = {
+  simulatedUser: '模拟用户',
+  judge: '评分（judge）',
+};
+
+const roleIds: Record<keyof Models, string> = {
+  simulatedUser: 'model-simulated-user',
+  judge: 'model-judge',
+};
+
+// 与模拟用户、judge 完全相同形状的请求（strict tool respond，Contracts 4）：
+// gateway 把模型路由到不接受 strict tool 的渠道（例如 Bedrock 的 tools.0.custom.strict）时这一项同样失败
+const PingResult = z.object({ reply: z.string().min(1) });
+
+async function modelCheck(role: keyof Models, model: string): Promise<EnvironmentCheck> {
+  const started = performance.now();
+  const result = await attempt(async () =>
+    parseStructuredResponse(
+      await anthropic().messages.create(
+        structuredRequest({
+          model,
+          system: '你在接受连通性检查。',
+          user: '在 reply 中填写 pong。',
+          schema: PingResult,
+          maxTokens: 2000,
+        }),
+      ),
+      PingResult,
+      model,
+    ),
+  );
+  const ms = Math.round(performance.now() - started);
+  const fix = `在 Runs 页面的「设置」里为「${roleLabels[role]}」换一个模型并保存；401 时检查 ~/.claude/settings.json 中 env 的 ANTHROPIC_AUTH_TOKEN 与 ANTHROPIC_BASE_URL`;
+  return {
+    id: roleIds[role],
+    label: `gateway：${roleLabels[role]}模型 ${model}`,
+    ok: result.ok,
+    detail: result.ok ? `${String(ms)} ms，respond：${result.value.value.reply}` : result.error,
+    fix,
+  };
+}
+
+const GH_NETWORK_ERROR =
+  /TLS handshake timeout|connection refused|connection reset|no such host|error connecting to|dial tcp|i\/o timeout|network is unreachable|context deadline exceeded|timed out after|: EOF$/im;
+const GH_AUTH_ERROR = /not logged into any GitHub hosts|gh auth login|Bad credentials|HTTP 401/i;
+type GhFailure = 'network' | 'auth' | 'other';
+
+function ghFailure(output: string): GhFailure {
+  if (GH_NETWORK_ERROR.test(output)) return 'network';
+  if (GH_AUTH_ERROR.test(output)) return 'auth';
+  return 'other';
+}
+
+// gh 失败时的修复方法按 gh 的实际错误给出：只有未登录或 token 失效时才提示登录
+function ghFix(output: string): string {
+  switch (ghFailure(output)) {
+    case 'network':
+      return '网络问题，连不上 GitHub：检查网络或代理后点「重新检查」';
+    case 'auth':
+      return 'gh auth login --hostname github.com --git-protocol https --web';
+    case 'other':
+      return '按上面 gh 的输出处理后点「重新检查」';
+  }
+}
+
+export async function githubCheck(): Promise<EnvironmentCheck> {
+  const base = { id: 'gh', label: `GitHub：gh 已登录且是 ${ORG} 成员` };
+  const status = await command('gh', ['auth', 'status']);
+  const user = await command('gh', ['api', 'user', '--jq', '.login']);
+  if (!status.ok || !user.ok) {
+    // gh auth status 在连不上 GitHub 时同样报 token 无效：原因以 gh api user 的输出为准
+    const output = user.ok ? status.output : user.output;
+    return { ...base, ok: false, detail: output, fix: ghFix(output) };
+  }
+  const login = user.stdout.trim();
+  const membership = await command('gh', [
+    'api',
+    `user/memberships/orgs/${ORG}`,
+    '--jq',
+    '.state + " " + .role',
+  ]);
+  const active = membership.ok && membership.stdout.startsWith('active ');
+  const orgFix = `用 ${ORG} 的成员账号重新登录：gh auth login --hostname github.com --web；或请 ${ORG} 管理员邀请 ${login} 加入组织`;
+  return {
+    ...base,
+    ok: active,
+    detail: active
+      ? `账号 ${login}，${ORG} 成员（${membership.stdout.trim()}）`
+      : `账号 ${login}：${membership.output}`,
+    // 不是成员（404 或邀请未接受）时提示换账号或邀请；网络与认证错误按类型给出
+    fix:
+      membership.ok || ghFailure(membership.output) === 'other' ? orgFix : ghFix(membership.output),
+  };
+}
+
+const Teams = z
+  .object({ teams: z.array(z.object({ key: z.string(), name: z.string() }).loose()) })
+  .loose();
+
+const linearLogin = `在终端运行 npx -y mcp-remote ${LINEAR_MCP_URL}，在打开的浏览器中授权 Linear，看到 Proxy established 后按 Ctrl-C，再点「重新检查」`;
+const AUTH_ERROR = /\b401\b|invalid_token|unauthori[sz]ed|authorization|未登录/i;
+const NETWORK_ERROR =
+  /fetch failed|ENOTFOUND|ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|Connection closed|Not connected|timed out|-3200[01]/i;
+
+// Linear 调用失败时的修复方法按错误种类给出：只有需要授权时才提示重新授权
+export function linearFix(error: string): string {
+  if (AUTH_ERROR.test(error)) return linearLogin;
+  if (NETWORK_ERROR.test(error)) {
+    return '网络中断导致与 Linear 的连接断开；网络恢复后点「重新检查」，会用新建的连接再试';
+  }
+  return 'detail 中是 Linear MCP 返回的原文，按它处理后点「重新检查」';
+}
+
+async function linearCheck(): Promise<EnvironmentCheck> {
+  const base = { id: 'linear', label: 'Linear MCP：list_teams' };
+  if (!linearLoggedIn()) {
+    return {
+      ...base,
+      ok: false,
+      detail: '~/.mcp-auth/mcp-remote-v1 中没有 Linear MCP 的 OAuth token（mcp-remote 未登录）',
+      fix: linearLogin,
+    };
+  }
+  const result = await attempt(() => callLinear('list_teams', {}, Teams));
+  if (!result.ok) return { ...base, ok: false, detail: result.error, fix: linearFix(result.error) };
+  const keys = result.value.teams.map((t) => t.key);
+  if (!keys.includes(EVAL_TEAM)) {
+    return {
+      ...base,
+      ok: false,
+      detail: `${String(keys.length)} 个 team（${keys.join('、')}），没有评估用的 ${EVAL_TEAM}`,
+      fix: `删除 ~/.mcp-auth/mcp-remote-v1 中 Linear 的 token，再用能访问 ${EVAL_TEAM} team 的账号授权：npx -y mcp-remote ${LINEAR_MCP_URL}`,
+    };
+  }
+  return {
+    ...base,
+    ok: true,
+    detail: `${String(keys.length)} 个 team，含 ${EVAL_TEAM}`,
+    fix: linearLogin,
+  };
+}
+
+// /review-pr 用的 Codex 模型：codex-models.txt 中第一个不是空行、不是注释的行
+function reviewModel(txeWorkflowRepo: string): string {
+  const file = path.join(txeWorkflowRepo, 'skills/review-pr/references/codex-models.txt');
+  const model = fs
+    .readFileSync(file, 'utf8')
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line !== '' && !line.startsWith('#'));
+  if (model === undefined) throw new Error(`${file} 中没有模型`);
+  return model;
+}
+
+async function codexCheck(options: EnvironmentOptions): Promise<EnvironmentCheck> {
+  const codexHome = path.join(options.workDir, 'codex-home');
+  const cwd = path.join(options.workDir, 'codex-work');
+  const base = { id: 'codex', label: 'Codex：独立 CODEX_HOME 下 codex exec' };
+  const prepared = await attempt(() => {
+    writeCodexHome(codexHome, {
+      authPath: options.codexAuthPath,
+      configPath: options.codexConfigPath,
+    });
+    fs.mkdirSync(cwd, { recursive: true });
+    return reviewModel(options.txeWorkflowRepo);
+  });
+  if (!prepared.ok) {
+    return {
+      ...base,
+      ok: false,
+      detail: prepared.error,
+      fix: `运行 codex login 生成 ${options.codexAuthPath}，确认 ${options.codexConfigPath} 存在且是合法的 TOML，${options.txeWorkflowRepo}/skills/review-pr/references/codex-models.txt 中有模型`,
+    };
+  }
+  const model = prepared.value;
+  const args = [
+    'exec',
+    '--skip-git-repo-check',
+    '-m',
+    model,
+    '-s',
+    'read-only',
+    'Reply with exactly: pong',
+  ];
+  const started = performance.now();
+  const result = await command('codex', args, {
+    cwd,
+    env: { CODEX_HOME: codexHome },
+    timeoutMs: 180_000,
+  });
+  const seconds = Math.round((performance.now() - started) / 1000);
+  const ok = result.ok && result.stdout.toLowerCase().includes('pong');
+  const reproduce = `CODEX_HOME="${codexHome}" codex ${args.slice(0, -1).join(' ')} 'Reply with exactly: pong'`;
+  const hint = /quota exceeded/i.test(result.output)
+    ? '额度用完：恢复 ~/.codex/config.toml 中 model_provider 对应账号的额度，或改用有额度的 provider。'
+    : /401|unauthorized|missing bearer|not logged in/i.test(result.output)
+      ? '认证失败：运行 codex login 重新登录。'
+      : '';
+  return {
+    ...base,
+    ok,
+    detail: ok
+      ? `codex exec -m ${model} 返回 ${result.stdout.trim()}（${String(seconds)} 秒）`
+      : result.output,
+    fix: `${hint}在终端复现并按输出修复 ~/.codex/auth.json 或 ~/.codex/config.toml：${reproduce}`,
+  };
+}
+
+// vault 的位置与来源（Contracts 第 30 节），例如"/Users/x/Documents/Obsidian Vault（来自 MAGI_VAULT）"
+function vaultLocation(vaultDir: string, source: VaultSource): string {
+  return `${vaultDir}（${source === 'MAGI_VAULT' ? '来自 MAGI_VAULT' : '默认，没有设 MAGI_VAULT'}）`;
+}
+
+export async function vaultCheck(
+  vaultDir: string,
+  source: VaultSource,
+  product: string,
+): Promise<EnvironmentCheck> {
+  const productDir = path.join(vaultDir, `Project ${product}`);
+  const base = { id: 'vault', label: `Obsidian vault 与 Project ${product}/` };
+  const location = vaultLocation(vaultDir, source);
+  if (!fs.existsSync(vaultDir)) {
+    return {
+      ...base,
+      ok: false,
+      detail: `${location}：不存在`,
+      fix: `在 Obsidian 中打开或创建 vault，并在 shell 的配置文件（例如 ~/.zshrc）中写入 export MAGI_VAULT='<vault 路径>'（与 txe-workflow 的 /install 相同），重新打开终端后重启 dashboard`,
+    };
+  }
+  const fix = `mkdir -p "${productDir}"（wf obsidian 要求 product 目录已存在）`;
+  if (!fs.existsSync(productDir)) {
+    return { ...base, ok: false, detail: `${location}：没有 Project ${product}/`, fix };
+  }
+  const writable = await attempt(() => fs.promises.access(productDir, fs.constants.W_OK));
+  if (!writable.ok)
+    return {
+      ...base,
+      ok: false,
+      detail: `${location}：${writable.error}`,
+      fix: `chmod u+w "${productDir}"`,
+    };
+  const features = path.join(productDir, 'Features');
+  const runs = fs.existsSync(features) ? fs.readdirSync(features).length : 0;
+  return {
+    ...base,
+    ok: true,
+    detail: `${location}，Project ${product}/ 可写，Features/ 下 ${String(runs)} 个目录`,
+    fix,
+  };
+}
+
+async function txeWorkflowCheck(repo: string): Promise<EnvironmentCheck> {
+  const base = {
+    id: 'txe-workflow',
+    label: 'txe-workflow 仓库',
+    fix: `git clone https://github.com/txehq/txe-workflow.git "${repo}"`,
+  };
+  const head = await command('git', ['-C', repo, 'log', '-1', '--format=%h %s']);
+  if (!head.ok) return { ...base, ok: false, detail: head.output };
+  const skills = path.join(repo, 'skills');
+  if (!fs.existsSync(skills)) {
+    return { ...base, ok: false, detail: `${skills} 不存在（HEAD ${head.stdout.trim()}）` };
+  }
+  const count = fs.readdirSync(skills).length;
+  return {
+    ...base,
+    ok: true,
+    detail: `${repo}，HEAD ${head.stdout.trim()}，${String(count)} 个 skill`,
+  };
+}
+
+export async function runEnvironmentChecks(
+  options: EnvironmentOptions,
+): Promise<EnvironmentReport> {
+  const models = options.models();
+  const checks = await Promise.all([
+    versionCheck(
+      'claude',
+      'claude 可执行',
+      'claude',
+      'npm install --global @anthropic-ai/claude-code，确认 claude 在 PATH 中',
+    ),
+    modelCheck('simulatedUser', models.simulatedUser),
+    modelCheck('judge', models.judge),
+    githubCheck(),
+    linearCheck(),
+    codexCheck(options),
+    vaultCheck(options.vaultDir, options.vaultSource, options.product),
+    txeWorkflowCheck(options.txeWorkflowRepo),
+    versionCheck(
+      'wf',
+      'wf 可执行',
+      'wf',
+      '按 txe-workflow 的 README 安装 wf（在 Claude Code 中运行 /install），确认 ~/.local/bin 在 PATH 中',
+    ),
+    versionCheck('uv', 'uv 可执行', 'uv', 'curl -LsSf https://astral.sh/uv/install.sh | sh'),
+    versionCheck(
+      'ctx',
+      'ctx 可执行',
+      options.ctxBin,
+      `运行 wf doctor，按 capso.ctx.binary 的提示修复（ctx 由 wf install 安装到 ${options.ctxBin}）`,
+    ),
+  ]);
+  return { checkedAt: Date.now(), checks };
+}
+
+// 结果缓存 10 分钟；角色模型改变后（Settings 保存）下一次读取重新检查；同样模型的检查同一时间只进行一次，
+// 检查进行中模型改变时另起一次检查，不返回用旧模型的结果
+export function createEnvironment(options: EnvironmentOptions) {
+  let cached: { report: EnvironmentReport; modelsKey: string } | undefined;
+  let inflight: { promise: Promise<EnvironmentReport>; modelsKey: string } | undefined;
+
+  function check(): Promise<EnvironmentReport> {
+    const modelsKey = JSON.stringify(options.models());
+    if (inflight?.modelsKey === modelsKey) return inflight.promise;
+    const promise = (async () => {
+      const report = await runEnvironmentChecks(options).finally(() => {
+        if (inflight?.promise === promise) inflight = undefined;
+      });
+      cached = { report, modelsKey };
+      return report;
+    })();
+    inflight = { promise, modelsKey };
+    return promise;
+  }
+
+  return {
+    get(refresh: boolean): Promise<EnvironmentReport> {
+      // 重新检查时 Linear 用新建的连接：网络中断后旧连接可能一直返回错误
+      if (refresh) renewLinearClient();
+      if (
+        !refresh &&
+        cached !== undefined &&
+        Date.now() - cached.report.checkedAt < CACHE_MS &&
+        cached.modelsKey === JSON.stringify(options.models())
+      ) {
+        return Promise.resolve(cached.report);
+      }
+      return check();
+    },
+  };
+}
+
+export type Environment = ReturnType<typeof createEnvironment>;

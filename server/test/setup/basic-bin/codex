@@ -1,0 +1,8 @@
+#!/bin/bash
+# 基础档（pnpm test、pnpm e2e）PATH 中的 codex（test/setup/basic-tier.ts 放入）：记下这次调用后以原文报错退出。
+# 基础档不调用真实的 Codex；需要它的测试属于真实档（pnpm test:real、pnpm e2e:real）
+set -euo pipefail
+: "${WFD_BASIC_TIER_LOG:?WFD_BASIC_TIER_LOG 未设置：这个 codex 只能经 test/setup/basic-tier.ts 使用}"
+echo "$(date '+%Y-%m-%dT%H:%M:%S') pid=$PPID cwd=$PWD codex $*" >>"$WFD_BASIC_TIER_LOG"
+echo "基础档不允许调用 codex：codex $*" >&2
+exit 1

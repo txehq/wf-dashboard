@@ -1,0 +1,15 @@
+{
+  "args": [
+    "release",
+    "view",
+    "v2.2.2",
+    "--repo",
+    "txehq/txe-workflow",
+    "--json",
+    "tagName,publishedAt"
+  ],
+  "exitCode": 0,
+  "stdout": "{\"publishedAt\":\"2026-10-05T07:32:39Z\",\"tagName\":\"v2.2.2\"}",
+  "stderr": "",
+  "recordedAt": "2026-10-19T13:40:55.638Z"
+}

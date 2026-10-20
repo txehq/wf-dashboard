@@ -1,0 +1,90 @@
+/* react-diff-view 的表格按 GitHub 的样式显示，颜色见 colors.css */
+.wfd-diff {
+  --diff-font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  --diff-gutter-insert-background-color: var(--wfd-diff-add-gutter);
+  --diff-gutter-delete-background-color: var(--wfd-diff-delete-gutter);
+  --diff-code-insert-background-color: var(--wfd-diff-add-line);
+  --diff-code-delete-background-color: var(--wfd-diff-delete-line);
+  --diff-code-insert-edit-background-color: var(--wfd-diff-add-word);
+  --diff-code-delete-edit-background-color: var(--wfd-diff-delete-word);
+  --diff-omit-gutter-line-color: transparent;
+  font-size: 12px;
+}
+
+/* 并排时另一侧没有对应行的空格子 */
+.wfd-diff .diff-gutter-omit,
+.wfd-diff .diff-code-omit {
+  background: var(--wfd-diff-empty);
+}
+
+.wfd-diff .diff-gutter {
+  color: var(--wfd-diff-gutter-text);
+  cursor: default;
+}
+
+/* 新增与删除的行号在红绿的行号栏上，用正文的颜色（GitHub 相同） */
+.wfd-diff .diff-gutter-insert,
+.wfd-diff .diff-gutter-delete {
+  color: var(--wfd-diff-change-gutter-text);
+}
+
+.wfd-diff .diff-gutter-col {
+  width: 6ch;
+}
+
+/* 行首的标记：新增 +，删除 -；折行后的文字不占标记的位置 */
+.wfd-diff .diff-code {
+  position: relative;
+  padding-left: 2.5ch;
+  word-break: break-word;
+}
+
+.wfd-diff .diff-code-insert::before,
+.wfd-diff .diff-code-delete::before {
+  position: absolute;
+  left: 0.75ch;
+  user-select: none;
+}
+
+.wfd-diff .diff-code-insert::before {
+  content: '+';
+}
+
+.wfd-diff .diff-code-delete::before {
+  content: '-';
+}
+
+.wfd-diff .diff-code-edit {
+  border-radius: 2px;
+}
+
+.wfd-diff .wfd-diff-gap {
+  background: var(--wfd-diff-gap);
+  color: var(--wfd-diff-gap-text);
+}
+
+/* hunk 的位置（@@ -1,6 +1,27 @@）：次要的文字 */
+.wfd-diff .wfd-diff-gap-title {
+  color: var(--wfd-diff-gutter-text);
+}
+
+.wfd-diff .wfd-diff-hunk-header {
+  user-select: auto;
+}
+
+.wfd-diff .wfd-diff-hunk-header .diff-decoration-content {
+  font-family: inherit;
+}
+
+/* hunk 上方的一行中标了 data-dimmed 时，这个 hunk 变淡（例如被拒绝的修改） */
+.wfd-diff .diff-decoration:has([data-dimmed='true']) + .diff-hunk {
+  opacity: 0.45;
+}
+
+.wfd-diff-additions {
+  color: var(--wfd-diff-add-text);
+}
+
+.wfd-diff-deletions {
+  color: var(--wfd-diff-delete-text);
+}

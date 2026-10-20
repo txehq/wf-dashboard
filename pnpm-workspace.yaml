@@ -1,0 +1,15 @@
+packages:
+  - server
+  - web
+allowBuilds:
+  esbuild: true
+  # 安装脚本只检查包内 darwin 的 prebuild 并整理 build/，不在本机编译
+  node-pty: true
+  # 只用包内的 tree-sitter-bash.wasm（web-tree-sitter 加载），不编译 node 原生绑定
+  tree-sitter-bash: false
+minimumReleaseAgeExclude:
+  - '@fastify/sse@0.6.1'
+  - concurrently@10.0.6
+  - drizzle-orm@0.45.4
+  - lucide-react@1.54.0
+  - vite@8.3.4

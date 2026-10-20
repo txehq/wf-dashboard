@@ -1,0 +1,39 @@
+
+ ▐▛███▛█   Claude Code v2.1.295
+▝▜██████▀  Opus 5.5 (1M context) with high effort · API Usage Billing
+ ▝▝   ▝▝   ~/orca/workspaces/wf-dashboard/wfd-w30/.work/w30/exp/ask2-out/cwd
+
+
+❯ 调用一次 AskUserQuestion 工具，同时问我三个问题：问题一「选一个颜色」，header「颜色」，选项                           
+  红、绿、蓝，单选；问题二「选几种水果」，header「水果」，选项 苹果、香蕉、橙子、葡萄，多选（multiSelect                
+  true）；问题三「选一个城市」，header「城市」，选项 北京、上海，单选。得到回答后原样输出三个回答，格式为 ANSWERS:      
+  颜色=… 水果=… 城市=…                                                                                                  
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☒ 颜色  ☒ 水果  ☒ 城市  ✔ Submit  →
+
+Review your answers
+
+ ● 选一个颜色
+   → 紫色，带一点灰
+ ● 选几种水果
+   → 苹果, 橙子
+ ● 选一个城市
+   → 上海 
+         
+Ready to submit your answers?
+
+❯ 1. Submit answers
+  2. Cancel
+
+
+
+
+
+
+
+
+
+
+
+

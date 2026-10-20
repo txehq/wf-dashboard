@@ -1,0 +1,180 @@
+import { spawnSync } from 'node:child_process';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import path from 'node:path';
+import { parse as parseJUnit, type TestCase, type TestSuite, type TestSuites } from 'junit2json';
+import { quote } from 'shell-quote';
+import type { RepoTask, TestsTask } from './schema.js';
+
+// 隐藏测试在 checkout 中的位置，与 task 的测试命令一致
+export const hiddenTestsTarget = 'test/hidden';
+
+function run(command: string, args: string[], cwd: string) {
+  const proc = spawnSync(command, args, { cwd, encoding: 'utf8' });
+  if (proc.error) throw proc.error;
+  if (proc.status !== 0) {
+    throw new Error(
+      `${command} ${args.join(' ')} 退出码 ${String(proc.status)}\n${proc.stdout}\n${proc.stderr}`,
+    );
+  }
+  return proc.stdout.trim();
+}
+
+// 从 task 的 git bundle clone 起始仓库并停在固定 commit
+export function checkoutStartRepo(task: RepoTask, dest: string) {
+  rmSync(dest, { recursive: true, force: true });
+  mkdirSync(path.dirname(dest), { recursive: true });
+  run('git', ['clone', '--quiet', '--no-checkout', path.join(task.dir, task.repo.path), dest], '.');
+  run('git', ['checkout', '--quiet', '--detach', task.repo.commit], dest);
+  const head = run('git', ['rev-parse', 'HEAD'], dest);
+  if (head !== task.repo.commit) throw new Error(`checkout 停在 ${head}，期望 ${task.repo.commit}`);
+  return head;
+}
+
+export function installDependencies(checkout: string) {
+  run('npm', ['ci', '--no-audit', '--no-fund'], checkout);
+}
+
+export function placeHiddenTests(task: TestsTask, checkout: string) {
+  const target = path.join(checkout, hiddenTestsTarget);
+  rmSync(target, { recursive: true, force: true });
+  cpSync(path.join(task.dir, task.hiddenTests.dir), target, { recursive: true });
+}
+
+// 测试配置由 task 提供，放在 checkout 之外的 configDir；同目录的 node_modules 指向 checkout 的依赖，
+// 配置中的 import（例如 @playwright/test）从 checkout 安装的包解析。返回配置文件的路径
+export function placeHiddenConfig(
+  task: TestsTask,
+  checkout: string,
+  configDir: string,
+): string {
+  if (existsSync(configDir)) throw new Error(`隐藏测试配置目录已存在：${configDir}`);
+  mkdirSync(configDir, { recursive: true });
+  const configPath = path.join(configDir, path.basename(task.hiddenTests.config));
+  cpSync(path.join(task.dir, task.hiddenTests.config), configPath);
+  symlinkSync(path.join(checkout, 'node_modules'), path.join(configDir, 'node_modules'));
+  return configPath;
+}
+
+// 参考实现以文件形式存放在 tasks/<id>/reference/，目录结构与仓库一致，覆盖到 checkout 上
+export function applyReference(task: RepoTask, checkout: string) {
+  cpSync(path.join(task.dir, 'reference'), checkout, { recursive: true });
+}
+
+export type CaseOutcome = 'passed' | 'failed' | 'errored' | 'skipped';
+
+export interface HiddenCase {
+  file: string;
+  name: string;
+  outcome: CaseOutcome;
+  message: string | null;
+}
+
+export interface HiddenRun {
+  exitCode: number;
+  cases: HiddenCase[];
+  // 无法加载的测试文件在 JUnit 中只有一条 name 与 classname 相同的 testcase
+  fileErrors: { file: string; message: string }[];
+}
+
+// 根元素是 <testsuites> 或单个 <testsuite>
+function suitesOf(report: TestSuites | TestSuite): TestSuite[] {
+  return 'testcase' in report ? [report] : ((report as TestSuites).testsuite ?? []);
+}
+
+function outcomeOf(c: TestCase): { outcome: CaseOutcome; message: string | null } {
+  const failure = c.failure?.[0];
+  if (failure) return { outcome: 'failed', message: failure.message ?? failure.inner ?? null };
+  const error = c.error?.[0];
+  if (error) return { outcome: 'errored', message: error.message ?? error.inner ?? null };
+  if (c.skipped) return { outcome: 'skipped', message: null };
+  return { outcome: 'passed', message: null };
+}
+
+// JUnit 中的测试与无法加载的文件（name 与 classname 相同的 testcase）；评分与生成清单共用。
+// classname、name 缺失或文件级错误没有信息时抛错
+export function junitCases(report: TestSuites | TestSuite): Omit<HiddenRun, 'exitCode'> {
+  const cases: HiddenCase[] = [];
+  const fileErrors: HiddenRun['fileErrors'] = [];
+  for (const c of suitesOf(report).flatMap((s) => s.testcase ?? [])) {
+    if (c.classname === undefined || c.name === undefined) {
+      throw new Error(`JUnit testcase 缺少 classname 或 name：${JSON.stringify(c)}`);
+    }
+    const { outcome, message } = outcomeOf(c);
+    if (c.name === c.classname) {
+      if (message === null) throw new Error(`文件级 testcase 没有错误信息：${c.classname}`);
+      fileErrors.push({ file: c.classname, message });
+    } else {
+      cases.push({ file: c.classname, name: c.name, outcome, message });
+    }
+  }
+  return { cases, fileErrors };
+}
+
+// 运行 task 的测试命令（vitest 有失败测试时退出码为 1，属于正常结果），解析 JUnit XML；
+// JUnit 与测试配置写在 outDir 下
+export async function runHiddenTestCases(
+  task: TestsTask,
+  checkout: string,
+  outDir: string,
+): Promise<HiddenRun> {
+  rmSync(outDir, { recursive: true, force: true });
+  mkdirSync(outDir, { recursive: true });
+  const junitPath = path.join(outDir, 'junit.xml');
+  const configPath = placeHiddenConfig(task, checkout, path.join(outDir, 'hidden-config'));
+  const command = task.hiddenTests.command
+    .replaceAll('{junitPath}', quote([junitPath]))
+    .replaceAll('{configPath}', quote([configPath]));
+  const proc = spawnSync(command, { cwd: checkout, shell: true, encoding: 'utf8' });
+  if (proc.error) throw proc.error;
+  if (proc.status !== 0 && proc.status !== 1) {
+    throw new Error(`${command} 退出码 ${String(proc.status)}\n${proc.stdout}\n${proc.stderr}`);
+  }
+  const report = await parseJUnit(readFileSync(junitPath, 'utf8'));
+  if (!report) throw new Error(`${junitPath} 是空的 JUnit 报告`);
+  return { exitCode: proc.status, ...junitCases(report) };
+}
+
+// 在参考实现上运行得到的清单：必须全部通过，否则参考实现本身有问题
+export function manifestFromRun(result: HiddenRun): Record<string, string[]> {
+  const bad = [
+    ...result.fileErrors.map((e) => `${e.file}: ${e.message}`),
+    ...result.cases
+      .filter((c) => c.outcome !== 'passed')
+      .map((c) => `${c.file} > ${c.name}: ${c.outcome} ${c.message ?? ''}`),
+  ];
+  if (bad.length > 0) throw new Error(`参考实现上有未通过的隐藏测试：\n${bad.join('\n')}`);
+  const manifest: Record<string, string[]> = {};
+  for (const c of result.cases) (manifest[c.file] ??= []).push(c.name);
+  return manifest;
+}
+
+export interface ManifestScore {
+  declared: number;
+  passed: number;
+  outcomes: { file: string; name: string; outcome: CaseOutcome | 'not-run' }[];
+}
+
+// 分母取清单：文件无法加载时 XML 中缺少的测试记为 not-run。同一文件中同名的测试无法区分结果，直接抛错
+export function scoreAgainstManifest(
+  result: Pick<HiddenRun, 'cases'>,
+  manifest: Record<string, string[]>,
+): ManifestScore {
+  const seen = new Map<string, CaseOutcome>();
+  for (const c of result.cases) {
+    const key = `${c.file}\0${c.name}`;
+    if (seen.has(key)) throw new Error(`JUnit 中有同名的测试：${c.file} > ${c.name}`);
+    seen.set(key, c.outcome);
+  }
+  const outcomes = Object.entries(manifest).flatMap(([file, names]) =>
+    names.map((name) => ({
+      file,
+      name,
+      outcome: seen.get(`${file}\0${name}`) ?? ('not-run' as const),
+    })),
+  );
+  return {
+    declared: outcomes.length,
+    passed: outcomes.filter((o) => o.outcome === 'passed').length,
+    outcomes,
+  };
+}
