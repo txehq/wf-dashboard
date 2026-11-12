@@ -11,7 +11,7 @@ import {
   useAnalysisEvents,
 } from '@/lib/analyses-api';
 
-// Contracts 15.3、19：分析列表
+// Contracts 15.3, 19: analysis list
 export function AnalysesPage() {
   useAnalysisEvents();
   const list = useQuery(analysesQuery);
@@ -21,38 +21,39 @@ export function AnalysesPage() {
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold">Analyses</h1>
           <p className="text-sm text-muted-foreground">
-            用 workflow session-analysis 的 variant 分析 session：按发现修改 skill 另存为新的
-            variant，或把报告交给 Codex 或 Claude Code 优化。
+            Analyze sessions with a variant of the session-analysis workflow, then save skill
+            changes based on the findings as a new variant, or hand the report to Codex or Claude
+            Code to optimize.
           </p>
         </div>
         <Button asChild className="ml-auto" data-testid="new-analysis">
           <Link to="/analyses/new">
             <Plus />
-            新建分析
+            New analysis
           </Link>
         </Button>
       </header>
       {list.isPending ? (
-        <p className="text-sm text-muted-foreground">正在加载…</p>
+        <p className="text-sm text-muted-foreground">Loading…</p>
       ) : list.isError ? (
         <p role="alert" className="text-sm text-destructive">
-          加载分析失败：{list.error.message}
+          Couldn't load analyses: {list.error.message}
         </p>
       ) : list.data.length === 0 ? (
         <p className="rounded-lg border border-dashed py-12 text-center text-sm text-muted-foreground">
-          还没有分析。
+          No analyses yet.
         </p>
       ) : (
         <div className="overflow-x-auto rounded-lg border">
           <table className="w-full text-left text-sm">
             <thead className="border-b bg-muted/40 text-xs text-muted-foreground">
               <tr>
-                <th className="py-2 pr-4 pl-3 font-medium">分析</th>
-                <th className="py-2 pr-4 font-medium">范围</th>
-                <th className="py-2 pr-4 font-medium">variant</th>
-                <th className="py-2 pr-4 font-medium">引擎</th>
-                <th className="py-2 pr-4 font-medium">状态</th>
-                <th className="py-2 pr-3 text-right font-medium">花费</th>
+                <th className="py-2 pr-4 pl-3 font-medium">Analysis</th>
+                <th className="py-2 pr-4 font-medium">Scope</th>
+                <th className="py-2 pr-4 font-medium">Variant</th>
+                <th className="py-2 pr-4 font-medium">Engine</th>
+                <th className="py-2 pr-4 font-medium">Status</th>
+                <th className="py-2 pr-3 text-right font-medium">Cost</th>
               </tr>
             </thead>
             <tbody>
@@ -67,13 +68,13 @@ export function AnalysesPage() {
                   <td className="py-2 pr-4 font-mono text-xs">
                     {a.sessionIds.length === 1
                       ? (a.sessionIds[0] ?? '').slice(0, 8)
-                      : `${String(a.sessionIds.length)} 个 session`}
+                      : `${String(a.sessionIds.length)} sessions`}
                   </td>
                   <td className="py-2 pr-4">
-                    {a.variantName ?? '本机配置'}
+                    {a.variantName ?? 'Local config'}
                     {a.analysisVariantName !== null && (
                       <p className="text-xs text-muted-foreground">
-                        分析方法 {a.analysisVariantName}
+                        Method {a.analysisVariantName}
                       </p>
                     )}
                   </td>

@@ -9,7 +9,7 @@ import {
   WorkspaceLink,
 } from '@/components/sessions/session-header-links';
 import { UNPRICED } from '@/components/sessions/session-table';
-import { LiveBadge, PurposeBadge, WorkflowBadges } from '@/components/sessions/workflow-badges';
+import { PurposeBadge, WorkflowBadges } from '@/components/sessions/workflow-badges';
 import {
   durationBetween,
   formatCount,
@@ -32,12 +32,11 @@ function Tile({ label, value, sub }: { label: string; value: string; sub?: strin
 
 const TOOL_LIMIT = 10;
 
-// 单一序列的横向条形：长度表示调用次数，数值在条形末端
+// Single-series horizontal bars: length is the call count, the value sits at the end of the bar
 export function ToolBars({ counts, label }: { counts: Record<string, number>; label: string }) {
   const [all, setAll] = useState(false);
   const entries = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  if (entries.length === 0)
-    return <p className="text-sm text-muted-foreground">没有 tool 调用。</p>;
+  if (entries.length === 0) return <p className="text-sm text-muted-foreground">No tool calls.</p>;
   const shown = all ? entries : entries.slice(0, TOOL_LIMIT);
   const max = entries[0]?.[1] ?? 1;
   return (
@@ -47,7 +46,7 @@ export function ToolBars({ counts, label }: { counts: Record<string, number>; la
           <li
             key={name}
             className="grid grid-cols-[minmax(0,14rem)_1fr] items-center gap-3 text-xs"
-            title={`${name}：${formatInteger(n)} 次`}
+            title={`${name}: ${formatInteger(n)} ${n === 1 ? 'call' : 'calls'}`}
           >
             <span className="truncate text-right font-mono text-muted-foreground">{name}</span>
             <span className="flex items-center gap-2">
@@ -71,7 +70,7 @@ export function ToolBars({ counts, label }: { counts: Record<string, number>; la
             setAll(!all);
           }}
         >
-          {all ? '只看前 10 个' : `显示全部 ${String(entries.length)} 个 tool`}
+          {all ? 'Show top 10' : `Show all ${String(entries.length)} tools`}
         </button>
       )}
     </figure>
@@ -83,7 +82,7 @@ export function SessionSummaryPanel({
   outside,
 }: {
   session: SessionDetail;
-  // 判定之后才有；本机配置的 session 不划分阶段，没有
+  // Available once stages are determined; local config sessions have no stages, so none
   outside: StageStats | null;
 }) {
   const t = session.tokens;
@@ -91,14 +90,14 @@ export function SessionSummaryPanel({
   const local = session.config === 'local';
   return (
     <section
-      aria-label="session 汇总"
+      aria-label="Session summary"
       className="flex flex-col gap-4"
       data-testid="session-summary"
     >
       <header className="flex flex-col gap-1">
         <div className="flex flex-wrap items-center gap-3">
           <EngineLogo engine={session.engine} className="size-5" />
-          <h1 className="text-2xl font-semibold">{session.title ?? '（没有用户消息）'}</h1>
+          <h1 className="text-2xl font-semibold">{session.title ?? '(no user message)'}</h1>
           {session.purpose !== null ? (
             <PurposeBadge purpose={session.purpose} />
           ) : (
@@ -109,10 +108,9 @@ export function SessionSummaryPanel({
               className="rounded border px-1.5 py-0.5 text-xs text-muted-foreground"
               data-testid="session-archived"
             >
-              已归档
+              Archived
             </span>
           )}
-          {session.liveId !== null && <LiveBadge liveId={session.liveId} />}
           <span className="ml-auto flex flex-wrap items-start justify-end gap-2">
             <SessionLinksButton sessionId={session.id} />
             <SessionActionButtons
@@ -127,12 +125,12 @@ export function SessionSummaryPanel({
           </span>
         </div>
         <p className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
-          <span>工作区</span>
+          <span>Directory</span>
           <WorkspaceLink session={session} />
           <span>· {session.id}</span>
           {session.runId !== null && <span>· run {session.runId}</span>}
           {local ? (
-            <span data-testid="session-config">· 本机配置（不绑定 variant）</span>
+            <span data-testid="session-config">· Local config (no variant binding)</span>
           ) : (
             <>
               <span>· variant</span>
@@ -141,32 +139,36 @@ export function SessionSummaryPanel({
           )}
         </p>
         <p className="text-xs text-muted-foreground tabular-nums">
-          {formatDateTime(session.startedAt)} 至 {formatDateTime(session.endedAt)}
+          {formatDateTime(session.startedAt)} to {formatDateTime(session.endedAt)}
         </p>
       </header>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
-        <Tile label="总请求" value={formatInteger(session.requestCount)} sub="含子代理" />
-        <Tile label="input token" value={formatCount(t.input)} />
-        <Tile label="output token" value={formatCount(t.output)} />
         <Tile
-          label="cache token"
+          label="Requests"
+          value={formatInteger(session.requestCount)}
+          sub="Including subagents"
+        />
+        <Tile label="Input tokens" value={formatCount(t.input)} />
+        <Tile label="Output tokens" value={formatCount(t.output)} />
+        <Tile
+          label="Cache tokens"
           value={formatCount(t.cacheRead + t.cacheCreation)}
-          sub={`读 ${formatCount(t.cacheRead)} · 写 ${formatCount(t.cacheCreation)}`}
+          sub={`Read ${formatCount(t.cacheRead)} · Write ${formatCount(t.cacheCreation)}`}
         />
         <Tile
-          label="总花费"
+          label="Cost"
           value={session.priced ? formatUsd(session.costUsd) : '—'}
           {...(session.priced ? {} : { sub: UNPRICED })}
         />
         <Tile
-          label="时长"
+          label="Duration"
           value={formatDuration(durationBetween(session.startedAt, session.endedAt))}
-          sub="首条到末条记录"
+          sub="First to last record"
         />
         <Tile
-          label="子代理"
+          label="Subagents"
           value={formatInteger(session.subagentCount)}
-          sub={`tool 调用 ${formatInteger(session.toolCallCount)} 次`}
+          sub={`${formatInteger(session.toolCallCount)} ${session.toolCallCount === 1 ? 'tool call' : 'tool calls'}`}
         />
       </div>
       {outside !== null && (
@@ -174,12 +176,15 @@ export function SessionSummaryPanel({
           className="flex flex-wrap items-baseline gap-x-6 gap-y-1 rounded-lg border border-dashed px-4 py-3 text-sm"
           data-testid="outside-stats"
         >
-          <h2 className="font-medium">流程外</h2>
-          <span className="text-xs text-muted-foreground">不属于任何一轮 /lfg 或 /ic 的请求</span>
+          <h2 className="font-medium">Outside workflows</h2>
+          <span className="text-xs text-muted-foreground">
+            Requests outside any /lfg or /ic cycle
+          </span>
           <span className="tabular-nums">
-            {formatInteger(outside.requests)} 次请求
+            {formatInteger(outside.requests)} {outside.requests === 1 ? 'request' : 'requests'}
             <span className="text-muted-foreground">
-              （占 {Math.round((outside.requests / Math.max(session.requestCount, 1)) * 100)}%）
+              {' '}
+              ({Math.round((outside.requests / Math.max(session.requestCount, 1)) * 100)}%)
             </span>
           </span>
           <span className="tabular-nums">{formatUsd(outside.costUsd)}</span>
@@ -187,8 +192,8 @@ export function SessionSummaryPanel({
         </div>
       )}
       <div className="flex flex-col gap-2 rounded-lg border px-4 py-3">
-        <h2 className="text-sm font-medium">tool 使用分布</h2>
-        <ToolBars counts={session.toolCounts} label="各 tool 的调用次数" />
+        <h2 className="text-sm font-medium">Tool usage</h2>
+        <ToolBars counts={session.toolCounts} label="Calls per tool" />
       </div>
     </section>
   );

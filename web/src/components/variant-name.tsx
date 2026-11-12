@@ -3,8 +3,8 @@ import type { ReactNode } from 'react';
 import { InlineRename } from '@/components/inline-rename';
 import { request, type Variant } from '@/pages/variants-api';
 
-// variant 的名字（Contracts 16.4）：直接改名，与交互项相同（14.3）。各处都按 id 取名字：
-// 改名后刷新这个页面的全部查询；其他已打开的页面经 variant.updated 刷新
+// A variant's name (Contracts 16.4): renamed inline, like interactions (14.3). Every place looks the name up by id:
+// a rename refreshes all queries on this page; other open pages refresh through variant.updated
 export function VariantName({
   variant,
   className,
@@ -12,14 +12,14 @@ export function VariantName({
 }: {
   variant: Pick<Variant, 'id' | 'name'>;
   className?: string;
-  // 名字是链接时（Workflows 列表）：单击打开 variant，铅笔图标改名
+  // When the name is a link (Workflows list): a click opens the variant, the pencil renames
   link?: (name: string) => ReactNode;
 }) {
   const client = useQueryClient();
   return (
     <InlineRename
       value={variant.name}
-      label="variant 的名字"
+      label="Variant name"
       testId="variant-name"
       {...(className === undefined ? {} : { className })}
       {...(link === undefined ? {} : { link })}

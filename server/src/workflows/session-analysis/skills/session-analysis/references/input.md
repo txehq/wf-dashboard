@@ -1,24 +1,24 @@
-# input/ 的内容
+# What input/ contains
 
-全部只读。
+Everything is read-only.
 
-- `input/case.json`：这次分析的范围：`analysisId`、`variant`（被分析的 variant 的 id 与名字；本机配置的 session 为 null，见文末）、`sessions`（每个 session 的 id、标题、cwd、runId、请求数与主 agent 请求数）。
-- `input/workflow.yaml`：被分析 variant 所属 workflow 的定义：`id` 是入口命令与入口 skill 的名字，`stages` 是有顺序的小阶段（每个阶段一个同名 skill；`repeatable` 的阶段再次进入只记次数；`allowInside` 列出在本阶段中调用不算切换的阶段）。
-- `input/skills/`：被分析 variant 的全部 skill（`<skill>/SKILL.md` 与它引用的文件）。detail 中引用 skill 原文时写这里的路径。
-- `input/sessions/<sessionId>.jsonl`：每行是一次模型请求：
-  - `seq`：请求序号。主 agent 的请求 `agent` 为 null，`seq` 即它在主 agent 中的序号；子代理的请求 `agent` 为子代理 id，`seq` 是它在子代理内的序号，`parentSeq` 是启动它的那条主 agent 请求的 `seq`（主 agent 的行 `parentSeq` 等于自己的 `seq`）。
-  - `stage`：所属的 workflow 轮次与阶段（例如 `ic#1 implement`），不属于任何阶段时为 null。
-  - `timestamp`、`durationMs`、`model`、`tokens`（`input` 未缓存的输入、`output`、`cacheRead`、`cacheCreation`，都是这一次请求的增量）、`costUsd`（这一次请求的花费）、`attributionSkill`（当时生效的 skill）。
-  - `userMessagesBefore`：触发这条请求的用户消息与系统事件；`kind` 为 `user` 是用户（或评估 run 中的模拟用户）说的话，`notice` 是系统事件（例如上下文压缩、hook 输出），不是用户的话。
-  - `skillLoads`：这条请求之前加载进上下文的 skill（名称与参数）。
-  - `thinking`：模型思考的各个块，只有 `type`（`thinking` 或 `redacted_thinking`）与 `tokens`，不含思考的文字；没有思考时为 null。Claude Code 的 session 中 `tokens` 是估算数（这次请求的 `tokens.output` 减去回复文字与 tool 调用输入的估算数，由这次请求的各个块均分）；Codex 的 session 中是这次请求记录的推理 token 数，由各个块均分。
-  - `text`：模型的回复文字。
-  - `toolCalls`：每个 tool 调用的 `name`、完整 `input`、完整 `result`（不截断）、`isError`、`subagentId`；结果溢出到文件时 `spilledOutput` 是文件的完整内容。
-- `input/sessions/<sessionId>/stages.json`：按 `workflow.yaml` 划分的阶段（每轮的各阶段、起止 seq、状态、请求数、token、花费、耗时）。
-- `input/sessions/<sessionId>/conversation.json`：用户与 agent 的对话（用户消息、每轮最后的回复、AskUserQuestion 的问题与回答）。
-- `input/sessions/<sessionId>/instructions.json`：session 中加载的指令文件（CLAUDE.md、AGENTS.md 等）：每项 `timestamp` 与 `files`（`path`、`type`、`content`）。没有加载时为空数组。
-- `input/sessions/<sessionId>/run.json`（只有评估 run 的 session 才有）：task（不含隐藏需求与评分标准）、评分结果与理由、产物、模拟用户的对话、PR 的 review 与 CI（`pr`）。
+- `input/case.json`: the scope of this analysis: `analysisId`, `variant` (id and name of the analyzed variant; null for sessions with the local machine configuration, see the end), `sessions` (each session's id, title, cwd, runId, request count and main agent request count).
+- `input/workflow.yaml`: the definition of the workflow the analyzed variant belongs to: `id` is the entry command and the name of the entry skill, `stages` are the ordered stages (one skill of the same name per stage; entering a `repeatable` stage again only counts; `allowInside` lists the stages whose calls inside this stage are not a switch).
+- `input/skills/`: all skills of the analyzed variant (`<skill>/SKILL.md` and the files it references). When detail quotes skill text, write the path here.
+- `input/sessions/<sessionId>.jsonl`: each line is one model request:
+  - `seq`: request number. For main agent requests `agent` is null and `seq` is the number within the main agent; for subagent requests `agent` is the subagent id, `seq` is the number within the subagent, and `parentSeq` is the `seq` of the main agent request that started it (on main agent lines `parentSeq` equals its own `seq`).
+  - `stage`: the workflow cycle and stage it belongs to (for example `ic#1 implement`), null when it belongs to no stage.
+  - `timestamp`, `durationMs`, `model`, `tokens` (`input` uncached input, `output`, `cacheRead`, `cacheCreation`, all increments of this request), `costUsd` (the cost of this request), `attributionSkill` (the skill in effect at the time).
+  - `userMessagesBefore`: the user messages and system events that triggered this request; `kind` `user` is what the user (or the simulated user in an eval run) said, `notice` is a system event (for example context compaction, hook output) and not the user's words.
+  - `skillLoads`: skills loaded into context before this request (name and arguments).
+  - `thinking`: the model's thinking blocks, with only `type` (`thinking` or `redacted_thinking`) and `tokens`, without the thinking text; null when there was no thinking. In Claude Code sessions `tokens` is an estimate (this request's `tokens.output` minus the estimates of the reply text and tool call inputs, split evenly across the request's blocks); in Codex sessions it is the reasoning token count recorded for this request, split evenly across the blocks.
+  - `text`: the model's reply text.
+  - `toolCalls`: each tool call's `name`, full `input`, full `result` (not truncated), `isError` and `subagentId`; when the result spilled into a file, `spilledOutput` is the file's full content.
+- `input/sessions/<sessionId>/stages.json`: the stages split by `workflow.yaml` (each cycle's stages, start and end seq, status, request count, tokens, cost, duration).
+- `input/sessions/<sessionId>/conversation.json`: the conversation between the user and the agent (user messages, the last reply of each turn, AskUserQuestion questions and answers).
+- `input/sessions/<sessionId>/instructions.json`: instruction files loaded in the session (CLAUDE.md, AGENTS.md and so on): each entry has `timestamp` and `files` (`path`, `type`, `content`). An empty array when none were loaded.
+- `input/sessions/<sessionId>/run.json` (only for sessions of eval runs): the task (without hidden requirements and rubric), the grading results and reasons, artifacts, the simulated user's conversation, and the PR's review and CI (`pr`).
 
-## 本机配置的 session
+## Sessions with the local machine configuration
 
-`case.json` 的 `variant` 为 null 时，这些 session 来自用户本机的 Claude Code 或 Codex，不属于任何 workflow：没有 `input/skills/`、`input/workflow.yaml` 与 `stages.json`，每行的 `stage` 都是 null。每个阶段照常分析 session 本身（请求、tool 调用、对话、指令文件）；阶段中与 `input/skills/`、`workflow.yaml` 或阶段对照的步骤没有对象，跳过，不为此报告发现。detail 中引用的 skill 原文只能来自 session 中的 `skillLoads` 与 tool 结果。
+When `variant` in `case.json` is null, these sessions come from the user's local Claude Code or Codex and belong to no workflow: there is no `input/skills/`, `input/workflow.yaml` or `stages.json`, and every line's `stage` is null. Each stage analyzes the sessions themselves as usual (requests, tool calls, conversation, instruction files); steps that compare against `input/skills/`, `workflow.yaml` or stages have nothing to compare with, so skip them and report no findings for that. Skill text quoted in detail can only come from `skillLoads` and tool results in the sessions.

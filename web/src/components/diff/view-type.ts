@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import type { ViewType } from 'react-diff-view';
 
-// "统一 / 并排"的选择记在 localStorage，所有 diff 共用（Contracts 21.3）
+// The "Unified / Side by side" choice is kept in localStorage and shared by all diffs (Contracts 21.3)
 const KEY = 'wfd.diff.view';
 const listeners = new Set<() => void>();
 

@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 
-// 页面的明暗主题：根元素有 dark 这个 class 时为暗色（index.css 的 .dark 变量与 Tailwind 的 dark variant）；
-// class 变化时订阅者重新渲染
+// The page's light or dark theme: dark when the root element has the dark class (the .dark variables in index.css and Tailwind's dark variant);
+// subscribers re-render when the class changes
 const isDark = () => document.documentElement.classList.contains('dark');
 
 function subscribe(listener: () => void) {

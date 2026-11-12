@@ -1,17 +1,17 @@
 import net from 'node:net';
 import path from 'node:path';
 
-// 评分用的隐藏测试配置。评分时本文件被复制到 checkout 之外，命令的 cwd 是 checkout，
-// 所以项目根目录取 process.cwd()；从 checkout 之外无法解析 checkout 的 node_modules，这里只用 Node 内置模块
+// Hidden test config for grading. During grading this file is copied outside the checkout and the command's cwd is the checkout,
+// so the project root is process.cwd(); the checkout's node_modules cannot be resolved from outside it, so only Node built-ins are used
 
 const root = process.cwd();
 
-// 空闲端口在 runner 进程中选一次，worker 经环境变量继承；并发评分时各自不同
+// The free port is picked once in the runner process and inherited by workers via the environment; concurrent gradings each get their own
 async function freePort(): Promise<string> {
   const server = net.createServer();
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
-  if (address === null || typeof address === 'string') throw new Error('没有拿到端口');
+  if (address === null || typeof address === 'string') throw new Error('Could not get a port');
   await new Promise<void>((resolve) => server.close(() => resolve()));
   return String(address.port);
 }
@@ -20,14 +20,14 @@ process.env.WF_HIDDEN_PORT ??= await freePort();
 const baseURL = `http://127.0.0.1:${process.env.WF_HIDDEN_PORT}`;
 
 export default {
-  // testDir 取仓库根目录，JUnit 的 classname 才是相对仓库根目录的路径
+  // testDir is the repo root so JUnit classnames are paths relative to the repo root
   testDir: root,
   testMatch: 'test/hidden/**/*.spec.ts',
   outputDir: path.join(root, 'test-results', 'hidden'),
   retries: 0,
   fullyParallel: true,
   workers: 4,
-  // 页面上缺少的控件会让操作一直等待，超时设短，起始仓库上的失败也能很快结束
+  // Missing controls make actions wait, so timeouts are short and failures on the starting repo end quickly
   timeout: 15_000,
   expect: { timeout: 3_000 },
   use: { baseURL, actionTimeout: 3_000, browserName: 'chromium', headless: true },

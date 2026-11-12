@@ -1,23 +1,25 @@
 import { formatInteger } from './format';
 import type { DiskSession, PickedSession } from './sessions-api';
 
-// 上面三列的勾选与暂存的改动（Contracts 25.1）。manage：Sessions 页面，勾选表示在管理表格中，已导入的默认勾选、可以取消；
-// live："导入本机 session"选择框，只用来导入，已在交互区的不能勾选
+// Checks and staged changes in the three columns above (Contracts 25.1). manage: the Sessions page, a check means
+// in the manage table; imported ones are checked by default and can be unchecked.
+// live: the "Import local sessions" picker, import only; sessions already in the workspace cannot be checked
 export type ImportMode = 'manage' | 'live';
 
-// 暂存的改动，按文件；翻页、换项目、换配置时保留。manage 中是与原状不同的（待导入、待清除），live 中是勾选的
+// Staged changes by file; kept across pages, projects and configs. In manage, those that differ from the
+// original state (to import, to clear); in live, the checked ones
 export type ImportChanges = ReadonlyMap<string, PickedSession>;
 
-// 改动所在的配置与项目
+// Config and project of a change
 export interface ImportPlace {
   config: string;
   cwd: string;
 }
 
-// manage 中一个改动是导入还是清除：按暂存时的状态
+// In manage, whether a change imports or clears: by the state when it was staged
 export const changeKind = (s: PickedSession) => (s.imported ? 'clear' : 'import');
 
-// 原状：manage 中已导入的勾选（有改动的按暂存时的状态），live 中都不勾选
+// Original state: in manage, imported ones are checked (changed ones by the state when staged); none in live
 function original(mode: ImportMode, changes: ImportChanges, s: DiskSession): boolean {
   return mode === 'manage' && (changes.get(s.file)?.imported ?? s.imported);
 }
@@ -26,12 +28,13 @@ export function isChecked(mode: ImportMode, changes: ImportChanges, s: DiskSessi
   return changes.has(s.file) !== original(mode, changes, s);
 }
 
-// manage 中任何 session 都可以勾选或取消（清除只在管理表格中隐藏）；live 中已在交互区（没有隐藏）的不能勾选
+// In manage any session can be checked or unchecked (clear only hides it in the manage table); in live, those
+// already in the workspace (not hidden) cannot be checked
 export function isSelectable(mode: ImportMode, s: DiskSession): boolean {
   return mode === 'manage' || s.liveId === null || s.liveHidden;
 }
 
-// 把这些 session 勾选成 want：与原状相同时去掉改动（再点一次恢复原状）
+// Set these sessions to want: drop the change when it equals the original state (a second click restores it)
 export function withChecked(
   mode: ImportMode,
   changes: ImportChanges,
@@ -56,7 +59,7 @@ export function toggled(
   return withChecked(mode, changes, [s], !isChecked(mode, changes, s), place);
 }
 
-// 本页的全选：只作用于本页能勾选的，都已勾选时取消它们的勾选
+// Select all on this page: only the checkable ones on this page; unchecks them when all are already checked
 export function pageAllChecked(
   mode: ImportMode,
   changes: ImportChanges,
@@ -85,7 +88,7 @@ export function splitChanges(changes: ImportChanges): {
   };
 }
 
-// 第二列项目旁的"已导入 x / y（+2 −1）"
+// "Imported x / y (+2 −1)" next to a project in the second column
 export function projectCountText(
   changes: ImportChanges,
   config: string,
@@ -99,21 +102,21 @@ export function projectCountText(
     ...(plus > 0 ? [`+${formatInteger(plus)}`] : []),
     ...(minus > 0 ? [`−${formatInteger(minus)}`] : []),
   ];
-  return `已导入 ${formatInteger(project.importedCount)} / ${formatInteger(project.sessionCount)}${
-    delta.length > 0 ? `（${delta.join(' ')}）` : ''
+  return `Imported ${formatInteger(project.importedCount)} / ${formatInteger(project.sessionCount)}${
+    delta.length > 0 ? ` (${delta.join(' ')})` : ''
   }`;
 }
 
-// "应用：导入 N 个，清除 M 个"，只有一种时只写那一种
+// "Apply: import N, clear M", naming only the kind present when there is one
 export function applyLabel(imports: number, clears: number): string {
   const parts = [
-    ...(imports > 0 ? [`导入 ${formatInteger(imports)} 个`] : []),
-    ...(clears > 0 ? [`清除 ${formatInteger(clears)} 个`] : []),
+    ...(imports > 0 ? [`import ${formatInteger(imports)}`] : []),
+    ...(clears > 0 ? [`clear ${formatInteger(clears)}`] : []),
   ];
-  return parts.length === 0 ? '应用' : `应用：${parts.join('，')}`;
+  return parts.length === 0 ? 'Apply' : `Apply: ${parts.join(', ')}`;
 }
 
-// 应用完成的部分从暂存中去掉
+// Remove the applied part from the staged changes
 export function withoutApplied(changes: ImportChanges, done: PickedSession[]): ImportChanges {
   const next = new Map(changes);
   for (const s of done) next.delete(s.file);

@@ -8,7 +8,7 @@ import { LiveDetail } from '../live/views.js';
 import type { MagiAgent } from '../magi-agent/index.js';
 import { DeployBody, MagiAgentView, MagiDeployView, MagiOpenBody } from '../magi-agent/views.js';
 
-// Magi Agent（Contracts 第 23 节）
+// Magi Agent (Contracts section 23)
 export const magiAgentRoutes: FastifyPluginCallbackZod<{ magi: MagiAgent }> = (
   app,
   { magi },
@@ -19,7 +19,7 @@ export const magiAgentRoutes: FastifyPluginCallbackZod<{ magi: MagiAgent }> = (
 
   app.get('/api/magi-agent', { schema: { response: { 200: MagiAgentView } } }, () => magi.view());
 
-  // 打开（23.6）：继续所选的会话（没有运行中的进程时 resume）或新建一个
+  // Open (23.6): continue the chosen session (resuming it when no process runs) or create one
   app.post(
     '/api/magi-agent/open',
     { schema: { body: MagiOpenBody, response: { 200: LiveDetail } } },
@@ -36,7 +36,8 @@ export const magiAgentRoutes: FastifyPluginCallbackZod<{ magi: MagiAgent }> = (
     (request) => magi.resume(request.params.liveId),
   );
 
-  // 部署（23.5）：六步都成功时响应发出之后服务以退出码 75 结束；任何一步失败时 409 原文
+  // Deploy (23.5): when all six steps succeed, the service exits with code 75 after sending the response; any failed
+  // step is a 409 with its error
   app.post(
     '/api/magi-agent/deploy',
     { schema: { body: DeployBody, response: { 200: MagiDeployView } } },
@@ -49,7 +50,7 @@ export const magiAgentRoutes: FastifyPluginCallbackZod<{ magi: MagiAgent }> = (
     },
   );
 
-  // 部署第 3 步的完整输出
+  // The full output of deploy step 3
   app.get(
     '/api/magi-agent/deploys/:id/log',
     { schema: { params: z.object({ id: z.coerce.number().int().min(1) }) } },

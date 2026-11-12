@@ -5,20 +5,20 @@ feature: r-20261009-i6vxt1
 updated: "2026-10-09"
 ---
 
-# Brief: 初中课堂离线网页计算器
-**Date:** 2026-10-10 · **Interviewed:** 初一到初三数学老师（兼管学校机房和信息课） · **By:** Claude (Opus 5.5), `/lfg` stage 1
+# Brief: Offline web calculator for junior high classrooms
+**Date:** 2026-10-10 · **Interviewed:** Grade 7 to Grade 9 math teachers (also in charge of the school computer lab and IT classes) · **By:** Claude (Opus 5.5), `/lfg` stage 1
 
 ## Problem & consumer
 
-- **给谁用：** 初一到初三的学生，在学校机房的课堂上用来算题，在家里也会用；老师在投影上演示给全班看。
-- **要解决的问题：** 网上随便搜到的计算器会把 `0.1+0.2` 显示成 `0.30000000000000004`，学生看不懂；写错式子时也没有看得懂的提示，老师只能一个一个解释。
-- **为什么是现在：** 下学期开学就要在课堂上使用，开学大约在两个月以后。
+- **Who it is for:** Students in Grades 7 to 9, who use it to work out problems in computer-lab lessons at school and also at home; teachers demonstrate it to the whole class on a projector.
+- **Problem to solve:** Calculators found online at random show `0.1+0.2` as `0.30000000000000004`, which students cannot understand; when an expression is written wrong there is no understandable hint either, so teachers have to explain each one individually.
+- **Why now:** It must be used in class starting next semester, and school starts in about two months.
 
 ## Done means
 
-验收以下全部成立：
+All of the following must hold for acceptance:
 
-1. 老师给的 10 道验收题全部正确：
+1. All 10 acceptance questions from the teacher are answered correctly:
    - `0.1+0.2` → `0.3`
    - `(2+3)*4` → `20`
    - `2^10` → `1024`
@@ -27,148 +27,148 @@ updated: "2026-10-09"
    - `1/3` → `0.3333333333`
    - `-5+3` → `-2`
    - `(1+2)*(3+4)/7` → `3`
-   - `5/0` → 提示「不能除以 0」
-   - `(1+2` → 提示「括号不配对」
-2. 在 Chrome 109 中断网后双击文件打开（`file://`），全部功能可以使用，页面没有发出任何网络请求。
-3. 同一个文件放在网站上（`http://` 或 `https://`）打开，也一样可以使用。
-4. 下面“要做的功能”中的每一条，都有自动测试或带截图的验收证明。
+   - `5/0` → shows "Cannot divide by 0"
+   - `(1+2` → shows "Unmatched brackets"
+2. After disconnecting from the network, double-click to open the file in Chrome 109 (`file://`); all features work and the page makes no network requests.
+3. The same file hosted on a website (`http://` or `https://`) also works when opened.
+4. Each item in "Features to build" below has either an auto test or acceptance proof with a screenshot.
 
-最低证明：上面 10 道题和七种出错提示的自动测试，在 Chrome 109 上运行通过；离线打开时页面发出的网络请求数为 0；历史记录在关闭并重新打开浏览器后仍然存在；投影模式放大前后的截图。
+Minimum proof: automated tests for the 10 problems above and the seven error messages pass on Chrome 109; the page makes 0 network requests when opened offline; history still exists after closing and reopening the browser; screenshots before and after enlarging in projection mode.
 
-### 要做的功能
+### Features to build
 
-1. **能算的内容：** 加、减、乘、除（`+ - × ÷`，也接受 `* /`）、括号、百分号、正负号、乘方 `^`、开平方 `√`。
-2. **运算规则按初中课本：**
-   - `-2^2` = `-4`，先算乘方，再加负号；
-   - `200+10%` = `200.1`：百分号只表示除以 100（`10%` 就是 `0.1`，`50%` 就是 `0.5`），不按手机计算器的“加上 200 的 10%”算；
-   - `2^3^2` = `512`，连续的乘方从右往左算；
-   - `2(3+4)` = `14`，省略乘号的写法也能认出来。
-3. **结果显示：** 四舍五入保留 10 位小数，去掉末尾的 0；特别大或者特别小的数用科学记数法（形如 `1.1258999068×10^15`）；`0.1+0.2` 显示 `0.3`。
-4. **出错提示：** 写错或者算不了的时候不显示结果，只显示一句红色的中文提示，同时把式子里出错的位置标红。提示语一共七种，必须用以下原话：
+1. **What it can calculate:** add, subtract, multiply, divide (`+ - × ÷`, also accepts `* /`), parentheses, percent sign, sign, power `^`, square root `√`.
+2. **Operation rules follow the junior high textbook:**
+   - `-2^2` = `-4`, exponentiation first, then the negative sign;
+   - `200+10%` = `200.1`: the percent sign only means divide by 100 (`10%` is `0.1`, `50%` is `0.5`), not calculated like a phone calculator's "add 10% of 200";
+   - `2^3^2` = `512`, repeated exponentiation is evaluated from right to left;
+   - `2(3+4)` = `14`, writing without the multiplication sign is also recognized.
+3. **Result display:** round to 10 decimal places and remove trailing zeros; extremely large or small numbers use scientific notation (in the form `1.1258999068×10^15`); `0.1+0.2` displays `0.3`.
+4. **Error messages:** when the input is wrong or cannot be calculated, no result is shown; only one red Chinese error message is displayed, and the error position in the expression is marked red. There are seven error messages in total, which must be used verbatim:
 
-   | 情况 | 提示原话 |
+   | Case | Verbatim message |
    |---|---|
-   | 除以 0 | 不能除以 0 |
-   | 括号没有配对 | 括号不配对 |
-   | 负数开平方 | 负数不能开平方 |
-   | 两个符号连在一起，例如 `3++4`、`5×÷2` | 符号连在一起了 |
-   | 式子没写完，例如 `3+`、`√` | 式子没写完 |
-   | 有计算器不认识的字，例如字母 `a` | 有不认识的字：a（冒号后面写出那个字） |
-   | 结果超出能显示的范围 | 数太大，算不出来 |
+   | Divide by 0 | Cannot divide by 0 |
+   | Parentheses not paired | Parentheses do not match |
+   | Square root of a negative number | Cannot take the square root of a negative number |
+   | Two symbols together, for example `3++4`, `5×÷2` | Symbols run together |
+   | Incomplete expression, for example `3+`, `√` | Expression is incomplete |
+   | Character the calculator does not recognize, for example the letter `a` | Unknown character: a (the character written after the colon) |
+   | Result out of displayable range | Number too large, cannot calculate |
 
-5. **输入：** 屏幕按键和键盘都能输入，包括数字小键盘，按回车出结果；开着中文输入法打出的全角符号（全角括号、全角数字、`×`、`÷` 等）也能正确识别。
-6. **历史记录：** 保留最近 20 道算出结果的题；点一道题，式子放回输入框，可以修改后重新算；有「清空历史」按钮；关掉浏览器再打开，记录仍然存在，直到点「清空历史」。
-7. **投影模式：** 点一个按钮，字和按键一起放大，教室后排的学生也能看清；再点一下，恢复原来的大小。
-8. **交付形式：** 一个网页文件，双击可以直接打开，放到网站上也能直接使用。两种用法是同一个文件，文件不依赖任何外部资源。
-9. **设备：** 主要在电脑上使用：机房是 Windows 7 加 Chrome 109，家里是一般的电脑浏览器。手机和平板能凑合用：页面能完整显示，按键能点。
+5. **Input:** on-screen buttons and the keyboard both work, including the numeric keypad; press Enter to get the result; full-width symbols typed with the Chinese input method on (full-width parentheses, full-width digits, `×`, `÷`, etc.) are also recognized correctly.
+6. **History:** keeps the last 20 solved problems; click a problem and its expression goes back into the input box so it can be edited and recalculated; there is a "Clear history" button; after closing and reopening the browser, the records still exist until "Clear history" is clicked.
+7. **Projection mode:** click a button and the text and buttons are enlarged together, so students at the back of the classroom can see clearly; click again to restore the original size.
+8. **Delivery format:** a single web page file; double-click to open it directly, and it also works directly when placed on a website. Both uses are the same file, and the file does not depend on any external resources.
+9. **Devices:** mainly used on computers: the computer lab has Windows 7 with Chrome 109, and at home it is an ordinary computer browser. Phones and tablets can make do: the page displays fully and the buttons can be tapped.
 
 ## Where it lives
 
-- **仓库：** `txehq/wfe-r-20261009-i6vxt1`（私有，默认分支 `main`）。现在只有一行 `README.md` 和一个初始提交，计算器从零开始写。
-- **产品：** Magi Eval；功能编号 `r-20261009-i6vxt1`。
-- **交付的东西：** 一个单独的 `.html` 文件。
-- **权威来源：** 这份 brief。还没有对应的 Linear 工单；工单由 `/lfg` 第 4 步建立。
-- **前提条件：** 无。
-- **之后的事（这次不做）：**
-  - 文件交付后，老师会自己找时间在机房电脑上试一遍，发现问题再反馈；
-  - 学校管网络的老师负责把文件放到学校内网网站上。
+- **Repository:** `txehq/wfe-r-20261009-i6vxt1` (private, default branch `main`). Currently it only has a `README.md` with one line and one initial commit; the calculator is written from scratch.
+- **Product:** Magi Eval; feature ID `r-20261009-i6vxt1`.
+- **Deliverable:** a single `.html` file.
+- **Source of truth:** this brief. There is no corresponding Linear ticket yet; the ticket will be created in step 4 of `/lfg`.
+- **Prerequisites:** none.
+- **Later (not doing this time):**
+  - After the file is delivered, the teacher will find time to try it on the lab computers and give feedback if problems come up;
+  - The teacher who manages the school network is responsible for putting the file on the school intranet website.
 
 ## Verified current behaviour
 
-- 仓库 `txehq/wfe-r-20261009-i6vxt1` 只有 `README.md`（内容为 `# wfe-r-20261009-i6vxt1`）和提交 `825053b chore: initial commit`。仓库里没有代码、构建、测试或 CI（2026-10-10，用 `ls`、`git log` 和 `gh repo view` 查看）。
-- vault 中 `Project Magi Eval/Features/r-20261009-i6vxt1/` 不存在；Linear 中没有这个功能编号的工单（2026-10-10 搜索）。
-- 运行环境（老师提供）：
-  - 机房电脑是 Windows 7，学校统一安装 Chrome 109，经常断网；
-  - 机房电脑装有还原系统，重启后会清掉本地数据；
-  - 学校内网只能在校内连接，在家里打不开。
+- Repository `txehq/wfe-r-20261009-i6vxt1` has only `README.md` (content `# wfe-r-20261009-i6vxt1`) and commit `825053b chore: initial commit`. The repository has no code, build, tests or CI (2026-10-10, checked with `ls`, `git log` and `gh repo view`).
+- In the vault, `Project Magi Eval/Features/r-20261009-i6vxt1/` does not exist; there is no Linear ticket for this feature ID (searched 2026-10-10).
+- Runtime environment (provided by the teacher):
+  - The lab computers run Windows 7, the school has Chrome 109 installed uniformly, and the network often goes down;
+  - The lab computers have a restore system installed, which clears local data after a restart;
+  - The school intranet can only be accessed from inside the school; it cannot be opened at home.
 
 ## Out of scope & constraints
 
-**这次不做：**
+**Not doing this time:**
 
-- 账号和登录；
-- 收集学生的任何数据或使用情况，包括统计和日志上报；
-- 分数和根号形式的结果，结果一律显示小数；
-- 三角函数、对数，以及其他科学计算器功能；
-- 打印；
-- 中文以外的语言；
-- 把文件放到学校内网网站上，由学校管网络的老师负责；
-- 为手机和平板专门设计页面，或者专门测试手机和平板；
-- 在 Windows 7 真机上测试，以及给老师的测试检查清单；
-- 机房电脑重启后保留历史记录；
-- 远程操作机房电脑。
+- Accounts and login;
+- Collecting any student data or usage, including statistics and log reporting;
+- Fraction and root-form results; all results are shown as decimals;
+- Trigonometric functions, logarithms, and other scientific calculator features;
+- Printing;
+- Languages other than Chinese;
+- Putting the files on the school intranet website, which is handled by the teacher in charge of the school network;
+- Designing pages specifically for phones and tablets, or specifically testing phones and tablets;
+- Testing on real Windows 7 machines, and a test checklist for the teacher;
+- Keeping history after the lab computers restart;
+- Remotely operating lab computers.
 
-**限制：**
+**Constraints:**
 
-- **完全离线：** 页面不能发出任何网络请求，包括字体、图片、统计和更新检查。
-- **浏览器：** Chrome 109（Windows 7 能装的最后一个版本）上全部功能可用，同时能在当前版本的 Chrome 和 Edge 上使用。
-- **两种打开方式都可用：** `file://` 双击打开和网站打开都要可用，用的是同一个文件。
-- **交付日期：** 2026-12-09 之前，下学期开学前。
-- **全部是中文界面，** 提示语一字不差地使用上表的原话。
+- **Fully offline:** The page must not make any network requests, including fonts, images, analytics, and update checks.
+- **Browser:** All features work on Chrome 109 (the last version Windows 7 can install), and also work on the current versions of Chrome and Edge.
+- **Both ways of opening work:** Double-clicking to open via `file://` and opening from the website must both work, using the same file.
+- **Delivery date:** Before 2026-12-09, before the start of next semester.
+- **The whole interface is in Chinese, ** Prompt messages use the wording from the table above word for word.
 
 ## Authority ceiling
 
-- **不用问，可以直接做：**
-  - 写代码、写自动测试、搭建构建和 CI；
-  - 开 PR，代码检查和 CI 通过后，经仓库的 Auto Merge 合并到 `main`（每个开发 lane 都不合并自己的 PR）；
-  - 生成最终的网页文件，在仓库内发布。
-- **必须先问：**
-  - 把文件发到老师的邮箱。邮箱地址由老师在文件做好后提供；
-  - 任何发给组织以外的人的东西。
-- **上限：** 文件交付到老师的邮箱。放上学校内网网站由学校管网络的老师负责，不在这个功能里，也没有其他线上环境。
-- **硬性要求：** 页面发出的网络请求数为 0；不收集任何数据。
+- **No need to ask, just do it:**
+  - Writing code, writing auto tests, setting up builds and CI;
+  - Opening PRs; once code checks and CI pass, merging them into `main` via the repo's Auto Merge (each dev lane does not merge its own PR);
+  - Generating the final web page file and publishing it in the repo.
+- **Must ask first:**
+  - Sending the files to the teacher's email. The teacher will provide the email address after the files are done;
+  - Anything sent to people outside the organization.
+- **Limit:** Files are delivered to the teacher's email. Putting them on the school intranet website is handled by the teacher in charge of the school network, not part of this feature, and there is no other online environment.
+- **Hard requirement:** The page makes 0 network requests; it collects no data.
 
 ## Open questions
 
-- 怎样把计算器构建成一个不依赖外部资源的 `.html` 文件，使它在 Chrome 109 的 `file://` 和网站上都能运行（选择构建工具，确认 JavaScript 和 CSS 语法与 Chrome 109 兼容）。
-- 用哪种十进制精确计算库，保证 `0.1+0.2=0.3` 这类结果，以及开平方、乘方的精度和四舍五入方式。
-- “数太大，算不出来”的界限具体是多少；什么时候改用科学记数法（多大、多小），科学记数法的写法。
-- 负号跟在运算符后面，例如 `3×-2`、`2^-1`，是正常计算还是提示「符号连在一起了」。这会改变学生看到的结果，需要老师确认。
-- `√` 和其他运算的优先级，以及几种写法：`√16^2`、`√(9+7)`、`2√9`（省略乘号）。
-- 百分号和括号、乘方一起出现时怎么算：`(1+2)%`、`50%^2`、`10%%`。
-- 一个式子有几处错误时，显示哪一种提示，标红哪个位置。
-- 全角字符和其他相近字符的对照表（全角数字、全角括号、`×`、`÷`、`－`、`（）`、`……`、`、` 等）。
-- 怎样用键盘输入 `√`、`^`、`%`，`Backspace`、`Esc` 等按键做什么。
-- 历史记录存在 `localStorage` 里，在 `file://` 和网站上分别能否保存；双击打开时所有本地文件共用同一个存储区域会有什么影响。
-- 投影模式的放大倍数，以及在什么投影分辨率下要保证不出现滚动条。
-- 怎样在 CI 里运行 Chrome 109 做自动测试，以及测试哪个当前版本的浏览器。
-- 文件名（例如 `计算器.html`）和每次合并后发布文件的方式。
+- How to build the calculator into a single `.html` file that does not depend on external resources, so it runs on both `file://` and the website in Chrome 109 (choose the build tool, and confirm JavaScript and CSS syntax is compatible with Chrome 109).
+- Which decimal exact-arithmetic library to use, to guarantee results like `0.1+0.2=0.3`, and the precision and rounding mode for square roots and powers.
+- What exactly is the limit for "number too large to calculate"; when to switch to scientific notation (how large, how small), and the format of scientific notation.
+- Whether a minus sign right after an operator, such as `3×-2` or `2^-1`, is calculated normally or shows the message "signs are stuck together". This changes what students see, so the teacher needs to confirm.
+- Precedence of `√` relative to other operations, and several notations: `√16^2`, `√(9+7)`, `2√9` (omitted multiplication sign).
+- How percent signs combine with parentheses and powers: `(1+2)%`, `50%^2`, `10%%`.
+- When an expression has several errors, which message to show and which position to mark in red.
+- A lookup table of full-width characters and other similar characters (full-width digits, full-width brackets, `×`, `÷`, `-`, `()`, `...`, `,` etc.).
+- How to type `√`, `^`, `%` with the keyboard, and what keys such as `Backspace` and `Esc` do.
+- Whether history is saved in `localStorage` on `file://` and on the website; what the effect is when all local files share the same storage area when opened by double-clicking.
+- The zoom factor for projection mode, and at what projection resolution scrollbars must be avoided.
+- How to run Chrome 109 auto tests in CI, and which current browser version to test.
+- The file name (for example `calculator.html`) and how the file is published after each merge.
 
 ## Decision ledger
 
-| # | 问题 | 回答 | 状态 |
+| # | Question | Answer | Status |
 |---|---|---|---|
-| 1 | 谁来用、在哪里用 | 初一到初三学生在机房课堂和家里使用，老师投影演示 | confirmed |
-| 2 | 计算器类型 | 普通计算器，加乘方 `^` 和开平方 `√`；不要三角函数和对数 | confirmed |
-| 3 | 运行形式 | 网页；Windows 7 加 Chrome 109；必须完全离线，一个网络请求都没有 | confirmed |
-| 4 | 结果显示 | 四舍五入保留 10 位小数，去掉末尾的 0；特别大、特别小的数用科学记数法 | confirmed |
+| 1 | Who uses it, and where | Grade 7 to 9 students use it in the computer lab and at home, the teacher demonstrates it by projection | confirmed |
+| 2 | Calculator type | Basic calculator, with power `^` and square root `√`; no trig functions or logarithms | confirmed |
+| 3 | Running format | Web page; Windows 7 plus Chrome 109; must be fully offline, with no network requests at all | confirmed |
+| 4 | Result display | Round to 10 decimal places, removing trailing 0s; very large or very small numbers use scientific notation | confirmed |
 | 5 | `-2^2` | `-4` | confirmed |
-| 6 | `2^3^2` | `512`，从右往左算 | delegated（默认：右结合，数学通常写法） |
-| 7 | `200+10%` | `200.1`，百分号就是除以 100 | confirmed |
-| 8 | `2(3+4)` | 能认出来，算成 `14` | delegated（默认：支持省略乘号） |
-| 9 | 三种出错提示原话 | 「不能除以 0」「括号不配对」「负数不能开平方」 | confirmed |
-| 10 | 另外四种出错提示 | 「符号连在一起了」「式子没写完」「有不认识的字：a」「数太大，算不出来」 | confirmed |
-| 11 | 标红范围 | 提示语和式子里出错的位置都标红 | confirmed |
-| 12 | 输入方式 | 屏幕按键和键盘（包括小键盘，回车出结果）；认全角符号 | confirmed |
-| 13 | 交付方式 | 一个网页文件：双击打开，也能放到学校内网网站上使用 | confirmed |
-| 14 | 家里用什么设备 | 主要是电脑；手机和平板能凑合用就行 | confirmed |
-| 15 | 内网能否在家打开 | 不能，学生在家用发过去的文件 | confirmed |
-| 16 | 谁上传到内网网站 | 学校管网络的老师，我们不负责 | confirmed |
-| 17 | 历史记录 | 最近 20 条；点一道题放回输入框；「清空历史」按钮；关掉浏览器再打开仍在 | confirmed |
-| 18 | 写错的式子是否进历史 | 不进，只记算出结果的题 | confirmed（推断，playback 中确认） |
-| 19 | 投影模式 | 一键放大字和按键，再点恢复 | confirmed |
-| 20 | 交付日期 | 2026-12-09 之前（下学期开学前，约两个月后） | confirmed |
-| 21 | 验收题 | 老师给的 10 道题 | confirmed |
-| 22 | 不做的清单 | 账号登录、收集数据、分数根号、三角函数对数、打印、其他语言；没有要加的 | confirmed |
-| 23 | 机房还原系统 | 装了，重启清数据；历史记录随之丢失，老师接受 | confirmed |
-| 24 | 交付后在机房真机试用 | 老师不按清单测试，交付后自己试用并反馈 | confirmed |
-| 25 | 交付给谁 | 发到老师的邮箱，地址在文件做好后由老师提供；发送前先问 | confirmed |
-| 26 | 合并权限 | 代码检查和 CI 通过后自动合并，不问老师 | confirmed |
+| 6 | `2^3^2` | `512`, calculated right to left | delegated (default: right-associative, the usual mathematical convention) |
+| 7 | `200+10%` | `200.1`, a percent sign means dividing by 100 | confirmed |
+| 8 | `2(3+4)` | Recognised, calculated as `14` | delegated (default: implicit multiplication supported) |
+| 9 | Exact wording of the three error messages | "Cannot divide by 0", "Parentheses don't match", "Cannot take the square root of a negative number" | confirmed |
+| 10 | Other four error messages | "Symbols run together", "Expression is incomplete", "Unknown character: a", "Number too large to calculate" | confirmed |
+| 11 | Red highlight scope | Both the message and the error position in the expression are highlighted in red | confirmed |
+| 12 | Input method | On-screen buttons and keyboard (including numeric keypad, Enter shows the result); recognises full-width symbols | confirmed |
+| 13 | Delivery format | One web page file: double-click to open, or place it on the school intranet website | confirmed |
+| 14 | Devices used at home | Mainly computers; phones and tablets just need to be usable | confirmed |
+| 15 | Can the intranet be opened at home | No; students use the file sent to them at home | confirmed |
+| 16 | Who uploads to the intranet website | The teacher in charge of the school network; we are not responsible | confirmed |
+| 17 | History | Last 20 entries; click an item to put it back in the input box; "Clear history" button; still there after closing and reopening the browser | confirmed |
+| 18 | Whether expressions with errors go into history | No, only problems that produced a result are recorded | confirmed (inferred, confirmed in playback) |
+| 19 | Projection mode | One click enlarges text and buttons; click again to restore | confirmed |
+| 20 | Delivery date | Before 2026-12-09 (before the start of next semester, about two months from now) | confirmed |
+| 21 | Acceptance questions | 10 questions provided by the teacher | confirmed |
+| 22 | Out-of-scope list | Account login, data collection, fractional roots, logarithms of trig functions, printing, other languages; nothing to add | confirmed |
+| 23 | Computer room restore system | Installed; restarts wipe data; history is lost with it, and the teacher accepts this | confirmed |
+| 24 | Real-machine trial in the computer room after delivery | The teacher will not test by checklist; after delivery they will try it themselves and give feedback | confirmed |
+| 25 | Who receives delivery | Send to the teacher's email; the address is provided by the teacher once the file is ready; ask before sending | confirmed |
+| 26 | Merge permission | Auto-merge after code checks and CI pass, without asking the teacher | confirmed |
 
 ## Inferred answers & sources
 
-- **家里的浏览器** 按当前版本的 Chrome 和 Edge 支持。来源：老师说“家里主要是用电脑”，没有指定浏览器；playback 中列出，老师确认无误。
-- **交付日期 2026-12-09。** 来源：从老师说的“大约两个月以后，下学期开学”推算，playback 中列出，老师确认。
-- **全部是中文界面。** 来源：老师同意“不做别的语言”。
-- **没有前提工单，也没有已有代码可以沿用。** 来源：仓库和 Linear 查询结果（见 Verified current behaviour）。
-- **乘号和除号同时接受 `* /` 和 `× ÷`。** 来源：老师给的验收题用 `*`、`/` 书写；playback 中列出，老师确认。
+- **Home browsers** support the current versions of Chrome and Edge. Source: the teacher said "mainly use computers at home" and did not specify a browser; listed in playback and confirmed by the teacher.
+- **Delivery date 2026-12-09.** Source: derived from the teacher's statement "about two months from now, the start of next semester"; listed in playback and confirmed by the teacher.
+- **The whole interface is in Chinese.** Source: the teacher agreed to "not do other languages".
+- **There is no prerequisite ticket, and no existing code to reuse.** Source: repository and Linear query results (see Verified current behaviour).
+- **Multiplication and division both accept `* /` and `× ÷`.** Source: the teacher's acceptance questions are written with `*` and `/`; listed in playback and confirmed by the teacher.

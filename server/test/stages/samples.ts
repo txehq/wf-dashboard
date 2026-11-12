@@ -2,9 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 
-// 真实样本（Stage Markers 第 4 节）逐个文件 gzip 保存在 test/fixtures/samples/<项目目录>/ 下（主 jsonl、子代理、tool-results），
-// 导入这个模块时解压到仓库的 .work/samples/，保持原目录结构。多个测试进程可能同时解压：每个文件先写到样本目录之外
-// 自己的临时文件再改名，读取方不会读到写了一半的文件；已解压且不比 fixture 旧的文件跳过
+// Real samples (Stage Markers section 4) are stored gzipped file by file under test/fixtures/samples/<project dir>/
+// (main jsonl, subagents, tool-results) and unpacked into the repo's .work/samples/ with the same layout when this
+// module is imported. Several test processes may unpack at once: each file is first written to the process's own
+// temp file outside the samples directory and then renamed, so readers never see half-written files; files already
+// unpacked and not older than the fixture are skipped
 const fixture = path.resolve(import.meta.dirname, '../fixtures/samples');
 const work = path.resolve(import.meta.dirname, '../../../.work');
 export const samplesDir = path.join(work, 'samples');

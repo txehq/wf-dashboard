@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 
 type StageCost = NonNullable<CompareCell['cost']>['stages'][number];
 
-// 与其他页面相同的金额格式：不足 1 美分时显示 4 位小数，不显示成 $0.00
+// Same amount format as other pages: below 1 cent show 4 decimals, never $0.00
 const usd = formatUsd;
 const compact = (x: number) =>
   x >= 1_000_000
@@ -18,26 +18,26 @@ const compact = (x: number) =>
       ? `${(x / 1000).toFixed(x >= 10_000 ? 0 : 1)}K`
       : x.toFixed(x >= 10 ? 0 : 1);
 const minutes = (ms: number) =>
-  ms >= 60_000 ? `${(ms / 60_000).toFixed(1)} 分钟` : `${(ms / 1000).toFixed(0)} 秒`;
+  ms >= 60_000 ? `${(ms / 60_000).toFixed(1)}m` : `${(ms / 1000).toFixed(0)}s`;
 
 const metrics = [
-  { id: 'cost', label: '花费', value: (s: StageCost) => s.costUsd, format: usd },
+  { id: 'cost', label: 'Cost', value: (s: StageCost) => s.costUsd, format: usd },
   {
     id: 'tokens',
-    label: 'token',
+    label: 'Tokens',
     value: (s: StageCost) =>
       s.inputTokens + s.outputTokens + s.cacheReadTokens + s.cacheCreationTokens,
     format: compact,
   },
-  { id: 'duration', label: '耗时', value: (s: StageCost) => s.durationMs, format: minutes },
-  { id: 'tools', label: 'tool 调用', value: (s: StageCost) => s.toolCalls, format: compact },
+  { id: 'duration', label: 'Duration', value: (s: StageCost) => s.durationMs, format: minutes },
+  { id: 'tools', label: 'Tool calls', value: (s: StageCost) => s.toolCalls, format: compact },
 ] as const;
 type MetricId = (typeof metrics)[number]['id'];
 
 const breakdownParts = [
-  { key: 'agent', label: 'agent' },
-  { key: 'simulatedUser', label: '模拟用户' },
-  { key: 'grading', label: '评分' },
+  { key: 'agent', label: 'Agent' },
+  { key: 'simulatedUser', label: 'Simulated user' },
+  { key: 'grading', label: 'Grading' },
 ] as const;
 
 function Segmented<T extends string>({
@@ -97,7 +97,7 @@ function StageChart({
   });
   return (
     <div className="flex flex-col gap-2">
-      <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs" aria-label="图例">
+      <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs" aria-label="Legend">
         {variants.map((v) => (
           <li key={v.id} className="flex items-center gap-1.5">
             <span className="size-2.5 rounded-sm" style={{ background: seriesColor(v.slot) }} />
@@ -146,7 +146,7 @@ function StageChart({
                           />
                           <span className="font-semibold tabular-nums">{metric.format(value)}</span>
                           <span className="text-muted-foreground">
-                            {v.name} · 到达 {String(row?.[`${v.id}:reached`])} 次
+                            {v.name} · reached {String(row?.[`${v.id}:reached`])}
                           </span>
                         </p>
                       );
@@ -178,14 +178,14 @@ function StageTable({ cells, variants }: { cells: CompareCell[]; variants: Selec
     <table className="w-full text-sm" data-testid="stage-cost-table">
       <thead>
         <tr className="border-b text-left text-xs text-muted-foreground">
-          <th className="py-1.5 pr-3 font-medium">阶段</th>
-          <th className="py-1.5 pr-3 font-medium">variant</th>
+          <th className="py-1.5 pr-3 font-medium">Stage</th>
+          <th className="py-1.5 pr-3 font-medium">Variant</th>
           {metrics.map((m) => (
             <th key={m.id} className="px-3 py-1.5 text-right font-medium">
               {m.label}
             </th>
           ))}
-          <th className="px-3 py-1.5 text-right font-medium">到达</th>
+          <th className="px-3 py-1.5 text-right font-medium">Reached</th>
         </tr>
       </thead>
       <tbody>
@@ -193,7 +193,7 @@ function StageTable({ cells, variants }: { cells: CompareCell[]; variants: Selec
           cells.map((cell, i) => {
             const s = cell.cost?.stages.find((x) => x.stage === stage);
             const variant = variants[i];
-            if (variant === undefined) throw new Error('variant 与格子数量不一致');
+            if (variant === undefined) throw new Error('Variant and cell counts differ');
             return (
               <tr key={`${stage}:${cell.variantId}`} className="border-b last:border-0">
                 <td className="py-1 pr-3">{i === 0 ? stage : ''}</td>
@@ -215,7 +215,7 @@ function StageTable({ cells, variants }: { cells: CompareCell[]; variants: Selec
   );
 }
 
-// run 总成本的四项：每项一个小图，条为各 variant 的均值，同一项的条共用一个横轴
+// The four parts of a run's total cost: one small chart each, bars are each variant's mean, bars of one part share an axis
 function BreakdownMultiples({
   cells,
   variants,
@@ -226,7 +226,7 @@ function BreakdownMultiples({
   const totals = cells.map((c) => c.cost?.total ?? null);
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5" data-testid="cost-breakdown">
-      {[...breakdownParts, { key: 'total', label: '合计' } as const].map((part) => {
+      {[...breakdownParts, { key: 'total', label: 'Total' } as const].map((part) => {
         const values = totals.map((t) => (t === null ? null : t[part.key]));
         const max = Math.max(...values.map((v) => v ?? 0));
         return (
@@ -238,7 +238,7 @@ function BreakdownMultiples({
                 <div key={v.id} className="flex flex-col gap-0.5">
                   <span className="truncate text-xs text-muted-foreground">{v.name}</span>
                   {value === null ? (
-                    <span className="text-xs text-muted-foreground">没有 run</span>
+                    <span className="text-xs text-muted-foreground">No runs</span>
                   ) : (
                     <div className="flex items-center gap-2">
                       <div
@@ -262,7 +262,7 @@ function BreakdownMultiples({
   );
 }
 
-// Contracts 7.10：被测 agent 提的 friction issue，每个 variant 一行，点开列出 issue 链接
+// Contracts 7.10: friction issues filed by the agent under test, one row per variant; expand to list the issue links
 function FrictionCounts({
   cells,
   variants,
@@ -280,7 +280,7 @@ function FrictionCounts({
               <span className="flex items-center gap-2">
                 <span className="size-2.5 rounded-sm" style={{ background: seriesColor(v.slot) }} />
                 {v.name}
-                <span className="text-xs text-muted-foreground">没有 run</span>
+                <span className="text-xs text-muted-foreground">No runs</span>
               </span>
             ) : (
               <details>
@@ -294,11 +294,12 @@ function FrictionCounts({
                     {friction.perRun.toFixed(friction.perRun >= 10 ? 0 : 1)}
                   </span>
                   <span className="text-xs text-muted-foreground">
-                    个 / 每次 run · 共 {friction.issues.length} 个
+                    per run · {friction.issues.length}{' '}
+                    {friction.issues.length === 1 ? 'issue' : 'issues'} in total
                   </span>
                 </summary>
                 {friction.issues.length === 0 ? (
-                  <p className="mt-1.5 text-xs text-muted-foreground">没有提 friction。</p>
+                  <p className="mt-1.5 text-xs text-muted-foreground">No friction reported.</p>
                 ) : (
                   <ul className="mt-1.5 flex flex-col gap-1">
                     {friction.issues.map((issue) => (
@@ -311,7 +312,7 @@ function FrictionCounts({
                         </a>
                         {issue.url.includes('#issuecomment-') && (
                           <span className="rounded border px-1 text-xs text-muted-foreground">
-                            评论
+                            Comment
                           </span>
                         )}
                         <Link
@@ -349,19 +350,19 @@ export function CostComparison({
   if (task === undefined) return null;
   const cells = variants.map((v) => {
     const cell = result.cells.find((c) => c.variantId === v.id && c.taskId === task.task.id);
-    if (cell === undefined) throw new Error(`对比结果中没有 ${v.id} × ${task.task.id}`);
+    if (cell === undefined) throw new Error(`Comparison result has no ${v.id} × ${task.task.id}`);
     return cell;
   });
   const metric = metrics.find((m) => m.id === metricId);
-  if (metric === undefined) throw new Error(`未知指标 ${metricId}`);
+  if (metric === undefined) throw new Error(`Unknown metric ${metricId}`);
   const hasRuns = cells.some((c) => c.cost !== null);
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-4">
         <label className="flex items-center gap-2 text-sm">
-          task
+          Task
           <select
-            aria-label="成本对比的 task"
+            aria-label="Task for cost comparison"
             className="h-8 rounded-md border bg-background px-2"
             value={task.task.id}
             onChange={(event) => {
@@ -375,12 +376,12 @@ export function CostComparison({
             ))}
           </select>
         </label>
-        <Segmented label="指标" options={metrics} value={metricId} onChange={setMetricId} />
+        <Segmented label="Metric" options={metrics} value={metricId} onChange={setMetricId} />
         <Segmented
-          label="显示方式"
+          label="View"
           options={[
-            { id: 'chart', label: '图' },
-            { id: 'table', label: '表' },
+            { id: 'chart', label: 'Chart' },
+            { id: 'table', label: 'Table' },
           ]}
           value={view}
           onChange={setView}
@@ -388,14 +389,16 @@ export function CostComparison({
       </div>
       {!hasRuns ? (
         <p className="text-sm text-muted-foreground">
-          这个 task 在选中的 variant 下没有已评分的 run。
+          This task has no graded runs for the selected variants.
         </p>
       ) : (
         <>
           <div className="flex flex-col gap-1">
-            <h3 className="text-sm font-medium">各阶段平均{metric.label}（每次 run）</h3>
+            <h3 className="text-sm font-medium">
+              Average {metric.label.toLowerCase()} per stage (per run)
+            </h3>
             <p className="text-xs text-muted-foreground">
-              未到达某阶段的 run 在该阶段按 0 计入均值。
+              Runs that did not reach a stage count as 0 in that stage's average.
             </p>
             {view === 'chart' ? (
               <StageChart cells={cells} variants={variants} metric={metric} />
@@ -404,11 +407,11 @@ export function CostComparison({
             )}
           </div>
           <div className="flex flex-col gap-2">
-            <h3 className="text-sm font-medium">run 总成本的四项（每次 run 平均）</h3>
+            <h3 className="text-sm font-medium">Run cost breakdown (average per run)</h3>
             <BreakdownMultiples cells={cells} variants={variants} />
           </div>
           <div className="flex flex-col gap-2">
-            <h3 className="text-sm font-medium">friction 报告（每次 run 平均）</h3>
+            <h3 className="text-sm font-medium">Friction reports (average per run)</h3>
             <FrictionCounts cells={cells} variants={variants} />
           </div>
         </>

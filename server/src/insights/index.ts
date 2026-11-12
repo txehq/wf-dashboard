@@ -28,7 +28,7 @@ import type { Variants } from '../variants/index.js';
 import { displayName } from '../variants/names.js';
 import { loadWorkflow, workflowOfVariant } from '../workflows/index.js';
 import { ANALYSIS_WORKFLOW, SYNTHESIZE_STAGE } from '../workflows/schema.js';
-import { currentAnalysisBaseline } from './baseline.js';
+import { currentBaseline } from '../workflows/baselines.js';
 import { type EngineCommand, engineCommand, runEngine } from './engines.js';
 import { writeInput } from './export.js';
 import { configSourceDirs, isLocalSession } from '../ingest/session-config.js';
@@ -51,8 +51,8 @@ import {
   writeFindingsWithIds,
 } from './validate.js';
 
-// Contracts 15.2、15.3、19.2：分析 session、修改建议另存为 variant。分析的方面是所选 session-analysis variant 的
-// 小阶段，每个阶段的引擎进程由这个 variant 的对应 skill 驱动
+// Contracts 15.2, 15.3, 19.2: analyse sessions and save proposed changes as a variant. The aspects are the
+// sub-stages of the chosen session-analysis variant; each stage's engine process is driven by its skill
 
 export type Analysis = typeof analyses.$inferSelect;
 type Variant = typeof variantsTable.$inferSelect;
@@ -61,7 +61,7 @@ export interface InsightsOptions {
   db: Db;
   variants: Variants;
   dataDir: string;
-  // 配置目录（分析的范围按 session 所在的配置，Contracts 27）；默认为服务的来源目录
+  // Config dirs (the analysis scope follows each session's config, Contracts 27); defaults to the server's source dirs
   dirs?: SourceDirs | undefined;
   codexAuthPath?: string | undefined;
   codexConfigPath?: string | undefined;
@@ -69,10 +69,10 @@ export interface InsightsOptions {
 
 const ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
-// 取消时中止的原因；与引擎失败、校验失败区分
-const CANCELLED = new Error('分析已取消');
+// Abort reason on cancel; distinct from engine and validation failures
+const CANCELLED = new Error('Analysis cancelled');
 
-// a-<yyyymmdd>-<6 位小写字母数字>
+// a-<yyyymmdd>-<6 lowercase letters or digits>
 export function newAnalysisId(now = new Date()): string {
   const day = now.toISOString().slice(0, 10).replaceAll('-', '');
   const suffix = Array.from({ length: 6 }, () => ID_ALPHABET[randomInt(ID_ALPHABET.length)]).join(
@@ -83,12 +83,12 @@ export function newAnalysisId(now = new Date()): string {
 
 const CodexConfig = z.looseObject({ model: z.string().min(1) });
 
-// Codex 的默认模型：~/.codex/config.toml 的 model
+// Codex's default model: model in ~/.codex/config.toml
 export function codexDefaultModel(configPath: string = config.codexConfigPath): string {
   return CodexConfig.parse(parse(fs.readFileSync(configPath, 'utf8'))).model;
 }
 
-// 引擎进程的提示：调用入口 skill，参数为阶段名（Contracts 19.2）。Claude Code 用 slash 命令，Codex 用 $skill 提及
+// Engine process prompt: invoke the entry skill with the stage name (Contracts 19.2). Claude Code uses a slash command, Codex a $skill mention
 export function stagePrompt(engine: AnalysisEngine, stage: string): string {
   return engine === 'claude' ? `/${ANALYSIS_WORKFLOW} ${stage}` : `$${ANALYSIS_WORKFLOW} ${stage}`;
 }
@@ -111,30 +111,30 @@ export interface ScopeSession {
   runId: string | null;
   variant: { id: string; name: string } | null;
   binding: VariantBinding | null;
-  // 本机配置的 session（Contracts 25.4）
+  // Session of the local machine's config (Contracts 25.4)
   local: boolean;
   engine: SessionEngine;
-  // 所在的配置（Contracts 27）：local、variant:<id>、design 与名字；不在任何配置中时为空
+  // Its config (Contracts 27): local or variant:<id>, with a label; null when in no config
   config: { id: string; label: string } | null;
-  // 项目：工作目录的目录名
+  // Project: the directory name of the working directory
   project: string | null;
-  // 已在 dashboard 中；为 false 时开始分析时读入（不进入管理表格）
+  // Already in the dashboard; when false it is read in when the analysis starts (not added to the management table)
   inDashboard: boolean;
 }
 
 export interface Scope {
   sessions: ScopeSession[];
-  // 一次分析的全部 session 属于同一种引擎、同一个配置（Contracts 25.4、27）；不是时为空
+  // All sessions of one analysis share one engine and one config (Contracts 25.4, 27); null otherwise
   engine: SessionEngine | null;
   config: { id: string; label: string } | null;
   variant: { id: string; name: string } | null;
-  // 所选 session 全部是本机配置的：分析没有 variant（Contracts 25.4）
+  // All chosen sessions belong to the local machine's config: the analysis has no variant (Contracts 25.4)
   local: boolean;
-  // 不能分析的原因；为空时可以分析
+  // Why the scope cannot be analysed; null when it can
   problem: string | null;
 }
 
-// 分析的范围：已在 dashboard 中的 session（id）、batch，以及新建分析中从磁盘选的文件（Contracts 27）
+// Analysis scope: sessions already in the dashboard (ids), a batch, and files picked from disk in a new analysis (Contracts 27)
 export interface ScopeInput {
   sessionIds?: string[] | undefined;
   batchId?: string | undefined;
@@ -144,12 +144,12 @@ export interface ScopeInput {
 export interface NewAnalysisInput extends ScopeInput {
   engine: AnalysisEngine;
   model?: string | undefined;
-  // 用哪个 session-analysis variant 分析（Contracts 19.2），默认基线
+  // The session-analysis variant to analyse with (Contracts 19.2); defaults to the baseline
   analysisVariantId?: string | undefined;
 }
 
 export interface AnalysisDetail extends Analysis {
-  // 本机配置的 session 的分析为空（Contracts 25.4）
+  // Null for analyses of local-machine sessions (Contracts 25.4)
   variantName: string | null;
   analysisVariantName: string | null;
   variantDeleted: boolean;
@@ -158,16 +158,16 @@ export interface AnalysisDetail extends Analysis {
   findings: (typeof analysisFindings.$inferSelect)[];
   patches: (typeof analysisPatches.$inferSelect)[];
   files: FileProposal[];
-  // 交给 Codex 优化的草稿（Contracts 19.3），按发起的先后
+  // Drafts handed to Codex for optimisation (Contracts 19.3), in the order started
   optimizeDrafts: { id: string; liveId: string | null }[];
 }
 
-// 一个阶段的引擎进程：提示、配置目录、sandbox 与完整的命令（Contracts 19.2）
+// One stage's engine process: prompt, config dir, sandbox and the full command (Contracts 19.2)
 export interface StagePlan {
   key: string;
   prompt: string;
   engineHome: string;
-  // 引擎从这里加载这个 variant 的 skill
+  // The engine loads this variant's skills from here
   skillsDir: string;
   profile: string;
   command: EngineCommand;
@@ -182,7 +182,7 @@ export const analysisLayout = (dataDir: string, id: string) => {
     logs: path.join(dir, 'logs'),
     check: path.join(dir, 'check'),
     proposals: path.join(dir, 'proposals.json'),
-    // Codex 引擎从 cwd 的 .agents/skills 加载 skill（Contracts 17.3、19.2）
+    // The Codex engine loads skills from .agents/skills in its cwd (Contracts 17.3, 19.2)
     agentSkills: path.join(dir, '.agents', 'skills'),
   };
 };
@@ -196,10 +196,10 @@ export function createInsights({
   codexConfigPath = config.codexConfigPath,
 }: InsightsOptions) {
   const controllers = new Map<string, AbortController>();
-  // Codex 引擎共用的 CODEX_HOME；Claude Code 引擎用所选 variant 自己的配置目录（Contracts 18.6）
+  // Shared CODEX_HOME for the Codex engine; the Claude Code engine uses the chosen variant's own config dir (Contracts 18.6)
   const homes = { codex: path.join(dataDir, 'analysis-home', 'codex') };
 
-  // 上次服务退出时仍在进行的分析不会再完成
+  // Analyses still in progress when the server last exited will never finish
   for (const row of db
     .select({ id: analyses.id, steps: analyses.steps })
     .from(analyses)
@@ -208,7 +208,7 @@ export function createInsights({
     db.update(analyses)
       .set({
         status: 'failed',
-        error: '服务重启中断',
+        error: 'Interrupted by a service restart',
         endedAt: new Date(),
         steps: row.steps.map((s) =>
           s.status === 'running' || s.status === 'pending' ? { ...s, status: 'cancelled' } : s,
@@ -220,7 +220,7 @@ export function createInsights({
 
   function get(id: string): Analysis {
     const row = db.select().from(analyses).where(eq(analyses.id, id)).get();
-    if (row === undefined) throw new HttpError(404, `分析不存在：${id}`);
+    if (row === undefined) throw new HttpError(404, `Analysis not found: ${id}`);
     return row;
   }
 
@@ -233,7 +233,7 @@ export function createInsights({
     publish(id);
   }
 
-  // 步骤状态写回 steps；事件计数的更新每个步骤每 2 秒最多写一次
+  // Step state is written back to steps; event counts are written at most once per step every 2 seconds
   const lastEventWrite = new Map<string, number>();
   function updateStep(id: string, key: string, change: Partial<AnalysisStep>) {
     const row = get(id);
@@ -246,7 +246,7 @@ export function createInsights({
   function countEvent(id: string, key: string) {
     const row = get(id);
     const step = row.steps.find((s) => s.key === key);
-    if (step === undefined) throw new Error(`分析 ${id} 没有步骤 ${key}`);
+    if (step === undefined) throw new Error(`Analysis ${id} has no step ${key}`);
     const mark = `${id}:${key}`;
     const now = Date.now();
     const count = step.events + 1;
@@ -261,14 +261,14 @@ export function createInsights({
     updateStep(id, key, { events: count });
   }
 
-  // 显示用的名字：已删除的 variant 显示"<名字>（已删除）"（Contracts 24.3）
+  // Display name: a deleted variant shows as "<name> (deleted)" (Contracts 24.3)
   function variantRecord(variantId: string) {
     const v = db
       .select({ name: variantsTable.name, deletedAt: variantsTable.deletedAt })
       .from(variantsTable)
       .where(eq(variantsTable.id, variantId))
       .get();
-    if (v === undefined) throw new Error(`variant 不存在：${variantId}`);
+    if (v === undefined) throw new Error(`Variant not found: ${variantId}`);
     return v;
   }
   const variantName = (variantId: string) => displayName(variantRecord(variantId));
@@ -290,11 +290,11 @@ export function createInsights({
       .from(sessions)
       .where(inArray(sessions.id, sessionIds))
       .all();
-    // 标题与 Sessions 列表相同
+    // Same titles as the Sessions list
     const titles = sessionTitles(db, sessionIds);
     return sessionIds.map((id) => {
       const r = rows.find((s) => s.id === id);
-      if (r === undefined) throw new HttpError(404, `session 不存在：${id}`);
+      if (r === undefined) throw new HttpError(404, `Session not found: ${id}`);
       return {
         id: r.id,
         title: titles.get(r.id) ?? null,
@@ -311,7 +311,7 @@ export function createInsights({
     });
   }
 
-  // 一个 batch 的全部 run 的 session
+  // Sessions of all runs in a batch
   function batchSessionIds(batchId: string): string[] {
     const rows = db
       .select({ id: runs.id, sessionId: runs.sessionId })
@@ -319,7 +319,7 @@ export function createInsights({
       .where(eq(runs.batchId, batchId))
       .orderBy(asc(runs.createdAt), asc(runs.id))
       .all();
-    if (rows.length === 0) throw new HttpError(404, `batch ${batchId} 没有 run`);
+    if (rows.length === 0) throw new HttpError(404, `Batch ${batchId} has no runs`);
     const imported = new Set(
       db
         .select({ id: sessions.id })
@@ -337,14 +337,14 @@ export function createInsights({
     if (missing.length > 0) {
       throw new HttpError(
         409,
-        `这些 run 还没有 session（排队中或没有启动）：${missing.map((r) => r.id).join('、')}`,
+        `These runs have no session yet (queued or not started): ${missing.map((r) => r.id).join(', ')}`,
       );
     }
     return rows.map((r) => r.sessionId);
   }
 
-  // 范围中的 session 与开始分析时要读入的文件：从磁盘选的文件中已在 dashboard 中的按记录（所在的配置取第三列列出它的
-  // 那个），其余的按文件的开头
+  // Sessions in scope and the files to read in when the analysis starts: picked files already in the dashboard use
+  // their record (config taken from the third column that lists it), the rest use the start of the file
   function resolve(input: ScopeInput): { scope: Scope; pending: AnalysisEntry[] } {
     const ids =
       input.batchId !== undefined ? batchSessionIds(input.batchId) : (input.sessionIds ?? []);
@@ -353,8 +353,8 @@ export function createInsights({
         ? []
         : analysisEntries(db, sourceDirs, input.disk.engine, input.disk.files);
     const all = [...ids, ...disk.map((e) => e.id)];
-    if (all.length === 0) throw new HttpError(400, '没有选择 session');
-    if (new Set(all).size !== all.length) throw new HttpError(400, 'session 有重复');
+    if (all.length === 0) throw new HttpError(400, 'No session selected');
+    if (new Set(all).size !== all.length) throw new HttpError(400, 'Duplicate sessions');
     const stored = new Set(
       disk.length === 0
         ? []
@@ -381,7 +381,7 @@ export function createInsights({
       if (record !== undefined)
         return entry === undefined ? record : { ...record, config: entry.config };
       const file = pending.get(id);
-      if (file === undefined) throw new Error(`session ${id} 没有记录也没有文件`);
+      if (file === undefined) throw new Error(`Session ${id} has neither a record nor a file`);
       return {
         id,
         title: file.title,
@@ -399,9 +399,9 @@ export function createInsights({
     return { scope: checkedScope(list), pending: [...pending.values()] };
   }
 
-  // 一次分析的全部 session 属于同一种引擎、同一个配置（Contracts 25.4、27）：本机配置的，或某一个 variant 的配置
+  // All sessions of one analysis share one engine and one config (Contracts 25.4, 27): the local machine's or one variant's
   function checkedScope(list: ScopeSession[]): Scope {
-    const short = (s: ScopeSession[]) => s.map((x) => x.id.slice(0, 8)).join('、');
+    const short = (s: ScopeSession[]) => s.map((x) => x.id.slice(0, 8)).join(', ');
     const engines = [...new Set(list.map((s) => s.engine))];
     const configs = [...new Map(list.map((s) => [s.config?.id, s.config])).values()];
     const config = configs.length === 1 ? (configs[0] ?? null) : null;
@@ -414,14 +414,14 @@ export function createInsights({
       problem: text,
     });
     if (engines.length > 1)
-      return problem('所选 session 必须是同一种引擎，现在有 Claude Code 与 Codex');
+      return problem(
+        'Selected sessions must use one engine; both Claude Code and Codex are selected',
+      );
     const outside = list.filter((s) => s.config === null);
-    if (outside.length > 0) return problem(`这些 session 不在任何配置中：${short(outside)}`);
-    const design = list.filter((s) => s.config?.id === 'design');
-    if (design.length > 0) return problem(`设计与优化的 session 不能分析：${short(design)}`);
+    if (outside.length > 0) return problem(`These sessions are in no config: ${short(outside)}`);
     if (config === null) {
       return problem(
-        `所选 session 必须属于同一个配置，现在是：${configs.map((c) => c?.label).join('、')}`,
+        `Selected sessions must belong to one config; they belong to: ${configs.map((c) => c?.label).join(', ')}`,
       );
     }
     const engine = engines[0] ?? null;
@@ -440,7 +440,7 @@ export function createInsights({
 
   const scope = (input: ScopeInput): Scope => resolve(input).scope;
 
-  // 新建分析可选的 session-analysis variant：按当前内容构建通过的（Contracts 19.2）
+  // session-analysis variants a new analysis may use: those built from their current content (Contracts 19.2)
   function analysisVariants(): Variant[] {
     return db
       .select()
@@ -451,13 +451,13 @@ export function createInsights({
       .filter((v) => v.buildStatus === 'built' && v.builtHash === v.skillsHash);
   }
 
-  // 分析的步骤：session-analysis 的小阶段，最后一个是 synthesize
+  // Analysis steps: the session-analysis sub-stages, the last being synthesize
   function stageKeys(): { aspects: string[]; synthesize: string } {
     const ids = loadWorkflow(db, ANALYSIS_WORKFLOW).stages.map((s) => s.id);
     const last = ids.at(-1);
     if (last !== SYNTHESIZE_STAGE) {
       throw new Error(
-        `workflow ${ANALYSIS_WORKFLOW} 的最后一个小阶段应为 ${SYNTHESIZE_STAGE}：${String(last)}`,
+        `The last sub-stage of workflow ${ANALYSIS_WORKFLOW} should be ${SYNTHESIZE_STAGE}: ${String(last)}`,
       );
     }
     return { aspects: ids.slice(0, -1), synthesize: last };
@@ -468,22 +468,25 @@ export function createInsights({
     if (workflowOfVariant(db, v.id) !== ANALYSIS_WORKFLOW) {
       throw new HttpError(
         400,
-        `variant ${v.name} 属于 workflow ${v.workflowId}，分析只能用 ${ANALYSIS_WORKFLOW} 的 variant`,
+        `Variant ${v.name} belongs to workflow ${v.workflowId}; analyses can only use ${ANALYSIS_WORKFLOW} variants`,
       );
     }
     if (v.buildStatus !== 'built' || v.builtHash !== v.skillsHash) {
-      throw new HttpError(409, `variant ${v.name} 还没有按当前内容构建，构建通过后才能用于分析`);
+      throw new HttpError(
+        409,
+        `Variant ${v.name} is not built from its current content; build it before using it for analysis`,
+      );
     }
     return v;
   }
 
-  // 每个阶段的引擎进程（不启动）：Claude Code 的 CLAUDE_CONFIG_DIR 是所选 variant 自己的配置目录，其中 skills/
-  // 即这个 variant 的 skill；Codex 的 skill 复制进分析目录的 .agents/skills。认证与模型配置每次照 7.10 刷新
+  // Each stage's engine process (not started): Claude Code's CLAUDE_CONFIG_DIR is the chosen variant's own config dir,
+  // whose skills/ holds its skills; Codex's skills are copied to .agents/skills in the analysis dir. Auth and model config are refreshed each time per 7.10
   function planStages(
     row: Pick<Analysis, 'id' | 'engine' | 'model' | 'analysisVariantId' | 'steps'>,
   ): StagePlan[] {
     if (row.analysisVariantId === null)
-      throw new Error(`分析 ${row.id} 没有 session-analysis variant`);
+      throw new Error(`Analysis ${row.id} has no session-analysis variant`);
     const dirs = analysisLayout(dataDir, row.id);
     const variantId = checkedAnalysisVariant(row.analysisVariantId).id;
     let engineHome: string;
@@ -537,7 +540,7 @@ export function createInsights({
     updateStep(row.id, plan.key, { tokens: result.tokens, costUsd: result.costUsd });
   }
 
-  // 一步完成后的校验也算在这一步里：失败时这一步记为 failed，原文写进 error
+  // Validation after a step counts as part of it: on failure the step is failed with the original message in error
   async function step<T>(
     row: Analysis,
     plan: StagePlan,
@@ -565,7 +568,7 @@ export function createInsights({
 
   function planOf(plans: StagePlan[], key: string): StagePlan {
     const plan = plans.find((p) => p.key === key);
-    if (plan === undefined) throw new Error(`没有阶段 ${key} 的引擎进程`);
+    if (plan === undefined) throw new Error(`No engine process for stage ${key}`);
     return plan;
   }
 
@@ -578,7 +581,7 @@ export function createInsights({
     const variantId = row.variantId;
     const exported = await writeInput(db, {
       analysisId: id,
-      // 本机配置的 session 的分析没有 variant：不写 skills/ 与 workflow.yaml，阶段为空（Contracts 25.4）
+      // Analyses of local-machine sessions have no variant: no skills/ or workflow.yaml, no stages (Contracts 25.4)
       variant:
         variantId === null
           ? null
@@ -604,7 +607,7 @@ export function createInsights({
           writeFindingsWithIds(file, findings);
           return findings;
         }).catch((error: unknown) => {
-          // 一个方面失败时停掉其余的引擎进程
+          // When one aspect fails, stop the other engine processes
           controller.abort(error);
           throw error;
         }),
@@ -631,7 +634,7 @@ export function createInsights({
     publish(id);
 
     const findingIds = new Set(findings.map((f) => f.findingId));
-    // 本机的分析只有报告，不产出修改建议（Contracts 25.4）
+    // Local-machine analyses produce only a report, no proposed changes (Contracts 25.4)
     if (variantId === null) {
       const report = await step(row, planOf(plans, synthesize), signal, () =>
         validateReport(path.join(dirs.output, 'report.json'), findingIds),
@@ -678,7 +681,7 @@ export function createInsights({
     });
   }
 
-  // 新分析的一行（还没有写入）
+  // A new analysis row (not yet written)
   function newRow(
     input: NewAnalysisInput,
     s: Scope,
@@ -694,10 +697,14 @@ export function createInsights({
     | 'steps'
   > {
     if (s.problem !== null) throw new HttpError(400, s.problem);
-    if (s.variant === null && !s.local) throw new HttpError(400, '没有 variant');
-    const analysisVariantId = input.analysisVariantId ?? currentAnalysisBaseline(db)?.id;
+    if (s.variant === null && !s.local) throw new HttpError(400, 'No variant');
+    const analysisVariantId =
+      input.analysisVariantId ?? currentBaseline(db, dataDir, ANALYSIS_WORKFLOW)?.id;
     if (analysisVariantId === undefined) {
-      throw new HttpError(409, `还没有 ${ANALYSIS_WORKFLOW} 的基线 variant（服务启动时建出）`);
+      throw new HttpError(
+        409,
+        `No baseline variant of ${ANALYSIS_WORKFLOW} yet (created when the server starts)`,
+      );
     }
     checkedAnalysisVariant(analysisVariantId);
     const model =
@@ -723,7 +730,7 @@ export function createInsights({
       return {
         claude: models.judge,
         codex: codexDefaultModel(codexConfigPath),
-        analysisVariantId: currentAnalysisBaseline(db)?.id ?? null,
+        analysisVariantId: currentBaseline(db, dataDir, ANALYSIS_WORKFLOW)?.id ?? null,
       };
     },
 
@@ -731,13 +738,8 @@ export function createInsights({
 
     scope,
 
-    // 每个阶段的引擎进程与调用参数，不建分析、不启动引擎（测试用：参数由所选 variant 的 skill 决定）
-    plan(input: NewAnalysisInput): StagePlan[] {
-      return planStages(newRow(input, scope(input)));
-    },
-
-    // 建立分析并在后台开始；返回时状态为 queued 或 running。还不在 dashboard 中的 session 先读入（Contracts 27），
-    // 不进入管理表格
+    // Create the analysis and start it in the background; returns queued or running. Sessions not yet in the dashboard
+    // are read in first (Contracts 27), without entering the management table
     async create(input: NewAnalysisInput): Promise<Analysis> {
       const { scope: s, pending } = resolve(input);
       const values = newRow(input, s);
@@ -781,7 +783,7 @@ export function createInsights({
         variantName: row.variantId === null ? null : variantName(row.variantId),
         analysisVariantName:
           row.analysisVariantId === null ? null : variantName(row.analysisVariantId),
-        // 已删除的 variant 不能再点进 variant 页面
+        // A deleted variant can no longer be opened in the variant page
         variantDeleted: isDeleted(row.variantId),
         analysisVariantDeleted: isDeleted(row.analysisVariantId),
         sessions: scopeSessions(row.sessionIds),
@@ -810,36 +812,30 @@ export function createInsights({
       };
     },
 
-    // 停掉全部引擎进程
+    // Stop all engine processes
     cancel(id: string): Analysis {
       const row = get(id);
       const controller = controllers.get(id);
       if (controller === undefined || (row.status !== 'queued' && row.status !== 'running')) {
-        throw new HttpError(409, `分析 ${id} 不在进行中：${row.status}`);
+        throw new HttpError(409, `Analysis ${id} is not in progress: ${row.status}`);
       }
       controller.abort(CANCELLED);
       return get(id);
     },
 
-    // 等待分析结束（测试与关闭服务用）
-    async settled(id: string): Promise<Analysis> {
-      for (;;) {
-        const row = get(id);
-        if (row.status !== 'queued' && row.status !== 'running' && !controllers.has(id)) return row;
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      }
-    },
-
-    // 另存为 variant（Contracts 15.3、19.3）：从绑定的 variant 派生草稿，写入接受的修改与编辑后的内容，记录 parent
-    // 与 analysis_id；名字与描述必填，不构建，状态为 draft
+    // Save as variant (Contracts 15.3, 19.3): derive a draft from the bound variant, write the accepted and edited
+    // content, record parent and analysis_id; name and description are required, not built, status draft
     saveVariant(
       id: string,
       input: { name: string; description: string; files: { path: string; content: string }[] },
     ): Variant {
       const row = get(id);
-      if (row.status !== 'succeeded') throw new HttpError(409, `分析 ${id} 还没有成功完成`);
+      if (row.status !== 'succeeded') throw new HttpError(409, `Analysis ${id} has not succeeded`);
       if (row.variantId === null)
-        throw new HttpError(409, `分析 ${id} 分析的是本机配置的 session，没有修改建议`);
+        throw new HttpError(
+          409,
+          `Analysis ${id} analysed local-machine sessions and has no proposed changes`,
+        );
       const name = variants.checkName(input.name);
       const description = variants.checkDescription(input.description);
       const proposals = new Set(
@@ -853,7 +849,7 @@ export function createInsights({
       if (outside.length > 0) {
         throw new HttpError(
           400,
-          `这些文件不在修改建议中：${outside.map((f) => f.path).join('、')}`,
+          `These files are not in the proposed changes: ${outside.map((f) => f.path).join(', ')}`,
         );
       }
       const created = variants.derive(row.variantId, { name });
@@ -865,7 +861,7 @@ export function createInsights({
       return variants.get(created.id);
     },
 
-    // 关闭服务：停掉进行中的分析
+    // Server shutdown: stop analyses in progress
     async shutdown() {
       const ids = [...controllers.keys()];
       for (const c of controllers.values()) c.abort(CANCELLED);

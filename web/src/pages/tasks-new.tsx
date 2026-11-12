@@ -17,7 +17,7 @@ import { createTask } from '@/lib/tasks';
 import { IssuesAlert, TaskFormFields } from '@/pages/tasks-form';
 import { LinearImportPanel } from '@/pages/tasks-import';
 
-// 新建 task 先选评测类型 lfg 或 ic（Contracts 16.3）
+// A new task starts by choosing the evaluation kind, lfg or ic (Contracts 16.3)
 function blankForm(kind: 'lfg' | 'ic'): TaskForm {
   const common = {
     id: '',
@@ -41,8 +41,8 @@ type Mode = 'lfg' | 'ic' | 'ic-linear';
 
 const modes: { mode: Mode; label: string }[] = [
   { mode: 'lfg', label: '/lfg' },
-  { mode: 'ic', label: '/ic 手写工单' },
-  { mode: 'ic-linear', label: '/ic 从 Linear 导入' },
+  { mode: 'ic', label: '/ic, write a ticket' },
+  { mode: 'ic-linear', label: '/ic, import from Linear' },
 ];
 
 export function TaskNewPage() {
@@ -50,9 +50,9 @@ export function TaskNewPage() {
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<Mode>('lfg');
   const [form, setForm] = useState<TaskForm | null>(() => blankForm('lfg'));
-  // 导入预览中的 workflow 分析，显示在表单的"起始仓库与 checks"中
+  // Workflow analysis from the import preview, shown in the form's "Starting repo and checks"
   const [analysis, setAnalysis] = useState<WorkflowAnalysis | null>(null);
-  // 每次采纳导入的内容都重建表单
+  // Each adoption of imported content rebuilds the form
   const [adopted, setAdopted] = useState(0);
   const [issues, setIssues] = useState<string[]>([]);
   const creating = useMutation({
@@ -93,25 +93,26 @@ export function TaskNewPage() {
       <Button asChild variant="ghost" className="w-fit">
         <Link to="/tasks">
           <ArrowLeft />
-          全部 task
+          All tasks
         </Link>
       </Button>
       <div className="flex items-start justify-between gap-4">
         <div className="flex flex-col gap-2">
-          <h1 className="text-2xl font-semibold">新建 task</h1>
+          <h1 className="text-2xl font-semibold">New task</h1>
           <p className="text-sm text-muted-foreground">
-            保存后写入 tasks/&lt;ID&gt;/task.yaml。手写的 ic task 的起始仓库 bundle
-            与隐藏测试需要放进同一目录；从 Linear 导入的 task 在保存时生成 bundle。
+            Saved to tasks/&lt;ID&gt;/task.yaml. A hand-written ic task needs its starting repo
+            bundle and hidden tests in the same folder; a task imported from Linear gets its bundle
+            when saved.
           </p>
         </div>
         <Button onClick={create} disabled={form === null || creating.isPending}>
           <Save />
-          {creating.isPending ? '创建中…' : '创建'}
+          {creating.isPending ? 'Creating…' : 'Create'}
         </Button>
       </div>
       <div className="flex flex-col gap-2">
-        <Label>类型</Label>
-        <div className="flex gap-2" role="radiogroup" aria-label="类型">
+        <Label>Kind</Label>
+        <div className="flex gap-2" role="radiogroup" aria-label="Kind">
           {modes.map(({ mode: m, label }) => (
             <Button
               key={m}
@@ -128,10 +129,10 @@ export function TaskNewPage() {
         </div>
       </div>
       {mode === 'ic-linear' && <LinearImportPanel onAdopt={adopt} />}
-      {issues.length > 0 && <IssuesAlert title="还不能创建" issues={issues} />}
+      {issues.length > 0 && <IssuesAlert title="Cannot create yet" issues={issues} />}
       {creating.isError && (
         <Alert variant="destructive">
-          <AlertTitle>创建失败</AlertTitle>
+          <AlertTitle>Could not create</AlertTitle>
           <AlertDescription>{creating.error.message}</AlertDescription>
         </Alert>
       )}

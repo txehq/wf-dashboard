@@ -7,8 +7,8 @@ import { z } from 'zod';
 import type { SessionActions } from '../deletion/sessions.js';
 import { SessionActionBody, SessionActionPlan, sessionActions } from '../deletion/session-views.js';
 
-// Contracts 25.3、25.5：Sessions 页面的删除、归档与恢复。action-plan 是确认对话框的内容；拒绝时 409，原文列出原因；
-// Codex 的命令失败时 500，原文显示
+// Contracts 25.3, 25.5: delete, archive and restore on the Sessions page. action-plan is the confirm dialog content; 409 listing the reasons when refused;
+// 500 with the message when a Codex command fails
 export const sessionActionRoutes: FastifyPluginCallbackZod<{ actions: SessionActions }> = (
   app,
   { actions },
@@ -33,7 +33,7 @@ export const sessionActionRoutes: FastifyPluginCallbackZod<{ actions: SessionAct
     },
     (request) => actions.plan(request.query.action, request.query.ids),
   );
-  // 同样的内容，ids 放在请求体中：选中全部时 id 很多，查询字符串会超过请求头的上限
+  // Same content with ids in the body: selecting all gives many ids and the query string would exceed the header limit
   app.post(
     '/api/sessions/action-plan',
     {

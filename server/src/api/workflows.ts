@@ -8,11 +8,13 @@ import type { Workflows } from '../workflows/index.js';
 import { WorkflowView } from '../workflows/schema.js';
 
 const IdParams = z.object({ id: z.string().min(1) });
-const Slug = z.string().regex(/^[a-z][a-z0-9-]*$/, '只能包含小写字母、数字与连字符，以字母开头');
+const Slug = z
+  .string()
+  .regex(/^[a-z][a-z0-9-]*$/, 'Only lowercase letters, digits and hyphens, starting with a letter');
 const Name = z.string().trim().min(1).max(100);
-// 基本描述（Contracts 18.3），可以为空
+// Basic description (Contracts 18.3), may be empty
 const Description = z.string().max(2000);
-// 定义的结构由 workflows 模块用 WorkflowDefinition 校验，错误以 zod 的原文返回
+// The workflows module validates the definition with WorkflowDefinition, returning zod's message on error
 const Definition = z.record(z.string(), z.unknown());
 
 // Contracts 16.1
@@ -34,7 +36,7 @@ export const workflowRoutes: FastifyPluginCallbackZod<{ workflows: Workflows }> 
     (request) => workflows.get(request.params.id),
   );
 
-  // 从空白新建（Contracts 18.5），同时建出第一个 variant"初稿"
+  // Create from blank (Contracts 18.5), also creating the first draft variant
   app.post(
     '/api/workflows',
     {
@@ -54,7 +56,7 @@ export const workflowRoutes: FastifyPluginCallbackZod<{ workflows: Workflows }> 
     },
   );
 
-  // 内置的 lfg、ic 只能改描述，改了名字或定义时 409
+  // The built-in lfg and ic only allow description changes; 409 when the name or definition changes
   app.put(
     '/api/workflows/:id',
     {

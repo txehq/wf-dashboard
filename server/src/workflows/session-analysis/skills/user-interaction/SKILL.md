@@ -3,23 +3,23 @@ name: user-interaction
 description: Session-analysis stage for interaction with the user — whether each question was necessary and easy to answer, questions that should have been asked, and the user's corrections, interruptions and dissatisfaction.
 ---
 
-# 和用户的交互
+# Interaction with the user
 
-先照 `session-analysis` skill 读过 `../session-analysis/references/` 的五份参考；证据、格式与归属以它们为准。输出：`output/findings-user-interaction.json`。
+First read the five references in `../session-analysis/references/` as the `session-analysis` skill says; they govern evidence, format and ownership. Output: `output/findings-user-interaction.json`.
 
-用户的话只取 `userMessagesBefore` 中 `kind` 为 `user` 的消息与 `conversation.json`。评估 run 中回答问题的是模拟用户，`run.json` 的对话记录了回答来自模拟用户还是人。违反用户此前明确要求的做法归 request-conflicts。
+The user's words come only from messages in `userMessagesBefore` whose `kind` is `user` and from `conversation.json`. In eval runs the simulated user answers questions; the conversation in `run.json` records whether an answer came from the simulated user or a person. Acting against something the user explicitly asked for earlier belongs to request-conflicts.
 
-## 步骤
+## Steps
 
-1. **列出交互。** 按时间列出每条用户消息、agent 的每次提问（回复文字中的问题、`AskUserQuestion` 的问题与选项）与回答，以及用户回复的用时（提问所在请求的 `timestamp` 到回答的时间）。
-2. **每次提问。** 判断：
-   - 是否必要：答案能否从仓库、工单、之前的对话或 skill 中直接得到；是否把已经问过、答过的问题再问一遍；
-   - 是否简洁、可以直接点选：一次问了几个问题；选项是否完整、互斥；有没有推荐项；用语是否是用户看得懂的说法；
-   - 回答是否改变了范围。
+1. **List the interactions.** In time order, list each user message, each question the agent asked (questions in reply text, and `AskUserQuestion` questions and options) with its answer, and how long the user took to reply (from the `timestamp` of the request with the question to the time of the answer).
+2. **Each question.** Judge:
+   - whether it was necessary: could the answer come straight from the repository, the ticket, the earlier conversation or the skills; was a question already asked and answered asked again;
+   - whether it was concise and easy to answer by clicking: how many questions were asked at once; whether the options were complete and mutually exclusive; whether one was recommended; whether the wording is something the user understands;
+   - whether the answer changed the scope.
 
-   完成条件：每次提问都有这三项判断。
+   Done when: every question has these three judgments.
 
-3. **该问而没问。** 需求有歧义、或要做不可撤回的操作时 agent 没有问就做了，之后被用户纠正或返工。
-4. **纠正、打断与不满。** 只按用户明确的话判断：纠正（"不对""不是这个"）、打断、重复同一要求、催促、不满（"算了""这坏了"）；以及明确的满意（"好""可以""谢谢"）。每处写出之前 agent 做了什么导致它。
-5. 每条发现在 detail 中引用 skill 中关于提问与交互的规定（路径与原文），说明 skill 是否要求了这样的交互。
-6. 按 `findings.md` 写出 `output/findings-user-interaction.json` 并用 `jq .` 检查。
+3. **Should have asked and did not.** The requirement was ambiguous, or an irreversible action was about to happen, and the agent went ahead without asking, then got corrected by the user or had to redo work.
+4. **Corrections, interruptions and dissatisfaction.** Judge only from what the user explicitly said: corrections ("that's wrong", "not this one"), interruptions, repeating the same request, nudges, dissatisfaction ("forget it", "this is broken"); and explicit satisfaction ("good", "fine", "thanks"). For each, say what the agent did before that led to it.
+5. In each finding's detail, quote the skill rules about questions and interaction (path and text), and say whether the skills required such an interaction.
+6. Write `output/findings-user-interaction.json` as `findings.md` describes and check it with `jq .`.

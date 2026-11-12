@@ -11,15 +11,15 @@ import { formatTime } from '@/lib/format';
 import type { Artifact, RunDetail } from '@/lib/runs-api';
 import { cn } from '@/lib/utils';
 
-// lfg 评测类型的 rubric 产物的显示名；其他产物显示 id
+// Display names of lfg rubric outputs; other outputs show their id
 const docLabel: Record<string, string> = {
   brief: 'Brief',
   research: 'Research',
-  plan: 'Plan（锁定后的文档）',
+  plan: 'Plan (locked)',
   tickets: 'Tickets',
 };
 
-// 固定种类以外的产物都是 rubric 评分的产物文件（Contracts 16.2）
+// Every output outside the fixed kinds is a rubric-graded output file (Contracts 16.2)
 const fixedKinds = new Set(['pr', 'repo', 'ticket', 'friction', 'acceptance', 'pr_snapshot']);
 const isDoc = (a: Artifact) => !fixedKinds.has(a.kind);
 
@@ -35,11 +35,11 @@ function prText(a: Artifact): string {
   if (a.snapshot === null) return a.location;
   const s = JSON.parse(a.snapshot) as PrState;
   const parts = [s.number === undefined ? null : `#${String(s.number)}`, s.state ?? null];
-  if (s.isDraft === true) parts.push('草稿');
+  if (s.isDraft === true) parts.push('draft');
   return parts.filter((p) => p !== null).join(' · ');
 }
 
-// 验收报告的快照为 { title, toolCallId }
+// The acceptance report snapshot is { title, toolCallId }
 function acceptanceText(a: Artifact): string {
   if (a.snapshot === null) return a.location;
   return (JSON.parse(a.snapshot) as { title: string }).title;
@@ -73,7 +73,7 @@ function LinkRow({
   );
 }
 
-// 产物：出现即列出；文档点击后在下方渲染，其余是外部链接
+// Outputs: listed as they appear; documents render below on click, the rest are external links
 export function RunArtifacts({ run }: { run: RunDetail }) {
   const docs = run.artifacts.filter(isDoc);
   const [open, setOpen] = useState<string | null>(null);
@@ -89,17 +89,17 @@ export function RunArtifacts({ run }: { run: RunDetail }) {
       data-testid="run-artifacts"
     >
       <h2 id="artifacts-title" className="text-sm font-medium">
-        产物
+        Output
       </h2>
       {empty && (
         <p className="text-sm text-muted-foreground">
           {run.links.vault !== null
-            ? '产物文件写出后出现在这里。'
-            : 'PR 与验收报告出现后列在这里。'}
+            ? 'Output files appear here once they are written.'
+            : 'The PR and acceptance report appear here once they exist.'}
         </p>
       )}
       {docs.length > 0 && (
-        <div className="flex flex-wrap gap-2" role="tablist" aria-label="产物文档">
+        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Output documents">
           {docs.map((d) => (
             <button
               key={d.kind}
@@ -130,7 +130,7 @@ export function RunArtifacts({ run }: { run: RunDetail }) {
             <LinkRow
               href={acceptance.location}
               icon={ClipboardCheck}
-              title="验收报告"
+              title="Acceptance report"
               detail={acceptanceText(acceptance)}
             />
           )}
@@ -151,7 +151,7 @@ export function RunArtifacts({ run }: { run: RunDetail }) {
             {shown.location}
           </p>
           {shown.snapshot === null ? (
-            <p className="text-sm text-muted-foreground">没有内容快照。</p>
+            <p className="text-sm text-muted-foreground">No content snapshot.</p>
           ) : (
             <MarkdownDoc content={shown.snapshot} className="max-h-[640px]" />
           )}

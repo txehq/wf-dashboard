@@ -13,7 +13,7 @@ import type { Live } from '../live/index.js';
 import { HttpError } from '../variants/errors.js';
 import type { Variants } from '../variants/index.js';
 
-// "在访达中打开"的目标（Contracts 16.7、18.2）：只接受 dashboard 已知的目录，不接受任意路径
+// Targets of "Open in Finder" (Contracts 16.7, 18.2): only directories the dashboard knows, never arbitrary paths
 export const OpenTarget = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('variant'), id: z.string().min(1) }),
   z.object({ kind: z.literal('live-cwd'), id: z.string().min(1) }),
@@ -28,15 +28,15 @@ export interface OpenDeps {
   live: Live;
 }
 
-// session 记录的工作目录
+// Working directory recorded for the session
 function sessionCwd(db: Db, id: string): string {
   const row = db.select({ cwd: sessions.cwd }).from(sessions).where(eq(sessions.id, id)).get();
-  if (row === undefined) throw new HttpError(404, `session 不存在：${id}`);
-  if (row.cwd === null) throw new HttpError(404, `session ${id} 没有记录工作目录`);
+  if (row === undefined) throw new HttpError(404, `Session not found: ${id}`);
+  if (row.cwd === null) throw new HttpError(404, `Session ${id} has no recorded working directory`);
   return row.cwd;
 }
 
-// 目标对应的目录；目录不存在时 404 原文
+// Directory of the target; 404 with the message when it does not exist
 export function openTargetDir(target: OpenTarget, deps: OpenDeps): string {
   const dir =
     target.kind === 'variant'
@@ -47,7 +47,7 @@ export function openTargetDir(target: OpenTarget, deps: OpenDeps): string {
           ? deps.live.dirs(target.id).configDir
           : sessionCwd(deps.db, target.id);
   if (!fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory()) {
-    throw new HttpError(404, `目录不存在：${dir}`);
+    throw new HttpError(404, `Directory not found: ${dir}`);
   }
   return dir;
 }
@@ -56,7 +56,7 @@ export const openRoutes: FastifyPluginCallbackZod<OpenDeps> = (app, deps, done) 
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
-  // macOS 的 open <目录>：在访达中打开
+  // macOS open <dir>: opens it in Finder
   app.post(
     '/api/open',
     {

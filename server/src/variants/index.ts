@@ -36,6 +36,7 @@ import { HttpError } from './errors.js';
 import { dataLayout, type VariantLayout } from './layout.js';
 import { createLocalInstalls, type InstallManifest, type InstallView } from './local-install.js';
 import { readMcpServers } from './mcp.js';
+import { ORCA_SKILLS, orcaVersion, writeOrcaSkills } from '../orca/skills.js';
 import { engineNames } from './names.js';
 import { claudeSandboxProfile, localClaudeSandboxProfile, wfSandboxProfile } from './sandbox.js';
 import { REGISTRY_FILES, registerSkills } from './skill-registry.js';
@@ -54,19 +55,21 @@ export type Variant = typeof variants.$inferSelect;
 export interface VariantsOptions {
   db: Db;
   dataDir: string;
-  // txe-workflow 仓库
+  // txe-workflow repository
   repo: string;
   ctxBin: string;
-  // gateway 认证 env 的来源，默认 config.claudeSettingsPath
+  // Source of the gateway auth env, default config.claudeSettingsPath
   claudeSettingsPath?: string | undefined;
-  // Codex 登录凭据的来源，默认 config.codexAuthPath
+  // Source of the Codex login credentials, default config.codexAuthPath
   codexAuthPath?: string | undefined;
-  // Codex 模型配置的来源，默认 config.codexConfigPath
+  // Source of the Codex model config, default config.codexConfigPath
   codexConfigPath?: string | undefined;
-  // variant 新建或 skills 内容变化之后调用：session 的自动绑定据此重新判定（Contracts 15.1）
+  // Called after a variant is created or its skills change: session auto-binding is re-evaluated (Contracts 15.1)
   onSkillsChanged?: (() => void) | undefined;
-  // 安装到本机的目标所在的 home（Contracts 18.6），默认用户的 home；测试传入自己的临时目录
+  // Home that holds the local machine install targets (Contracts 18.6), default the user's home; tests pass their own temp dir
   home?: string | undefined;
+  // orca run when bundling Orca's skills (Contracts 35.5), default config.orca.bin
+  orcaBin?: string | undefined;
 }
 
 export interface SkillFile {
@@ -79,7 +82,7 @@ export interface FileDiff {
   status: 'added' | 'removed' | 'modified';
   oldContent: string;
   newContent: string;
-  // 统一 diff 文本
+  // Unified diff text
   patch: string;
 }
 
@@ -88,9 +91,9 @@ export interface VariantDiff {
   files: FileDiff[];
 }
 
-// runner 在 variant 中启动 claude 所需的一切；运行目录及其上级不能有 CLAUDE.md 或 .claude/
+// Everything the runner needs to start claude in a variant; the run dir and its parents must have no CLAUDE.md or .claude/
 export interface RuntimeEnv {
-  // 完整的子进程环境：父进程环境去掉 CLAUDE*、ANTHROPIC*、ORCA_AGENT* 后加上 variant 变量
+  // Full child process env: the parent env minus CLAUDE*, ANTHROPIC*, ORCA_AGENT*, plus the variant variables
   env: Record<string, string> & {
     CLAUDE_CONFIG_DIR: string;
     WF_HOME: string;
@@ -99,21 +102,21 @@ export interface RuntimeEnv {
     PATH: string;
   };
   mcpConfigPath: string;
-  // --model、--effort 与 --mcp-config
+  // --model, --effort and --mcp-config
   claudeArgs: string[];
-  // claude 写 session jsonl 的目录，Ingester 的来源
+  // Dir where claude writes session jsonl, the Ingester's source
   sessionsDir: string;
 }
 
-// loose：patch 需要完整的文档，未声明的键必须原样保留
-// 每个 variant 的 --mcp-config 中 dashboard 提供的 MCP 服务器
+// loose: the patch needs the whole document, undeclared keys must be kept as they are
+// The MCP server the dashboard provides in every variant's --mcp-config
 const HISTORY_MCP = 'wf-history';
 
 const CargoManifest = z.looseObject({
   workspace: z.looseObject({ package: z.looseObject({ version: z.string() }) }),
 });
 
-// variant 历史的一条（Contracts 16.4、17.4）：覆盖与恢复的 snapshot 是存下的原来的 src/
+// One variant history entry (Contracts 16.4, 17.4): the snapshot of an overwrite or restore is the saved previous src/
 export const VariantHistoryEntry = z.discriminatedUnion('kind', [
   z.object({
     id: z.number(),
@@ -128,7 +131,7 @@ export const VariantHistoryEntry = z.discriminatedUnion('kind', [
     kind: z.literal('overwrite'),
     snapshot: z.string(),
     draftId: z.string(),
-    // 草稿的引擎（Contracts 28.4）：覆盖时记下；之前的覆盖取草稿的引擎，草稿已删除时为空
+    // Draft engine (Contracts 28.4): recorded on overwrite; older overwrites take the draft's engine, null once the draft is deleted
     draftEngine: z.enum(liveEngines).nullable(),
     analysisId: z.string().nullable(),
   }),
@@ -142,7 +145,7 @@ export const VariantHistoryEntry = z.discriminatedUnion('kind', [
 ]);
 export type VariantHistoryEntry = z.infer<typeof VariantHistoryEntry>;
 
-// engineOf：之前的覆盖没有记下引擎时，按草稿 id 取草稿的引擎
+// engineOf: for older overwrites without a recorded engine, looks up the draft's engine by draft id
 function historyEntry(
   e: typeof variantEvents.$inferSelect,
   engineOf: (draftId: string) => LiveEngine | null,
@@ -177,36 +180,37 @@ export function createVariants({
   codexConfigPath = config.codexConfigPath,
   onSkillsChanged = () => undefined,
   home = os.homedir(),
+  orcaBin = config.orca.bin,
 }: VariantsOptions) {
   const layout = dataLayout(dataDir);
   const runtimeBuilds = new Map<string, Promise<void>>();
   const installs = createLocalInstalls({ installsDir: path.join(dataDir, 'installs'), home });
 
-  // 把 settings 源的 env 块合并进 variant 的 settings.json，其他字段原样保留；返回合并的键
+  // Merges the settings source's env block into the variant's settings.json, other fields kept; returns the merged keys
   const writeIsolatedSettings = (claudeDir: string, edit?: (settings: IsolatedSettings) => void) =>
     writeClaudeSettings(claudeDir, claudeSettingsPath, edit);
 
-  // 上次服务退出时仍在构建的 variant 不会再完成
+  // Variants still building when the server last exited will never finish
   db.update(variants)
-    .set({ buildStatus: 'failed', buildError: '服务重启，构建中断' })
+    .set({ buildStatus: 'failed', buildError: 'Server restarted, build interrupted' })
     .where(eq(variants.buildStatus, 'building'))
     .run();
 
-  // 包括已删除的 variant：只用于显示名字与保留的记录（Contracts 24.3）
+  // Includes deleted variants: only for showing names and kept records (Contracts 24.3)
   function record(id: string): Variant {
     const row = db.select().from(variants).where(eq(variants.id, id)).get();
-    if (row === undefined) throw new HttpError(404, `variant 不存在：${id}`);
+    if (row === undefined) throw new HttpError(404, `Variant not found: ${id}`);
     return row;
   }
 
-  // 已删除的 variant 不能再编辑、构建、运行、派生或安装
+  // A deleted variant can no longer be edited, built, run, derived or installed
   function get(id: string): Variant {
     const row = record(id);
-    if (row.deletedAt !== null) throw new HttpError(404, `variant ${row.name} 已删除`);
+    if (row.deletedAt !== null) throw new HttpError(404, `Variant ${row.name} is deleted`);
     return row;
   }
 
-  // 这些 variant 中装在本机的：清单与安装后被改过的文件（Contracts 18.6、24.4）
+  // Those of these variants installed on the local machine: manifest and files modified after install (Contracts 18.6, 24.4)
   function installsOf(ids: string[]) {
     return ids.flatMap((id) => {
       const manifest = installs.status(id);
@@ -216,18 +220,18 @@ export function createVariants({
     });
   }
 
-  // 安装清单的显示：variant 的名字按 id 取当前的（Contracts 16.4）
+  // Install manifest view: the variant name is the current one, looked up by id (Contracts 16.4)
   const installView = (manifest: InstallManifest): InstallView => ({
     ...manifest,
     variantName: get(manifest.variantId).name,
   });
 
-  // variant 的目录：data/variants/<storage_id>，storage_id 为空时是自己的 id
+  // Variant dir: data/variants/<storage_id>, its own id when storage_id is null
   const storageOf = (row: Pick<Variant, 'id' | 'storageId'>) => row.storageId ?? row.id;
   const dirsOf = (row: Pick<Variant, 'id' | 'storageId'>) => layout.variant(storageOf(row));
 
-  // 编辑或构建前调用（Contracts 16.4）：与其他 variant 共用目录时复制出自己的一份。只复制 src/ 与构建日志，
-  // 构建产物与隔离 home 留给共用的另一个 variant，这一个需要重新构建
+  // Called before edit or build (Contracts 16.4): a variant sharing its dir with others gets its own copy. Only src/ and
+  // the build log are copied; build output and the isolated home stay with the other variant, this one must rebuild
   function ownStorage(row: Variant): Variant {
     const storage = storageOf(row);
     const sharing = db
@@ -237,7 +241,7 @@ export function createVariants({
       .all()
       .filter((v) => v.id !== row.id && storageOf(v) === storage);
     if (sharing.length === 0) return row;
-    // 目录名优先取自己的 id；自己的 id 就是共用的目录时另取一个
+    // The dir name prefers its own id; a new one when its own id is the shared dir
     const own = fs.existsSync(layout.variant(row.id).dir) ? randomUUID() : row.id;
     const from = layout.variant(storage);
     const to = layout.variant(own);
@@ -246,7 +250,7 @@ export function createVariants({
     if (fs.existsSync(from.buildLog)) fs.copyFileSync(from.buildLog, to.buildLog);
     fs.appendFileSync(
       to.buildLog,
-      `\n=== 不再与 ${sharing.map((v) => v.id).join('、')} 共用目录：复制出自己的 src（${to.dir}），需要重新构建 ===\n`,
+      `\n=== No longer sharing a dir with ${sharing.map((v) => v.id).join(', ')}: copied its own src (${to.dir}), rebuild needed ===\n`,
     );
     db.update(variants)
       .set({
@@ -264,21 +268,24 @@ export function createVariants({
 
   function assertDraft(row: Variant) {
     if (row.status === 'frozen') {
-      throw new HttpError(409, `variant ${row.name} 已冻结，修改需要另存为新 variant`);
-    }
-  }
-
-  // 从其他数据目录导入的 variant 只有 src/skills，没有安装目录：不能编辑、构建与运行，只能派生
-  function assertInstallable(row: Variant) {
-    if (row.installDir === null) {
       throw new HttpError(
         409,
-        `variant ${row.name} 是导入的，只有 skill 内容；派生为新 variant 后才能编辑、构建与运行`,
+        `Variant ${row.name} is frozen; save it as a new variant to change it`,
       );
     }
   }
 
-  // 名字在同一 workflow 内没有删除的 variant 中唯一（Contracts 16.4、24.3）
+  // A variant imported from another data dir has only src/skills and no install dir: it cannot be edited, built or run, only derived
+  function assertInstallable(row: Variant) {
+    if (row.installDir === null) {
+      throw new HttpError(
+        409,
+        `Variant ${row.name} is imported and has only skill content; derive a new variant to edit, build and run it`,
+      );
+    }
+  }
+
+  // Names are unique among the undeleted variants of one workflow (Contracts 16.4, 24.3)
   function assertNameFree(workflowId: string, name: string) {
     const taken = db
       .select()
@@ -291,43 +298,52 @@ export function createVariants({
         ),
       )
       .get();
-    if (taken !== undefined) throw new HttpError(409, `名称已被使用：${name} (${workflowId})`);
+    if (taken !== undefined)
+      throw new HttpError(409, `Name already in use: ${name} (${workflowId})`);
   }
 
-  // 改名的校验（Contracts 16.4）：去掉首尾空白后非空、最多 100 字
+  // Rename validation (Contracts 16.4): non-empty after trimming, at most 100 characters
   function checkName(name: string): string {
     const next = name.trim();
-    if (next === '') throw new HttpError(400, 'variant 的名字不能为空');
+    if (next === '') throw new HttpError(400, 'Variant name cannot be empty');
     if (next.length > 100) {
-      throw new HttpError(400, `variant 的名字最多 100 字，现在是 ${String(next.length)} 字`);
+      throw new HttpError(
+        400,
+        `Variant name is at most 100 characters, got ${String(next.length)}`,
+      );
     }
     return next;
   }
 
-  // 保存草稿与分析的另存时描述必填（Contracts 17.4、19.3）
+  // The description is required when saving a draft or saving an analysis as a variant (Contracts 17.4, 19.3)
   function checkDescription(description: string): string {
     const next = description.trim();
-    if (next === '') throw new HttpError(400, 'variant 的描述不能为空');
+    if (next === '') throw new HttpError(400, 'Variant description cannot be empty');
     if (next.length > 2000) {
-      throw new HttpError(400, `variant 的描述最多 2000 字，现在是 ${String(next.length)} 字`);
+      throw new HttpError(
+        400,
+        `Variant description is at most 2000 characters, got ${String(next.length)}`,
+      );
     }
     return next;
   }
 
-  // 覆盖与恢复只改可以编辑的 variant：导入的与已冻结的不能（Contracts 17.4）。可以时为 null，不能时为原因
+  // Overwrite and restore only change editable variants: not imported or frozen ones (Contracts 17.4). null when allowed, else the reason
   function replaceBlocker(row: Variant): string | null {
-    if (row.installDir === null) return '导入的 variant 只有 skill 内容，不能被覆盖';
-    if (row.status === 'frozen') return '已冻结（用于 batch），内容只读';
-    if (row.buildStatus === 'building') return '正在构建，构建结束后才能覆盖';
+    if (row.installDir === null)
+      return 'Imported variant has only skill content and cannot be overwritten';
+    if (row.status === 'frozen') return 'Frozen (used by a batch), content is read-only';
+    if (row.buildStatus === 'building')
+      return 'Building; it can be overwritten after the build ends';
     return null;
   }
 
   function assertReplaceable(row: Variant) {
     const reason = replaceBlocker(row);
-    if (reason !== null) throw new HttpError(409, `variant ${row.name}：${reason}`);
+    if (reason !== null) throw new HttpError(409, `Variant ${row.name}: ${reason}`);
   }
 
-  // 把 variant 现在的 src/ 存进历史，返回快照目录名
+  // Saves the variant's current src/ into history, returns the snapshot dir name
   function snapshotSource(row: Variant): string {
     const snapshot = `${new Date().toISOString().replaceAll(':', '-')}-${randomUUID().slice(0, 8)}`;
     const dest = layout.historySrc(row.id, snapshot);
@@ -336,14 +352,14 @@ export function createVariants({
     return snapshot;
   }
 
-  // 用 from 替换 variant 的 src/：构建产物删去，状态为未构建（Contracts 17.4）
+  // Replaces the variant's src/ with from: build output removed, status not built (Contracts 17.4)
   function replaceSource(row: Variant, from: string, note: string) {
     const dirs = dirsOf(row);
     fs.rmSync(dirs.src, { recursive: true, force: true });
     fs.cpSync(from, dirs.src, { recursive: true, verbatimSymlinks: true });
     fs.rmSync(dirs.dist, { recursive: true, force: true });
     fs.rmSync(dirs.manifest, { force: true });
-    fs.appendFileSync(dirs.buildLog, `\n=== ${note}，需要构建 ===\n`);
+    fs.appendFileSync(dirs.buildLog, `\n=== ${note}, build needed ===\n`);
     const hash = skillsHash(dirs.src);
     return {
       skillsHash: hash,
@@ -366,7 +382,7 @@ export function createVariants({
       .where(eq(workflowDrafts.id, draftId))
       .get()?.engine ?? null;
 
-  // 历史中一条覆盖或恢复记下的快照目录名；改名没有快照
+  // Snapshot dir name recorded by an overwrite or restore in history; renames have no snapshot
   function snapshotOf(variantId: string, eventId: number): string {
     const event = db
       .select()
@@ -374,22 +390,25 @@ export function createVariants({
       .where(and(eq(variantEvents.id, eventId), eq(variantEvents.variantId, variantId)))
       .get();
     if (event === undefined) {
-      throw new HttpError(404, `variant ${variantId} 的历史中没有 #${String(eventId)}`);
+      throw new HttpError(404, `Variant ${variantId} history has no #${String(eventId)}`);
     }
     const entry = historyEntry(event, draftEngineOf);
     if (entry.kind === 'rename') {
-      throw new HttpError(400, `历史 #${String(eventId)} 是改名，没有可以查看或恢复的 src`);
+      throw new HttpError(
+        400,
+        `History #${String(eventId)} is a rename and has no src to view or restore`,
+      );
     }
     return entry.snapshot;
   }
 
-  // source 的完整 src 复制到 dest 时依次复制的目录（每一层先删去目标再复制）：
-  // 导入的 variant 只有 src/skills，由基线导出加上它的 skills 组成
+  // Dirs copied in order when copying source's full src to dest (each layer removes the target first):
+  // an imported variant has only src/skills, so it is the baseline export plus its skills
   function sourceLayers(source: Variant, dest: string): { from: string; to: string }[] {
     if (source.installDir !== null) return [{ from: dirsOf(source).src, to: dest }];
     const base = layout.base(source.baseCommit);
     if (!fs.existsSync(base)) {
-      throw new HttpError(409, `基线 ${source.baseCommit} 的导出不存在：${base}`);
+      throw new HttpError(409, `Export of baseline ${source.baseCommit} does not exist: ${base}`);
     }
     return [
       { from: base, to: dest },
@@ -405,7 +424,7 @@ export function createVariants({
     }
   }
 
-  // 新 variant 的 src
+  // src of a new variant
   function copySource(source: Variant, id: string) {
     const dirs = layout.variant(id);
     fs.mkdirSync(dirs.dir, { recursive: true });
@@ -413,7 +432,7 @@ export function createVariants({
     return dirs;
   }
 
-  // 从 source 复制出新的 draft，属于 workflowId
+  // Copies a new draft from source, belonging to workflowId
   function copyVariant(
     source: Variant,
     input: { name: string; workflowId: string; note: string },
@@ -439,7 +458,7 @@ export function createVariants({
     return get(id);
   }
 
-  // 内置 lfg、ic 的 variant 版本号取基线的 workspace 版本；任意 workflow 的 variant 没有基线（Contracts 18.6）
+  // Built-in lfg/ic variants take the baseline's workspace version; variants of any other workflow have no baseline (Contracts 18.6)
   function versionFor(commit: string, hash: string): string {
     if (commit === '') return `skills.${hash.slice(0, 8)}`;
     return `${readWorkspaceVersion(layout.base(commit))}-eval.${hash.slice(0, 8)}`;
@@ -459,13 +478,13 @@ export function createVariants({
     fs.rmSync(tar);
   }
 
-  // 每个基线 commit 编译一次 wf，同一基线的 variant 共用。源码导出到这次构建自己的目录，编译出的 wf 改名放进
-  // runtimes/<commit>/：几个进程（例如并行的测试文件）同时构建同一个 commit 时不删除对方的文件，
-  // 共用的 cargo target 目录由 cargo 自己加锁
+  // wf is compiled once per baseline commit and shared by its variants. Source is exported to this build's own dir and the
+  // compiled wf is renamed into runtimes/<commit>/: processes building the same commit at once (e.g. parallel test files)
+  // do not delete each other's files; cargo locks the shared target dir itself
   async function buildRuntime(commit: string, log: BuildLog) {
     const src = path.join(layout.runtimeDir(commit), `src-${randomUUID()}`);
     await exportCommit(commit, src, log);
-    // runtime 用基线原样的版本号编译，Cargo.lock 无需改写
+    // The runtime is compiled with the baseline's own version, so Cargo.lock needs no rewrite
     await log.run('cargo-build', 'cargo', ['build', '--locked', '-p', 'wf-cli'], {
       cwd: src,
       env: { ...processEnv(), CARGO_TARGET_DIR: layout.cargoTarget },
@@ -478,7 +497,7 @@ export function createVariants({
 
   async function ensureRuntime(commit: string, log: BuildLog) {
     if (fs.existsSync(layout.runtimeBin(commit))) {
-      log.append(`\n[runtime] 复用 ${layout.runtimeBin(commit)}\n`);
+      log.append(`\n[runtime] Reusing ${layout.runtimeBin(commit)}\n`);
       return;
     }
     let pending = runtimeBuilds.get(commit);
@@ -486,9 +505,30 @@ export function createVariants({
       pending = buildRuntime(commit, log).finally(() => runtimeBuilds.delete(commit));
       runtimeBuilds.set(commit, pending);
     } else {
-      log.append(`\n[runtime] 等待另一个构建编译 ${commit} 的 wf\n`);
+      log.append(`\n[runtime] Waiting for another build compiling wf for ${commit}\n`);
     }
     await pending;
+  }
+
+  // The date guard checks against: the base commit's own commit date. An imported or derived variant carries the base commit
+  // from its parent; one without a base commit has no date to check against
+  async function guardDate(row: Variant, log: BuildLog): Promise<string> {
+    if (row.baseCommit === '') {
+      log.fail(
+        'guard-now',
+        `Variant ${row.name} has no base commit, so guard has no date to check`,
+      );
+    }
+    const date = (
+      await log.run(
+        'guard-now',
+        'git',
+        ['-C', repo, 'show', '-s', '--format=%cs', row.baseCommit],
+        { cwd: repo, env: processEnv() },
+      )
+    ).trim();
+    log.append(`[guard-now] guard as of ${date}, the base commit's date\n`);
+    return date;
   }
 
   function newLog(row: Variant) {
@@ -507,7 +547,7 @@ export function createVariants({
     );
   }
 
-  // 编辑后重新计算 hash 与版本号；内容变化后原有构建作废
+  // Recompute hash and version after an edit; a content change invalidates the existing build
   function afterEdit(row: Variant): Variant {
     const hash = skillsHash(dirsOf(row).src);
     if (hash !== row.skillsHash) {
@@ -529,7 +569,7 @@ export function createVariants({
     );
   }
 
-  // beforeDir 为空：没有可比的一侧，afterDir 中的文件都是新增
+  // beforeDir null: nothing to compare against, every file in afterDir is added
   function diffTrees(beforeDir: string | null, afterDir: string): FileDiff[] {
     const before = beforeDir === null ? new Map<string, string>() : readTree(beforeDir);
     const after = readTree(afterDir);
@@ -556,7 +596,7 @@ export function createVariants({
     return files;
   }
 
-  // 内置 lfg、ic 的 variant：完整的 txe-workflow 导出，用 wf 构建并隔离安装；返回所用 wf runtime 的路径
+  // Variants of the built-in lfg, ic: a full txe-workflow export, built and isolated-installed with wf; returns the wf runtime path used
   async function buildWithWf(
     row: Variant,
     dirs: VariantLayout,
@@ -579,7 +619,7 @@ export function createVariants({
     const manifest = CargoManifest.parse(parse(cargo));
     manifest.workspace.package.version = version;
     fs.writeFileSync(cargoPath, patch(cargo, manifest));
-    log.note('version', started, `skills sha256 ${hash}，版本 ${version}`);
+    log.note('version', started, `skills sha256 ${hash}, version ${version}`);
 
     const sandboxed = (step: string, wf: string, args: string[]) =>
       log.run(step, 'sandbox-exec', ['-p', wfSandboxProfile(dirs.dir), wf, ...args], {
@@ -588,25 +628,28 @@ export function createVariants({
           ...isolatedBaseEnv(),
           WF_HOME: dirs.wfHome,
           CLAUDE_CONFIG_DIR: dirs.claudeDir,
-          // wf install 会把检测到的 codex 登记为由 wf 管理，配置根目录取 CODEX_HOME
+          // wf install registers a detected codex as wf-managed, with CODEX_HOME as its config root
           CODEX_HOME: dirs.codexHome,
           TMPDIR: dirs.tmp,
         },
       });
 
-    // 新增或删除的 skill 目录登记进 registry 与 docs 名单（Contracts 16.4），改动写回 src/ 并记进构建日志
+    // Added or removed skill dirs are registered in the registry and docs lists (Contracts 16.4); changes go back to src/ and the build log
     started = performance.now();
     const registration = registerSkills(dirs.src);
     log.note(
       'register-skills',
       started,
       registration.added.length === 0 && registration.removed.length === 0
-        ? '没有新增或删除的 skill'
-        : `登记 ${registration.added.join('、') || '（无）'}；删去 ${registration.removed.join('、') || '（无）'}（${REGISTRY_FILES.join('、')}）`,
+        ? 'No skill added or removed'
+        : `Registered ${registration.added.join(', ') || '(none)'}; removed ${registration.removed.join(', ') || '(none)'} (${REGISTRY_FILES.join(', ')})`,
     );
-    // 改 skill frontmatter 时 docs/generated/skills.md 需要重新生成
-    await sandboxed('guard-fix', runtime, ['guard', '--fix']);
-    await sandboxed('guard', runtime, ['guard']);
+    // Some txe-workflow rules judge by date (CLM-003 wants a claim verified within 60 days), so guard runs as of the base
+    // commit's date: the result then depends only on the variant's content, not on the day it is built (Contracts 16.4)
+    const guardNow = await guardDate(row, log);
+    // Changing a skill frontmatter requires regenerating docs/generated/skills.md
+    await sandboxed('guard-fix', runtime, ['guard', '--fix', '--now', guardNow]);
+    await sandboxed('guard', runtime, ['guard', '--now', guardNow]);
     await sandboxed('build-local', runtime, [
       'release',
       'build-local',
@@ -618,7 +661,7 @@ export function createVariants({
       version,
     ]);
     started = performance.now();
-    // APFS 上是写时复制的克隆，不占额外空间
+    // A copy-on-write clone on APFS, taking no extra space
     fs.copyFileSync(runtime, dirs.wfBin, fs.constants.COPYFILE_FICLONE);
     log.note('copy-runtime', started, `${runtime} → ${dirs.wfBin}`);
     const source = `local:${dirs.dist}`;
@@ -631,14 +674,14 @@ export function createVariants({
       '--dry-run',
     ]);
     await sandboxed('install', runtime, ['install', '--source', source, '--agent', 'claude']);
-    // 只让 wf 管理隔离的 Claude 目录；之后不带 --agent 的 repair、sync 与后台 apply 都不会碰 codex
+    // wf manages only the isolated Claude dir; later repair, sync and background apply without --agent never touch codex
     await sandboxed('unregister-codex', dirs.wfBin, ['agents', 'unregister', 'codex']);
     await sandboxed('status', dirs.wfBin, ['status']);
     return runtime;
   }
 
-  // 任意 workflow 的 variant（Contracts 18.6）：只有一组 skill，不用 wf。校验 frontmatter 后清空 variant 自己的
-  // 配置目录，复制 src/skills 进去；认证与设置之后照常合并
+  // Variant of any workflow (Contracts 18.6): only a set of skills, no wf. After checking frontmatter, empty the variant's own
+  // config dir and copy src/skills into it; auth and settings are merged afterwards as usual
   function buildOwn(row: Variant, dirs: VariantLayout, log: BuildLog) {
     let started = performance.now();
     const problem = skillsProblem(dirs.skills);
@@ -646,7 +689,7 @@ export function createVariants({
     log.note(
       'check-frontmatter',
       started,
-      '每个 SKILL.md 有 name 与 description，name 与目录名相同',
+      'Every SKILL.md has name and description, and name matches its directory name',
     );
 
     started = performance.now();
@@ -663,18 +706,20 @@ export function createVariants({
       .filter((e) => e.isDirectory())
       .map((e) => e.name)
       .sort();
-    log.note('copy-skills', started, `${dirs.skills} → ${installed}：${names.join('、')}`);
+    log.note('copy-skills', started, `${dirs.skills} → ${installed}: ${names.join(', ')}`);
 
     started = performance.now();
-    // 认证与模型别名之后由 writeIsolatedSettings 合并进这份文件（wf 构建时由 wf install 写出）
+    // Auth and model aliases are merged into this file later by writeIsolatedSettings (wf builds have it written by wf install)
     fs.writeFileSync(path.join(dirs.claudeDir, 'settings.json'), '{}\n', { mode: 0o600 });
     writeCodexHome(dirs.codexHome, { authPath: codexAuthPath, configPath: codexConfigPath });
-    log.note('write-config', started, `${dirs.claudeDir}/settings.json、${dirs.codexHome}`);
-    log.append(`\n[own] workflow ${row.workflowId} 的 variant 由 dashboard 管理，没有运行 wf\n`);
+    log.note('write-config', started, `${dirs.claudeDir}/settings.json, ${dirs.codexHome}`);
+    log.append(
+      `\n[own] Variant of workflow ${row.workflowId} is managed by the dashboard; wf not run\n`,
+    );
   }
 
   return {
-    // 已删除的不在列表中；includeDeleted 时也列出（Compare 显示保留的 run，Contracts 24.3）
+    // Deleted ones are excluded unless includeDeleted (Compare shows kept runs, Contracts 24.3)
     list(includeDeleted = false): Variant[] {
       return db
         .select()
@@ -686,8 +731,8 @@ export function createVariants({
 
     record,
 
-    // 删除这些 variant 时要删的目录（Contracts 24.4）：各自在 data/variants/ 下的目录（与没有删除的其他 variant
-    // 共用时不删，最后一个引用它的 variant 删除时才删）与覆盖前的存档；只列出存在的
+    // Dirs to remove when deleting these variants (Contracts 24.4): each one's dir under data/variants/ (kept while shared with
+    // a variant not being deleted, removed with the last one referencing it) and the pre-overwrite archives; only existing ones
     deletionDirs(ids: string[]): string[] {
       const removing = new Set(ids);
       const rows = ids.map(record);
@@ -701,22 +746,22 @@ export function createVariants({
       const dirs = new Set<string>();
       for (const row of rows) {
         if (!kept.has(storageOf(row))) dirs.add(dirsOf(row).dir);
-        // data/variant-history/<id>/：覆盖与恢复前存下的全部 src/
+        // data/variant-history/<id>/: every src/ saved before an overwrite or restore
         dirs.add(path.dirname(path.dirname(layout.historySrc(row.id, 'x'))));
       }
       return [...dirs].filter((d) => fs.existsSync(d)).sort();
     },
 
-    // 装在本机的（Contracts 18.6）：清单与安装后被改过的文件
+    // Installed on this machine (Contracts 18.6): manifests and files changed after install
     installsOf,
 
-    // 删除的文件部分：先卸载本机安装（被改过时 409 原文），再删 deletionDirs 列出的目录
+    // The file part of deletion: uninstall from this machine first (409 with the original text if changed), then remove deletionDirs
     removeFiles(ids: string[], dirs: string[]) {
       for (const { variantId } of installsOf(ids)) installs.uninstall(variantId);
       for (const dir of dirs) fs.rmSync(dir, { recursive: true, force: true });
     },
 
-    // 数据库中标为已删除（在调用方的事务中）：只保留名字与所属 workflow 用于显示
+    // Mark deleted in the database (inside the caller's transaction): only name and workflow are kept for display
     markDeleted(ids: string[], at: Date) {
       if (ids.length === 0) return;
       db.update(variants)
@@ -725,7 +770,7 @@ export function createVariants({
         .run();
     },
 
-    // 每个 variant 绑定的 session 数（Workflow 页面的 variant 列表，Contracts 16.7）
+    // Number of sessions bound to each variant (variant list on the Workflow page, Contracts 16.7)
     boundSessions(): Map<string, number> {
       return new Map(
         db
@@ -747,19 +792,19 @@ export function createVariants({
     async createBaseline(input: {
       name: string;
       commit?: string | undefined;
-      // 默认内置的 lfg
+      // Defaults to the built-in lfg
       workflowId?: string | undefined;
-      // 自动导入 txe-workflow 的 release 时（Contracts 29.1）记下描述与 tag
+      // Description and tag recorded when a txe-workflow release is auto-imported (Contracts 29.1)
       description?: string | undefined;
       releaseTag?: string | undefined;
     }): Promise<Variant> {
       const workflowId = input.workflowId ?? 'lfg';
       loadWorkflow(db, workflowId);
-      // txe-workflow 的导出只属于内置的 lfg、ic；任意 workflow 的 variant 只有一组 skill（Contracts 18.6）
+      // txe-workflow exports belong only to the built-in lfg, ic; a variant of any workflow is just a set of skills (Contracts 18.6)
       if (!isWfWorkflow(workflowId)) {
         throw new HttpError(
           400,
-          `workflow ${workflowId} 不是内置的 lfg 或 ic，不能导入 txe-workflow 的基线；从它已有的 variant 派生`,
+          `Workflow ${workflowId} is not the built-in lfg or ic and cannot import a txe-workflow baseline; derive from one of its existing variants`,
         );
       }
       assertNameFree(workflowId, input.name);
@@ -779,7 +824,7 @@ export function createVariants({
         () => undefined,
         () => undefined,
       );
-      log.append(`=== 导出基线 ${commit} ${new Date().toISOString()} ===\n`);
+      log.append(`=== Exporting baseline ${commit} ${new Date().toISOString()} ===\n`);
       if (!fs.existsSync(layout.base(commit))) await exportCommit(commit, layout.base(commit), log);
       await exportCommit(commit, dirs.src, log);
       const hash = skillsHash(dirs.src);
@@ -801,24 +846,24 @@ export function createVariants({
       return get(id);
     },
 
-    // 从任一 variant（含已冻结的）复制出新的 draft，只能在同一 workflow 内（Contracts 16.4）。导入的 variant
-    // 只有 src/skills：新 variant 的 src 由基线导出加上它的 skills 组成，未修改时 skills hash 与它相同
+    // Copy a new draft from any variant (frozen ones too), only within the same workflow (Contracts 16.4). An imported variant
+    // has only src/skills: the new src is the baseline export plus its skills, with the same skills hash until edited
     derive(sourceId: string, input: { name: string; workflowId?: string | undefined }): Variant {
       const source = get(sourceId);
       if (input.workflowId !== undefined && input.workflowId !== source.workflowId) {
         throw new HttpError(
           400,
-          `variant ${source.name} 属于 workflow ${source.workflowId}，不能派生到 ${input.workflowId}：派生只能在同一 workflow 内，跨 workflow 请新建 workflow`,
+          `Variant ${source.name} belongs to workflow ${source.workflowId} and cannot be derived into ${input.workflowId}: deriving only works within the same workflow; create a new workflow to go across`,
         );
       }
       return copyVariant(source, {
         name: input.name,
         workflowId: source.workflowId,
-        note: `从 ${source.name}（${source.id}）派生`,
+        note: `Derived from ${source.name} (${source.id})`,
       });
     },
 
-    // 从空白新建 workflow 时的第一个 variant（Contracts 18.5）：入口与各小阶段的 SKILL.md 骨架，没有基线
+    // The first variant of a workflow created from blank (Contracts 18.5): SKILL.md skeletons for the entry and each sub-stage, no baseline
     createBlank(input: { workflowId: string; name: string }): Variant {
       const definition = loadWorkflow(db, input.workflowId);
       assertNameFree(input.workflowId, input.name);
@@ -827,7 +872,7 @@ export function createVariants({
       writeSkeleton(dirs.skills, definition);
       fs.writeFileSync(
         dirs.buildLog,
-        `=== 从空白新建：workflow ${definition.id} 的入口与各小阶段的 SKILL.md 骨架 ===\n`,
+        `=== Created from blank: SKILL.md skeletons for the entry and sub-stages of workflow ${definition.id} ===\n`,
       );
       const hash = skillsHash(dirs.src);
       db.insert(variants)
@@ -846,15 +891,28 @@ export function createVariants({
       return get(id);
     },
 
-    // 基本描述（Contracts 18.3）：不属于 skill 内容，已冻结的 variant 也可以改
+    // Basic description (Contracts 18.3): not skill content, so frozen variants can change it too
     setDescription(id: string, description: string): Variant {
       get(id);
       db.update(variants).set({ description: description.trim() }).where(eq(variants.id, id)).run();
       return get(id);
     },
 
-    // 改名（Contracts 16.4）：任何 variant 都可以改，包括导入的、已冻结的与内置 workflow 的基线；
-    // 其他地方都按 id 取名字，改这一处即全局生效。历史中记旧名、新名与时间，页面经 variant.updated 刷新
+    // "Include Orca skills" (Contracts 35.5): changes installed content, so only drafts can change it; a rebuild is needed after
+    setOrcaSkills(id: string, on: boolean): Variant {
+      const row = get(id);
+      assertDraft(row);
+      if (row.orcaSkills === on) return row;
+      db.update(variants).set({ orcaSkills: on, builtHash: null }).where(eq(variants.id, id)).run();
+      events.publish({ type: 'variant.updated', variantId: id });
+      return get(id);
+    },
+
+    // Orca version on this machine; empty without an orca command
+    orcaVersion: () => orcaVersion(orcaBin),
+
+    // Rename (Contracts 16.4): any variant, including imported, frozen and built-in workflow baselines;
+    // everything else looks names up by id, so this one change applies everywhere. History records old, new name and time; pages refresh via variant.updated
     rename(id: string, name: string): Variant {
       const row = get(id);
       const next = checkName(name);
@@ -868,8 +926,8 @@ export function createVariants({
       return get(id);
     },
 
-    // Codex 草稿的 src/ 取自底子 variant 的完整 src（Contracts 17.2）
-    // 草稿的准备在后台进行：异步复制，lfg、ic 的完整导出较大，复制时服务端照常响应其他请求
+    // A Codex draft's src/ comes from the full src of its base variant (Contracts 17.2)
+    // Draft preparation runs in the background: async copy, since full lfg, ic exports are large and the server keeps serving meanwhile
     async exportSource(id: string, dest: string) {
       for (const { from, to } of sourceLayers(get(id), dest)) {
         await fs.promises.rm(to, { recursive: true, force: true });
@@ -877,7 +935,7 @@ export function createVariants({
       }
     },
 
-    // 同一 workflow 中还没有被使用的名字：name，已有时依次加" #2"、" #3"（Contracts 17.4）
+    // A name not yet used in the workflow: name, or with " #2", " #3" appended in turn when taken (Contracts 17.4)
     freeName(workflowId: string, name: string): string {
       const taken = new Set(
         db
@@ -894,8 +952,8 @@ export function createVariants({
       }
     },
 
-    // 从一份 src/ 建 variant，状态为未构建：保存 Codex 草稿与分析的优化（Contracts 17.4、19.3：src/ 取草稿的
-    // src/，parent 为底子 variant，记录来源草稿与分析）与 session-analysis 的基线（19.2：src/ 取仓库中的 skill）
+    // Create an unbuilt variant from a src/: saving Codex drafts and analysis optimizations (Contracts 17.4, 19.3: src/ is the draft's
+    // src/, parent is the base variant, source draft and analysis recorded) and session-analysis baselines (19.2: src/ is the repo's skills)
     createFromSource(input: {
       srcDir: string;
       workflowId: string;
@@ -904,10 +962,10 @@ export function createVariants({
       parentId: string | null;
       draftId: string | null;
       analysisId: string | null;
-      // 构建日志的第一行
+      // First line of the build log
       note: string;
     }): Variant {
-      // parent 可以是已删除的 variant（草稿的底子保留原来的 id，Contracts 24.3）：只取它的基线 commit
+      // parent may be a deleted variant (a draft's base keeps its id, Contracts 24.3): only its baseline commit is used
       const parent = input.parentId === null ? null : record(input.parentId);
       loadWorkflow(db, input.workflowId);
       const name = checkName(input.name);
@@ -939,8 +997,8 @@ export function createVariants({
       return get(id);
     },
 
-    // 覆盖已有 variant（Contracts 17.4）：原来的 src/ 先存进历史，再换成草稿的 src/；名字与描述一并更新，
-    // 状态为未构建，记录来源草稿与分析，parent 不变。导入的与已冻结的不能覆盖
+    // Overwrite an existing variant (Contracts 17.4): the old src/ goes to history first, then is replaced by the draft's src/; name and
+    // description are updated too, status becomes unbuilt, source draft and analysis recorded, parent unchanged. Imported and frozen ones cannot be overwritten
     overwriteFromSource(
       id: string,
       input: {
@@ -962,7 +1020,7 @@ export function createVariants({
       const build = replaceSource(
         row,
         input.srcDir,
-        `由 ${engineNames[input.draftEngine]} 草稿 ${input.draftId} 覆盖 src（原来的 src 存进历史 ${snapshot}）`,
+        `Overwrote src with ${engineNames[input.draftEngine]} draft ${input.draftId} (previous src saved to history ${snapshot})`,
       );
       db.$client.transaction(() => {
         db.update(variants)
@@ -988,7 +1046,7 @@ export function createVariants({
       return get(id);
     },
 
-    // 恢复历史中的一份 src/（Contracts 17.4）：恢复前现在的 src/ 同样存进历史，恢复也可以撤回
+    // Restore a src/ from history (Contracts 17.4): the current src/ is saved to history first, so a restore can be undone
     restore(id: string, eventId: number): Variant {
       const before = get(id);
       assertReplaceable(before);
@@ -998,7 +1056,7 @@ export function createVariants({
       const build = replaceSource(
         row,
         from,
-        `恢复历史 #${String(eventId)} 的 src（恢复前的 src 存进历史 ${snapshot}）`,
+        `Restored src from history #${String(eventId)} (src before the restore saved to history ${snapshot})`,
       );
       db.$client.transaction(() => {
         db.update(variants).set(build).where(eq(variants.id, id)).run();
@@ -1009,12 +1067,12 @@ export function createVariants({
       return get(id);
     },
 
-    // 查看历史中的一份 src/：现在的内容恢复成它时逐文件的改动
+    // View a src/ from history: per-file changes if the current content were restored to it
     historyDiff(id: string, eventId: number): FileDiff[] {
       return diffTrees(dirsOf(get(id)).src, layout.historySrc(id, snapshotOf(id, eventId)));
     },
 
-    // variant 的历史，按时间先后：改名、覆盖与恢复
+    // A variant's history in time order: renames, overwrites and restores
     history(id: string): VariantHistoryEntry[] {
       get(id);
       return db
@@ -1041,12 +1099,12 @@ export function createVariants({
     readFile(id: string, file: string): string {
       const absolute = resolveSkillPath(dirsOf(get(id)).src, file);
       if (!fs.statSync(absolute, { throwIfNoEntry: false })?.isFile()) {
-        throw new HttpError(404, `文件不存在：${file}`);
+        throw new HttpError(404, `File not found: ${file}`);
       }
       return fs.readFileSync(absolute, 'utf8');
     },
 
-    // 保存或新建 skills/ 内的文件
+    // Save or create a file inside skills/
     writeFile(id: string, file: string, content: string): Variant {
       const before = get(id);
       assertInstallable(before);
@@ -1054,7 +1112,7 @@ export function createVariants({
       const row = ownStorage(before);
       const absolute = resolveSkillPath(dirsOf(row).src, file);
       if (fs.statSync(absolute, { throwIfNoEntry: false })?.isDirectory()) {
-        throw new HttpError(400, `路径是目录：${file}`);
+        throw new HttpError(400, `Path is a directory: ${file}`);
       }
       fs.mkdirSync(path.dirname(absolute), { recursive: true });
       fs.writeFileSync(absolute, content);
@@ -1069,10 +1127,10 @@ export function createVariants({
       const skillsDir = dirsOf(row).skills;
       const absolute = resolveSkillPath(dirsOf(row).src, file);
       if (!fs.statSync(absolute, { throwIfNoEntry: false })?.isFile()) {
-        throw new HttpError(404, `文件不存在：${file}`);
+        throw new HttpError(404, `File not found: ${file}`);
       }
       fs.rmSync(absolute);
-      // 删除因此变空的上级目录，直到 skills/
+      // Remove parent dirs left empty, up to skills/
       for (let dir = path.dirname(absolute); dir !== skillsDir; dir = path.dirname(dir)) {
         if (fs.readdirSync(dir).length > 0) break;
         fs.rmdirSync(dir);
@@ -1080,14 +1138,14 @@ export function createVariants({
       return afterEdit(row);
     },
 
-    // 新增 skill 目录 skills/<name>/，内含只有 frontmatter 的 SKILL.md（Contracts 16.4）
+    // Add a skill dir skills/<name>/ holding a SKILL.md with only frontmatter (Contracts 16.4)
     addSkill(id: string, name: string): Variant {
       const before = get(id);
       assertInstallable(before);
       assertDraft(before);
       const row = ownStorage(before);
       const dir = skillDir(dirsOf(row).skills, name);
-      if (fs.existsSync(dir)) throw new HttpError(409, `skill 目录已存在：${name}`);
+      if (fs.existsSync(dir)) throw new HttpError(409, `Skill directory already exists: ${name}`);
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(
         path.join(dir, 'SKILL.md'),
@@ -1096,7 +1154,7 @@ export function createVariants({
       return afterEdit(row);
     },
 
-    // 重命名 skill 目录，SKILL.md frontmatter 的 name 随之改为新名字，其余内容不变
+    // Rename a skill dir; the SKILL.md frontmatter name changes to the new name, the rest is unchanged
     renameSkill(id: string, from: string, to: string): Variant {
       const before = get(id);
       assertInstallable(before);
@@ -1106,9 +1164,9 @@ export function createVariants({
       const source = skillDir(skills, from);
       const target = skillDir(skills, to);
       if (!fs.statSync(source, { throwIfNoEntry: false })?.isDirectory()) {
-        throw new HttpError(404, `skill 目录不存在：${from}`);
+        throw new HttpError(404, `Skill directory not found: ${from}`);
       }
-      if (fs.existsSync(target)) throw new HttpError(409, `skill 目录已存在：${to}`);
+      if (fs.existsSync(target)) throw new HttpError(409, `Skill directory already exists: ${to}`);
       fs.renameSync(source, target);
       const skillMd = path.join(target, 'SKILL.md');
       if (fs.existsSync(skillMd)) {
@@ -1124,26 +1182,26 @@ export function createVariants({
       const row = ownStorage(before);
       const dir = skillDir(dirsOf(row).skills, name);
       if (!fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory()) {
-        throw new HttpError(404, `skill 目录不存在：${name}`);
+        throw new HttpError(404, `Skill directory not found: ${name}`);
       }
       fs.rmSync(dir, { recursive: true });
       return afterEdit(row);
     },
 
-    // 与 parent 或基线 commit 逐文件对比 skills/
+    // Per-file diff of skills/ against the parent or the baseline commit
     diff(id: string, against: 'parent' | 'base'): VariantDiff {
       const row = get(id);
       let reference: string;
       let variantId: string | null = null;
       if (against === 'parent') {
-        if (row.parentId === null) throw new HttpError(400, `variant ${row.name} 没有 parent`);
+        if (row.parentId === null) throw new HttpError(400, `Variant ${row.name} has no parent`);
         variantId = row.parentId;
         reference = dirsOf(get(row.parentId)).src;
       } else {
         if (row.baseCommit === '') {
           throw new HttpError(
             400,
-            `variant ${row.name} 没有基线（任意 workflow 的 variant 只有一组 skill），只能与来源 variant 对比`,
+            `Variant ${row.name} has no baseline (a variant of any workflow is only a set of skills); it can only be compared with its source variant`,
           );
         }
         reference = layout.base(row.baseCommit);
@@ -1154,12 +1212,12 @@ export function createVariants({
       };
     },
 
-    // 任意两个 variant 之间逐文件对比 skills/，from 为旧的一侧
+    // Per-file diff of skills/ between any two variants; from is the older side
     diffBetween(fromId: string, toId: string): FileDiff[] {
       return diffTrees(dirsOf(get(fromId)).src, dirsOf(get(toId)).src);
     },
 
-    // 一份还没有成为 variant 的 src（Codex 草稿）相对底子 variant 逐文件对比 skills/；没有底子时全部是新增
+    // Per-file diff of skills/ of a src not yet a variant (Codex draft) against its base variant; all added when there is no base
     diffSource(baseId: string | null, srcDir: string): FileDiff[] {
       return diffTrees(baseId === null ? null : dirsOf(get(baseId)).src, srcDir);
     },
@@ -1168,13 +1226,13 @@ export function createVariants({
       return fs.readFileSync(dirsOf(get(id)).buildLog, 'utf8');
     },
 
-    // 构建并隔离安装；每次从空的 dist 与 home 开始
+    // Build and isolated-install; always starts from empty dist and home
     async build(id: string): Promise<Variant> {
       const before = get(id);
       assertInstallable(before);
       assertDraft(before);
       if (before.buildStatus === 'building') {
-        throw new HttpError(409, `variant ${before.name} 正在构建`);
+        throw new HttpError(409, `Variant ${before.name} is already building`);
       }
       const row = ownStorage(before);
       db.update(variants)
@@ -1185,15 +1243,15 @@ export function createVariants({
 
       const dirs = dirsOf(row);
       const log = newLog(row);
-      log.append(`\n=== 构建 ${new Date().toISOString()} ===\n`);
-      // 所属 workflow 的入口 skill 与每个小阶段都要有 skill（Contracts 16.1）
+      log.append(`\n=== Build ${new Date().toISOString()} ===\n`);
+      // The workflow's entry and each sub-stage need a skill (Contracts 16.1)
       const missing = requiredSkills(loadWorkflow(db, row.workflowId)).filter(
         (name) => !fs.existsSync(path.join(dirs.skills, name, 'SKILL.md')),
       );
       if (missing.length > 0) {
         log.fail(
           'check-skills',
-          `variant ${row.name} 缺少 workflow ${row.workflowId} 要求的 skill：${missing.join('、')}（应为 src/skills/<名字>/SKILL.md）`,
+          `Variant ${row.name} is missing skills required by workflow ${row.workflowId}: ${missing.join(', ')} (expected src/skills/<name>/SKILL.md)`,
         );
       }
       const hash = skillsHash(dirs.src);
@@ -1206,7 +1264,20 @@ export function createVariants({
       }
 
       let started = performance.now();
-      // 认证与 gateway 模型别名只来自 settings 源的 env 块，其他字段不复制
+      // Include Orca skills (Contracts 35.5): put into the config dir's skills/, recording the Orca version
+      let orcaSkillsVersion: string | null = null;
+      if (row.orcaSkills) {
+        const skillsDir = path.join(dirs.claudeDir, 'skills');
+        orcaSkillsVersion = await writeOrcaSkills(orcaBin, skillsDir);
+        log.note(
+          'orca-skills',
+          started,
+          `Orca ${orcaSkillsVersion}: ${ORCA_SKILLS.join(', ')} → ${skillsDir}`,
+        );
+      }
+
+      started = performance.now();
+      // Auth and gateway model aliases come only from the settings source's env block; other fields are not copied
       const excludes = realClaudeMdExcludes();
       const merged = writeIsolatedSettings(dirs.claudeDir, (settings) => {
         settings.claudeMdExcludes = excludes;
@@ -1214,20 +1285,20 @@ export function createVariants({
       log.note(
         'merge-settings-env',
         started,
-        `合并键 ${merged.join(', ')}；claudeMdExcludes ${excludes.join(', ')}`,
+        `Merged keys ${merged.join(', ')}; claudeMdExcludes ${excludes.join(', ')}`,
       );
       started = performance.now();
       markOnboardingDone(dirs.claudeDir);
       log.note('mark-onboarding-done', started, path.join(dirs.claudeDir, '.claude.json'));
 
-      // wf 只从 lock 固定的 ctx 提供 wf-history，隔离目录里没有；改由 --mcp-config 直接启动真实 ctx。
-      // 任意 workflow 的 variant 加上 src/mcp.json 中的服务器（Contracts 28.1），Live 与 run 都经 --mcp-config 加载
+      // wf provides wf-history only from the lock-pinned ctx, absent from the isolated dir; --mcp-config starts the real ctx instead.
+      // A variant of any workflow adds the servers in src/mcp.json (Contracts 28.1); Live and runs load them via --mcp-config
       started = performance.now();
       const own = isWfWorkflow(row.workflowId) ? {} : readMcpServers(dirs.src);
       if (HISTORY_MCP in own) {
         log.fail(
           'write-mcp-config',
-          `src/mcp.json 中的 ${HISTORY_MCP} 与 dashboard 提供的同名，换一个名字`,
+          `${HISTORY_MCP} in src/mcp.json has the same name as the one the dashboard provides; rename it`,
         );
       }
       fs.writeFileSync(
@@ -1246,7 +1317,7 @@ export function createVariants({
       log.note(
         'write-mcp-config',
         started,
-        `${dirs.mcpConfig}：${[HISTORY_MCP, ...Object.keys(own)].join('、')}`,
+        `${dirs.mcpConfig}: ${[HISTORY_MCP, ...Object.keys(own)].join(', ')}`,
       );
       fs.writeFileSync(
         dirs.manifest,
@@ -1263,7 +1334,7 @@ export function createVariants({
           2,
         )}\n`,
       );
-      log.append(`\n=== 构建完成 ${version} ===\n`);
+      log.append(`\n=== Build complete ${version} ===\n`);
 
       db.update(variants)
         .set({
@@ -1273,6 +1344,7 @@ export function createVariants({
           builtHash: hash,
           builtAt: new Date(),
           buildError: null,
+          orcaVersion: orcaSkillsVersion,
         })
         .where(eq(variants.id, id))
         .run();
@@ -1280,12 +1352,15 @@ export function createVariants({
       return get(id);
     },
 
-    // 供 runs 调用：首次被运行时冻结，此后 skills、模型与 effort 都不能再改，dist 也不再改写
+    // Called by runs: frozen on first run; afterwards skills, model and effort can no longer change and dist is not rewritten
     freeze(id: string): Variant {
       const row = get(id);
       if (row.status === 'frozen') return row;
       if (row.buildStatus !== 'built' || row.builtHash !== row.skillsHash) {
-        throw new HttpError(409, `variant ${row.name} 还没有按当前内容构建，不能冻结`);
+        throw new HttpError(
+          409,
+          `Variant ${row.name} is not built from its current content and cannot be frozen`,
+        );
       }
       db.update(variants)
         .set({ status: 'frozen', frozenAt: new Date() })
@@ -1294,35 +1369,35 @@ export function createVariants({
       return get(id);
     },
 
-    // runs 每次启动 claude 前调用：重新合并 settings 源当前的 env 块（token 与模型名会变），
-    // 并把 Codex 登录凭据与模型配置写进 variant 的 CODEX_HOME（skill 中的 codex exec 用它）；
-    // 认证不属于 variant 的内容标识，不影响冻结与 hash
+    // Called by runs before each claude start: re-merge the settings source's current env block (tokens and model names change),
+    // and write Codex login credentials and model config into the variant's CODEX_HOME (used by codex exec in skills);
+    // auth is not part of the variant's content identity and affects neither freezing nor hash
     refreshAuthEnv(id: string): string[] {
       const row = get(id);
       if (row.buildStatus !== 'built') {
-        throw new HttpError(409, `variant ${row.name} 还没有构建，没有 settings.json`);
+        throw new HttpError(409, `Variant ${row.name} is not built yet and has no settings.json`);
       }
       const dirs = dirsOf(row);
       const merged = writeIsolatedSettings(dirs.claudeDir);
-      // 这一步之前构建的 variant 在这里补写一次
+      // Variants built before this step existed get it written here once
       markOnboardingDone(dirs.claudeDir);
       writeCodexHome(dirs.codexHome, { authPath: codexAuthPath, configPath: codexConfigPath });
       return merged;
     },
 
-    // 安装到本机（Contracts 18.6）：只对任意 workflow 的 variant，装的是按当前内容构建通过的 skill
+    // Install on this machine (Contracts 18.6): only for variants of any workflow; installs the skills built from the current content
     installLocal(id: string) {
       const row = get(id);
       if (isWfWorkflow(row.workflowId)) {
         throw new HttpError(
           409,
-          `variant ${row.name} 属于内置的 ${row.workflowId}，由 wf 管理，不能由 dashboard 安装到本机`,
+          `Variant ${row.name} belongs to the built-in ${row.workflowId}, which wf manages; the dashboard cannot install it on this machine`,
         );
       }
       if (row.buildStatus !== 'built' || row.builtHash !== row.skillsHash) {
         throw new HttpError(
           409,
-          `variant ${row.name} 还没有按当前内容构建，构建通过后才能安装到本机`,
+          `Variant ${row.name} is not built from its current content; it can be installed on this machine once a build passes`,
         );
       }
       const { manifest, replaced } = installs.install(row, dirsOf(row).skills);
@@ -1334,18 +1409,18 @@ export function createVariants({
       return installView(installs.uninstall(id));
     },
 
-    // 装在本机时为安装清单，没有装时为 null
+    // The install manifest when installed on this machine, null otherwise
     localInstall(id: string) {
       get(id);
       const manifest = installs.status(id);
       return manifest === null ? null : installView(manifest);
     },
 
-    // 交互的进程在 cwd 中启动或 resume 前调用（Contracts 14.2）：variant 的配置目录由 dashboard 所有
+    // Called before an interactive process starts or resumes in cwd (Contracts 14.2): the dashboard owns the variant's config dir
     trustDirectory(id: string, cwd: string) {
       const row = get(id);
       if (row.buildStatus !== 'built') {
-        throw new HttpError(409, `variant ${row.name} 还没有构建，没有 .claude.json`);
+        throw new HttpError(409, `Variant ${row.name} is not built yet and has no .claude.json`);
       }
       trustDirectory(dirsOf(row).claudeDir, cwd);
     },
@@ -1353,7 +1428,7 @@ export function createVariants({
     runtimeEnv(id: string): RuntimeEnv {
       const row = get(id);
       if (row.buildStatus !== 'built' || row.builtHash !== row.skillsHash) {
-        throw new HttpError(409, `variant ${row.name} 还没有按当前内容构建`);
+        throw new HttpError(409, `Variant ${row.name} is not built from its current content`);
       }
       const dirs = dirsOf(row);
       return {
@@ -1363,56 +1438,41 @@ export function createVariants({
           WF_HOME: dirs.wfHome,
           CODEX_HOME: dirs.codexHome,
           TMPDIR: dirs.tmp,
-          // skill 在终端里运行的 wf 要落到 variant 自己的二进制
+          // wf run by a skill in the terminal must resolve to the variant's own binary
           PATH: `${path.dirname(dirs.wfBin)}:${z.string().parse(process.env.PATH)}`,
         },
         mcpConfigPath: dirs.mcpConfig,
-        // --model 与 --effort 在运行时选（Contracts 16.5），由调用方加在前面
+        // --model and --effort are chosen at run time (Contracts 16.5) and prepended by the caller
         claudeArgs: ['--mcp-config', dirs.mcpConfig],
         sessionsDir: path.join(dirs.claudeDir, 'projects'),
       };
     },
 
-    // 一个 run 的 claude 进程的 sandbox（Contracts 7.3）；runsDir 是 runs 模块存放各 run 的目录，
-    // localRepo 是本地仓库模式下这个 run 的 bare 仓库（GitHub 时为 null）。放行的是 variant 实际所在的目录
-    sandboxProfile(id: string, runId: string, runsDir: string, localRepo: string | null): string {
+    // The sandbox of a run's claude process (Contracts 7.3); runsDir is where the runs module keeps each run.
+    // Allowed is the variant's actual directory
+    sandboxProfile(id: string, runId: string, runsDir: string): string {
       const row = get(id);
-      return claudeSandboxProfile(
-        runId,
-        storageOf(row),
-        {
-          repoRoot: config.repoRoot,
-          dataDir,
-          runsDir,
-          variantsDir: path.dirname(dirsOf(row).dir),
-          featuresDir: path.join(config.vaultDir, `Project ${config.evalProduct}`, 'Features'),
-          home: os.homedir(),
-        },
-        localRepo,
-      );
+      return claudeSandboxProfile(runId, storageOf(row), {
+        repoRoot: config.repoRoot,
+        dataDir,
+        runsDir,
+        variantsDir: path.dirname(dirsOf(row).dir),
+        featuresDir: path.join(config.vaultDir, `Project ${config.evalProduct}`, 'Features'),
+        home: os.homedir(),
+      });
     },
 
-    // isolated 环境中用本机配置的交互进程的 sandbox（Contracts 29.2）：claudeHome 下的 .claude、.claude.json 与 wf 的
-    // 状态目录可读写
-    localSandboxProfile(
-      runId: string,
-      runsDir: string,
-      localRepo: string | null,
-      claudeHome: string,
-    ): string {
-      return localClaudeSandboxProfile(
-        runId,
-        claudeHome,
-        {
-          repoRoot: config.repoRoot,
-          dataDir,
-          runsDir,
-          variantsDir: path.join(dataDir, 'variants'),
-          featuresDir: path.join(config.vaultDir, `Project ${config.evalProduct}`, 'Features'),
-          home: os.homedir(),
-        },
-        localRepo,
-      );
+    // The sandbox of an interactive process with the local configuration in the isolated environment (Contracts 29.2):
+    // .claude, .claude.json and wf's state directory under claudeHome are readable and writable
+    localSandboxProfile(runId: string, runsDir: string, claudeHome: string): string {
+      return localClaudeSandboxProfile(runId, claudeHome, {
+        repoRoot: config.repoRoot,
+        dataDir,
+        runsDir,
+        variantsDir: path.join(dataDir, 'variants'),
+        featuresDir: path.join(config.vaultDir, `Project ${config.evalProduct}`, 'Features'),
+        home: os.homedir(),
+      });
     },
   };
 }

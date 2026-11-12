@@ -3,14 +3,15 @@ import * as monaco from 'monaco-editor';
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker';
 import { useDarkMode } from '@/lib/dark-mode';
 
-// 使用本地打包的 monaco，不从 CDN 加载
+// Use the locally bundled monaco, not the CDN
 self.MonacoEnvironment = { getWorker: () => new EditorWorker() };
 loader.config({ monaco });
 
-// 明暗两个主题，页面上所有编辑器随页面的主题切换（Monaco 的主题是全局的）。
-// 语法颜色与 Markdown 代码块相同（components/markdown/syntax.css，GitHub 的 prettylights）；对比视图是 GitHub 的红与绿
-// （Contracts 21.3）：整行的底色与 components/diff/colors.css 相同，改动的词用更浅的底色加一道边框，
-// 每种语法颜色在整行与改动的词的底色上都达到 WCAG AA 的 4.5:1
+// Light and dark themes; every editor on the page follows the page theme (Monaco themes are global).
+// Syntax colors match Markdown code blocks (components/markdown/syntax.css, GitHub prettylights); the diff
+// view uses GitHub red and green (Contracts 21.3): line backgrounds match components/diff/colors.css,
+// changed words get a lighter background with a border, and every syntax color reaches WCAG AA 4.5:1
+// on both line and changed-word backgrounds
 const syntax = {
   light: {
     text: '1f2328',

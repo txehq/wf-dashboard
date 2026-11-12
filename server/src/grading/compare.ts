@@ -41,26 +41,27 @@ export function distribution(values: { runId: string; value: number }[]): Distri
 }
 
 function rubricOfRun(g: GradedRun) {
-  if (g.grades.rubric === null) throw new Error(`run ${g.run.id} 没有 rubric 评分`);
+  if (g.grades.rubric === null) throw new Error(`Run ${g.run.id} has no rubric grade`);
   return g.grades.rubric;
 }
 
 function testsOf(g: GradedRun) {
-  if (g.grades.hiddenTests === null) throw new Error(`run ${g.run.id} 没有隐藏测试评分`);
+  if (g.grades.hiddenTests === null) throw new Error(`Run ${g.run.id} has no hidden tests grade`);
   return g.grades.hiddenTests;
 }
 
 function criteriaOf(g: GradedRun) {
-  if (g.grades.criteria === null) throw new Error(`run ${g.run.id} 没有验收标准评分`);
+  if (g.grades.criteria === null)
+    throw new Error(`Run ${g.run.id} has no acceptance criteria grade`);
   return g.grades.criteria;
 }
 
 function endpointOf(g: GradedRun) {
-  if (g.grades.endpoint === null) throw new Error(`run ${g.run.id} 没有终点判定`);
+  if (g.grades.endpoint === null) throw new Error(`Run ${g.run.id} has no endpoint verdict`);
   return g.grades.endpoint;
 }
 
-// 按评测类型的评分积木分项（Contracts 16.2）：有隐藏测试的 task 用隐藏测试，没有时用验收标准
+// Quality per grading block of the eval kind (Contracts 16.2): tasks with hidden tests use them, others use acceptance criteria
 function qualityOf(stage: EvalSpec, task: Task, graded: GradedRun[]): Quality {
   const rubric = task.rubric;
   const tests = stage.grading.includes('hidden-tests') && task.hiddenTests !== undefined;
@@ -85,7 +86,7 @@ function qualityOf(stage: EvalSpec, task: Task, graded: GradedRun[]): Quality {
                 graded.map((g) => {
                   const group = rubricOfRun(g).artifacts.find((a) => a.artifact === artifact);
                   if (group === undefined)
-                    throw new Error(`run ${g.run.id} 没有 ${artifact} 的评分`);
+                    throw new Error(`Run ${g.run.id} has no grade for ${artifact}`);
                   return { runId: g.run.id, value: group.score / group.maxScore };
                 }),
               ),
@@ -118,7 +119,7 @@ function qualityOf(stage: EvalSpec, task: Task, graded: GradedRun[]): Quality {
   };
 }
 
-// 每条验收标准的得分：先是 task 当前的验收标准，再是 run 评分时用过、之后被修改的条目（与 rubricItems 相同的键）
+// Score of each acceptance criterion: the task's current criteria first, then items used when runs were graded and changed since (same keys as rubricItems)
 function criteriaItems(task: Task, graded: GradedRun[]): CompareCell['criteriaItems'] {
   const items = new Map<string, Omit<RubricEntry, 'artifact'>>();
   const keyOf = (e: { itemId: string; criterion: string; maxScore: number }) =>
@@ -150,8 +151,8 @@ interface RubricEntry {
   values: { runId: string; value: number }[];
 }
 
-// 按 rubric 顺序列出条目：先是 task 当前的 rubric（没有 run 时也列出，分布为空），再是 run 评分时用过、
-// 之后被修改的条目。键含 criterion 与满分：task 修改过 rubric 时，满分不同的同一条目分开统计，原始分不混在一起平均
+// Items in rubric order: the task's current rubric first (listed with empty distributions even without runs), then items used when runs were graded
+// and changed since. Keys include criterion and max score: after a rubric edit, the same item with a different max score counts separately, raw scores are not averaged together
 function rubricItems(task: Task, graded: GradedRun[]): CompareCell['rubricItems'] {
   const items = new Map<string, RubricEntry>();
   const keyOf = (e: Omit<RubricEntry, 'values'>) =>
@@ -189,11 +190,11 @@ function rubricItems(task: Task, graded: GradedRun[]): CompareCell['rubricItems'
   }));
 }
 
-// 没有进入任何阶段的 run（session 没有导入，或其中没有这个 workflow 的轮次，例如 agent 一开始就报告无法继续）：
-// 全部阶段记为未到达，成本按 0 计入均值
+// A run that entered no stage (session not imported, or no turn of this workflow in it, e.g. the agent reported at once that it cannot continue):
+// every stage counts as not reached, with cost 0 in the mean
 function stageCosts(db: Db, graded: GradedRun[], workflow: WorkflowDefinition): StageCost[] {
   const reports = graded.map((g) => {
-    // dashboard 发起的运行只有一轮
+    // Runs started by the dashboard have a single cycle
     const report = readReport(db, g.run.sessionId);
     return report?.workflows.find((w) => w.workflow === workflow.id)?.cycles[0]?.stages ?? [];
   });
@@ -225,7 +226,7 @@ function meanBreakdown(breakdowns: CostBreakdown[]): CostBreakdown {
   };
 }
 
-// Contracts 7.10：这组 run 提的 friction issue 与每次 run 的平均数量
+// Contracts 7.10: friction issues these runs filed and the average count per run
 function frictionStats(db: Db, runIds: string[]): FrictionStats {
   const issues = db
     .select({ runId: artifacts.runId, url: artifacts.location, title: artifacts.snapshot })
@@ -247,8 +248,8 @@ export interface CompareQuery {
   includeCancelled: boolean;
 }
 
-// 可对比的 run：已评分（succeeded）、或被取消后评分了已写出产物的 run（Contracts 7.5），且未标为无效（7.12）。
-// 只在排队中被取消的 run 没有评分，不参与
+// Comparable runs: graded (succeeded), or cancelled with the written artifacts graded (Contracts 7.5), and not marked invalid (7.12).
+// Runs cancelled while queued have no grade and are left out
 export function comparableRun(includeCancelled: boolean) {
   const graded = sql`exists (select 1 from ${grades} where ${grades.runId} = ${runs.id})`;
   return and(
@@ -259,7 +260,7 @@ export function comparableRun(includeCancelled: boolean) {
   );
 }
 
-// 所选 variant 共同的 workflow：必须有评测类型，所选 task 的 kind 必须是它的评测类型（Contracts 16.5），否则 400 原文
+// The workflow shared by the chosen variants: it must have an eval kind, and the chosen tasks' kind must be that eval kind (Contracts 16.5); otherwise 400 with the message
 function compareScope(db: Db, query: CompareQuery) {
   const variantRows = db
     .select({ id: variants.id, name: variants.name, workflowId: variants.workflowId })
@@ -271,7 +272,7 @@ function compareScope(db: Db, query: CompareQuery) {
   if (workflowId === undefined || workflowIds.length !== 1) {
     throw new HttpError(
       400,
-      `只能对比同一个 workflow 的 variant，所选 variant 属于 ${variantRows.map((v) => `${v.name} (${v.workflowId})`).join('、')}：不同 workflow 之间不对比`,
+      `Only variants of the same workflow can be compared; the chosen variants belong to ${variantRows.map((v) => `${v.name} (${v.workflowId})`).join(', ')}: different workflows are not compared`,
     );
   }
   const stage = evalSpecOf(db, workflowId);
@@ -284,13 +285,13 @@ function compareScope(db: Db, query: CompareQuery) {
   if (others.length > 0) {
     throw new HttpError(
       400,
-      `workflow ${workflowId} 的评测类型是 ${stage.kind}，task ${others.map((t) => `${t.id} (${t.kind})`).join('、')} 不是这种评测类型`,
+      `The eval kind of workflow ${workflowId} is ${stage.kind}; task ${others.map((t) => `${t.id} (${t.kind})`).join(', ')} is not of this eval kind`,
     );
   }
   return { workflowId, kind: stage.kind, stage };
 }
 
-// variant 的 run 中在这些 task 上出现过的模型，按名字排序
+// Models seen in the variant's runs on these tasks, sorted by name
 function modelsOf(db: Db, variantId: string, taskIds: string[]): string[] {
   return db
     .selectDistinct({ model: runs.model })
@@ -301,8 +302,8 @@ function modelsOf(db: Db, variantId: string, taskIds: string[]): string[] {
     .map((r) => r.model);
 }
 
-// groupBy=variant 时每个 variant × task 一格；groupBy=model 时每个 (variant, model) × task 一格。
-// 默认排除有人工干预、参考了其他 run、读取了来源与被取消的 run，四个开关各自只放回一类
+// groupBy=variant: one cell per variant × task; groupBy=model: one cell per (variant, model) × task.
+// By default excludes runs with human intervention, references to other runs, source reads, or cancellation; each of the four switches lets one class back in
 export function compareRuns(db: Db, query: CompareQuery): CompareResult {
   const { workflowId, kind, stage } = compareScope(db, query);
   const workflow = loadWorkflow(db, workflowId);
@@ -333,7 +334,7 @@ export function compareRuns(db: Db, query: CompareQuery): CompareResult {
         .all();
       const graded = rows.map((run): GradedRun => {
         const g = readRunGrades(db, run.id);
-        if (g === null) throw new Error(`run ${run.id} 状态为 ${run.status} 但没有评分`);
+        if (g === null) throw new Error(`Run ${run.id} has status ${run.status} but no grade`);
         return { run, grades: g };
       });
       const quality = qualityOf(stage, task, graded);

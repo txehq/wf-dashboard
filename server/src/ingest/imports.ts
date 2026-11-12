@@ -2,8 +2,8 @@ import { eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
 import { type SessionEngine, sessionImports, sessions } from '../db/schema.js';
 
-// 导入（Contracts 25.1）：新建 sessions 中的记录时记下导入时间并清空清除时间。用户点"导入 N 个"、
-// dashboard 自己的进程（run、Live、设计与优化、Magi Agent）的 watcher 与增量导入都经过这里
+// Import (Contracts 25.1): a new sessions row records the import time and clears the cleared time. The user's "Import N",
+// and the watchers and incremental imports of the dashboard's own processes (run, Live, design and optimisation, Magi Agent) all go through here
 export function markImported(db: Db, sessionId: string, engine: SessionEngine, filePath: string) {
   const values = { engine, filePath, importedAt: new Date(), clearedAt: null };
   db.insert(sessionImports)
@@ -12,7 +12,7 @@ export function markImported(db: Db, sessionId: string, engine: SessionEngine, f
     .run();
 }
 
-// 清除（Contracts 25.1）：只记下清除时间，dashboard 中的数据保留，照常增量更新
+// Clear (Contracts 25.1): only records the cleared time; the dashboard keeps the data and keeps updating it incrementally
 export function markCleared(db: Db, sessionId: string) {
   db.update(sessionImports)
     .set({ clearedAt: new Date() })
@@ -20,11 +20,11 @@ export function markCleared(db: Db, sessionId: string) {
     .run();
 }
 
-// 只为分析读入（Contracts 27）：与清除后的状态相同，不在管理表格中、数据保留、照常增量更新；之后从 Sessions 导入它时
-// 照常出现（importFiles 清空清除时间）
+// Read only for an analysis (Contracts 27): same as cleared, not in the management table, data kept and updated incrementally; importing it
+// from Sessions later shows it as usual (importFiles clears the cleared time)
 export const markAnalysisOnly = markCleared;
 
-// 重新进入管理表格：用户再导入，或这个会话启动了新的进程（Live resume、Magi Agent 继续）
+// Back into the management table: the user imports again, or the session starts a new process (Live resume, Magi Agent continue)
 export function restoreCleared(db: Db, sessionId: string) {
   db.update(sessionImports)
     .set({ clearedAt: null })
@@ -32,16 +32,16 @@ export function restoreCleared(db: Db, sessionId: string) {
     .run();
 }
 
-// 在管理表格中的 session（sessions 的条件）：没有清除过，或清除后又导入了
+// Sessions in the management table (a sessions condition): never cleared, or imported again after clearing
 export const managed = sql`not exists (select 1 from ${sessionImports} where ${sessionImports.sessionId} = ${sessions.id} and ${sessionImports.clearedAt} is not null)`;
 
-// 永久删除（Contracts 24.2、25.3）：文件已不在，导入记录一起删除
+// Permanent delete (Contracts 24.2, 25.3): the file is gone, its import records are deleted too
 export function forgetImports(db: Db, sessionIds: string[]) {
   if (sessionIds.length === 0) return;
   db.delete(sessionImports).where(inArray(sessionImports.sessionId, sessionIds)).run();
 }
 
-// 清除过、之后没有再导入的 session
+// Sessions cleared and not imported again since
 export function clearedSessionIds(db: Db): Set<string> {
   return new Set(
     db

@@ -4,9 +4,9 @@ import { ArtifactTracker } from '../stages/artifacts.js';
 import type { RubricArtifactSpec } from '../workflows/schema.js';
 import { upsertArtifact } from './records.js';
 
-// rubric 评分的产物记录（Contracts 7.2、16.2）：产物文件出现时写入路径与内容快照，lockedPlan 的产物在锁定时写入
-// 锁定后的快照。runner 在 session 有新写入、一轮结束与 run 结束时调用 record()：产物由 agent 的 tool 调用写出，
-// 调用的结果随后写入 jsonl，因此不需要另外监听 feature 目录
+// Artifact records for rubric grading (Contracts 7.2, 16.2): when an artifact file appears, its path and content snapshot are written; lockedPlan artifacts
+// get the snapshot at lock time. The runner calls record() on new session writes, at turn end and at run end: artifacts are written by the agent's tool calls,
+// whose results then land in the jsonl, so the feature directory needs no separate watcher
 export class RubricArtifacts {
   private readonly tracker: ArtifactTracker;
   private readonly locked = new Set<string>();
@@ -25,7 +25,7 @@ export class RubricArtifacts {
     for (const spec of this.specs) {
       if (spec.lockedPlan === true && docs.get(spec.id)) this.locked.add(spec.id);
     }
-    // 锁定之后，与锁定的产物共用候选文件的其他产物保留锁定前的快照（Research.md 锁定后的内容归 plan）
+    // After locking, other artifacts sharing candidate files with a locked one keep their pre-lock snapshot (Research.md content after lock belongs to plan)
     const lockedFiles = new Set(
       this.specs.filter((s) => this.locked.has(s.id)).flatMap((s) => s.files.map((f) => f.file)),
     );

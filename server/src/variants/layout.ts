@@ -1,15 +1,15 @@
 import path from 'node:path';
 
-// data/ 下 variant 相关的全部路径
+// All variant paths under data/
 export function dataLayout(dataDir: string) {
   return {
     cargoTarget: path.join(dataDir, 'cargo-target'),
-    // 基线 commit 的原样导出，作为"与基线对比"的参照，从不改写
+    // Verbatim export of the base commit, the reference for "compare with base"; never rewritten
     base: (commit: string) => path.join(dataDir, 'bases', commit, 'src'),
     runtimeDir: (commit: string) => path.join(dataDir, 'runtimes', commit),
     runtimeBin: (commit: string) => path.join(dataDir, 'runtimes', commit, 'wf'),
     variant: (id: string) => variantLayout(path.join(dataDir, 'variants', id)),
-    // 覆盖与恢复前存下的 src/（Contracts 17.4）：variant-history/<variantId>/<snapshot>/src
+    // src/ saved before an overwrite or restore (Contracts 17.4): variant-history/<variantId>/<snapshot>/src
     historySrc: (variantId: string, snapshot: string) =>
       path.join(dataDir, 'variant-history', variantId, snapshot, 'src'),
   };

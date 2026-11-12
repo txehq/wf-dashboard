@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-// Claude Code jsonl 中 ingest 需要的记录字段；未列出的记录类型与字段一律忽略
+// Record fields of the Claude Code jsonl that ingest needs; unlisted record types and fields are ignored
 
 const Usage = z.object({
   input_tokens: z.number(),
@@ -16,7 +16,7 @@ const Usage = z.object({
     .exactOptional(),
 });
 
-// 已知类型以外的 block 归为 other，字段不校验
+// Blocks of unknown types become other, with no field validation
 function otherBlock(known: string[]) {
   return z
     .object({ type: z.string().refine((t) => !known.includes(t)) })
@@ -70,12 +70,12 @@ export const UserRecord = z.object({
   uuid: z.string(),
   timestamp: z.iso.datetime(),
   isMeta: z.boolean().optional(),
-  // 加载 skill 的 isMeta 记录：Skill 调用时指回那次 tool_use；slash 命令时 parentUuid 指向命令那条用户消息
+  // isMeta record that loads a skill: points back to the tool_use for a Skill call; for a slash command parentUuid points to the command's user message
   sourceToolUseID: z.string().optional(),
   parentUuid: z.string().nullish(),
-  // 上下文压缩后由 Claude Code 生成的摘要，不是用户输入
+  // Summary Claude Code writes after context compaction; not user input
   isCompactSummary: z.boolean().optional(),
-  // 例如 human、task-notification、peer
+  // e.g. human, task-notification, peer
   origin: z.object({ kind: z.string() }).nullish(),
   message: z.object({
     content: z.union([z.string(), z.array(UserBlock)]),
@@ -83,7 +83,7 @@ export const UserRecord = z.object({
 });
 export type UserRecord = z.infer<typeof UserRecord>;
 
-// 所有记录共有的字段：会话起止时间与 cwd 取自这里
+// Fields shared by all records: the session's start/end time and cwd come from here
 export const AnyRecord = z.object({
   type: z.string(),
   timestamp: z.iso.datetime().optional(),

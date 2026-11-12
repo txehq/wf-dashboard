@@ -1,53 +1,53 @@
 id: ic-unit-converter
 kind: ic
-title: 单位换算页面：温度、结果精度、输入提示与交换单位
+title: "Unit converter page: temperature, result precision, input hints and unit swap"
 persona: |-
-  周婷，Acme 跨境电商商品团队的运营，每天用这个内部的单位换算页面把供应商给的英制规格换成商品详情页上的公制数值。
-  关心：页面上出现 2.5399999999999996 cm 这样的结果，被她直接复制进了商品详情页，客户投诉看不懂；下个月开始上架冷链生鲜，需要在华氏度、摄氏度之间换算储存温度；输错数字时页面显示 NaN，她不知道哪里错了。
-  说话方式：中文，不懂代码，描述的都是自己在页面上看到和点到的东西，喜欢举具体的数字（"我输入 3 英尺，应该看到 0.9144 米"）；技术细节会说"你们按工单来就行"。
+  Zhou Ting, an operations specialist on the Acme cross-border e-commerce product team. Every day she uses this internal unit converter page to turn the imperial specs suppliers send into the metric values on product detail pages.
+  Cares about: results like 2.5399999999999996 cm show up on the page, she copied them straight into product detail pages and customers complained they could not read them; next month the team starts listing cold-chain fresh food and needs to convert storage temperatures between Fahrenheit and Celsius; when she mistypes a number the page shows NaN and she cannot tell what went wrong.
+  How she talks: plain English, does not know code, describes only what she sees and clicks on the page, likes concrete numbers ("I type 3 feet, I should see 0.9144 metres"); on technical details she says "just follow the ticket".
 hiddenRequirements: |-
-  温度：
-  - 类别下拉框新增"温度"（排在长度、重量之后），单位依次为"摄氏度 (°C)"、"华氏度 (°F)"、"开尔文 (K)"，单位 id 为 c、f、k，结果中的符号为 °C、°F、K。
-  - 切换到温度时，"从"默认摄氏度，"换算为"默认华氏度（与其他类别一样取前两个单位）。
-  - 换算是线性加偏移：°F = °C × 9/5 + 32，K = °C + 273.15；convert(value, from, to) 支持任意两种温度单位之间换算，同一单位原样返回。
-  - 温度可以是负数，但不能低于绝对零度（-273.15 °C、-459.67 °F、0 K）；正好等于绝对零度是允许的。
-  - 温度与长度、重量之间换算仍然抛错。
-  结果显示：
-  - 结果最多保留 4 位小数，去掉末尾的 0，没有千分位：1 英寸 → 2.54 cm，3 英尺 → 0.9144 m，1 盎司 → 28.3495 g，1 英里 → 1609.344 m，37 °C → 98.6 °F，1 °F → -17.2222 °C。
-  - 四舍五入后为 0 的结果显示 0，不显示 -0。
-  - 这条规则实现在 src/format.ts 的 formatNumber(value) 中，结果区域显示"数值 + 空格 + 单位符号"。
-  输入提示：
-  - 数值为空（包括只有空格）时，结果区域显示"—"，不显示任何错误提示。
-  - 前后的空格忽略（"  12  " 按 12 处理）。
-  - 不是完整数字时（例如 abc、12abc、1.2.3、单独一个 -），在数值输入框下方显示"请输入数字"，结果显示"—"。现在 12abc 会被当成 12 换算，这是错的。
-  - 长度、重量为负数时显示"长度和重量不能为负数"；温度低于绝对零度时显示"温度不能低于绝对零度"；判断以"从"所选的单位为准，改了"从"的单位要重新判断。
-  - 出错时数值输入框带 aria-invalid="true"，改正后去掉；提示随输入实时更新，不需要提交。
-  交换单位：
-  - "从"与"换算为"之间有一个按钮，可访问名称为"交换单位"（可以是图标按钮加 aria-label）；点击后两个单位互换，数值不变，结果立即按新方向更新；点击不能提交表单或刷新页面。
-  其他：
-  - 页面上现有控件的标签（类别、数值、从、换算为、结果）与现有单位的名称保持不变，团队的操作手册截图里用的就是这些。
-  - 不新增运行时依赖；为新行为补充单元测试与 e2e 测试，npm test 与 npm run e2e 通过。
+  Temperature:
+  - The category dropdown gets a new "Temperature" option (after Length and Weight) whose units are, in order, "Celsius (°C)", "Fahrenheit (°F)", "Kelvin (K)", with unit ids c, f, k and result symbols °C, °F, K.
+  - When switching to Temperature, "From" defaults to Celsius and "To" defaults to Fahrenheit (the first two units, as for the other categories).
+  - Conversion is linear with an offset: °F = °C × 9/5 + 32, K = °C + 273.15; convert(value, from, to) converts between any two temperature units and returns the value unchanged for the same unit.
+  - Temperatures may be negative but not below absolute zero (-273.15 °C, -459.67 °F, 0 K); exactly absolute zero is allowed.
+  - Converting between temperature and length or weight still throws.
+  Result display:
+  - Results keep at most 4 decimals, drop trailing zeros and have no thousands separators: 1 inch → 2.54 cm, 3 feet → 0.9144 m, 1 ounce → 28.3495 g, 1 mile → 1609.344 m, 37 °C → 98.6 °F, 1 °F → -17.2222 °C.
+  - A result that rounds to 0 shows 0, never -0.
+  - This rule is implemented in formatNumber(value) in src/format.ts; the result area shows "number + space + unit symbol".
+  Input hints:
+  - When the value is empty (including only spaces), the result area shows "—" and no error hint.
+  - Leading and trailing spaces are ignored ("  12  " is treated as 12).
+  - When the value is not a complete number (for example abc, 12abc, 1.2.3, a lone -), "Enter a number" is shown below the value field and the result shows "—". Today 12abc is converted as 12, which is wrong.
+  - Negative lengths and weights show "Length and weight cannot be negative"; temperatures below absolute zero show "Temperature cannot be below absolute zero"; the check uses the unit selected in "From", and changing the "From" unit re-runs the check.
+  - On an error the value field has aria-invalid="true", removed once fixed; hints update live while typing, with no submit.
+  Unit swap:
+  - Between "From" and "To" there is a button with the accessible name "Swap units" (an icon button with an aria-label is fine); clicking it swaps the two units, keeps the value and immediately updates the result in the new direction; clicking must not submit the form or reload the page.
+  Other:
+  - The labels of the existing controls on the page (Category, Value, From, To, Result) and the names of the existing units stay unchanged; the team's operations manual screenshots use them.
+  - No new runtime dependencies; add unit tests and e2e tests for the new behaviour; npm test and npm run e2e pass.
 ticket:
-  title: 单位换算页面：新增温度换算，修复结果精度与无效输入显示，增加交换单位按钮
+  title: "Unit converter page: add temperature conversion, fix result precision and invalid input display, add a swap units button"
   body: |-
-    商品团队用这个页面换算供应商规格，目前有几个问题：
+    The product team uses this page to convert supplier specs, and it currently has several problems:
 
-    1. 结果带着浮点误差：1 英寸换算成厘米显示 `2.5399999999999996 cm`，3 英尺换算成米显示 `0.9144000000000001 m`。这些数字被直接复制到了商品详情页上。
-    2. 输入错了没有提示：数值为空或输入 `abc` 时结果显示 `NaN cm`；输入 `12abc` 时页面当成 12 换算；输入负的长度也照样换算。
-    3. 下个月开始上架冷链商品，需要在页面上换算储存温度（摄氏度、华氏度、开尔文）。
-    4. 经常要反过来换算，每次都要重新选两个下拉框。
+    1. Results carry floating point noise: 1 inch to centimetres shows `2.5399999999999996 cm`, 3 feet to metres shows `0.9144000000000001 m`. These numbers were copied straight onto product detail pages.
+    2. Wrong input gets no hint: an empty value or `abc` shows `NaN cm`; `12abc` is converted as 12; negative lengths are converted too.
+    3. Next month we start listing cold-chain products and need to convert storage temperatures on the page (Celsius, Fahrenheit, Kelvin).
+    4. We often need the reverse conversion and have to re-select both dropdowns every time.
 
-    换算逻辑在 `src/convert.ts`（`convert(value, from, to)`），结果的数字格式在 `src/format.ts`（`formatNumber(value)`），单位定义在 `src/units.ts`。温度单位的 id 用 `c`、`f`、`k`。页面上现有控件的标签（类别、数值、从、换算为、结果）保持不变。
+    The conversion logic is in `src/convert.ts` (`convert(value, from, to)`), the result number format in `src/format.ts` (`formatNumber(value)`), and the unit definitions in `src/units.ts`. Use the ids `c`, `f`, `k` for the temperature units. The labels of the existing controls on the page (Category, Value, From, To, Result) stay unchanged.
   acceptanceCriteria:
-    - 在页面上把 1 英寸换算成厘米显示 `2.54 cm`，3 英尺换算成米显示 `0.9144 m`；结果最多 4 位小数，不带末尾的 0，不显示 `-0`。
-    - 类别中可以选"温度"，单位为"摄氏度 (°C)"、"华氏度 (°F)"、"开尔文 (K)"；页面上 100 °C 显示 `212 °F`，0 K 显示 `-273.15 °C`。
-    - 数值为空时结果显示 `—` 且没有错误提示；输入 `abc` 或 `12abc` 时输入框下方显示"请输入数字"，结果显示 `—`。
-    - 长度、重量为负数时显示"长度和重量不能为负数"；温度低于绝对零度时显示"温度不能低于绝对零度"；改正后提示消失并显示结果。
-    - 页面上有"交换单位"按钮，点击后"从"与"换算为"互换，结果立即更新，例如 1 米 → 厘米交换后显示 `0.01 m`。
-    - 新增的单元测试与 e2e 测试覆盖以上行为，`npm test` 与 `npm run e2e` 通过。
+    - On the page 1 inch to centimetres shows `2.54 cm` and 3 feet to metres shows `0.9144 m`; results have at most 4 decimals, no trailing zeros and never show `-0`.
+    - The category can be set to "Temperature" with the units "Celsius (°C)", "Fahrenheit (°F)", "Kelvin (K)"; on the page 100 °C shows `212 °F` and 0 K shows `-273.15 °C`.
+    - With an empty value the result shows `—` and no error hint; for `abc` or `12abc` the hint "Enter a number" appears below the field and the result shows `—`.
+    - Negative lengths and weights show "Length and weight cannot be negative"; temperatures below absolute zero show "Temperature cannot be below absolute zero"; once fixed the hint disappears and the result is shown.
+    - The page has a "Swap units" button that swaps "From" and "To" and updates the result immediately, for example 1 metre → centimetres shows `0.01 m` after the swap.
+    - New unit tests and e2e tests cover the behaviour above, and `npm test` and `npm run e2e` pass.
 repo:
   path: repo.bundle
-  commit: 8ececdf28d6477c12b00ca24ddf4bd3e027f4d4a
+  commit: 93a8b46fa4ac790288a31dab837cb9e69ab4ae75
 requiredChecks:
   - ci
 hiddenTests:

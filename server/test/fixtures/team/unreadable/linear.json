@@ -1,0 +1,91 @@
+{
+  "calls": [
+    {
+      "name": "list_users",
+      "args": { "limit": 250 },
+      "isError": false,
+      "text": "{\"users\":[{\"id\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"name\":\"eluo@txehq.com\",\"email\":\"eluo@txehq.com\",\"displayName\":\"eluo\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-10-20T09:40:52.021Z\",\"updatedAt\":\"2026-10-20T10:51:40.937Z\",\"status\":\"Offline (last seen 2026-11-04T03:58:31.353Z)\"},{\"id\":\"5e75cd38-4268-424a-b9f3-03a8294f5845\",\"name\":\"KFC\",\"email\":\"grindelwald029@gmail.com\",\"displayName\":\"kfc\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-08-04T08:56:10.306Z\",\"updatedAt\":\"2026-10-10T07:21:04.608Z\",\"status\":\"Offline (last seen 2026-10-28T14:29:25.689Z)\"},{\"id\":\"f92b2a27-822f-4fdc-b6f1-dd3df6e6376d\",\"name\":\"Connor Wang\",\"email\":\"wangconnor@gmail.com\",\"displayName\":\"wangconnor\",\"avatarUrl\":\"https://public.linear.app/f92b2a27-822f-4fdc-b6f1-dd3df6e6376d/08395cd0-1063-4f73-b88e-be4ca3085c8d\",\"isAdmin\":true,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2025-05-27T17:05:35.849Z\",\"updatedAt\":\"2026-10-05T07:59:40.202Z\",\"status\":\"Offline (last seen 2026-11-04T02:47:52.667Z)\"},{\"id\":\"f4abe8ec-6736-4090-a0cb-14e9daa42187\",\"name\":\"luyi.leo@gmail.com\",\"email\":\"luyi.leo@gmail.com\",\"displayName\":\"luyi.leo\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-05-21T04:39:10.443Z\",\"updatedAt\":\"2026-09-29T08:17:45.368Z\",\"status\":\"Offline (last seen 2026-09-29T13:54:52.648Z)\"},{\"id\":\"a1b8cb86-541b-4e8a-9bf1-057b74ea136d\",\"name\":\"lin luo\",\"email\":\"luolinc2023@gmail.com\",\"displayName\":\"luolinc2023\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-09-25T11:23:21.985Z\",\"updatedAt\":\"2026-09-25T11:24:25.410Z\",\"status\":\"Offline (last seen 2026-11-04T03:25:41.019Z)\"},{\"id\":\"2024e2d7-a3b7-46d2-825f-f009942f7b43\",\"name\":\"Cursor\",\"email\":\"afd5064f-8c2e-4f60-a91a-2b753321d325@oauthapp.linear.app\",\"displayName\":\"cursor\",\"avatarUrl\":\"https://public.linear.app/df6e40bb-b470-4d4d-b4f5-87152f63d6da/8c59abef-7b00-4081-b33f-22fb391f7188/256x256/0bc68260-6b56-4585-bead-de5414a06e2b\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-08-15T17:42:43.820Z\",\"updatedAt\":\"2026-08-15T17:42:43.973Z\",\"status\":\"Offline (last seen 2026-08-15T17:42:43.937Z)\"},{\"id\":\"02866db2-6890-477d-b9c4-54354c90a543\",\"name\":\"Ella Xu\",\"email\":\"ellaxu.f@gmail.com\",\"displayName\":\"ellaxu.f\",\"avatarUrl\":\"https://public.linear.app/02866db2-6890-477d-b9c4-54354c90a543/ff07f349-1cca-471c-afa3-df24286fde11\",\"isAdmin\":true,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-08-14T15:31:11.494Z\",\"updatedAt\":\"2026-08-14T15:38:35.440Z\",\"status\":\"Offline (last seen 2026-10-25T07:50:10.515Z)\"},{\"id\":\"81b8b898-ca6c-481a-941b-16079a7bc813\",\"name\":\"Ding\",\"email\":\"h.ding.262@gmail.com\",\"displayName\":\"h.ding.262\",\"avatarUrl\":\"https://public.linear.app/81b8b898-ca6c-481a-941b-16079a7bc813/72317d80-b018-4841-9094-6a0cd00e3042\",\"isAdmin\":true,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-08-04T08:56:10.762Z\",\"updatedAt\":\"2026-08-13T12:22:39.889Z\",\"status\":\"Offline (last seen 2026-10-29T17:58:43.578Z)\"},{\"id\":\"a8ee7caa-ff55-450a-a1d4-f670fe04e83f\",\"name\":\"AptS:1547\",\"email\":\"esaps@esaps.net\",\"displayName\":\"esaps\",\"avatarUrl\":\"https://public.linear.app/80e9315e-7666-4d5b-ba2b-2606edbdaf59/07727f60-1aaa-4058-a97b-1a7cc0fdc839/f2bef142-baa5-450c-8129-63dc8cc56daf\",\"isAdmin\":true,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-08-04T08:56:09.747Z\",\"updatedAt\":\"2026-08-13T12:22:30.032Z\",\"status\":\"Offline (last seen 2026-10-28T17:16:15.078Z)\"},{\"id\":\"d8fa73db-5f2a-435b-971c-7ae0b457698d\",\"name\":\"Linear\",\"email\":\"linear-80e9315e-7666-4d5b-ba2b-2606edbdaf59@linear.linear.app\",\"displayName\":\"linear\",\"avatarUrl\":\"https://static.linear.app/assets/avatar/avatar_512.png\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-03-24T18:24:32.148Z\",\"updatedAt\":\"2026-03-24T18:24:32.148Z\",\"status\":\"Offline (last seen 2026-03-24T18:24:32.175Z)\"},{\"id\":\"0e13266a-6a31-4d3c-ae83-a26ed94284ba\",\"name\":\"Li Yachuan\",\"email\":\"applesstt@gmail.com\",\"displayName\":\"applesstt\",\"avatarUrl\":\"https://public.linear.app/0e13266a-6a31-4d3c-ae83-a26ed94284ba/35bb204a-e742-4b18-bb4a-c42044d49869\",\"isAdmin\":true,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2025-09-26T09:19:59.197Z\",\"updatedAt\":\"2026-01-04T08:23:46.874Z\",\"status\":\"Offline (last seen 2026-01-22T14:47:03.412Z)\"},{\"id\":\"dd17bdac-03e3-44ae-afe9-fbb584044ab4\",\"name\":\"Codex\",\"email\":\"a4bc02c9-24f5-44c3-a1d1-03a2e3042a99@oauthapp.linear.app\",\"displayName\":\"codex\",\"avatarUrl\":\"https://public.linear.app/a7929e46-07ed-49ae-a46d-dd6c052e08e1/0f912afe-b125-4df1-a206-a3382ebb8d14/256x256/316e7aed-54d5-4841-abf5-fbae0e806bb9\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-01-03T16:28:55.466Z\",\"updatedAt\":\"2026-01-03T16:28:55.516Z\",\"status\":\"Offline (last seen 2026-01-03T16:28:55.486Z)\"}],\"hasNextPage\":false}"
+    },
+    {
+      "name": "list_issues",
+      "args": {
+        "team": "TXE",
+        "parentId": "TXE-4847",
+        "includeArchived": true,
+        "orderBy": "updatedAt",
+        "limit": 250,
+        "fields": ["id", "updatedAt"]
+      },
+      "isError": false,
+      "text": "{\"issues\":[{\"id\":\"TXE-5547\",\"updatedAt\":\"2026-11-02T06:33:52.611Z\"},{\"id\":\"TXE-5358\",\"updatedAt\":\"2026-11-01T05:38:11.728Z\"}],\"hasNextPage\":false}"
+    },
+    {
+      "name": "list_issues",
+      "args": {
+        "team": "TXE",
+        "parentId": "TXE-4847",
+        "includeArchived": true,
+        "orderBy": "updatedAt",
+        "limit": 250,
+        "fields": ["id", "updatedAt"],
+        "updatedAt": "2026-11-01T05:38:11.728Z"
+      },
+      "isError": false,
+      "text": "{\"issues\":[{\"id\":\"TXE-5547\",\"updatedAt\":\"2026-11-02T06:33:52.611Z\"},{\"id\":\"TXE-5358\",\"updatedAt\":\"2026-11-01T05:38:11.728Z\"}],\"hasNextPage\":false}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5547",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"effceea3-283c-4ac2-92d7-dfc843d031c8\",\"title\":\"[CC1-sc6af16] fetch canary: node-exporter metrics and a hubble capture of github.com flows on the next stall, so Rackspace and GitHub get hard data\",\"url\":\"https://linear.app/capso/issue/TXE-5547/cc1-sc6af16-fetch-canary-node-exporter-metrics-and-a-hubble-capture-of\",\"status\":\"Backlog\",\"statusType\":\"backlog\",\"assignee\":\"Connor Wang\",\"assigneeId\":\"f92b2a27-822f-4fdc-b6f1-dd3df6e6376d\",\"createdBy\":\"Connor Wang\",\"createdById\":\"f92b2a27-822f-4fdc-b6f1-dd3df6e6376d\",\"createdAt\":\"2026-11-01T05:38:11.337Z\",\"startedAt\":null,\"completedAt\":null,\"canceledAt\":null,\"updatedAt\":\"2026-11-02T06:33:52.611Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-11-01T05:38:11.337Z\",\"endedAt\":null}],\"attachments\":[],\"id\":\"TXE-5547\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5358",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"8a70ce65-c697-429b-998c-ba5ddfa97a2e\",\"title\":\"[CC1-sc6af16] arc-runners: a durable depth-1 fetch canary inside and outside the Rackspace cluster that records every github.com stall with timestamps\",\"url\":\"https://linear.app/capso/issue/TXE-5358/cc1-sc6af16-arc-runners-a-durable-depth-1-fetch-canary-inside-and\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"Connor Wang\",\"assigneeId\":\"f92b2a27-822f-4fdc-b6f1-dd3df6e6376d\",\"createdBy\":\"Connor Wang\",\"createdById\":\"f92b2a27-822f-4fdc-b6f1-dd3df6e6376d\",\"createdAt\":\"2026-10-29T06:39:46.342Z\",\"startedAt\":\"2026-10-29T06:39:46.516Z\",\"completedAt\":\"2026-10-30T08:06:34.853Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-01T05:38:11.728Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-29T06:39:46.342Z\",\"endedAt\":\"2026-10-29T07:29:14.896Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-10-29T07:29:14.896Z\",\"endedAt\":\"2026-10-29T07:41:50.123Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-29T07:41:50.123Z\",\"endedAt\":\"2026-10-30T08:06:34.890Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-10-30T08:06:34.890Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"a418421f-4a2b-4ad5-bc10-28cdf8d63231\",\"title\":\"fix(arc-runners): TXE-5370 fetch-canary prints its history on every exit\",\"subtitle\":null,\"url\":\"https://github.com/txehq/action-runner-ops/pull/114\"},{\"id\":\"189fe33e-893d-4282-a332-40ca3ad9dc7e\",\"title\":\"feat(arc-runners): TXE-5358 fetch canary from each runner pool to github.com\",\"subtitle\":null,\"url\":\"https://github.com/txehq/action-runner-ops/pull/113\"}],\"id\":\"TXE-5358\"}"
+    }
+  ]
+}

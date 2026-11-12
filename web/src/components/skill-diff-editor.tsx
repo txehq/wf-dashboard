@@ -9,14 +9,14 @@ export interface SkillDiffFile {
   newContent: string;
 }
 
-// @monaco-editor/react 卸载时先释放 model 再释放 DiffEditor，monaco 0.57 会因此报错；
-// 改为保留 model，等这次提交里的卸载全部完成、DiffEditor 已释放后再释放 model
+// On unmount @monaco-editor/react disposes the models before the DiffEditor, which makes monaco 0.57 throw;
+// keep the models instead and dispose them after this commit's unmounts finish and the DiffEditor is disposed
 export function SkillDiffEditor({
   file,
   collapseUnchanged = false,
 }: {
   file: SkillDiffFile;
-  // 折叠未改动的段落，只留改动及其上下文
+  // Collapse unchanged regions, keeping only changes and their context
   collapseUnchanged?: boolean;
 }) {
   const theme = useMonacoTheme();
@@ -41,10 +41,11 @@ export function SkillDiffEditor({
       keepCurrentModifiedModel
       onMount={(editor) => {
         models.current = editor.getModel();
-        // 已加载 monaco 时 DiffEditor 在容器仍隐藏时创建，宽度只有几像素；
-        // onMount 时容器已显示，先按实际尺寸布局，否则下面的滚动按几像素宽的折行计算
+        // With monaco already loaded, the DiffEditor is created while its container is still hidden and is only a few
+        // pixels wide; the container is visible by onMount, so lay out at the real size first, or the scroll below
+        // is computed from line wrapping at that width
         editor.layout();
-        // diff 算完后把第一处改动滚动到视野中
+        // Once the diff is computed, scroll the first change into view
         const subscription = editor.onDidUpdateDiff(() => {
           if ((editor.getLineChanges() ?? []).length === 0) return;
           subscription.dispose();
@@ -54,7 +55,7 @@ export function SkillDiffEditor({
       options={{
         readOnly: true,
         renderSideBySide: true,
-        // 页面宽度有限时也保持左右两栏
+        // Keep two columns even when the page is narrow
         useInlineViewWhenSpaceIsLimited: false,
         hideUnchangedRegions: { enabled: collapseUnchanged, contextLineCount: 4 },
         minimap: { enabled: false },

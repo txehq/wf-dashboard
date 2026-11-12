@@ -1,0 +1,253 @@
+{
+  "calls": [
+    {
+      "name": "list_users",
+      "args": { "limit": 250 },
+      "isError": false,
+      "text": "{\"users\":[{\"id\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"name\":\"eluo@txehq.com\",\"email\":\"eluo@txehq.com\",\"displayName\":\"eluo\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-10-20T09:40:52.021Z\",\"updatedAt\":\"2026-10-20T10:51:40.937Z\",\"status\":\"Offline (last seen 2026-11-04T03:58:31.353Z)\"},{\"id\":\"5e75cd38-4268-424a-b9f3-03a8294f5845\",\"name\":\"KFC\",\"email\":\"grindelwald029@gmail.com\",\"displayName\":\"kfc\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-08-04T08:56:10.306Z\",\"updatedAt\":\"2026-10-10T07:21:04.608Z\",\"status\":\"Offline (last seen 2026-10-28T14:29:25.689Z)\"},{\"id\":\"f92b2a27-822f-4fdc-b6f1-dd3df6e6376d\",\"name\":\"Connor Wang\",\"email\":\"wangconnor@gmail.com\",\"displayName\":\"wangconnor\",\"avatarUrl\":\"https://public.linear.app/f92b2a27-822f-4fdc-b6f1-dd3df6e6376d/08395cd0-1063-4f73-b88e-be4ca3085c8d\",\"isAdmin\":true,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2025-05-27T17:05:35.849Z\",\"updatedAt\":\"2026-10-05T07:59:40.202Z\",\"status\":\"Offline (last seen 2026-11-04T02:47:52.667Z)\"},{\"id\":\"f4abe8ec-6736-4090-a0cb-14e9daa42187\",\"name\":\"luyi.leo@gmail.com\",\"email\":\"luyi.leo@gmail.com\",\"displayName\":\"luyi.leo\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-05-21T04:39:10.443Z\",\"updatedAt\":\"2026-09-29T08:17:45.368Z\",\"status\":\"Offline (last seen 2026-09-29T13:54:52.648Z)\"},{\"id\":\"a1b8cb86-541b-4e8a-9bf1-057b74ea136d\",\"name\":\"lin luo\",\"email\":\"luolinc2023@gmail.com\",\"displayName\":\"luolinc2023\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-09-25T11:23:21.985Z\",\"updatedAt\":\"2026-09-25T11:24:25.410Z\",\"status\":\"Offline (last seen 2026-11-04T04:08:54.958Z)\"},{\"id\":\"2024e2d7-a3b7-46d2-825f-f009942f7b43\",\"name\":\"Cursor\",\"email\":\"afd5064f-8c2e-4f60-a91a-2b753321d325@oauthapp.linear.app\",\"displayName\":\"cursor\",\"avatarUrl\":\"https://public.linear.app/df6e40bb-b470-4d4d-b4f5-87152f63d6da/8c59abef-7b00-4081-b33f-22fb391f7188/256x256/0bc68260-6b56-4585-bead-de5414a06e2b\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-08-15T17:42:43.820Z\",\"updatedAt\":\"2026-08-15T17:42:43.973Z\",\"status\":\"Offline (last seen 2026-08-15T17:42:43.937Z)\"},{\"id\":\"02866db2-6890-477d-b9c4-54354c90a543\",\"name\":\"Ella Xu\",\"email\":\"ellaxu.f@gmail.com\",\"displayName\":\"ellaxu.f\",\"avatarUrl\":\"https://public.linear.app/02866db2-6890-477d-b9c4-54354c90a543/ff07f349-1cca-471c-afa3-df24286fde11\",\"isAdmin\":true,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-08-14T15:31:11.494Z\",\"updatedAt\":\"2026-08-14T15:38:35.440Z\",\"status\":\"Offline (last seen 2026-10-25T07:50:10.515Z)\"},{\"id\":\"81b8b898-ca6c-481a-941b-16079a7bc813\",\"name\":\"Ding\",\"email\":\"h.ding.262@gmail.com\",\"displayName\":\"h.ding.262\",\"avatarUrl\":\"https://public.linear.app/81b8b898-ca6c-481a-941b-16079a7bc813/72317d80-b018-4841-9094-6a0cd00e3042\",\"isAdmin\":true,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-08-04T08:56:10.762Z\",\"updatedAt\":\"2026-08-13T12:22:39.889Z\",\"status\":\"Offline (last seen 2026-10-29T17:58:43.578Z)\"},{\"id\":\"a8ee7caa-ff55-450a-a1d4-f670fe04e83f\",\"name\":\"AptS:1547\",\"email\":\"esaps@esaps.net\",\"displayName\":\"esaps\",\"avatarUrl\":\"https://public.linear.app/80e9315e-7666-4d5b-ba2b-2606edbdaf59/07727f60-1aaa-4058-a97b-1a7cc0fdc839/f2bef142-baa5-450c-8129-63dc8cc56daf\",\"isAdmin\":true,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-08-04T08:56:09.747Z\",\"updatedAt\":\"2026-08-13T12:22:30.032Z\",\"status\":\"Offline (last seen 2026-10-28T17:16:15.078Z)\"},{\"id\":\"d8fa73db-5f2a-435b-971c-7ae0b457698d\",\"name\":\"Linear\",\"email\":\"linear-80e9315e-7666-4d5b-ba2b-2606edbdaf59@linear.linear.app\",\"displayName\":\"linear\",\"avatarUrl\":\"https://static.linear.app/assets/avatar/avatar_512.png\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-03-24T18:24:32.148Z\",\"updatedAt\":\"2026-03-24T18:24:32.148Z\",\"status\":\"Offline (last seen 2026-03-24T18:24:32.175Z)\"},{\"id\":\"0e13266a-6a31-4d3c-ae83-a26ed94284ba\",\"name\":\"Li Yachuan\",\"email\":\"applesstt@gmail.com\",\"displayName\":\"applesstt\",\"avatarUrl\":\"https://public.linear.app/0e13266a-6a31-4d3c-ae83-a26ed94284ba/35bb204a-e742-4b18-bb4a-c42044d49869\",\"isAdmin\":true,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2025-09-26T09:19:59.197Z\",\"updatedAt\":\"2026-01-04T08:23:46.874Z\",\"status\":\"Offline (last seen 2026-01-22T14:47:03.412Z)\"},{\"id\":\"dd17bdac-03e3-44ae-afe9-fbb584044ab4\",\"name\":\"Codex\",\"email\":\"a4bc02c9-24f5-44c3-a1d1-03a2e3042a99@oauthapp.linear.app\",\"displayName\":\"codex\",\"avatarUrl\":\"https://public.linear.app/a7929e46-07ed-49ae-a46d-dd6c052e08e1/0f912afe-b125-4df1-a206-a3382ebb8d14/256x256/316e7aed-54d5-4841-abf5-fbae0e806bb9\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-01-03T16:28:55.466Z\",\"updatedAt\":\"2026-01-03T16:28:55.516Z\",\"status\":\"Offline (last seen 2026-01-03T16:28:55.486Z)\"}],\"hasNextPage\":false}"
+    },
+    {
+      "name": "list_issues",
+      "args": {
+        "team": "TXE",
+        "parentId": "TXE-5712",
+        "includeArchived": true,
+        "orderBy": "updatedAt",
+        "limit": 250,
+        "fields": ["id", "updatedAt"]
+      },
+      "isError": false,
+      "text": "{\"issues\":[{\"id\":\"TXE-5766\",\"updatedAt\":\"2026-11-04T00:03:40.065Z\"},{\"id\":\"TXE-5716\",\"updatedAt\":\"2026-11-03T22:13:39.919Z\"},{\"id\":\"TXE-5718\",\"updatedAt\":\"2026-11-03T21:20:32.126Z\"},{\"id\":\"TXE-5719\",\"updatedAt\":\"2026-11-03T17:23:03.310Z\"},{\"id\":\"TXE-5717\",\"updatedAt\":\"2026-11-03T16:25:40.416Z\"},{\"id\":\"TXE-5734\",\"updatedAt\":\"2026-11-03T16:05:40.104Z\"},{\"id\":\"TXE-5714\",\"updatedAt\":\"2026-11-03T15:56:33.405Z\"},{\"id\":\"TXE-5713\",\"updatedAt\":\"2026-11-03T15:56:29.248Z\"}],\"hasNextPage\":false}"
+    },
+    {
+      "name": "list_issues",
+      "args": {
+        "team": "TXE",
+        "parentId": "TXE-5712",
+        "includeArchived": true,
+        "orderBy": "updatedAt",
+        "limit": 250,
+        "fields": ["id", "updatedAt"],
+        "updatedAt": "2026-11-03T17:23:03.310Z"
+      },
+      "isError": false,
+      "text": "{\"issues\":[{\"id\":\"TXE-5766\",\"updatedAt\":\"2026-11-04T00:03:40.065Z\"},{\"id\":\"TXE-5716\",\"updatedAt\":\"2026-11-03T22:13:39.919Z\"},{\"id\":\"TXE-5718\",\"updatedAt\":\"2026-11-03T21:20:32.126Z\"},{\"id\":\"TXE-5719\",\"updatedAt\":\"2026-11-03T17:23:03.310Z\"}],\"hasNextPage\":false}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5766",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"df9f4c6a-b721-4fb3-bbef-a488fb1da3f6\",\"title\":\"[CC-sdfef32] New Tokun B0-1 follow-up: the e2e pool switch case manages its own circuit breaker state, merge-check step 5 uses its own Redpanda\",\"url\":\"https://linear.app/capso/issue/TXE-5766/cc-sdfef32-new-tokun-b0-1-follow-up-the-e2e-pool-switch-case-manages-its-own\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":null,\"assigneeId\":null,\"createdBy\":\"Ding\",\"createdById\":\"81b8b898-ca6c-481a-941b-16079a7bc813\",\"createdAt\":\"2026-11-03T17:23:34.953Z\",\"startedAt\":\"2026-11-03T17:23:35.667Z\",\"completedAt\":\"2026-11-03T20:55:34.846Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-04T00:03:40.065Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T17:23:34.953Z\",\"endedAt\":\"2026-11-03T20:43:03.619Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T20:43:03.619Z\",\"endedAt\":\"2026-11-03T20:55:34.853Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-03T20:55:34.853Z\",\"endedAt\":null}],\"attachments\":[],\"id\":\"TXE-5766\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5716",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"c3cc72aa-a0a3-43d8-8adb-a7d8bf45cefb\",\"title\":\"[CC-sb14572] New Tokun B0-2 to B0-4: runtime parameters, catalog-relay and hot reload\",\"url\":\"https://linear.app/capso/issue/TXE-5716/cc-sb14572-new-tokun-b0-2-to-b0-4-runtime-parameters-catalog-relay-and-hot-reload\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"Ding\",\"assigneeId\":\"81b8b898-ca6c-481a-941b-16079a7bc813\",\"createdBy\":\"Ding\",\"createdById\":\"81b8b898-ca6c-481a-941b-16079a7bc813\",\"createdAt\":\"2026-11-03T04:31:43.711Z\",\"startedAt\":\"2026-11-03T04:34:43.388Z\",\"completedAt\":\"2026-11-03T22:13:39.894Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-03T22:13:39.919Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-11-03T04:31:43.711Z\",\"endedAt\":\"2026-11-03T04:34:43.397Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T04:34:43.397Z\",\"endedAt\":\"2026-11-03T07:57:21.660Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-03T07:57:21.660Z\",\"endedAt\":\"2026-11-03T08:14:21.064Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T08:14:21.064Z\",\"endedAt\":\"2026-11-03T14:32:38.778Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T14:32:38.778Z\",\"endedAt\":\"2026-11-03T17:40:18.177Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T17:40:18.177Z\",\"endedAt\":\"2026-11-03T21:20:34.024Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T21:20:34.024Z\",\"endedAt\":\"2026-11-03T22:13:39.909Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-03T22:13:39.909Z\",\"endedAt\":null}],\"attachments\":[],\"id\":\"TXE-5716\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5718",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"2871d5ec-199d-410a-a19a-8fdb15c44790\",\"title\":\"[CC-sb14572] New Tokun B0-6, B0-8, B0-9: topics, the ClickHouse cluster and object storage\",\"url\":\"https://linear.app/capso/issue/TXE-5718/cc-sb14572-new-tokun-b0-6-b0-8-b0-9-topics-the-clickhouse-cluster-and-object\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"Ding\",\"assigneeId\":\"81b8b898-ca6c-481a-941b-16079a7bc813\",\"createdBy\":\"Ding\",\"createdById\":\"81b8b898-ca6c-481a-941b-16079a7bc813\",\"createdAt\":\"2026-11-03T04:31:52.614Z\",\"startedAt\":\"2026-11-03T04:35:05.475Z\",\"completedAt\":\"2026-11-03T16:51:52.631Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-03T21:20:32.126Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-11-03T04:31:52.614Z\",\"endedAt\":\"2026-11-03T04:35:05.493Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T04:35:05.493Z\",\"endedAt\":\"2026-11-03T05:42:27.485Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-03T05:42:27.485Z\",\"endedAt\":\"2026-11-03T08:10:40.223Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T08:10:40.223Z\",\"endedAt\":\"2026-11-03T16:38:29.097Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T16:38:29.097Z\",\"endedAt\":\"2026-11-03T16:51:52.648Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-03T16:51:52.648Z\",\"endedAt\":null}],\"attachments\":[],\"id\":\"TXE-5718\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5719",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"dc69d1e3-f141-42d6-8d9b-1ab6dc67b4a7\",\"title\":\"[CC-sb14572] New Tokun B0-7, B0-10: a separate Postgres cluster and multi-replica Bifrost\",\"url\":\"https://linear.app/capso/issue/TXE-5719/cc-sb14572-new-tokun-b0-7-b0-10-a-separate-postgres-cluster-and-multi-replica\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"Ding\",\"assigneeId\":\"81b8b898-ca6c-481a-941b-16079a7bc813\",\"createdBy\":\"Ding\",\"createdById\":\"81b8b898-ca6c-481a-941b-16079a7bc813\",\"createdAt\":\"2026-11-03T04:31:56.026Z\",\"startedAt\":\"2026-11-03T05:22:10.064Z\",\"completedAt\":\"2026-11-03T17:23:03.098Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-03T17:23:03.310Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-11-03T04:31:56.026Z\",\"endedAt\":\"2026-11-03T05:22:10.076Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T05:22:10.076Z\",\"endedAt\":\"2026-11-03T06:58:54.256Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-03T06:58:54.256Z\",\"endedAt\":\"2026-11-03T08:10:48.668Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T08:10:48.668Z\",\"endedAt\":\"2026-11-03T17:20:18.082Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T17:20:18.082Z\",\"endedAt\":\"2026-11-03T17:23:03.269Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-03T17:23:03.269Z\",\"endedAt\":null}],\"attachments\":[],\"id\":\"TXE-5719\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5717",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"d2334a73-6477-4bfc-949b-bbbf70864689\",\"title\":\"[CC-sb14572] New Tokun B0-5: proto contracts for routing plans, the planner, catalog projections and events\",\"url\":\"https://linear.app/capso/issue/TXE-5717/cc-sb14572-new-tokun-b0-5-proto-contracts-for-routing-plans-the-planner\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"Ding\",\"assigneeId\":\"81b8b898-ca6c-481a-941b-16079a7bc813\",\"createdBy\":\"Ding\",\"createdById\":\"81b8b898-ca6c-481a-941b-16079a7bc813\",\"createdAt\":\"2026-11-03T04:31:47.442Z\",\"startedAt\":\"2026-11-03T04:51:03.776Z\",\"completedAt\":\"2026-11-03T16:25:40.388Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-03T16:25:40.416Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-11-03T04:31:47.442Z\",\"endedAt\":\"2026-11-03T04:51:03.786Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T04:51:03.786Z\",\"endedAt\":\"2026-11-03T07:37:02.897Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-03T07:37:02.897Z\",\"endedAt\":\"2026-11-03T08:14:22.269Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T08:14:22.269Z\",\"endedAt\":\"2026-11-03T16:05:41.378Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T16:05:41.378Z\",\"endedAt\":\"2026-11-03T16:25:40.405Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-03T16:25:40.405Z\",\"endedAt\":null}],\"attachments\":[],\"id\":\"TXE-5717\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5734",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"4b305792-a718-4c1e-b01c-5fb5d18ef487\",\"title\":\"[CC-s71a70b] merge-check leaves the shared e2e environment down when the change adds a Postgres migration\",\"url\":\"https://linear.app/capso/issue/TXE-5734/cc-s71a70b-merge-check-leaves-the-shared-e2e-environment-down-when-the\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":null,\"assigneeId\":null,\"createdBy\":\"Ding\",\"createdById\":\"81b8b898-ca6c-481a-941b-16079a7bc813\",\"createdAt\":\"2026-11-03T07:56:04.384Z\",\"startedAt\":\"2026-11-03T08:14:23.735Z\",\"completedAt\":\"2026-11-03T15:56:36.084Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-03T16:05:40.104Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-11-03T07:56:04.384Z\",\"endedAt\":\"2026-11-03T08:14:23.773Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T08:14:23.773Z\",\"endedAt\":\"2026-11-03T15:31:49.579Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T15:31:49.579Z\",\"endedAt\":\"2026-11-03T15:56:36.092Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-03T15:56:36.092Z\",\"endedAt\":null}],\"attachments\":[],\"id\":\"TXE-5734\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5714",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"43a0d87a-b7f8-456e-8f10-66a64cf1f0d9\",\"title\":\"[CC-sb14572] New Tokun B0-1 (Bifrost branch): todocheck, BATCHES and conventions\",\"url\":\"https://linear.app/capso/issue/TXE-5714/cc-sb14572-new-tokun-b0-1-bifrost-branch-todocheck-batches-and-conventions\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"Ding\",\"assigneeId\":\"81b8b898-ca6c-481a-941b-16079a7bc813\",\"createdBy\":\"Ding\",\"createdById\":\"81b8b898-ca6c-481a-941b-16079a7bc813\",\"createdAt\":\"2026-11-02T15:41:35.728Z\",\"startedAt\":\"2026-11-03T06:05:13.243Z\",\"completedAt\":\"2026-11-03T15:56:33.385Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-03T15:56:33.405Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-02T15:41:35.728Z\",\"endedAt\":\"2026-11-02T15:56:46.299Z\"},{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-11-02T15:56:46.299Z\",\"endedAt\":\"2026-11-03T06:05:13.256Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T06:05:13.256Z\",\"endedAt\":\"2026-11-03T07:00:27.903Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-03T07:00:27.903Z\",\"endedAt\":\"2026-11-03T08:14:19.625Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T08:14:19.625Z\",\"endedAt\":\"2026-11-03T15:31:46.573Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T15:31:46.573Z\",\"endedAt\":\"2026-11-03T15:56:33.400Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-03T15:56:33.400Z\",\"endedAt\":null}],\"attachments\":[],\"id\":\"TXE-5714\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5713",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"4f5eda54-a394-4780-b90b-6c3d90d4c9ee\",\"title\":\"[CC-sb14572] New Tokun B0-1: TODO conventions, todocheck, BATCHES and local test scripts\",\"url\":\"https://linear.app/capso/issue/TXE-5713/cc-sb14572-new-tokun-b0-1-todo-conventions-todocheck-batches-and-local-test-scripts\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"Ding\",\"assigneeId\":\"81b8b898-ca6c-481a-941b-16079a7bc813\",\"createdBy\":\"Ding\",\"createdById\":\"81b8b898-ca6c-481a-941b-16079a7bc813\",\"createdAt\":\"2026-11-02T15:41:33.138Z\",\"startedAt\":\"2026-11-03T06:05:11.812Z\",\"completedAt\":\"2026-11-03T15:56:29.223Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-03T15:56:29.248Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-02T15:41:33.138Z\",\"endedAt\":\"2026-11-02T15:56:44.975Z\"},{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-11-02T15:56:44.975Z\",\"endedAt\":\"2026-11-03T06:05:11.824Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T06:05:11.824Z\",\"endedAt\":\"2026-11-03T07:00:25.877Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-03T07:00:25.877Z\",\"endedAt\":\"2026-11-03T08:14:18.466Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T08:14:18.466Z\",\"endedAt\":\"2026-11-03T15:31:43.148Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T15:31:43.148Z\",\"endedAt\":\"2026-11-03T15:56:29.237Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-03T15:56:29.237Z\",\"endedAt\":null}],\"attachments\":[],\"id\":\"TXE-5713\"}"
+    }
+  ]
+}

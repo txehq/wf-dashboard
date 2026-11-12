@@ -23,11 +23,11 @@ import { SkillDiffSection } from '@/pages/compare-skills';
 import { allVariantsQuery, type Variant, variantLabel } from '@/pages/variants-api';
 
 interface Selection {
-  // 对比范围：一个有评测类型的 workflow（Contracts 16.5），写作 workflow id
+  // Comparison scope: one workflow with an eval type (Contracts 16.5), written as the workflow id
   scope: string;
-  // 按 variant 分组，或按 variant 与模型分组
+  // Group by variant, or by variant and model
   groupBy: CompareGrouping;
-  // 第一个是基线；slot 在选中时分配，之后不变
+  // The first is the baseline; slot is assigned on selection and then kept
   variants: { id: string; slot: number }[];
   tasks: string[];
   includeIntervened: boolean;
@@ -36,7 +36,7 @@ interface Selection {
   includeCancelled: boolean;
 }
 
-// 范围内的 variant 与 task：这个 workflow 的 variant，kind 为它的评测类型的 task
+// Variants and tasks in scope: this workflow's variants, and tasks whose kind is its eval type
 function scopeOf(
   scope: string,
   workflows: WorkflowRecord[],
@@ -50,7 +50,7 @@ function scopeOf(
   };
 }
 
-// 有已评分 run 的范围（有评测类型的 workflow），按 workflow 列表的顺序（内置的 lfg、ic 在前）
+// Scopes with graded runs (workflows with an eval type), in workflow list order (built-in lfg and ic first)
 function scopesOf(workflows: WorkflowRecord[], variants: Variant[], runs: CompareRun[]): string[] {
   return workflows
     .filter(
@@ -65,11 +65,11 @@ function freeSlot(taken: { slot: number }[]): number {
   for (let slot = 0; slot < MAX_VARIANTS; slot++) {
     if (!taken.some((t) => t.slot === slot)) return slot;
   }
-  throw new Error(`最多同时对比 ${String(MAX_VARIANTS)} 个 variant`);
+  throw new Error(`At most ${String(MAX_VARIANTS)} variants can be compared at once`);
 }
 
-// 默认：第一个有已评分 run 的范围；其中有已评分 run 的 variant 按创建时间排序，没有 parent 的最早的一个作为基线；
-// 范围内全部有 run 的 task。换范围时保留分组与四个开关
+// Default: the first scope with graded runs; its variants with graded runs sorted by creation time, the earliest without a parent as baseline;
+// every task in scope that has runs. Changing scope keeps the grouping and the four switches
 function defaultSelection(
   workflows: WorkflowRecord[],
   variants: Variant[],
@@ -113,10 +113,11 @@ function EmptyState() {
     <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed px-6 py-16 text-center">
       <ChartNoAxesColumn className="size-10 text-muted-foreground" aria-hidden />
       <p className="text-sm" data-testid="compare-empty">
-        还没有已评分的 run。先在 Runs 页面发起一个 batch，运行并评分完成后就能在这里对比。
+        No graded runs yet. Start a batch on the Runs page; once it has run and been graded, compare
+        it here.
       </p>
       <Button asChild>
-        <Link to="/runs">去 Runs 页面</Link>
+        <Link to="/runs">Go to Runs</Link>
       </Button>
     </div>
   );
@@ -189,7 +190,7 @@ function SelectionPanel({
       ...selection,
       tasks: selection.tasks.includes(id)
         ? selection.tasks.filter((t) => t !== id)
-        : // 保持 task 列表原有顺序
+        : // Keep the task list's original order
           gradedTasks.map((t) => t.task.id).filter((t) => t === id || selection.tasks.includes(t)),
     });
   };
@@ -198,7 +199,7 @@ function SelectionPanel({
     <div className="flex flex-col gap-4 rounded-lg border p-4">
       <div className="flex flex-wrap gap-6">
         <fieldset className="flex flex-col gap-1" data-testid="compare-scope">
-          <legend className="mb-1 text-sm font-medium">范围（一个 workflow）</legend>
+          <legend className="mb-1 text-sm font-medium">Scope (one workflow)</legend>
           <div className="flex flex-wrap gap-3">
             {scopesOf(workflows, variants, runs).map((scope) => (
               <label key={scope} className="flex items-center gap-2 text-sm">
@@ -216,12 +217,12 @@ function SelectionPanel({
           </div>
         </fieldset>
         <fieldset className="flex flex-col gap-1" data-testid="compare-group-by">
-          <legend className="mb-1 text-sm font-medium">分组</legend>
+          <legend className="mb-1 text-sm font-medium">Group by</legend>
           <div className="flex flex-wrap gap-3">
             {(
               [
-                ['variant', '按 variant'],
-                ['model', '按 variant 与模型'],
+                ['variant', 'Variant'],
+                ['model', 'Variant and model'],
               ] as const
             ).map(([value, label]) => (
               <label key={value} className="flex items-center gap-2 text-sm">
@@ -242,7 +243,7 @@ function SelectionPanel({
       </div>
       <div className="grid gap-4 lg:grid-cols-[2fr_2fr_1fr]">
         <fieldset className="flex flex-col gap-1">
-          <legend className="mb-1 text-sm font-medium">variant</legend>
+          <legend className="mb-1 text-sm font-medium">Variants</legend>
           {graded.map((v) => {
             const picked = selection.variants.find((s) => s.id === v.id);
             const isBaseline = selection.variants[0]?.id === v.id;
@@ -266,11 +267,12 @@ function SelectionPanel({
                   />
                   <span className="truncate">{variantLabel(v)}</span>
                   <span className="text-xs text-muted-foreground">
-                    {runs.filter((r) => r.variantId === v.id).length} 次 run
+                    {runs.filter((r) => r.variantId === v.id).length}{' '}
+                    {runs.filter((r) => r.variantId === v.id).length === 1 ? 'run' : 'runs'}
                   </span>
                 </label>
                 {isBaseline ? (
-                  <span className="rounded border px-1.5 text-xs">基线</span>
+                  <span className="rounded border px-1.5 text-xs">Baseline</span>
                 ) : (
                   picked !== undefined && (
                     <Button
@@ -283,7 +285,7 @@ function SelectionPanel({
                         });
                       }}
                     >
-                      设为基线
+                      Set as baseline
                     </Button>
                   )
                 )}
@@ -292,17 +294,17 @@ function SelectionPanel({
           })}
           {full && (
             <p className="text-xs text-muted-foreground">
-              最多同时对比 {MAX_VARIANTS} 个 variant。
+              At most {MAX_VARIANTS} variants can be compared at once.
             </p>
           )}
           {others > 0 && (
             <p className="text-xs text-muted-foreground">
-              另有 {others} 个 variant 还没有已评分的 run。
+              {others} more {others === 1 ? 'variant has' : 'variants have'} no graded runs yet.
             </p>
           )}
         </fieldset>
         <fieldset className="flex flex-col gap-1">
-          <legend className="mb-1 text-sm font-medium">task</legend>
+          <legend className="mb-1 text-sm font-medium">Tasks</legend>
           {gradedTasks.map((t) => (
             <label key={t.task.id} className="flex items-center gap-2 text-sm">
               <input
@@ -317,7 +319,7 @@ function SelectionPanel({
           ))}
         </fieldset>
         <fieldset className="flex flex-col gap-1">
-          <legend className="mb-1 text-sm font-medium">范围</legend>
+          <legend className="mb-1 text-sm font-medium">Include</legend>
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -326,12 +328,12 @@ function SelectionPanel({
                 onChange({ ...selection, includeIntervened: event.target.checked });
               }}
             />
-            包含有人工干预的 run
+            Runs with human intervention
           </label>
           <p className="text-xs text-muted-foreground" data-testid="intervened-count">
             {intervenedCount === 0
-              ? '选中范围内没有'
-              : `选中范围内有 ${String(intervenedCount)} 次`}
+              ? 'None in the selection'
+              : `${String(intervenedCount)} in the selection`}
           </p>
           <label className="mt-2 flex items-center gap-2 text-sm">
             <input
@@ -341,10 +343,12 @@ function SelectionPanel({
                 onChange({ ...selection, includeCrossRef: event.target.checked });
               }}
             />
-            包含参考了其他 run 的 run
+            Runs that referenced other runs
           </label>
           <p className="text-xs text-muted-foreground" data-testid="cross-ref-count">
-            {crossRefCount === 0 ? '选中范围内没有' : `选中范围内有 ${String(crossRefCount)} 次`}
+            {crossRefCount === 0
+              ? 'None in the selection'
+              : `${String(crossRefCount)} in the selection`}
           </p>
           <label className="mt-2 flex items-center gap-2 text-sm">
             <input
@@ -354,10 +358,12 @@ function SelectionPanel({
                 onChange({ ...selection, includeSourceRef: event.target.checked });
               }}
             />
-            包含读取了来源工单或仓库的 run
+            Runs that read the source ticket or repo
           </label>
           <p className="text-xs text-muted-foreground" data-testid="source-ref-count">
-            {sourceRefCount === 0 ? '选中范围内没有' : `选中范围内有 ${String(sourceRefCount)} 次`}
+            {sourceRefCount === 0
+              ? 'None in the selection'
+              : `${String(sourceRefCount)} in the selection`}
           </p>
           <label className="mt-2 flex items-center gap-2 text-sm">
             <input
@@ -367,12 +373,12 @@ function SelectionPanel({
                 onChange({ ...selection, includeCancelled: event.target.checked });
               }}
             />
-            包含被取消的 run
+            Cancelled runs
           </label>
           <p className="text-xs text-muted-foreground" data-testid="cancelled-count">
             {cancelledCount === 0
-              ? '选中范围内没有'
-              : `选中范围内有 ${String(cancelledCount)} 次，按取消时已写出的产物评分`}
+              ? 'None in the selection'
+              : `${String(cancelledCount)} in the selection, graded on the output written before cancelling`}
           </p>
         </fieldset>
       </div>
@@ -395,7 +401,7 @@ function CompareBody({
 }) {
   const selectedVariants: SelectedVariant[] = selection.variants.map((s) => {
     const v = variants.find((x) => x.id === s.id);
-    if (v === undefined) throw new Error(`没有 variant ${s.id}`);
+    if (v === undefined) throw new Error(`No variant ${s.id}`);
     return { id: v.id, name: variantLabel(v), slot: s.slot };
   });
   const selectedTasks = scopeOf(selection.scope, workflows, variants, tasks).tasks.filter((t) =>
@@ -416,15 +422,17 @@ function CompareBody({
     placeholderData: keepPreviousData,
   });
   if (!ready) {
-    return <p className="text-sm text-muted-foreground">至少选择一个 variant 和一个 task。</p>;
+    return (
+      <p className="text-sm text-muted-foreground">Select at least one variant and one task.</p>
+    );
   }
-  if (result.isPending) return <p className="text-sm text-muted-foreground">加载中…</p>;
+  if (result.isPending) return <p className="text-sm text-muted-foreground">Loading…</p>;
   if (result.isError) return <p className="text-sm text-destructive">{result.error.message}</p>;
-  // 刷新期间保留上一次的结果，其中的 variant 与 task 可能还是上一组
+  // While refreshing, the previous result is kept; its variants and tasks may still be the previous set
   const raw = result.data;
   const shownVariants = selectedVariants.filter((v) => raw.variants.includes(v.id));
   const shownTasks = selectedTasks.filter((t) => raw.tasks.includes(t.task.id));
-  // 按模型分组时每个 (variant, model) 是一个系列：格子与 run 的 variantId 换成系列 id，颜色按系列依次分配
+  // Grouped by model, each (variant, model) is a series: the variantId of cells and runs becomes the series id, colors assigned per series in order
   const byModel = raw.groupBy === 'model';
   const seriesId = (variantId: string, model: string | null) =>
     model === null ? variantId : `${variantId}::${model}`;
@@ -467,7 +475,7 @@ function CompareBody({
       data-refreshing={result.isPlaceholderData}
       className={cn('flex flex-col gap-10', result.isPlaceholderData && 'opacity-60')}
     >
-      <Section title="分数" id="compare-scores">
+      <Section title="Scores" id="compare-scores">
         <ScoreTable
           result={data}
           variants={series}
@@ -478,13 +486,13 @@ function CompareBody({
           cancelled={cancelled}
         />
       </Section>
-      <Section title="产物并排" id="compare-artifacts">
+      <Section title="Outputs side by side" id="compare-artifacts">
         <ArtifactSideBySide tasks={shownTasks} runs={visibleRuns} variants={series} />
       </Section>
-      <Section title="各阶段成本" id="compare-costs">
+      <Section title="Cost by stage" id="compare-costs">
         <CostComparison result={data} tasks={shownTasks} variants={series} />
       </Section>
-      <Section title="skill 内容 diff" id="compare-skills">
+      <Section title="Skill diff" id="compare-skills">
         <SkillDiffSection variants={shownVariants} />
       </Section>
     </div>
@@ -492,7 +500,7 @@ function CompareBody({
 }
 
 export function ComparePage() {
-  // 包括已删除的 variant：它们的 run 与评分保留，名字显示「（已删除）」（Contracts 24.3）
+  // Includes deleted variants: their runs and grades are kept and their names show "(deleted)" (Contracts 24.3)
   const variants = useQuery(allVariantsQuery);
   const tasks = useQuery(tasksQuery);
   const runs = useQuery(compareRunsQuery);
@@ -502,14 +510,16 @@ export function ComparePage() {
   const header = (
     <div className="flex flex-col gap-1">
       <h1 className="text-2xl font-semibold">Compare</h1>
-      <p className="text-sm text-muted-foreground">改了 skill 之后，workflow 变好了吗？</p>
+      <p className="text-sm text-muted-foreground">
+        Did the workflow get better after the skill change?
+      </p>
     </div>
   );
   if (variants.isPending || tasks.isPending || runs.isPending || workflows.isPending) {
     return (
       <div className="flex flex-col gap-6">
         {header}
-        <p className="text-sm text-muted-foreground">加载中…</p>
+        <p className="text-sm text-muted-foreground">Loading…</p>
       </div>
     );
   }

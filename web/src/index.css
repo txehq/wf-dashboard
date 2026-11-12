@@ -30,7 +30,7 @@
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  /* 数据图：variant 等类别按固定顺序取色（dataviz 参考调色板，已通过 validate_palette） */
+  /* Data charts: categories such as variants take colours in a fixed order (dataviz reference palette, passed validate_palette) */
   --series-1: #2a78d6;
   --series-2: #eb6834;
   --series-3: #1baf7a;
@@ -45,7 +45,7 @@
   --viz-surface: #fcfcfb;
   --status-good: #006300;
   --status-critical: #c62828;
-  /* 提示框的底色、文字与边框：警告（琥珀）、说明（天蓝）、严重（红）；接受的修改的底色（绿） */
+  /* Callout background, text and border: warning (amber), info (sky blue), critical (red); background of accepted changes (green) */
   --warning: oklch(0.987 0.022 95.277);
   --warning-foreground: oklch(0.414 0.112 45.904);
   --warning-border: oklch(0.879 0.169 91.605);
@@ -56,23 +56,28 @@
   --critical-muted-foreground: oklch(0.396 0.141 25.723);
   --critical-muted-border: oklch(0.808 0.114 19.571);
   --success-muted: oklch(0.95 0.052 163.051 / 70%);
-  /* Live 交互项的用途（Contracts 14.3）：色带在列表的底色上至少 3:1；设计的标签用紫色的底色与文字，优化的标签与警告相同 */
+  /* Live item purposes (Contracts 14.3): stripes at least 3:1 on the list background; the design tag uses a purple background and text, the optimize tag matches warning */
   --purpose-interaction: oklch(0.552 0.016 285.938);
   --purpose-design: oklch(0.541 0.281 293.009);
   --purpose-optimize: oklch(0.555 0.163 48.998);
   --purpose-design-muted: oklch(0.969 0.016 293.756);
   --purpose-design-muted-foreground: oklch(0.432 0.232 292.759);
   --purpose-design-border: oklch(0.811 0.111 293.571);
-  /* Magi Agent（Contracts 23.1）：青色的色带与标签 */
+  /* Magi Agent (Contracts 23.1): teal stripe and tag */
   --purpose-agent: oklch(0.511 0.096 186.391);
   --purpose-agent-muted: oklch(0.984 0.014 180.72);
   --purpose-agent-muted-foreground: oklch(0.386 0.063 188.416);
   --purpose-agent-border: oklch(0.855 0.138 181.071);
-  /* Claude 的标志：亮色下用品牌色中较深的一种，在浅色底上至少 3:1 */
+  /* Orca orchestration (Contracts 35.4): blue stripe and tag */
+  --purpose-orca: oklch(0.546 0.165 254.624);
+  --purpose-orca-muted: oklch(0.97 0.014 254.604);
+  --purpose-orca-muted-foreground: oklch(0.424 0.199 265.638);
+  --purpose-orca-border: oklch(0.809 0.105 251.813);
+  /* Claude logo: in light mode the darker brand colour, at least 3:1 on light backgrounds */
   --engine-claude: #c15f3c;
 }
 
-/* 图表与阶段状态的颜色，取自 dataviz 参考调色板（单一序列用 slot 1，状态色固定） */
+/* Chart and stage status colours from the dataviz reference palette (slot 1 for a single series, fixed status colours) */
 :root {
   --viz-series-1: #2a78d6;
   --viz-grid: #e1e0d9;
@@ -91,7 +96,7 @@
   --viz-status-good-text: #3fb950;
 }
 
-/* 分析阶段时的不确定进度条 */
+/* Indeterminate progress bar during analysis stages */
 @keyframes progress {
   from {
     transform: translateX(-100%);
@@ -101,7 +106,7 @@
   }
 }
 
-/* Magi Agent 的小机器人（Contracts 23.6）：悬停时轻轻上下浮动 */
+/* Magi Agent robot (Contracts 23.6): floats gently up and down on hover */
 @keyframes magi-float {
   0%,
   100% {
@@ -182,6 +187,10 @@
   --purpose-agent-muted: oklch(0.277 0.046 192.524);
   --purpose-agent-muted-foreground: oklch(0.953 0.051 180.801);
   --purpose-agent-border: oklch(0.437 0.078 188.216);
+  --purpose-orca: oklch(0.707 0.165 254.624);
+  --purpose-orca-muted: oklch(0.282 0.091 267.935);
+  --purpose-orca-muted-foreground: oklch(0.932 0.032 255.585);
+  --purpose-orca-border: oklch(0.488 0.243 264.376);
   --engine-claude: #d97757;
 }
 
@@ -235,6 +244,10 @@
   --color-purpose-agent-muted: var(--purpose-agent-muted);
   --color-purpose-agent-muted-foreground: var(--purpose-agent-muted-foreground);
   --color-purpose-agent-border: var(--purpose-agent-border);
+  --color-purpose-orca: var(--purpose-orca);
+  --color-purpose-orca-muted: var(--purpose-orca-muted);
+  --color-purpose-orca-muted-foreground: var(--purpose-orca-muted-foreground);
+  --color-purpose-orca-border: var(--purpose-orca-border);
   --color-engine-claude: var(--engine-claude);
 }
 
@@ -247,7 +260,7 @@
   }
 }
 
-/* React Flow 右下角的署名：底色透明，文字用次要文字的颜色，明暗两种主题下都达到 4.5:1 */
+/* React Flow attribution at the bottom right: transparent background, secondary text colour, 4.5:1 in both light and dark themes */
 .react-flow .react-flow__attribution {
   background: transparent;
 }

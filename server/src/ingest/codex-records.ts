@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-// Codex rollout（<CODEX_HOME>/sessions/YYYY/MM/DD/rollout-*.jsonl）中导入需要的记录与字段（Contracts 25.2，
-// codex-cli 0.162 实测，Reports/W62）；未列出的记录类型与字段一律忽略
+// Records and fields of a Codex rollout (<CODEX_HOME>/sessions/YYYY/MM/DD/rollout-*.jsonl) that import needs (Contracts 25.2,
+// measured on codex-cli 0.162, Reports/W62); unlisted record types and fields are ignored
 
 export const CodexLine = z.looseObject({
   timestamp: z.iso.datetime(),
@@ -9,22 +9,23 @@ export const CodexLine = z.looseObject({
   payload: z.unknown(),
 });
 
-// 第一行：会话的 id、工作目录
+// First line: the session id and working directory
 export const SessionMeta = z.looseObject({
   id: z.string().min(1),
   cwd: z.string(),
   timestamp: z.iso.datetime(),
 });
 
-// 每一轮开始时：这一轮的模型
+// At the start of each turn: the turn's model
 export const TurnContext = z.looseObject({ model: z.string() });
 
 const InputText = z.looseObject({ type: z.string(), text: z.string().optional() });
 
-// response_item：模型的回复、推理与工具调用，以及工具的输出
+// response_item: the model's replies, reasoning and tool calls, and the tool outputs. Role user messages carry 0.163.0's <skill> injection
 export const ResponseItem = z.discriminatedUnion('type', [
   z.looseObject({
     type: z.literal('message'),
+    id: z.string().optional(),
     role: z.string(),
     content: z.array(InputText),
   }),
@@ -33,7 +34,7 @@ export const ResponseItem = z.discriminatedUnion('type', [
     summary: z.array(z.looseObject({ text: z.string().optional() })).optional(),
     encrypted_content: z.string().nullable().optional(),
   }),
-  // 模型的工具调用：custom_tool_call 的 input 是原文（exec 的 JS、apply_patch 的补丁），function_call 的 arguments 是 JSON
+  // Model tool calls: custom_tool_call input is raw text (exec JS, apply_patch patch), function_call arguments are JSON
   z.looseObject({
     type: z.literal('custom_tool_call'),
     call_id: z.string(),
@@ -52,7 +53,7 @@ export const ResponseItem = z.discriminatedUnion('type', [
     call_id: z.string(),
     output: z.union([z.string(), z.array(InputText)]),
   }),
-  // web_search_call、tool_search_call 等没有输出记录的调用
+  // web_search_call, tool_search_call and other calls without an output record
   z.looseObject({
     type: z.enum(['web_search_call', 'tool_search_call', 'local_shell_call']),
     id: z.string().optional(),
@@ -61,7 +62,7 @@ export const ResponseItem = z.discriminatedUnion('type', [
 ]);
 export type ResponseItem = z.infer<typeof ResponseItem>;
 
-// 一次模型请求结束：这次请求的 token
+// End of one model request: its tokens
 export const TokenUsageRecord = z.looseObject({
   response_id: z.string().min(1),
   usage: z.looseObject({
@@ -69,15 +70,15 @@ export const TokenUsageRecord = z.looseObject({
     cached_input_tokens: z.number(),
     cache_write_input_tokens: z.number().optional(),
     output_tokens: z.number(),
-    // 输出中推理的 token，包含在 output_tokens 中
+    // Reasoning tokens in the output, included in output_tokens
     reasoning_output_tokens: z.number().optional(),
   }),
 });
 
-// event_msg 的 item_completed：执行完的项。UserMessage 是用户的输入；CommandExecution 是执行的 shell 命令，
-// parsed_cmd 为 read 且读的是 SKILL.md 时是加载 skill（Contracts 25.2）。
-// 其余的项（AgentMessage、Reasoning、SubAgentActivity、ImageView、ContextCompaction 等）与 response_item 重复或不是调用，
-// 只读 type，不解析
+// event_msg item_completed: a finished item. UserMessage is user input; CommandExecution is a shell command run,
+// and a load of a skill when parsed_cmd is read of a SKILL.md (Contracts 25.2).
+// Other items (AgentMessage, Reasoning, SubAgentActivity, ImageView, ContextCompaction etc.) duplicate response_item or are not calls;
+// only their type is read
 export const ItemCompleted = z.looseObject({
   type: z.literal('item_completed'),
   item: z.looseObject({ type: z.string() }),

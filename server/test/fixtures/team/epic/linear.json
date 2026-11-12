@@ -1,0 +1,1441 @@
+{
+  "calls": [
+    {
+      "name": "list_users",
+      "args": { "limit": 250 },
+      "isError": false,
+      "text": "{\"users\":[{\"id\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"name\":\"eluo@txehq.com\",\"email\":\"eluo@txehq.com\",\"displayName\":\"eluo\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-10-20T09:40:52.021Z\",\"updatedAt\":\"2026-10-20T10:51:40.937Z\",\"status\":\"Offline (last seen 2026-11-04T03:58:31.353Z)\"},{\"id\":\"5e75cd38-4268-424a-b9f3-03a8294f5845\",\"name\":\"KFC\",\"email\":\"grindelwald029@gmail.com\",\"displayName\":\"kfc\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-08-04T08:56:10.306Z\",\"updatedAt\":\"2026-10-10T07:21:04.608Z\",\"status\":\"Offline (last seen 2026-10-28T14:29:25.689Z)\"},{\"id\":\"f92b2a27-822f-4fdc-b6f1-dd3df6e6376d\",\"name\":\"Connor Wang\",\"email\":\"wangconnor@gmail.com\",\"displayName\":\"wangconnor\",\"avatarUrl\":\"https://public.linear.app/f92b2a27-822f-4fdc-b6f1-dd3df6e6376d/08395cd0-1063-4f73-b88e-be4ca3085c8d\",\"isAdmin\":true,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2025-05-27T17:05:35.849Z\",\"updatedAt\":\"2026-10-05T07:59:40.202Z\",\"status\":\"Offline (last seen 2026-11-04T02:47:52.667Z)\"},{\"id\":\"f4abe8ec-6736-4090-a0cb-14e9daa42187\",\"name\":\"luyi.leo@gmail.com\",\"email\":\"luyi.leo@gmail.com\",\"displayName\":\"luyi.leo\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-05-21T04:39:10.443Z\",\"updatedAt\":\"2026-09-29T08:17:45.368Z\",\"status\":\"Offline (last seen 2026-09-29T13:54:52.648Z)\"},{\"id\":\"a1b8cb86-541b-4e8a-9bf1-057b74ea136d\",\"name\":\"lin luo\",\"email\":\"luolinc2023@gmail.com\",\"displayName\":\"luolinc2023\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-09-25T11:23:21.985Z\",\"updatedAt\":\"2026-09-25T11:24:25.410Z\",\"status\":\"Offline (last seen 2026-11-04T03:25:41.019Z)\"},{\"id\":\"2024e2d7-a3b7-46d2-825f-f009942f7b43\",\"name\":\"Cursor\",\"email\":\"afd5064f-8c2e-4f60-a91a-2b753321d325@oauthapp.linear.app\",\"displayName\":\"cursor\",\"avatarUrl\":\"https://public.linear.app/df6e40bb-b470-4d4d-b4f5-87152f63d6da/8c59abef-7b00-4081-b33f-22fb391f7188/256x256/0bc68260-6b56-4585-bead-de5414a06e2b\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-08-15T17:42:43.820Z\",\"updatedAt\":\"2026-08-15T17:42:43.973Z\",\"status\":\"Offline (last seen 2026-08-15T17:42:43.937Z)\"},{\"id\":\"02866db2-6890-477d-b9c4-54354c90a543\",\"name\":\"Ella Xu\",\"email\":\"ellaxu.f@gmail.com\",\"displayName\":\"ellaxu.f\",\"avatarUrl\":\"https://public.linear.app/02866db2-6890-477d-b9c4-54354c90a543/ff07f349-1cca-471c-afa3-df24286fde11\",\"isAdmin\":true,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-08-14T15:31:11.494Z\",\"updatedAt\":\"2026-08-14T15:38:35.440Z\",\"status\":\"Offline (last seen 2026-10-25T07:50:10.515Z)\"},{\"id\":\"81b8b898-ca6c-481a-941b-16079a7bc813\",\"name\":\"Ding\",\"email\":\"h.ding.262@gmail.com\",\"displayName\":\"h.ding.262\",\"avatarUrl\":\"https://public.linear.app/81b8b898-ca6c-481a-941b-16079a7bc813/72317d80-b018-4841-9094-6a0cd00e3042\",\"isAdmin\":true,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-08-04T08:56:10.762Z\",\"updatedAt\":\"2026-08-13T12:22:39.889Z\",\"status\":\"Offline (last seen 2026-10-29T17:58:43.578Z)\"},{\"id\":\"a8ee7caa-ff55-450a-a1d4-f670fe04e83f\",\"name\":\"AptS:1547\",\"email\":\"esaps@esaps.net\",\"displayName\":\"esaps\",\"avatarUrl\":\"https://public.linear.app/80e9315e-7666-4d5b-ba2b-2606edbdaf59/07727f60-1aaa-4058-a97b-1a7cc0fdc839/f2bef142-baa5-450c-8129-63dc8cc56daf\",\"isAdmin\":true,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-08-04T08:56:09.747Z\",\"updatedAt\":\"2026-08-13T12:22:30.032Z\",\"status\":\"Offline (last seen 2026-10-28T17:16:15.078Z)\"},{\"id\":\"d8fa73db-5f2a-435b-971c-7ae0b457698d\",\"name\":\"Linear\",\"email\":\"linear-80e9315e-7666-4d5b-ba2b-2606edbdaf59@linear.linear.app\",\"displayName\":\"linear\",\"avatarUrl\":\"https://static.linear.app/assets/avatar/avatar_512.png\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-03-24T18:24:32.148Z\",\"updatedAt\":\"2026-03-24T18:24:32.148Z\",\"status\":\"Offline (last seen 2026-03-24T18:24:32.175Z)\"},{\"id\":\"0e13266a-6a31-4d3c-ae83-a26ed94284ba\",\"name\":\"Li Yachuan\",\"email\":\"applesstt@gmail.com\",\"displayName\":\"applesstt\",\"avatarUrl\":\"https://public.linear.app/0e13266a-6a31-4d3c-ae83-a26ed94284ba/35bb204a-e742-4b18-bb4a-c42044d49869\",\"isAdmin\":true,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2025-09-26T09:19:59.197Z\",\"updatedAt\":\"2026-01-04T08:23:46.874Z\",\"status\":\"Offline (last seen 2026-01-22T14:47:03.412Z)\"},{\"id\":\"dd17bdac-03e3-44ae-afe9-fbb584044ab4\",\"name\":\"Codex\",\"email\":\"a4bc02c9-24f5-44c3-a1d1-03a2e3042a99@oauthapp.linear.app\",\"displayName\":\"codex\",\"avatarUrl\":\"https://public.linear.app/a7929e46-07ed-49ae-a46d-dd6c052e08e1/0f912afe-b125-4df1-a206-a3382ebb8d14/256x256/316e7aed-54d5-4841-abf5-fbae0e806bb9\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-01-03T16:28:55.466Z\",\"updatedAt\":\"2026-01-03T16:28:55.516Z\",\"status\":\"Offline (last seen 2026-01-03T16:28:55.486Z)\"}],\"hasNextPage\":false}"
+    },
+    {
+      "name": "list_issues",
+      "args": {
+        "team": "TXE",
+        "parentId": "TXE-4858",
+        "includeArchived": true,
+        "orderBy": "updatedAt",
+        "limit": 250,
+        "fields": ["id", "updatedAt"]
+      },
+      "isError": false,
+      "text": "{\"issues\":[{\"id\":\"TXE-4875\",\"updatedAt\":\"2026-11-04T04:02:56.865Z\"},{\"id\":\"TXE-5668\",\"updatedAt\":\"2026-11-04T03:45:35.041Z\"},{\"id\":\"TXE-5656\",\"updatedAt\":\"2026-11-04T03:36:46.647Z\"},{\"id\":\"TXE-4883\",\"updatedAt\":\"2026-11-04T03:23:38.114Z\"},{\"id\":\"TXE-5653\",\"updatedAt\":\"2026-11-03T16:07:46.285Z\"},{\"id\":\"TXE-4880\",\"updatedAt\":\"2026-11-03T16:07:46.285Z\"},{\"id\":\"TXE-4881\",\"updatedAt\":\"2026-11-03T16:07:46.285Z\"},{\"id\":\"TXE-4879\",\"updatedAt\":\"2026-11-03T16:05:15.305Z\"},{\"id\":\"TXE-4878\",\"updatedAt\":\"2026-11-03T16:04:53.060Z\"},{\"id\":\"TXE-5706\",\"updatedAt\":\"2026-11-03T15:08:55.553Z\"},{\"id\":\"TXE-4877\",\"updatedAt\":\"2026-11-03T13:50:44.508Z\"},{\"id\":\"TXE-5512\",\"updatedAt\":\"2026-11-03T13:08:12.828Z\"},{\"id\":\"TXE-4871\",\"updatedAt\":\"2026-11-03T12:49:58.122Z\"},{\"id\":\"TXE-5740\",\"updatedAt\":\"2026-11-03T12:38:46.566Z\"},{\"id\":\"TXE-4862\",\"updatedAt\":\"2026-11-03T12:38:46.560Z\"},{\"id\":\"TXE-5743\",\"updatedAt\":\"2026-11-03T12:38:46.113Z\"},{\"id\":\"TXE-4876\",\"updatedAt\":\"2026-11-03T12:24:31.487Z\"},{\"id\":\"TXE-4882\",\"updatedAt\":\"2026-11-03T12:22:41.663Z\"},{\"id\":\"TXE-5473\",\"updatedAt\":\"2026-11-03T12:22:41.663Z\"},{\"id\":\"TXE-5742\",\"updatedAt\":\"2026-11-03T12:22:32.276Z\"},{\"id\":\"TXE-5741\",\"updatedAt\":\"2026-11-03T11:48:16.040Z\"},{\"id\":\"TXE-5680\",\"updatedAt\":\"2026-11-03T11:29:22.487Z\"},{\"id\":\"TXE-5738\",\"updatedAt\":\"2026-11-03T09:25:30.853Z\"},{\"id\":\"TXE-5707\",\"updatedAt\":\"2026-11-03T08:34:21.430Z\"},{\"id\":\"TXE-5708\",\"updatedAt\":\"2026-11-02T14:40:37.481Z\"},{\"id\":\"TXE-5702\",\"updatedAt\":\"2026-11-02T13:57:15.895Z\"},{\"id\":\"TXE-5527\",\"updatedAt\":\"2026-11-02T13:57:15.895Z\"},{\"id\":\"TXE-4869\",\"updatedAt\":\"2026-11-02T13:40:13.340Z\"},{\"id\":\"TXE-4870\",\"updatedAt\":\"2026-11-02T13:37:39.019Z\"},{\"id\":\"TXE-4874\",\"updatedAt\":\"2026-11-02T13:36:33.915Z\"},{\"id\":\"TXE-5480\",\"updatedAt\":\"2026-11-02T12:36:57.090Z\"},{\"id\":\"TXE-5087\",\"updatedAt\":\"2026-11-02T11:27:36.502Z\"},{\"id\":\"TXE-5677\",\"updatedAt\":\"2026-11-02T11:27:36.427Z\"},{\"id\":\"TXE-4859\",\"updatedAt\":\"2026-11-02T09:44:15.412Z\"},{\"id\":\"TXE-5676\",\"updatedAt\":\"2026-11-02T09:44:15.106Z\"},{\"id\":\"TXE-5654\",\"updatedAt\":\"2026-11-02T09:24:52.620Z\"},{\"id\":\"TXE-4866\",\"updatedAt\":\"2026-11-02T07:36:29.381Z\"},{\"id\":\"TXE-4868\",\"updatedAt\":\"2026-11-02T05:06:00.749Z\"},{\"id\":\"TXE-5502\",\"updatedAt\":\"2026-11-02T05:05:49.202Z\"},{\"id\":\"TXE-5489\",\"updatedAt\":\"2026-11-02T04:45:09.468Z\"},{\"id\":\"TXE-4867\",\"updatedAt\":\"2026-11-02T04:43:34.382Z\"},{\"id\":\"TXE-4863\",\"updatedAt\":\"2026-10-30T15:38:58.314Z\"},{\"id\":\"TXE-5405\",\"updatedAt\":\"2026-10-30T10:09:17.181Z\"},{\"id\":\"TXE-5375\",\"updatedAt\":\"2026-10-30T10:09:13.140Z\"},{\"id\":\"TXE-5437\",\"updatedAt\":\"2026-10-30T06:30:15.984Z\"},{\"id\":\"TXE-5438\",\"updatedAt\":\"2026-10-30T06:30:15.526Z\"},{\"id\":\"TXE-4872\",\"updatedAt\":\"2026-10-30T05:09:53.398Z\"},{\"id\":\"TXE-5378\",\"updatedAt\":\"2026-10-30T03:10:37.122Z\"},{\"id\":\"TXE-4865\",\"updatedAt\":\"2026-10-29T13:25:16.299Z\"},{\"id\":\"TXE-4864\",\"updatedAt\":\"2026-10-29T10:10:55.456Z\"},{\"id\":\"TXE-4861\",\"updatedAt\":\"2026-10-28T13:41:52.212Z\"},{\"id\":\"TXE-4860\",\"updatedAt\":\"2026-10-28T12:22:59.410Z\"}],\"hasNextPage\":false}"
+    },
+    {
+      "name": "list_issues",
+      "args": {
+        "team": "TXE",
+        "parentId": "TXE-4858",
+        "includeArchived": true,
+        "orderBy": "updatedAt",
+        "limit": 250,
+        "fields": ["id", "updatedAt"],
+        "updatedAt": "2026-11-04T03:23:38.114Z"
+      },
+      "isError": false,
+      "text": "{\"issues\":[{\"id\":\"TXE-4875\",\"updatedAt\":\"2026-11-04T04:02:56.865Z\"},{\"id\":\"TXE-5668\",\"updatedAt\":\"2026-11-04T03:45:35.041Z\"},{\"id\":\"TXE-5656\",\"updatedAt\":\"2026-11-04T03:36:46.647Z\"},{\"id\":\"TXE-4883\",\"updatedAt\":\"2026-11-04T03:23:38.114Z\"}],\"hasNextPage\":false}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-4875",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"2d258d84-1f75-4913-add1-8cc42a395fe0\",\"title\":\"[CC-s52e086] Show audio usage, prices and API reference in the console: characters, duration, voice_id, CSV and docs\",\"url\":\"https://linear.app/capso/issue/TXE-4875/cc-s52e086-show-audio-usage-prices-and-api-reference-in-the-console\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-22T06:27:08.587Z\",\"startedAt\":\"2026-10-29T13:10:17.446Z\",\"completedAt\":\"2026-10-30T05:57:23.171Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-04T04:02:56.865Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-22T06:27:08.587Z\",\"endedAt\":\"2026-10-29T13:10:17.475Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-29T13:10:17.475Z\",\"endedAt\":\"2026-10-30T02:27:40.449Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-10-30T02:27:40.449Z\",\"endedAt\":\"2026-10-30T05:57:23.194Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-10-30T05:57:23.194Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"ac7923eb-c58e-40fd-bbab-b9b7e335fe82\",\"title\":\"[CC-s05442d] feat(tokun): TXE-4875 console shows audio usage, audio prices and the audio API reference\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4330\"}],\"id\":\"TXE-4875\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5668",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"c58706e8-cd30-46d5-8880-8542f0ef25f1\",\"title\":\"[CC-s05442d] Staging acceptance evidence for the merged audio tickets once the ElevenLabs provider is on staging\",\"url\":\"https://linear.app/capso/issue/TXE-5668/cc-s05442d-staging-acceptance-evidence-for-the-merged-audio-tickets\",\"status\":\"In Progress\",\"statusType\":\"started\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-11-02T07:42:10.862Z\",\"startedAt\":\"2026-11-02T09:19:51.464Z\",\"completedAt\":null,\"canceledAt\":null,\"updatedAt\":\"2026-11-04T03:45:35.041Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-11-02T07:42:10.862Z\",\"endedAt\":\"2026-11-02T09:19:51.475Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-02T09:19:51.475Z\",\"endedAt\":null}],\"attachments\":[],\"id\":\"TXE-5668\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5656",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"57cfa6e1-6fca-4553-a199-26c210a4ae48\",\"title\":\"[CC-s2941a6] Prove the 300 s transcription budget on staging: the longest input completes, an over-budget request is refused with no debit\",\"url\":\"https://linear.app/capso/issue/TXE-5656/cc-s2941a6-prove-the-300-s-transcription-budget-on-staging-the-longest\",\"status\":\"In Progress\",\"statusType\":\"started\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-11-02T06:12:52.904Z\",\"startedAt\":\"2026-11-02T07:43:44.273Z\",\"completedAt\":null,\"canceledAt\":null,\"updatedAt\":\"2026-11-04T03:36:46.647Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-11-02T06:12:52.904Z\",\"endedAt\":\"2026-11-02T07:43:44.287Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-02T07:43:44.287Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"5925083d-aacf-4b55-a6b1-f1dd4c68dbb3\",\"title\":\"[CC-s69b550] feat(ops): TXE-5656 a script that proves the 300 s transcription budget on a deployed gateway\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4508\"}],\"id\":\"TXE-5656\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-4883",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"0323e992-58c3-4954-a80d-c30ccc9d2dd6\",\"title\":\"[CC-s52e086] Test and refresh native ElevenLabs channels in the admin without dropping transcription and sound-effect models\",\"url\":\"https://linear.app/capso/issue/TXE-4883/cc-s52e086-test-and-refresh-native-elevenlabs-channels-in-the-admin\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-22T06:29:11.179Z\",\"startedAt\":\"2026-10-29T13:22:32.379Z\",\"completedAt\":\"2026-11-03T11:48:32.760Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-04T03:23:38.114Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-22T06:29:11.179Z\",\"endedAt\":\"2026-10-29T13:22:32.412Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-29T13:22:32.412Z\",\"endedAt\":\"2026-10-30T09:38:55.946Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-10-30T09:38:55.946Z\",\"endedAt\":\"2026-11-03T11:48:32.771Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-03T11:48:32.771Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"64bb5c02-5b1f-4e85-bd95-1ddb35fafe51\",\"title\":\"feat(tokun): TXE-4883 native ElevenLabs channels test and refresh with xi-api-key and keep transcription and sound-effect models\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4320\"}],\"id\":\"TXE-4883\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5653",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"d6d275f1-0973-4ae6-a705-d2e75ccc7c93\",\"title\":\"[CC-s05442d] TokunAudioUpstreamUnbilledCost counts the cost a new gateway books before its first scrape, without regressing restart, staleness or scrape-gap cases\",\"url\":\"https://linear.app/capso/issue/TXE-5653/cc-s05442d-tokunaudioupstreamunbilledcost-counts-the-cost-a-new\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-11-02T04:43:34.094Z\",\"startedAt\":\"2026-11-02T07:43:24.603Z\",\"completedAt\":\"2026-11-03T12:03:02.399Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-03T16:07:46.285Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-11-02T04:43:34.094Z\",\"endedAt\":\"2026-11-02T07:43:24.618Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-02T07:43:24.618Z\",\"endedAt\":\"2026-11-02T12:26:50.305Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-11-02T12:26:50.305Z\",\"endedAt\":\"2026-11-03T12:03:02.406Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-03T12:03:02.406Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"c0c7095c-0672-43f7-a3c4-f99b33b8911f\",\"title\":\"[CC-s342e5f] fix(tokun): TXE-5653 TokunAudioUpstreamUnbilledCost counts cost before the first scrape, through restarts, staleness and scrape gaps\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4509\"}],\"id\":\"TXE-5653\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-4880",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"9c86e5b0-8dd6-494f-b18d-a4f1bb1d65f0\",\"title\":\"[CC-s52e086] Stream text-to-speech as raw audio bytes or SSE events, billed in full when the client leaves\",\"url\":\"https://linear.app/capso/issue/TXE-4880/cc-s52e086-stream-text-to-speech-as-raw-audio-bytes-or-sse-events\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-22T06:28:41.336Z\",\"startedAt\":\"2026-10-30T09:54:16.095Z\",\"completedAt\":\"2026-11-03T13:17:39.702Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-03T16:07:46.285Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-22T06:28:41.336Z\",\"endedAt\":\"2026-10-30T09:54:16.120Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-30T09:54:16.120Z\",\"endedAt\":\"2026-11-03T11:11:55.028Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T11:11:55.028Z\",\"endedAt\":\"2026-11-03T13:17:39.716Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-03T13:17:39.716Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"91876353-14b5-4032-92cb-18910d7562e7\",\"title\":\"[CC-s811e97] feat(tokun): TXE-4880 stream text-to-speech as raw audio or OpenAI SSE, off until Bifrost keeps the final chunk\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4388\"}],\"id\":\"TXE-4880\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-4881",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"90bc897a-51cb-42a7-8166-f3471b6db2d3\",\"title\":\"[CC-s52e086] Open the ElevenLabs shared voice library with holds and charges that follow each voice's rate\",\"url\":\"https://linear.app/capso/issue/TXE-4881/cc-s52e086-open-the-elevenlabs-shared-voice-library-with-holds-and\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-22T06:28:51.648Z\",\"startedAt\":\"2026-10-30T09:54:26.864Z\",\"completedAt\":\"2026-11-03T12:10:40.329Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-03T16:07:46.285Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-22T06:28:51.648Z\",\"endedAt\":\"2026-10-30T09:54:26.899Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-30T09:54:26.899Z\",\"endedAt\":\"2026-11-02T12:16:52.885Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-11-02T12:16:52.885Z\",\"endedAt\":\"2026-11-03T12:10:40.344Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-03T12:10:40.344Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"5691a6b7-8489-4952-9f1c-62b9c9921ee0\",\"title\":\"[CC-s923a35] feat(tokun): TXE-4881 shared voices held at their credit factor\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4396\"}],\"id\":\"TXE-4881\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-4879",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"5aa23a3e-c973-4d74-b14d-a4c239267d7c\",\"title\":\"[CC-s52e086] Transcribe uploads up to 25 MB on POST /v1/audio/transcriptions, billed on ElevenLabs' audio_duration_secs\",\"url\":\"https://linear.app/capso/issue/TXE-4879/cc-s52e086-transcribe-uploads-up-to-25-mb-on-post\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-22T06:28:29.545Z\",\"startedAt\":\"2026-10-29T13:17:21.940Z\",\"completedAt\":\"2026-11-03T13:50:43.132Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-03T16:05:15.305Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-22T06:28:29.545Z\",\"endedAt\":\"2026-10-29T13:17:21.987Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-29T13:17:21.987Z\",\"endedAt\":\"2026-10-30T05:57:04.895Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-10-30T05:57:04.895Z\",\"endedAt\":\"2026-11-03T13:50:43.145Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-03T13:50:43.145Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"f729ebd8-5230-4652-a33d-0a1585775afa\",\"title\":\"[CC-s05442d] feat(tokun): TXE-4879 POST /v1/audio/transcriptions, billed on ElevenLabs' audio_duration_secs\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4329\"}],\"id\":\"TXE-4879\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-4878",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"916dec87-0a81-495a-bd50-93f32b80f814\",\"title\":\"[CC-s52e086] Generate sound effects on POST /v1/audio/speech with a required duration_seconds, billed by the measured ElevenLabs rule\",\"url\":\"https://linear.app/capso/issue/TXE-4878/cc-s52e086-generate-sound-effects-on-post-v1audiospeech-with-a\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-22T06:28:15.783Z\",\"startedAt\":\"2026-10-29T13:16:09.302Z\",\"completedAt\":\"2026-11-03T11:45:39.842Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-03T16:04:53.060Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-22T06:28:15.783Z\",\"endedAt\":\"2026-10-29T13:16:09.358Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-29T13:16:09.358Z\",\"endedAt\":\"2026-11-03T11:09:28.452Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T11:09:28.452Z\",\"endedAt\":\"2026-11-03T11:45:39.853Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-03T11:45:39.853Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"7ab77916-3126-42ca-8f5d-28c763a5d9fb\",\"title\":\"[CC-s05442d] feat(tokun): TXE-4878 sound effects on POST /v1/audio/speech with a required duration_seconds\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4353\"}],\"id\":\"TXE-4878\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5706",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"022a223f-1fd2-4cf2-a7aa-8cc7030e0f29\",\"title\":\"[CC-s05442d] catalog-health skips the curated context-window check for audio models\",\"url\":\"https://linear.app/capso/issue/TXE-5706/cc-s05442d-catalog-health-skips-the-curated-context-window-check-for\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-11-02T13:41:36.506Z\",\"startedAt\":\"2026-11-03T07:00:24.577Z\",\"completedAt\":\"2026-11-03T15:08:55.532Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-03T15:08:55.553Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-11-02T13:41:36.506Z\",\"endedAt\":\"2026-11-03T07:00:24.632Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T07:00:24.632Z\",\"endedAt\":\"2026-11-03T07:11:01.521Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T07:11:01.521Z\",\"endedAt\":\"2026-11-03T07:37:56.071Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-03T07:37:56.071Z\",\"endedAt\":\"2026-11-03T09:30:39.562Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T09:30:39.562Z\",\"endedAt\":\"2026-11-03T15:08:55.545Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-03T15:08:55.545Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"742fbef7-3c4d-4c0f-80df-77e5e00b24cc\",\"title\":\"[CC-s05442d] fix(tokun): TXE-5706 catalog-health no longer warns that an audio model has no curated context window\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4548\"}],\"id\":\"TXE-5706\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-4877",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"cdd58654-0e52-4537-905d-7b6b25afe10d\",\"title\":\"[CC-s52e086] Serve buffered text-to-speech with default voices on POST /v1/audio/speech, billed per character, with a real-upstream fault-injection CI job\",\"url\":\"https://linear.app/capso/issue/TXE-4877/cc-s52e086-serve-buffered-text-to-speech-with-default-voices-on-post\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-22T06:27:55.901Z\",\"startedAt\":\"2026-10-29T12:46:32.679Z\",\"completedAt\":\"2026-11-03T11:04:22.119Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-03T13:50:44.508Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-22T06:27:55.901Z\",\"endedAt\":\"2026-10-29T12:46:32.807Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-29T12:46:32.807Z\",\"endedAt\":\"2026-11-03T10:06:40.673Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-11-03T10:06:40.673Z\",\"endedAt\":\"2026-11-03T11:04:22.142Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-03T11:04:22.142Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"c1c8612d-cb22-4e67-9abd-cf6094d67582\",\"title\":\"[CC-s05442d] feat(tokun): TXE-4877 POST /v1/audio/speech, buffered TTS on default voices billed per Unicode character, with a real-upstream CI job\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4325\"}],\"id\":\"TXE-4877\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5512",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"b8f57aa3-50bc-4624-ad37-d5d94780aa34\",\"title\":\"[CC-s05442d] Decide and set the end-to-end time budget for a synchronous audio request through api.tokun.sh\",\"url\":\"https://linear.app/capso/issue/TXE-5512/cc-s05442d-decide-and-set-the-end-to-end-time-budget-for-a-synchronous\",\"status\":\"In Progress\",\"statusType\":\"started\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-30T16:59:24.985Z\",\"startedAt\":\"2026-11-02T05:44:48.188Z\",\"completedAt\":null,\"canceledAt\":null,\"updatedAt\":\"2026-11-03T13:08:12.828Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-30T16:59:24.985Z\",\"endedAt\":\"2026-11-02T05:44:48.200Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-02T05:44:48.200Z\",\"endedAt\":\"2026-11-02T06:48:24.411Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-11-02T06:48:24.411Z\",\"endedAt\":\"2026-11-02T07:39:21.756Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-02T07:39:21.756Z\",\"endedAt\":\"2026-11-02T07:40:47.331Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-02T07:40:47.331Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"58d7b994-7b08-4bc8-9375-775550e2b276\",\"title\":\"[CC-s05442d] feat(tokun): TXE-4879 POST /v1/audio/transcriptions, billed on ElevenLabs' audio_duration_secs\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4329\"},{\"id\":\"57c4a6d8-0308-4c8c-a35b-6ffdf1cc1354\",\"title\":\"[CC-s2941a6] feat(tokun): TXE-5512 a 300-second budget for synchronous transcription, on a DNS-only audio host\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4503\"}],\"id\":\"TXE-5512\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-4871",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"bbccdb6b-a7c5-4f4c-b908-5ee96bd5a59f\",\"title\":\"[CC-s52e086] Keep audio models out of every text path: model_type in /v1/models, mismatch refusal, circuits, pools, routing rules and the e2e verifier\",\"url\":\"https://linear.app/capso/issue/TXE-4871/cc-s52e086-keep-audio-models-out-of-every-text-path-model-type-in\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-22T06:26:30.366Z\",\"startedAt\":\"2026-10-29T12:47:21.896Z\",\"completedAt\":\"2026-10-30T06:20:58.834Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-03T12:49:58.122Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-22T06:26:30.366Z\",\"endedAt\":\"2026-10-29T12:47:21.928Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-29T12:47:21.928Z\",\"endedAt\":\"2026-10-30T06:09:41.496Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-10-30T06:09:41.496Z\",\"endedAt\":\"2026-10-30T06:20:58.854Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-10-30T06:20:58.854Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"49769680-0a61-46df-81f1-d56435d9e0f5\",\"title\":\"[CC-s05442d] feat(tokun): TXE-4871 keep audio models out of every text path\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4321\"}],\"id\":\"TXE-4871\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5740",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"cd56b4ae-b8da-4ad5-9722-e3108c2733a8\",\"title\":\"[CC-s05442d] Transcription upload capacity is shared fairly across accounts, so one credential's slow uploads cannot take a pod's whole STT memory budget\",\"url\":\"https://linear.app/capso/issue/TXE-5740/cc-s05442d-transcription-upload-capacity-is-shared-fairly-across\",\"status\":\"Backlog\",\"statusType\":\"backlog\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-11-03T11:32:55.397Z\",\"startedAt\":null,\"completedAt\":null,\"canceledAt\":null,\"updatedAt\":\"2026-11-03T12:38:46.566Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-11-03T11:32:55.397Z\",\"endedAt\":null}],\"attachments\":[],\"id\":\"TXE-5740\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-4862",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"283be752-802b-4ddb-8503-20a2c715ac85\",\"title\":\"[CC-s52e086] Measure ElevenLabs billing semantics with a real account and record the results\",\"url\":\"https://linear.app/capso/issue/TXE-4862/cc-s52e086-measure-elevenlabs-billing-semantics-with-a-real-account\",\"status\":\"In Review\",\"statusType\":\"started\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-22T06:24:07.800Z\",\"startedAt\":\"2026-10-30T12:45:23.009Z\",\"completedAt\":null,\"canceledAt\":null,\"updatedAt\":\"2026-11-03T12:38:46.560Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-22T06:24:07.800Z\",\"endedAt\":\"2026-10-30T12:45:23.044Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-10-30T12:45:23.044Z\",\"endedAt\":null}],\"attachments\":[],\"id\":\"TXE-4862\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5743",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"4230fae8-809f-413a-909a-db026a2b8bfb\",\"title\":\"[CC-s05442d] Character-timestamp transcriptions fit the response cap, and an answer above the cap still records the duration ElevenLabs charged\",\"url\":\"https://linear.app/capso/issue/TXE-5743/cc-s05442d-character-timestamp-transcriptions-fit-the-response-cap-and\",\"status\":\"Backlog\",\"statusType\":\"backlog\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-11-03T12:38:46.113Z\",\"startedAt\":null,\"completedAt\":null,\"canceledAt\":null,\"updatedAt\":\"2026-11-03T12:38:46.113Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-11-03T12:38:46.113Z\",\"endedAt\":null}],\"attachments\":[],\"id\":\"TXE-5743\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-4876",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"1c08db1a-877f-4d17-b8a0-3c9f540424a3\",\"title\":\"[CC-s52e086] Measure ElevenLabs behaviour through the deployed Bifrost on staging: error shape, wav, build features and content logging\",\"url\":\"https://linear.app/capso/issue/TXE-4876/cc-s52e086-measure-elevenlabs-behaviour-through-the-deployed-bifrost\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-22T06:27:24.945Z\",\"startedAt\":\"2026-11-02T07:49:39.494Z\",\"completedAt\":\"2026-11-03T12:24:31.466Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-03T12:24:31.487Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-22T06:27:24.945Z\",\"endedAt\":\"2026-11-02T07:49:39.512Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-02T07:49:39.512Z\",\"endedAt\":\"2026-11-03T12:24:31.478Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-03T12:24:31.478Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"f7e8dc23-78b6-4392-bffe-ea640bbcfa53\",\"title\":\"[CC-s71755c] chore(tokun): TXE-4876 probe scripts for ElevenLabs through the staging Bifrost\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4558\"}],\"id\":\"TXE-4876\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-4882",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"6b6678fa-caa3-4588-826e-d42224d4f1b9\",\"title\":\"[CC-s52e086] Route audio across multiple ElevenLabs channels by expected cost, with resellers registered as separate audio providers\",\"url\":\"https://linear.app/capso/issue/TXE-4882/cc-s52e086-route-audio-across-multiple-elevenlabs-channels-by-expected\",\"status\":\"Backlog\",\"statusType\":\"backlog\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-22T06:29:01.971Z\",\"startedAt\":null,\"completedAt\":null,\"canceledAt\":null,\"updatedAt\":\"2026-11-03T12:22:41.663Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-22T06:29:01.971Z\",\"endedAt\":\"2026-10-29T13:17:21.685Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-29T13:17:21.685Z\",\"endedAt\":\"2026-10-30T18:15:31.637Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-10-30T18:15:31.637Z\",\"endedAt\":\"2026-11-02T04:30:27.777Z\"},{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-11-02T04:30:27.777Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"5c1fe602-4ac8-40e7-b234-75318bf587ba\",\"title\":\"[CC-s05442d] feat(tokun): TXE-4882 route audio across ElevenLabs channels by expected cost; a reseller's audio channel is its own provider\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4354\"}],\"id\":\"TXE-4882\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5473",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"3f48e898-5950-489f-aaf3-4858a02946ad\",\"title\":\"[CC-s05442d] Admit a native ElevenLabs custom channel only when the deployed Bifrost advertises elevenlabs as a custom base provider\",\"url\":\"https://linear.app/capso/issue/TXE-5473/cc-s05442d-admit-a-native-elevenlabs-custom-channel-only-when-the\",\"status\":\"Backlog\",\"statusType\":\"backlog\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-30T09:44:39.803Z\",\"startedAt\":null,\"completedAt\":null,\"canceledAt\":null,\"updatedAt\":\"2026-11-03T12:22:41.663Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-10-30T09:44:39.803Z\",\"endedAt\":\"2026-10-30T11:29:18.500Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-30T11:29:18.500Z\",\"endedAt\":\"2026-10-30T12:29:26.275Z\"},{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-10-30T12:29:26.275Z\",\"endedAt\":null}],\"attachments\":[],\"id\":\"TXE-5473\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5742",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"2d6a55a5-0941-4a9e-904f-36abbdbe892b\",\"title\":\"[CC-s34ffd9] Shared-voice sharing.rate / sharing.fiat_rate parsing is proven bounded for every input by a fuzz target CI runs, and its errors carry no rate text\",\"url\":\"https://linear.app/capso/issue/TXE-5742/cc-s34ffd9-shared-voice-sharingrate-sharingfiat-rate-parsing-is-proven\",\"status\":\"Backlog\",\"statusType\":\"backlog\",\"assignee\":null,\"assigneeId\":null,\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-11-03T12:22:32.276Z\",\"startedAt\":null,\"completedAt\":null,\"canceledAt\":null,\"updatedAt\":\"2026-11-03T12:22:32.276Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-11-03T12:22:32.276Z\",\"endedAt\":null}],\"attachments\":[],\"id\":\"TXE-5742\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5741",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"e65a0a43-3a42-404e-931e-177a875adbd8\",\"title\":\"[CC-s056737] tokun-audio-live: the gateway live tests' Bifrost starts on the pinned source's local pricing files, so a getbifrost.ai outage no longer fails the job\",\"url\":\"https://linear.app/capso/issue/TXE-5741/cc-s056737-tokun-audio-live-the-gateway-live-tests-bifrost-starts-on\",\"status\":\"Backlog\",\"statusType\":\"backlog\",\"assignee\":null,\"assigneeId\":null,\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-11-03T11:48:16.040Z\",\"startedAt\":null,\"completedAt\":null,\"canceledAt\":null,\"updatedAt\":\"2026-11-03T11:48:16.040Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-11-03T11:48:16.040Z\",\"endedAt\":null}],\"attachments\":[],\"id\":\"TXE-5741\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5680",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"56404597-9b40-496f-867f-7611bc1bcdd5\",\"title\":\"[CC-s1dda25] Migration 0157 leaves its chat cost copies stale after a down and a later reapply\",\"url\":\"https://linear.app/capso/issue/TXE-5680/cc-s1dda25-migration-0157-leaves-its-chat-cost-copies-stale-after-a\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-11-02T10:41:46.483Z\",\"startedAt\":\"2026-11-02T11:26:37.757Z\",\"completedAt\":\"2026-11-03T10:19:00.191Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-03T11:29:22.487Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-11-02T10:41:46.483Z\",\"endedAt\":\"2026-11-02T11:25:37.255Z\"},{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-11-02T11:25:37.255Z\",\"endedAt\":\"2026-11-02T11:26:37.788Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-02T11:26:37.788Z\",\"endedAt\":\"2026-11-02T14:48:10.735Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-11-02T14:48:10.735Z\",\"endedAt\":\"2026-11-03T10:19:00.199Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-03T10:19:00.199Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"9692e081-cae3-45e0-8e22-24bc8dcd1165\",\"title\":\"[CC-sb32989] fix(tokun): TXE-5680 a down below 0157 refuses while 0157's chat cost copies are unchanged, so a reapply copies the repriced source\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4537\"}],\"id\":\"TXE-5680\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5738",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"9cfc75e4-b868-420b-ab8f-11818a8c9898\",\"title\":\"[CC-scc2415] reconciler_test's ownership tests read a leftover advisory lock row: PoolOwnership.Release closes the session without pg_advisory_unlock, and pg_locks keeps the row until the backend exits\",\"url\":\"https://linear.app/capso/issue/TXE-5738/cc-scc2415-reconciler-tests-ownership-tests-read-a-leftover-advisory\",\"status\":\"Backlog\",\"statusType\":\"backlog\",\"assignee\":null,\"assigneeId\":null,\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-11-03T09:25:30.853Z\",\"startedAt\":null,\"completedAt\":null,\"canceledAt\":null,\"updatedAt\":\"2026-11-03T09:25:30.853Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-11-03T09:25:30.853Z\",\"endedAt\":null}],\"attachments\":[],\"id\":\"TXE-5738\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5707",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"b3f04f76-9bc2-4fc9-bf5d-25e212be0514\",\"title\":\"[CC-s05442d] tokun-schema-compat's skip exception covers TXE-5447's two real-Bifrost tests in tokun/cmd/reconciler (production 0.1.559)\",\"url\":\"https://linear.app/capso/issue/TXE-5707/cc-s05442d-tokun-schema-compats-skip-exception-covers-txe-5447s-two\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-11-02T13:57:15.257Z\",\"startedAt\":\"2026-11-02T13:57:38.222Z\",\"completedAt\":\"2026-11-03T06:54:59.104Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-03T08:34:21.430Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-11-02T13:57:15.257Z\",\"endedAt\":\"2026-11-02T13:57:38.236Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-02T13:57:38.236Z\",\"endedAt\":\"2026-11-02T14:06:28.476Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-11-02T14:06:28.476Z\",\"endedAt\":\"2026-11-03T06:54:59.111Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-03T06:54:59.111Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"f9cb0f64-60bd-4add-9ef4-dfc6971c05b7\",\"title\":\"[CC-sd2b15d] fix(tokun): TXE-5707 tokun-schema-compat registers TXE-5447's two real-Bifrost tests in tokun/cmd/reconciler at production build 0.1.559\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4536\"}],\"id\":\"TXE-5707\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5708",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"81d1d068-d1c3-44be-be88-5c56ecce2b18\",\"title\":\"[CC-sd2b15d] tokun-schema-compat's unit tests run when a test file that skips on BIFROST_AUDIO_ADMIN_URL changes\",\"url\":\"https://linear.app/capso/issue/TXE-5708/cc-sd2b15d-tokun-schema-compats-unit-tests-run-when-a-test-file-that\",\"status\":\"Backlog\",\"statusType\":\"backlog\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-11-02T14:40:37.481Z\",\"startedAt\":null,\"completedAt\":null,\"canceledAt\":null,\"updatedAt\":\"2026-11-02T14:40:37.481Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-11-02T14:40:37.481Z\",\"endedAt\":null}],\"attachments\":[],\"id\":\"TXE-5708\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5702",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"d18dcd22-72d4-486d-a56c-40fcc641013e\",\"title\":\"[CC-s05442d] tokun-schema-compat's real-Bifrost skip exception registers the test file as it stands after TXE-5527 (production 0.1.558)\",\"url\":\"https://linear.app/capso/issue/TXE-5702/cc-s05442d-tokun-schema-compats-real-bifrost-skip-exception-registers\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-11-02T12:33:19.645Z\",\"startedAt\":\"2026-11-02T12:34:24.624Z\",\"completedAt\":\"2026-11-02T13:16:36.791Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-02T13:57:15.895Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-11-02T12:33:19.645Z\",\"endedAt\":\"2026-11-02T12:34:24.640Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-02T12:34:24.640Z\",\"endedAt\":\"2026-11-02T13:11:17.230Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-11-02T13:11:17.230Z\",\"endedAt\":\"2026-11-02T13:16:36.803Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-02T13:16:36.803Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"4ee06b37-d05b-4399-8e58-33e435d0dce6\",\"title\":\"[CC-sd2b15d] fix(tokun): TXE-5702 tokun-schema-compat registers the real-Bifrost test file of production build 0.1.558 beside 0.1.548's\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4531\"}],\"id\":\"TXE-5702\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5527",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"6872f6c3-e21b-4000-ba85-963974f8e4a7\",\"title\":\"[CC-s05442d] tokun-schema-compat's reader run records a precise exception for the two real-Bifrost reconciler tests, which tokun-audio-live runs instead\",\"url\":\"https://linear.app/capso/issue/TXE-5527/cc-s05442d-tokun-schema-compats-reader-run-records-a-precise-exception\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-31T08:09:59.709Z\",\"startedAt\":\"2026-10-31T08:11:36.790Z\",\"completedAt\":\"2026-11-02T07:55:36.426Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-02T13:57:15.895Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-31T08:09:59.709Z\",\"endedAt\":\"2026-10-31T08:11:36.809Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-31T08:11:36.809Z\",\"endedAt\":\"2026-11-02T07:50:41.020Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-11-02T07:50:41.020Z\",\"endedAt\":\"2026-11-02T07:55:36.434Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-02T07:55:36.434Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"bc03f294-25be-40b5-b635-876b06f34aa9\",\"title\":\"[CC-s05442d] fix(tokun): TXE-5527 tokun-schema-compat's reader run records a precise exception for the two real-Bifrost reconciler tests\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4433\"}],\"id\":\"TXE-5527\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-4869",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"c0428029-b75a-4f12-b970-3895a69c9e28\",\"title\":\"[CC-s52e086] Publish model_type in public pricing and render audio models in the catalog, model pages and docs catalog with the right units and endpoints\",\"url\":\"https://linear.app/capso/issue/TXE-4869/cc-s52e086-publish-model-type-in-public-pricing-and-render-audio\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-22T06:26:09.322Z\",\"startedAt\":\"2026-10-29T12:46:52.588Z\",\"completedAt\":\"2026-10-30T07:10:38.074Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-02T13:40:13.340Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-22T06:26:09.322Z\",\"endedAt\":\"2026-10-29T12:46:52.623Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-29T12:46:52.623Z\",\"endedAt\":\"2026-10-30T02:23:47.837Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-10-30T02:23:47.837Z\",\"endedAt\":\"2026-10-30T07:10:38.097Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-10-30T07:10:38.097Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"357924e2-68a3-4484-8558-89afbedc179a\",\"title\":\"feat(tokun): TXE-4869 public pricing publishes model_type; catalogs, model pages and docs catalog show audio models\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4324\"}],\"id\":\"TXE-4869\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-4870",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"3007695a-6a33-458a-bf6e-56b0079d0d96\",\"title\":\"[CC-s52e086] Let admins create disabled audio offerings and enter audio reference prices and discounts\",\"url\":\"https://linear.app/capso/issue/TXE-4870/cc-s52e086-let-admins-create-disabled-audio-offerings-and-enter-audio\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-22T06:26:19.069Z\",\"startedAt\":\"2026-10-29T12:47:08.277Z\",\"completedAt\":\"2026-10-30T10:57:03.874Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-02T13:37:39.019Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-22T06:26:19.069Z\",\"endedAt\":\"2026-10-29T12:47:08.313Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-29T12:47:08.313Z\",\"endedAt\":\"2026-10-30T02:23:44.786Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-10-30T02:23:44.786Z\",\"endedAt\":\"2026-10-30T10:57:03.893Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-10-30T10:57:03.893Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"439bd68b-1e6d-4c0d-b2a7-1c462bb5157e\",\"title\":\"[CC-s05442d] feat(tokun): TXE-4870 admins create disabled audio offerings and enter audio reference prices\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4322\"}],\"id\":\"TXE-4870\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-4874",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"27defea3-fe48-4a1f-bf06-c68f77d92227\",\"title\":\"[CC-s52e086] Register ElevenLabs as a built-in Tokun provider and prove the P1 build reads the resulting audio data\",\"url\":\"https://linear.app/capso/issue/TXE-4874/cc-s52e086-register-elevenlabs-as-a-built-in-tokun-provider-and-prove\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-22T06:26:57.558Z\",\"startedAt\":\"2026-10-29T12:47:05.682Z\",\"completedAt\":\"2026-11-02T10:25:41.269Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-02T13:36:33.915Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-22T06:26:57.558Z\",\"endedAt\":\"2026-10-29T12:47:05.710Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-29T12:47:05.710Z\",\"endedAt\":\"2026-11-02T09:04:27.470Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-11-02T09:04:27.470Z\",\"endedAt\":\"2026-11-02T10:25:41.275Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-02T10:25:41.275Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"84eebf31-9949-44be-9b80-5e72ac7dccaa\",\"title\":\"[CC-s05442d] feat(tokun): TXE-4874 seed elevenlabs as a built-in provider, and pinned P1 builds read its audio data\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4315\"}],\"id\":\"TXE-4874\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5480",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"fb12aaac-0c27-4900-bfd3-2e20969b8eb8\",\"title\":\"[CC-s811e97] Turn on streamed text-to-speech on staging after the Bifrost final-chunk fix, with the A3.1, A3.4 and A3.5 records and the rollback drill\",\"url\":\"https://linear.app/capso/issue/TXE-5480/cc-s811e97-turn-on-streamed-text-to-speech-on-staging-after-the\",\"status\":\"In Progress\",\"statusType\":\"started\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-30T10:58:20.743Z\",\"startedAt\":\"2026-11-02T11:26:17.845Z\",\"completedAt\":null,\"canceledAt\":null,\"updatedAt\":\"2026-11-02T12:36:57.090Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-10-30T10:58:20.743Z\",\"endedAt\":\"2026-10-30T10:59:55.487Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-30T10:59:55.487Z\",\"endedAt\":\"2026-10-30T12:44:31.339Z\"},{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-30T12:44:31.339Z\",\"endedAt\":\"2026-11-02T11:26:17.858Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-02T11:26:17.858Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"8b7ed615-4acf-4a3b-99e9-be0ad18d18f4\",\"title\":\"[CC-s05dfd3] feat(tokun): TXE-5480 turn streamed speech on in staging and move the audio job to Bifrost 9dea02d50\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4519\"}],\"id\":\"TXE-5480\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5087",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"eccdf4f6-56c2-4651-9291-57a755d48242\",\"title\":\"[CC-codex-df804cd28e64] Support separately named ElevenLabs channels as Bifrost custom providers\",\"url\":\"https://linear.app/capso/issue/TXE-5087/cc-codex-df804cd28e64-support-separately-named-elevenlabs-channels-as\",\"status\":\"Backlog\",\"statusType\":\"backlog\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-23T15:20:31.153Z\",\"startedAt\":null,\"completedAt\":null,\"canceledAt\":null,\"updatedAt\":\"2026-11-02T11:27:36.502Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-23T15:20:31.153Z\",\"endedAt\":\"2026-10-23T15:42:51.933Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-23T15:42:51.933Z\",\"endedAt\":\"2026-11-02T04:17:48.895Z\"},{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-11-02T04:17:48.895Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"615c9351-b845-4375-a987-5c45656db22a\",\"title\":\"[feat]: support named ElevenLabs custom audio channels (TXE-5087)\",\"subtitle\":null,\"url\":\"https://github.com/txehq/bifrost/pull/24\"}],\"id\":\"TXE-5087\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5677",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"34c478da-707a-4b55-99aa-54190fad7ab2\",\"title\":\"[CC-s05442d] Bifrost: split the ElevenLabs speech-stream final-chunk fix (D6) out of PR #24 into its own PR\",\"url\":\"https://linear.app/capso/issue/TXE-5677/cc-s05442d-bifrost-split-the-elevenlabs-speech-stream-final-chunk-fix\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-11-02T09:41:48.347Z\",\"startedAt\":\"2026-11-02T09:43:51.453Z\",\"completedAt\":\"2026-11-02T11:12:22.889Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-02T11:27:36.427Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-11-02T09:41:48.347Z\",\"endedAt\":\"2026-11-02T09:43:51.495Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-02T09:43:51.495Z\",\"endedAt\":\"2026-11-02T10:44:24.933Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-11-02T10:44:24.933Z\",\"endedAt\":\"2026-11-02T11:12:22.900Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-02T11:12:22.900Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"307d7b95-a4e5-4d2f-a71b-075ee772a2b0\",\"title\":\"TXE-5677: Forward the ElevenLabs stream bytes returned with io.EOF before done\",\"subtitle\":null,\"url\":\"https://github.com/txehq/bifrost/pull/92\"}],\"id\":\"TXE-5677\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-4859",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"a6017cb7-dfa8-4e22-8b11-cf1c15130d27\",\"title\":\"[CC-s52e086] Prove every deployed Tokun reader runs against the next migration with a dual-version CI job and a reader version list\",\"url\":\"https://linear.app/capso/issue/TXE-4859/cc-s52e086-prove-every-deployed-tokun-reader-runs-against-the-next\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-22T06:23:29.793Z\",\"startedAt\":\"2026-10-22T15:02:37.569Z\",\"completedAt\":\"2026-10-26T04:07:13.971Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-02T09:44:15.412Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-22T06:23:29.793Z\",\"endedAt\":\"2026-10-22T15:02:37.604Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-22T15:02:37.604Z\",\"endedAt\":\"2026-10-22T15:18:42.863Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-10-22T15:18:42.863Z\",\"endedAt\":\"2026-10-22T15:27:15.075Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-22T15:27:15.075Z\",\"endedAt\":\"2026-10-22T15:38:13.626Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-10-22T15:38:13.626Z\",\"endedAt\":\"2026-10-22T16:41:38.816Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-22T16:41:38.816Z\",\"endedAt\":\"2026-10-23T04:57:03.620Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-10-23T04:57:03.620Z\",\"endedAt\":\"2026-10-26T04:07:13.985Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-10-26T04:07:13.985Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"a5f730bf-3ba4-47ab-9125-38ab6d55b964\",\"title\":\"TXE-4859 required checker failure evidence\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4157\"},{\"id\":\"6f3738ce-570d-475e-a5ba-0d6808710eba\",\"title\":\"test(tokun): verify final unrelated selection (TXE-4859)\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4124\"},{\"id\":\"eaa0d134-4164-4619-b3eb-a9efde1abffe\",\"title\":\"test(tokun): prove incompatible schema rejection (TXE-4859)\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4123\"},{\"id\":\"dc0c2ff0-7034-4f87-a168-1d07fdf4100c\",\"title\":\"test(tokun): prove unrelated compatibility selection (TXE-4859)\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4122\"},{\"id\":\"f4526997-7d1c-4065-a4d4-e4fec4fe01b0\",\"title\":\"ci(tokun): verify production readers on candidate schemas (TXE-4859)\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4120\"}],\"id\":\"TXE-4859\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5676",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"5a8e927e-35a1-4015-ad3a-b59cdff9e75f\",\"title\":\"[CC-s05442d] audio-data gate verifies live production reader images, not only the newest release render\",\"url\":\"https://linear.app/capso/issue/TXE-5676/cc-s05442d-audio-data-gate-verifies-live-production-reader-images-not\",\"status\":\"Backlog\",\"statusType\":\"backlog\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-11-02T09:24:52.170Z\",\"startedAt\":null,\"completedAt\":null,\"canceledAt\":null,\"updatedAt\":\"2026-11-02T09:44:15.106Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-11-02T09:24:52.170Z\",\"endedAt\":null}],\"attachments\":[],\"id\":\"TXE-5676\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5654",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"edcf01c3-9f38-4615-ad58-4c4164f203cd\",\"title\":\"[CC-s05442d] tokun-schema-compat's reader run discovers the production readers from the newest release at run time instead of a committed inventory\",\"url\":\"https://linear.app/capso/issue/TXE-5654/cc-s05442d-tokun-schema-compats-reader-run-discovers-the-production\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-11-02T04:45:08.971Z\",\"startedAt\":\"2026-11-02T04:46:47.131Z\",\"completedAt\":\"2026-11-02T06:17:45.234Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-02T09:24:52.620Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-11-02T04:45:08.971Z\",\"endedAt\":\"2026-11-02T04:46:47.146Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-11-02T04:46:47.146Z\",\"endedAt\":\"2026-11-02T05:26:16.039Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-11-02T05:26:16.039Z\",\"endedAt\":\"2026-11-02T06:17:45.245Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-02T06:17:45.245Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"ceddf71f-e89e-42c1-8392-c6d3d790f61d\",\"title\":\"[CC-scd64f1] fix(tokun): TXE-5654 the schema-compat reader run derives its readers from the newest production release\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4501\"}],\"id\":\"TXE-5654\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-4866",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"7c1a91f2-649d-474c-91d9-e5d7ebde93ab\",\"title\":\"[CC-s52e086] Reconcile audio Bifrost provider config — elevenlabs dialect, speech/transcription request types, zero retries — and read it back\",\"url\":\"https://linear.app/capso/issue/TXE-4866/cc-s52e086-reconcile-audio-bifrost-provider-config-elevenlabs-dialect\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-22T06:25:19.215Z\",\"startedAt\":\"2026-10-23T15:01:50.094Z\",\"completedAt\":\"2026-10-30T12:36:28.866Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-02T07:36:29.381Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-22T06:25:19.215Z\",\"endedAt\":\"2026-10-23T15:01:50.109Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-23T15:01:50.109Z\",\"endedAt\":\"2026-10-23T15:42:56.242Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-10-23T15:42:56.242Z\",\"endedAt\":\"2026-10-23T15:45:14.045Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-23T15:45:14.045Z\",\"endedAt\":\"2026-10-30T12:36:28.879Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-10-30T12:36:28.879Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"b111f922-8a23-4710-88b8-ae9fa59df718\",\"title\":\"feat(tokun): reconcile audio provider configuration (TXE-4866)\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4172\"}],\"id\":\"TXE-4866\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-4868",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"3095698e-b612-410c-ba60-414b535bcb88\",\"title\":\"[CC-s52e086] Keep the margin guard and cost-completeness alerts correct for audio channels\",\"url\":\"https://linear.app/capso/issue/TXE-4868/cc-s52e086-keep-the-margin-guard-and-cost-completeness-alerts-correct\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-22T06:25:48.405Z\",\"startedAt\":\"2026-10-29T11:31:19.535Z\",\"completedAt\":\"2026-10-30T07:48:00.064Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-02T05:06:00.749Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-22T06:25:48.405Z\",\"endedAt\":\"2026-10-29T11:31:19.579Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-29T11:31:19.579Z\",\"endedAt\":\"2026-10-30T06:08:51.845Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-10-30T06:08:51.845Z\",\"endedAt\":\"2026-10-30T07:48:00.083Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-10-30T07:48:00.083Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"c193411d-1561-4af9-9d2b-4af54ea74bb4\",\"title\":\"[CC-s05442d] feat(tokun): TXE-4868 the margin guard and cost-completeness monitors judge audio channels by their own classes\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4317\"}],\"id\":\"TXE-4868\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5502",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"6e310d68-5141-405b-9fc4-4cc5debf2e8e\",\"title\":\"[CC-s05442d] tokun-schema-compat's reader run provides the tokun ClickHouse schema the production api build's usage pgtests read\",\"url\":\"https://linear.app/capso/issue/TXE-5502/cc-s05442d-tokun-schema-compats-reader-run-provides-the-tokun\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-30T15:05:41.280Z\",\"startedAt\":\"2026-10-30T15:07:40.588Z\",\"completedAt\":\"2026-11-02T03:05:03.610Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-02T05:05:49.202Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-30T15:05:41.280Z\",\"endedAt\":\"2026-10-30T15:07:40.617Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-30T15:07:40.617Z\",\"endedAt\":\"2026-10-30T15:57:30.146Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-10-30T15:57:30.146Z\",\"endedAt\":\"2026-11-02T03:05:03.616Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-02T03:05:03.616Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"32ce54d2-eafc-4337-9b2d-a10bfe5554f8\",\"title\":\"[CC-s05442d] fix(tokun): TXE-5502 schema-compat reader run provides the tokun ClickHouse schema\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4415\"}],\"id\":\"TXE-5502\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5489",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"63b178b2-8f86-4d14-8e7f-491d43eb3e19\",\"title\":\"[CC-s05442d] Refresh the audio reader inventory for production release 2026.10.84\",\"url\":\"https://linear.app/capso/issue/TXE-5489/cc-s05442d-refresh-the-audio-reader-inventory-for-production-release\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-30T13:16:50.611Z\",\"startedAt\":\"2026-10-30T13:16:50.726Z\",\"completedAt\":\"2026-11-02T03:04:56.002Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-02T04:45:09.468Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-30T13:16:50.611Z\",\"endedAt\":\"2026-10-30T15:43:51.943Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-10-30T15:43:51.943Z\",\"endedAt\":\"2026-11-02T03:04:56.015Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-11-02T03:04:56.015Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"544abe52-799f-4cc7-9168-4159c0b2e26c\",\"title\":\"[CC-s05442d] docs(tokun): TXE-5489 the audio runbook snapshot table records production release 2026.10.88\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4414\"}],\"id\":\"TXE-5489\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-4867",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"51a1429c-d0b3-463b-b3eb-fa6bcad261da\",\"title\":\"[CC-s52e086] Settle, cost, refund and reconcile audio requests with their quantities and request metadata\",\"url\":\"https://linear.app/capso/issue/TXE-4867/cc-s52e086-settle-cost-refund-and-reconcile-audio-requests-with-their\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-22T06:25:36.909Z\",\"startedAt\":\"2026-10-29T11:31:03.620Z\",\"completedAt\":\"2026-10-30T03:10:46.909Z\",\"canceledAt\":null,\"updatedAt\":\"2026-11-02T04:43:34.382Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-22T06:25:36.909Z\",\"endedAt\":\"2026-10-29T11:31:03.737Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-29T11:31:03.737Z\",\"endedAt\":\"2026-10-30T02:24:43.818Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-10-30T02:24:43.818Z\",\"endedAt\":\"2026-10-30T03:10:46.923Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-10-30T03:10:46.923Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"21ce63f4-b571-40bd-ae54-3bdb8928ec2e\",\"title\":\"[CC-s05442d] feat(tokun): TXE-4867 settle, cost, refund and reconcile audio requests\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4318\"}],\"id\":\"TXE-4867\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-4863",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"c6c4a8c6-8287-45dc-993b-957b2e227429\",\"title\":\"[CC-s52e086] Expand Tokun's billing schema for audio units and model_type, and make every offering and cost reader accept token-price-less rows\",\"url\":\"https://linear.app/capso/issue/TXE-4863/cc-s52e086-expand-tokuns-billing-schema-for-audio-units-and-model-type\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-22T06:24:32.030Z\",\"startedAt\":\"2026-10-23T12:52:47.052Z\",\"completedAt\":\"2026-10-29T09:48:42.300Z\",\"canceledAt\":null,\"updatedAt\":\"2026-10-30T15:38:58.314Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-22T06:24:32.030Z\",\"endedAt\":\"2026-10-23T12:52:47.067Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-23T12:52:47.067Z\",\"endedAt\":\"2026-10-23T13:33:55.642Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-10-23T13:33:55.642Z\",\"endedAt\":\"2026-10-23T13:41:33.012Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-23T13:41:33.012Z\",\"endedAt\":\"2026-10-23T14:50:41.194Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-10-23T14:50:41.194Z\",\"endedAt\":\"2026-10-29T09:48:42.328Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-10-29T09:48:42.328Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"574a1be0-951c-4859-883b-6ce1cc8d328d\",\"title\":\"feat(tokun): expand audio billing schema and nullable readers (TXE-4863)\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4170\"}],\"id\":\"TXE-4863\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5405",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"ce37d4cc-94a0-4579-af96-57120a4bffd6\",\"title\":\"[CC-s05442d] Postgres usage reads select a window on the same timestamp as ClickHouse's usage events\",\"url\":\"https://linear.app/capso/issue/TXE-5405/cc-s05442d-postgres-usage-reads-select-a-window-on-the-same-timestamp\",\"status\":\"Backlog\",\"statusType\":\"backlog\",\"assignee\":\"Connor Wang\",\"assigneeId\":\"f92b2a27-822f-4fdc-b6f1-dd3df6e6376d\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-29T14:53:04.502Z\",\"startedAt\":null,\"completedAt\":null,\"canceledAt\":null,\"updatedAt\":\"2026-10-30T10:09:17.181Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-10-29T14:53:04.502Z\",\"endedAt\":\"2026-10-30T10:07:17.048Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-30T10:07:17.048Z\",\"endedAt\":\"2026-10-30T10:09:17.176Z\"},{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-10-30T10:09:17.176Z\",\"endedAt\":null}],\"attachments\":[],\"id\":\"TXE-5405\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5375",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"e744cfae-eeb8-44ca-8379-7bc4fe33f91b\",\"title\":\"[CC-s295fc5] Dialect rebuild of a custom Bifrost provider drops operator-set network, concurrency and custom options\",\"url\":\"https://linear.app/capso/issue/TXE-5375/cc-s295fc5-dialect-rebuild-of-a-custom-bifrost-provider-drops-operator\",\"status\":\"Backlog\",\"statusType\":\"backlog\",\"assignee\":\"Connor Wang\",\"assigneeId\":\"f92b2a27-822f-4fdc-b6f1-dd3df6e6376d\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-29T09:48:15.432Z\",\"startedAt\":null,\"completedAt\":null,\"canceledAt\":null,\"updatedAt\":\"2026-10-30T10:09:13.140Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-10-29T09:48:15.432Z\",\"endedAt\":\"2026-10-30T10:05:40.429Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-30T10:05:40.429Z\",\"endedAt\":\"2026-10-30T10:09:13.136Z\"},{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-10-30T10:09:13.136Z\",\"endedAt\":null}],\"attachments\":[],\"id\":\"TXE-5375\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5437",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"a637e947-2b68-4ad2-8ef6-5260b3237e9a\",\"title\":\"[CC-s05442d] Problem report for the Bifrost owner: ElevenLabs' raw error body is dropped when `detail` carries `type`, so Tokun cannot return `detail.code`\",\"url\":\"https://linear.app/capso/issue/TXE-5437/cc-s05442d-problem-report-for-the-bifrost-owner-elevenlabs-raw-error\",\"status\":\"Backlog\",\"statusType\":\"backlog\",\"assignee\":\"Connor Wang\",\"assigneeId\":\"f92b2a27-822f-4fdc-b6f1-dd3df6e6376d\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-30T06:08:53.605Z\",\"startedAt\":null,\"completedAt\":null,\"canceledAt\":null,\"updatedAt\":\"2026-10-30T06:30:15.984Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-10-30T06:08:53.605Z\",\"endedAt\":null}],\"attachments\":[],\"id\":\"TXE-5437\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5438",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"9dfe246b-041b-47bb-87ca-23e244c3712a\",\"title\":\"[CC-s05442d] Decide whether the gateway tells a known-but-unroutable model apart from an unknown name before routing rules rewrite it\",\"url\":\"https://linear.app/capso/issue/TXE-5438/cc-s05442d-decide-whether-the-gateway-tells-a-known-but-unroutable\",\"status\":\"Backlog\",\"statusType\":\"backlog\",\"assignee\":\"Connor Wang\",\"assigneeId\":\"f92b2a27-822f-4fdc-b6f1-dd3df6e6376d\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-30T06:09:10.870Z\",\"startedAt\":null,\"completedAt\":null,\"canceledAt\":null,\"updatedAt\":\"2026-10-30T06:30:15.526Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-10-30T06:09:10.870Z\",\"endedAt\":null}],\"attachments\":[],\"id\":\"TXE-5438\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-4872",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"42dd62f8-c244-4041-9a56-f7ae614c558b\",\"title\":\"[CC-s52e086] Aggregate audio usage server-side for account, model and key, and return it from the usage and transactions APIs\",\"url\":\"https://linear.app/capso/issue/TXE-4872/cc-s52e086-aggregate-audio-usage-server-side-for-account-model-and-key\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-22T06:26:39.956Z\",\"startedAt\":\"2026-10-29T12:46:51.073Z\",\"completedAt\":\"2026-10-30T04:54:09.071Z\",\"canceledAt\":null,\"updatedAt\":\"2026-10-30T05:09:53.398Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-22T06:26:39.956Z\",\"endedAt\":\"2026-10-29T12:46:51.109Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-29T12:46:51.109Z\",\"endedAt\":\"2026-10-30T02:24:22.296Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-10-30T02:24:22.296Z\",\"endedAt\":\"2026-10-30T04:54:09.087Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-10-30T04:54:09.087Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"79d05312-9a64-4645-9bb2-6342709f22a2\",\"title\":\"[CC-s05442d] feat(tokun): TXE-4872 aggregate audio usage server-side for account, model and key in the usage and transactions APIs\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4323\"}],\"id\":\"TXE-4872\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-5378",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"efd1fb97-d6ba-4ed7-9338-ef4dc6a07a98\",\"title\":\"[CC-se859d8] Reject a default audio cost seed that conflicts with the cost row another alias already seeded on the same upstream model id\",\"url\":\"https://linear.app/capso/issue/TXE-5378/cc-se859d8-reject-a-default-audio-cost-seed-that-conflicts-with-the\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-29T10:44:59.880Z\",\"startedAt\":\"2026-10-29T11:31:08.439Z\",\"completedAt\":\"2026-10-30T03:10:37.077Z\",\"canceledAt\":null,\"updatedAt\":\"2026-10-30T03:10:37.122Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-10-29T10:44:59.880Z\",\"endedAt\":\"2026-10-29T11:31:08.476Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-29T11:31:08.476Z\",\"endedAt\":\"2026-10-30T02:22:38.513Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-10-30T02:22:38.513Z\",\"endedAt\":\"2026-10-30T03:10:37.112Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-10-30T03:10:37.112Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"f1662bba-0d26-4980-b26e-8ab1cf6c1f44\",\"title\":\"[CC-s05442d] fix(tokun): TXE-5378 reject a default audio cost seed that conflicts on a shared upstream id\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4316\"}],\"id\":\"TXE-5378\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-4865",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"af3029f9-445d-420e-a460-c6644981a67e\",\"title\":\"[CC-s52e086] Resolve COGS multipliers for audio cost classes and keep one model_type per logical model across offerings, aliases and costs\",\"url\":\"https://linear.app/capso/issue/TXE-4865/cc-s52e086-resolve-cogs-multipliers-for-audio-cost-classes-and-keep\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-22T06:25:07.579Z\",\"startedAt\":\"2026-10-26T04:14:06.001Z\",\"completedAt\":\"2026-10-29T11:16:31.082Z\",\"canceledAt\":null,\"updatedAt\":\"2026-10-29T13:25:16.299Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-22T06:25:07.579Z\",\"endedAt\":\"2026-10-26T04:14:06.058Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-26T04:14:06.058Z\",\"endedAt\":\"2026-10-26T05:20:33.217Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-10-26T05:20:33.217Z\",\"endedAt\":\"2026-10-26T05:33:26.099Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-26T05:33:26.099Z\",\"endedAt\":\"2026-10-29T11:16:31.104Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-10-29T11:16:31.104Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"535d6b23-dc7b-4977-a427-daca88fb3ca0\",\"title\":\"feat(tokun): resolve audio channel COGS and preserve model identity (TXE-4865)\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4215\"}],\"id\":\"TXE-4865\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-4864",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"d8eb2dd5-8acf-4a2a-931e-148c4a9fe88c\",\"title\":\"[CC-s52e086] Price audio categories per model_type in the retail plane while leaving every text price unchanged\",\"url\":\"https://linear.app/capso/issue/TXE-4864/cc-s52e086-price-audio-categories-per-model-type-in-the-retail-plane\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-22T06:24:54.123Z\",\"startedAt\":\"2026-10-23T13:23:49.556Z\",\"completedAt\":\"2026-10-29T10:10:55.432Z\",\"canceledAt\":null,\"updatedAt\":\"2026-10-29T10:10:55.456Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-22T06:24:54.123Z\",\"endedAt\":\"2026-10-23T13:23:49.565Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-23T13:23:49.565Z\",\"endedAt\":\"2026-10-23T13:53:31.835Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-10-23T13:53:31.835Z\",\"endedAt\":\"2026-10-23T13:58:11.798Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-23T13:58:11.798Z\",\"endedAt\":\"2026-10-23T14:48:01.589Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-10-23T14:48:01.589Z\",\"endedAt\":\"2026-10-29T10:10:55.450Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-10-29T10:10:55.450Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"af65ba62-9a29-4a69-91b5-744cc8fc6db8\",\"title\":\"TXE-4864: price audio categories by model type with frozen revisions\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4171\"}],\"id\":\"TXE-4864\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-4861",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"4370eb1e-9542-42d8-a77c-f4c69071ad6d\",\"title\":\"[CC-s52e086] Read the billable duration of an uploaded audio file in the gateway for mp3, wav, m4a, ogg/opus, flac and webm\",\"url\":\"https://linear.app/capso/issue/TXE-4861/cc-s52e086-read-the-billable-duration-of-an-uploaded-audio-file-in-the\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-22T06:23:56.068Z\",\"startedAt\":\"2026-10-22T15:03:22.456Z\",\"completedAt\":\"2026-10-28T13:41:52.177Z\",\"canceledAt\":null,\"updatedAt\":\"2026-10-28T13:41:52.212Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-22T06:23:56.068Z\",\"endedAt\":\"2026-10-22T15:03:22.499Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-22T15:03:22.499Z\",\"endedAt\":\"2026-10-22T16:12:19.255Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-10-22T16:12:19.255Z\",\"endedAt\":\"2026-10-22T16:13:33.986Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-22T16:13:33.986Z\",\"endedAt\":\"2026-10-28T13:41:52.205Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-10-28T13:41:52.205Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"35ca722f-4b32-442c-981e-062b0bd748ff\",\"title\":\"feat(tokun): read bounded audio duration (TXE-4861)\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4125\"}],\"id\":\"TXE-4861\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-4860",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"fe50da65-9099-4d93-ba9d-96c76681beda\",\"title\":\"[CC-s52e086] Let a gateway handler abort a committed response while keeping its access line and route metrics, and add the gateway audio config section\",\"url\":\"https://linear.app/capso/issue/TXE-4860/cc-s52e086-let-a-gateway-handler-abort-a-committed-response-while\",\"status\":\"Done\",\"statusType\":\"completed\",\"assignee\":\"eluo@txehq.com\",\"assigneeId\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdBy\":\"eluo@txehq.com\",\"createdById\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"createdAt\":\"2026-10-22T06:23:43.651Z\",\"startedAt\":\"2026-10-22T15:01:56.814Z\",\"completedAt\":\"2026-10-28T12:22:59.365Z\",\"canceledAt\":null,\"updatedAt\":\"2026-10-28T12:22:59.410Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"3f787b71-c9cb-4a2c-b5fc-5443f74faab4\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-10-22T06:23:43.651Z\",\"endedAt\":\"2026-10-22T15:01:57.143Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-22T15:01:57.143Z\",\"endedAt\":\"2026-10-22T15:17:30.742Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-10-22T15:17:30.742Z\",\"endedAt\":\"2026-10-22T15:28:09.180Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-22T15:28:09.180Z\",\"endedAt\":\"2026-10-22T15:36:39.435Z\"},{\"state\":{\"id\":\"2e3b0b81-10ad-41f6-93b8-b46f5043e037\",\"name\":\"In Review\",\"type\":\"started\"},\"startedAt\":\"2026-10-22T15:36:39.435Z\",\"endedAt\":\"2026-10-28T12:22:59.400Z\"},{\"state\":{\"id\":\"e2c3ffd7-13a9-4837-87f1-845f0a1ab036\",\"name\":\"Done\",\"type\":\"completed\"},\"startedAt\":\"2026-10-28T12:22:59.400Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"96054df0-3cc4-46ab-b64b-255ac956bbc4\",\"title\":\"TXE-4860: preserve gateway abort observations and validate audio config\",\"subtitle\":null,\"url\":\"https://github.com/txehq/txe/pull/4119\"}],\"id\":\"TXE-4860\"}"
+    }
+  ]
+}

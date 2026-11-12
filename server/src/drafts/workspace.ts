@@ -21,13 +21,13 @@ import type {
   WorkspaceView,
 } from './views.js';
 
-// 比较工作目录的间隔：与 ingest 的 watcher 相同按间隔比较，不依赖 FSEvents（大量写入时会整段丢弃事件）
+// Interval for comparing the working dir: polled like the ingest watcher, independent of FSEvents (which drops whole runs of events under heavy writes)
 const POLL_MS = 250;
-// 上一版的快照：每秒比较一次，文件改动停下 5 秒后记下（Contracts 26.4）
+// Previous-version snapshot: compared every second, recorded once file changes have been still for 5 seconds (Contracts 26.4)
 const SNAPSHOT_POLL_MS = 1000;
 export const SNAPSHOT_QUIET_MS = 5000;
 
-// 一项的 src/skills 最近一次变化：签名、变化的时间、这次变化之后是否已经判断过要不要记快照
+// An item's latest src/skills change: signature, time of change, and whether a snapshot was considered since
 interface Quiet {
   sig: string;
   changedAt: number;
@@ -36,17 +36,17 @@ interface Quiet {
 
 const atOf = (found: { at: number } | null) => (found === null ? null : { at: found.at });
 
-// SSE 的一个连接
+// One SSE connection
 export interface WorkspaceConnection {
   send(event: WorkspaceEvent): void;
-  // 服务端结束这个连接
+  // The server ends this connection
   end(): void;
 }
 
 interface Watcher {
   src: string;
   workflowYaml: string;
-  // 文件（相对 src/）与 workflow.yaml 的 mtime、大小与 inode
+  // mtime, size and inode of files (relative to src/) and workflow.yaml
   snapshot: Map<string, string>;
   connections: Set<WorkspaceConnection>;
   timer: ReturnType<typeof setInterval>;
@@ -54,7 +54,7 @@ interface Watcher {
 
 const WORKFLOW_KEY = 'workflow.yaml';
 
-// src/skills 下的文件（相对 src/）；准备中还没有复制出 src 时为空。符号链接不是文件，不列出
+// Files under src/skills (relative to src/); empty while preparing before src is copied. Symlinks are not files and are not listed
 const filesOf = (src: string | null) =>
   src !== null && fs.existsSync(path.join(src, 'skills')) ? listSkillFiles(src) : [];
 
@@ -70,18 +70,18 @@ function statusOf(work: Buffer | null, base: Buffer | null): WorkspaceFileStatus
   return work.equals(base) ? 'unchanged' : 'modified';
 }
 
-// workflow.yaml 解析失败是要显示给人的结果（Contracts 26.2），以原文返回
+// A workflow.yaml parse failure is a result shown to people (Contracts 26.2), returned with the original text
 function readWorkflow(file: string): { definition: WorkflowDefinition } | { error: string } {
-  if (!fs.existsSync(file)) return { error: `没有 workflow.yaml：${file}` };
+  if (!fs.existsSync(file)) return { error: `No workflow.yaml: ${file}` };
   const doc = parseDocument(fs.readFileSync(file, 'utf8'));
   if (doc.errors.length > 0) {
     return {
-      error: `workflow.yaml 不是合法的 YAML：${doc.errors.map((e) => e.message).join('；')}`,
+      error: `workflow.yaml is not valid YAML: ${doc.errors.map((e) => e.message).join('; ')}`,
     };
   }
   const result = WorkflowDefinition.safeParse(doc.toJS());
   if (!result.success) {
-    return { error: `workflow.yaml 不符合 workflow schema：${result.error.message}` };
+    return { error: `workflow.yaml does not match the workflow schema: ${result.error.message}` };
   }
   return { definition: result.data };
 }
@@ -103,14 +103,14 @@ function snapshotOf(src: string, workflowYaml: string): Map<string, string> {
   return snapshot;
 }
 
-// 设计与优化会话的 workflow 面板（Contracts 26.4）：工作目录中 src/skills 与 workflow.yaml 的只读视图与监视
+// Workflow panel of design and optimize sessions (Contracts 26.4): read-only view and watching of src/skills and workflow.yaml in the working dir
 export function createWorkspace({ db, drafts }: { db: Db; drafts: Drafts }) {
   const watchers = new Map<string, Watcher>();
 
   function tree(liveId: string): WorkspaceView {
     const { draft, layout, base, baseSrc } = drafts.workspaceOf(liveId);
     const paths = [...new Set([...filesOf(layout.src), ...filesOf(baseSrc)])].sort();
-    // 列出之后、读取之前被 agent 删除的文件不再列出
+    // Files the agent deletes between listing and reading are no longer listed
     const files = paths.flatMap((file) => {
       const work = readIn(layout.src, file);
       const status = statusOf(work, readIn(baseSrc, file));
@@ -166,18 +166,21 @@ export function createWorkspace({ db, drafts }: { db: Db; drafts: Drafts }) {
     };
   }
 
-  // 对比的对象的根（其下是 skills/）：底子为底子的 src/（没有时为 null，全部算新增）；上次保存与上一版不存在时 409
+  // Root of what is compared against (with skills/ under it): the base's src/ for base (null when none, everything new); 409 when last saved or previous does not exist
   function againstRoot(liveId: string, against: WorkspaceAgainst): string | null {
     const { draft, layout, baseSrc } = drafts.workspaceOf(liveId);
     if (against === 'base') return baseSrc;
     if (against === 'saved') {
       const saved = savedCopy(layout);
-      if (saved === null) throw new HttpError(409, `草稿 ${draft.id} 还没有保存过`);
+      if (saved === null) throw new HttpError(409, `Draft ${draft.id} has never been saved`);
       return saved.root;
     }
     const previous = previousSnapshot(layout);
     if (previous === null) {
-      throw new HttpError(409, '还没有上一版：文件改动停下 5 秒后才记下一份');
+      throw new HttpError(
+        409,
+        'No previous version yet: one is recorded once file changes have been still for 5 seconds',
+      );
     }
     return previous.root;
   }
@@ -233,7 +236,7 @@ export function createWorkspace({ db, drafts }: { db: Db; drafts: Drafts }) {
     });
   }
 
-  // 项被关闭或删除（两者都发布 live.updated）：通知页面并释放监视器
+  // The item was closed or deleted (both publish live.updated): notify the page and release the watcher
   const unsubscribe = events.subscribe((event) => {
     if (event.type !== 'live.updated') return;
     const watcher = watchers.get(event.liveId);
@@ -248,9 +251,9 @@ export function createWorkspace({ db, drafts }: { db: Db; drafts: Drafts }) {
     release(event.liveId);
   });
 
-  // 上一版的快照（Contracts 26.4、28.4）：没有关闭、准备完成的设计与优化项，每秒比较 src/skills 下文件的 mtime 与大小，
-  // 最后一次变化之后停下 5 秒时记下一份（与最新一份相同时不记）。与 SSE 的监视器分开，没有页面打开时也记；
-  // 服务启动后第一次看到的项从这时算起
+  // Previous-version snapshots (Contracts 26.4, 28.4): for open, prepared design and optimize items, compare mtime and size of files under src/skills every second,
+  // recording a copy once the last change has been still for 5 seconds (not when equal to the latest). Separate from the SSE watcher, so it records with no page open;
+  // items first seen after server start count from then
   const quiet = new Map<string, Quiet>();
   function recordSnapshots() {
     const open = db
@@ -280,8 +283,8 @@ export function createWorkspace({ db, drafts }: { db: Db; drafts: Drafts }) {
     }
   }
   const snapshotTimer = setInterval(() => {
-    // 列出或复制的中途 agent 删掉了目录（ENOENT）是正常的改动：这一项的签名随之变化，停下 5 秒后重新记。
-    // 其他错误照常抛出
+    // The agent deleting a dir mid-listing or mid-copy (ENOENT) is a normal change: the item's signature changes and it is recorded again after 5 still seconds.
+    // Other errors are thrown as usual
     try {
       recordSnapshots();
     } catch (error) {
@@ -294,25 +297,25 @@ export function createWorkspace({ db, drafts }: { db: Db; drafts: Drafts }) {
     file,
     diff,
 
-    // 一个页面开始监视这一项；返回断开时调用的函数（重复调用只算一次）。同一项的连接共用一个监视器，
-    // 最后一个断开时释放。没有草稿的项 404（在 SSE 开始之前抛出）
+    // A page starts watching this item; returns the function to call on disconnect (repeated calls count once). Connections to the same item share one watcher,
+    // released when the last disconnects. Items without a draft are 404 (thrown before SSE starts)
     watch(liveId: string, connection: WorkspaceConnection): () => void {
       let watcher = watchers.get(liveId);
       if (watcher === undefined) {
         const { layout } = drafts.workspaceOf(liveId);
-        // 已关闭的项不再监视（EventSource 在 closed 之后自动重连时得到这个错误，不再重试）
+        // Closed items are no longer watched (EventSource gets this error when it reconnects after closed, and stops retrying)
         const item = db
           .select({ hiddenAt: liveSessions.hiddenAt })
           .from(liveSessions)
           .where(eq(liveSessions.id, liveId))
           .get();
-        if (item?.hiddenAt !== null) throw new HttpError(409, `交互 ${liveId} 已关闭`);
+        if (item?.hiddenAt !== null) throw new HttpError(409, `Live item ${liveId} is closed`);
         const created: Watcher = {
           src: layout.src,
           workflowYaml: layout.workflowYaml,
           snapshot: snapshotOf(layout.src, layout.workflowYaml),
           connections: new Set(),
-          // 不能从定时器中抛出（成为 uncaught exception，整个服务退出）：出错时把原文发给页面并释放
+          // Must not throw from the timer (an uncaught exception would exit the whole server): on error send the original text to the page and release
           timer: setInterval(() => {
             try {
               poll(created);

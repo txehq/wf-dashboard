@@ -5,158 +5,158 @@ feature: r-20261009-a9piql
 updated: "2026-10-09"
 ---
 
-# Brief: 离线中文计算器（初中机房用）
-**Date:** 2026-10-09 · **Interviewed:** 学校老师（需求提出人） · **By:** Claude Opus 5.5（/lfg 第 1 阶段）
+# Brief: Offline Chinese calculator (for middle school computer labs)
+**Date:** 2026-10-09 · **Interviewed:** school teacher (requirement proposer) · **By:** Claude Opus 5.5 (/lfg Stage 1)
 
 ## Problem & consumer
 
-- **给谁用：** 学校初一到初三的学生，在学校机房统一安装的 Windows 7 电脑上用 Chrome 浏览器打开；老师上课时用投影演示；学生在家也可能用自己的电脑打开。
-- **问题：** 机房经常断网，学生现在用的在线计算器网页打不开，就没法计算。
-- **为什么是现在：** 两个月后开学就要能用。
+- **Who it's for:** Junior high students (grades 7 to 9) who open it in Chrome on the Windows 7 computers uniformly installed in the school computer room; teachers demonstrate it with a projector during class; students may also open it on their own computers at home.
+- **Problem:** The computer room often loses its network connection, so the online calculator web pages students use now won't open, and they can't do calculations.
+- **Why now:** It needs to be usable two months from now, when school starts.
 
 ## Done means
 
-交付一个计算器网页，满足下面每一条。每一条都是验收时要逐项演示的行为。
+Deliver a calculator web page that meets each of the following. Each one is a behavior that will be demonstrated item by item during acceptance.
 
-**运行环境**
+**Runtime environment**
 
-1. 完全断网时可以打开和使用，页面不请求任何网络资源。
-2. 在 Chrome 109（Windows 7 上能装的最后一个 Chrome 版本）上显示和计算都正常。
-3. 界面文字全部是中文。
-4. 同一个 HTML 文件，双击用 `file://` 打开可以用，放到学校内网网站上用网址打开也可以用，不需要两个版本。
+1. It can be opened and used with the network completely disconnected, and the page does not request any network resources.
+2. Display and calculation both work correctly on Chrome 109 (the last Chrome version that can be installed on Windows 7).
+3. All interface text is in Chinese.
+4. The same HTML file works when double-clicked and opened via `file://`, and also works when placed on the school intranet website and opened by URL; two versions are not needed.
 
-**运算**
+**Operations**
 
-5. 支持加、减、乘、除、括号、负数、小数、百分号、乘方（`^`）、开平方（`√`）。
-6. 运算顺序符合初中数学：括号最先，然后乘方，然后乘除，最后加减；负号在乘方之后计算，`-2^2` 得 `-4`。
-7. 十进制精确计算：`0.1+0.2` 得 `0.3`。
-8. 结果最多保留十位小数，第十一位四舍五入：`1÷3` 得 `0.3333333333`，`2÷3` 得 `0.6666666667`。
-9. 结果末尾多余的 0 不显示：`1÷4` 得 `0.25`。
-10. 百分号永远表示“除以 100”：`50%` 得 `0.5`，`200+10%` 得 `200.1`。
-11. `√` 只作用于紧跟在它后面的那个数或那一对括号：`√9+16` 得 `19`，`√(9+16)` 得 `5`。
-12. 省略乘号的写法不支持：`2(3+4)`、`2√9` 都按错误处理（见第 17 条）。
+5. Supports addition, subtraction, multiplication, division, parentheses, negative numbers, decimals, percent sign, exponentiation (`^`), and square root (`√`).
+6. Order of operations follows junior high school math: parentheses first, then exponentiation, then multiplication and division, and finally addition and subtraction; the negative sign is applied after exponentiation, so `-2^2` gives `-4`.
+7. Exact decimal calculation: `0.1+0.2` gives `0.3`.
+8. Results keep at most ten decimal places, rounding the eleventh place: `1÷3` gives `0.3333333333`, `2÷3` gives `0.6666666667`.
+9. Trailing zeros at the end of results are not displayed: `1÷4` gives `0.25`.
+10. The percent sign always means "divide by 100": `50%` gives `0.5`, `200+10%` gives `200.1`.
+11. `√` applies only to the number or the pair of parentheses immediately following it: `√9+16` gives `19`, `√(9+16)` gives `5`.
+12. Omitting the multiplication sign is not supported: `2(3+4)` and `2√9` are both treated as errors (see item 17).
 
-**输入**
+**Input**
 
-13. 键盘输入和屏幕按钮都能完整使用，学生可以只用键盘，也可以只用鼠标。
-14. 键盘上用 `*` 输入乘、`/` 输入除，屏幕上显示为 `×` 和 `÷`；`r` 键输入 `√`；屏幕按钮上也有 `√`。
-15. 按回车或 `=`（键盘或屏幕按钮）出结果。
+13. Keyboard input and on-screen buttons both work fully; students can use only the keyboard or only the mouse.
+14. On the keyboard, use `*` to enter multiplication and `/` to enter division, which are displayed on screen as `×` and `÷`; the `r` key enters `√`; the on-screen buttons also include `√`.
+15. Press Enter or `=` (on the keyboard or on-screen button) to show the result.
 
-**错误提示**
+**Error messages**
 
-16. 出错时给出学生能看懂的中文提示，并在算式里标出出错的位置。
-17. 至少包括这四种提示：
-    - 除以 0：“不能除以 0”
-    - 括号不配对：“括号没有配对”
-    - 负数开平方（如 `√-4`）：“负数不能开平方”
-    - 省略乘号（如 `2(3+4)`、`2√9`）：“这里缺少乘号”
+16. When an error occurs, show a Chinese message that students can understand, and mark the error position in the expression.
+17. At least include these four kinds of messages:
+    - Division by 0: "Cannot divide by 0"
+    - Unmatched parentheses: "Parentheses are not paired"
+    - Square root of a negative number (e.g. `√-4`): "Negative numbers cannot take square roots"
+    - Omitted multiplication sign (e.g. `2(3+4)`, `2√9`): "Multiplication sign is missing here"
 
-**历史记录**
+**History**
 
-18. 保存最近 20 条算式和结果。
-19. 关掉浏览器、关机后第二天再打开，历史记录还在。
-20. 点一条历史记录，把那条算式放回输入框，学生可以接着改或者再算一次。
-21. 有“清空历史”按钮，一次清掉全部历史（机房电脑多个学生轮流用）。
+18. Saves the most recent 20 expressions and results.
+19. After closing the browser and shutting down, when reopened the next day, the history is still there.
+20. Click a history entry to put that expression back into the input box, so students can keep editing it or calculate it again.
+21. There is a "Clear history" button that clears all history at once (the lab computers are shared by several students in turn).
 
-**投影**
+**Projection**
 
-22. 有“投影模式”，一键放大字号，后排学生看得清；再按一次恢复。
+22. There is a "Projection mode" that enlarges the font with one click so students in the back rows can read it; click again to restore.
 
-**交付物**
+**Deliverables**
 
-23. 一个可以直接拷到 U 盘、双击打开的 HTML 文件。
-24. 一份给学校管电脑的老师的内网放置说明（中文）。
+23. One HTML file that can be copied to a USB drive and opened by double-clicking.
+24. One intranet placement instructions document (in Chinese) for the teacher who manages the school's computers.
 
-**最低证据：** 每一条在断网的 Chrome 109 上演示通过的截图或自动化测试结果；第 6–12、17 条的每个例子都有对应的自动化测试。
+**Minimum evidence:** For each item, a screenshot or automated test result showing it passing on offline Chrome 109; every example for items 6–12, 17 has a corresponding automated test.
 
 ## Where it lives
 
-- **仓库：** `txehq/wfe-r-20261009-a9piql`（GitHub，已有仓库，目前只有 `README.md` 和一次初始提交）。
-- **产品：** Magi Eval；功能 slug：`r-20261009-a9piql`。
-- **使用的地方：** 学校机房电脑上的本地文件；学校内网网站；学生家里的电脑。
-- **权威来源：** 本 brief。没有更早的工单或规格文档。
-- **前置条件：** 无。
-- **后续工作：** 把 HTML 文件放到学校内网服务器，由学校管电脑的老师按放置说明完成，不属于这次工作。
+- **Repository:** `txehq/wfe-r-20261009-a9piql` (GitHub, an existing repo, currently only has `README.md` and one initial commit).
+- **Product:** Magi Eval; feature slug: `r-20261009-a9piql`.
+- **Where it is used:** local files on school lab computers; school intranet websites; students' home computers.
+- **Authoritative source:** this brief. There are no earlier tickets or spec documents.
+- **Prerequisites:** None.
+- **Follow-up work:** Putting the HTML file on the school intranet server, done by the teacher who manages the school's computers according to the placement instructions, is not part of this work.
 
 ## Verified current behaviour
 
-- 仓库 `txehq/wfe-r-20261009-a9piql` 只有一个内容为 `# wfe-r-20261009-a9piql` 的 `README.md`，提交历史只有 `22a75e1 chore: initial commit`，没有可复用的代码、测试或 CI。
-- vault 中 `Project Magi Eval/` 下没有这个功能的资料；Linear 中搜索“计算器”“calculator”没有与本功能相关的工单。
+- The repository `txehq/wfe-r-20261009-a9piql` has only one `README.md` whose content is `# wfe-r-20261009-a9piql`; its commit history has only `22a75e1 chore: initial commit`, with no reusable code, tests, or CI.
+- The vault has no materials for this feature under `Project Magi Eval/`; searching Linear for "calculator" and "calculator" found no tickets related to this feature.
 
 ## Out of scope & constraints
 
-**这次不做：**
+**Not doing this time:**
 
-- 三角函数、对数
-- 分数形式的结果（如显示 `1/3`）
-- 单位换算
-- 画函数图像
-- 学生账号登录
-- 老师查看学生的历史记录（历史只留在学生自己的电脑上）
-- 手机上的专门排版
-- 英文界面或任何其他语言
-- 省略乘号的写法（`2(3+4)`、`2√9`）
-- 把文件放到学校内网服务器上（由学校管电脑的老师来做）
+- Trigonometric functions, logarithms
+- Fractional results (such as showing `1/3`)
+- Unit conversion
+- Plotting function graphs
+- Student account login
+- Teachers viewing students' history records (history stays only on the student's own computer)
+- Dedicated layout for phones
+- English interface or any other language
+- Notation that omits the multiplication sign (`2(3+4)`, `2√9`)
+- Putting the file on the school intranet server (done by the teacher who manages the school's computers)
 
-**约束：**
+**Constraints:**
 
-- 期限：两个月后开学前可用（2026-12-09 之前）。
-- 必须完全离线：不加载任何 CDN、网络字体或远程脚本，所有依赖都打包进同一个 HTML 文件。
-- 必须兼容 Chrome 109。
-- 只交付一个 HTML 文件，`file://` 和 `http(s)://` 两种打开方式都可用。
+- Deadline: usable before the start of school in two months (before 2026-12-09).
+- Must work fully offline: do not load any CDN, web fonts, or remote scripts; all dependencies are bundled into the same HTML file.
+- Must be compatible with Chrome 109.
+- Deliver only one HTML file, usable via both `file://` and `http(s)://` opening.
 
 ## Authority ceiling
 
-**不用先问，可以自己做：**
+**No need to ask first; you may do these yourself:**
 
-- 在 Linear 建工单
-- 在 `txehq/wfe-r-20261009-a9piql` 里建分支、写代码、写测试、配置 CI
-- 开 PR，PR 通过检查后按仓库的自动合并规则合并
-- 交付可拷到 U 盘的 HTML 文件和内网放置说明
+- Create tickets in Linear
+- In `txehq/wfe-r-20261009-a9piql`, create branches, write code, write tests, configure CI
+- Open a PR; once the PR passes checks, merge it according to the repository's auto-merge rules
+- Deliver the HTML file that can be copied to a USB drive and the intranet placement instructions
 
-**上限：** PR 合并并交付文件为止。
+**Limit:** until the PR is merged and the files are delivered.
 
-**必须先问：**
+**Must ask first:**
 
-- 改动本 brief 列出的功能范围
-- 任何会放到学校服务器或学生电脑上的操作
+- Changing the feature scope listed in this brief
+- Any operation that will be placed on school servers or student computers
 
 ## Open questions
 
-- 怎么在 Chrome 109 上做自动化验证（例如固定版本的 Chromium 与断网条件下的端到端测试）。
-- 十进制精确计算选用哪个库，以及第十一位四舍五入的实现方式。
-- 历史记录在 `file://` 和内网 `http(s)://` 两种打开方式下分别存在哪里，`file://` 下 `localStorage` 在 Chrome 109 的行为是否可靠。
-- 怎么把所有依赖打包成一个可离线使用的 HTML 文件。
-- 极大或极小的结果（如 `2^100`、`0.00000000001`）的显示方式。
+- How to do automated verification on Chrome 109 (for example, a pinned-version Chromium and end-to-end tests under offline conditions).
+- Which library to use for exact decimal calculation, and how to implement rounding at the eleventh digit.
+- Where history is stored under `file://` and intranet `http(s)://` respectively, and whether the behavior of `localStorage` under `file://` on Chrome 109 is reliable.
+- How to bundle all dependencies into a single HTML file that can be used offline.
+- Display of extremely large or small results (e.g. `2^100`, `0.00000000001`).
 
 ## Decision ledger
 
-| # | 问题 | 结论 | 状态 |
+| # | Question | Conclusion | Status |
 |---|---|---|---|
-| 1 | 放到机房电脑的方式 | 双击打开的单个 HTML 文件和内网网站两种都要；同一个文件两种用法 | confirmed（做法 delegated，默认：一个文件两种用法，用户已同意） |
-| 2 | 输入方式 | 键盘和屏幕按钮都要 | confirmed |
-| 3 | 投影模式 | 要，一键放大字号 | confirmed |
-| 4 | 历史记录条数 | 最近 20 条 | confirmed |
-| 5 | 历史记录保存 | 关机后再打开仍在 | confirmed |
-| 6 | 清空历史 | 要“清空历史”按钮 | confirmed |
-| 7 | 点历史记录 | 把算式放回输入框 | confirmed |
-| 8 | `0.1+0.2` | 显示 `0.3` | confirmed |
-| 9 | 小数位数 | 最多十位，第十一位四舍五入 | confirmed |
+| 1 | How to put it on the lab computers | Both a single HTML file opened by double-click and an intranet website; one file used both ways | confirmed (approach delegated; default: one file, two ways to use it; user agreed) |
+| 2 | Input method | Both keyboard and on-screen buttons | confirmed |
+| 3 | Projection mode | Yes, one click to enlarge the font size | confirmed |
+| 4 | Number of history entries | Latest 20 entries | confirmed |
+| 5 | History saving | Still there after shutting down and reopening | confirmed |
+| 6 | Clear history | Need a "Clear history" button | confirmed |
+| 7 | Clicking a history entry | Put the expression back into the input box | confirmed |
+| 8 | `0.1+0.2` | Shows `0.3` | confirmed |
+| 9 | Decimal places | Up to ten places, round at the eleventh place | confirmed |
 | 10 | `-2^2` | `-4` | confirmed |
-| 11 | 省略乘号 | 不支持，提示“这里缺少乘号” | confirmed |
-| 12 | 百分号 | 永远除以 100，`200+10%` 得 `200.1` | delegated（默认已陈述，用户已同意） |
-| 13 | `√` 的作用范围 | 只作用于紧跟的数或括号 | delegated（默认已陈述，用户已同意） |
-| 14 | 错误提示 | 中文提示并标出位置；四种提示文字见 Done means 第 17 条 | delegated（默认已陈述，用户已同意） |
-| 15 | 末尾 0 | 不显示 | delegated（默认已陈述，用户已同意） |
-| 16 | 键盘映射 | `*` `/` 输入，显示 `×` `÷`；`r` 输入 `√`；回车或 `=` 出结果 | delegated（默认已陈述，用户已同意） |
-| 17 | 不做的范围 | 见 Out of scope 清单 | confirmed |
-| 18 | 权限上限 | 可以做到 PR 自动合并并交付文件；内网放置由学校老师做 | confirmed |
-| 19 | 交付期限 | 两个月后开学前 | confirmed |
+| 11 | Omitted multiplication sign | Not supported; shows "Multiplication sign missing here" | confirmed |
+| 12 | Percent sign | Always divides by 100; `200+10%` gives `200.1` | delegated (default stated, user agreed) |
+| 13 | Scope of `√` | Applies only to the number or parenthesis immediately following | delegated (default stated, user agreed) |
+| 14 | Error messages | Chinese-language messages with the position marked; the four message texts are in Done means item 17 | delegated (default stated, user agreed) |
+| 15 | Trailing 0 | Not shown | delegated (default stated, user agreed) |
+| 16 | Keyboard mapping | `*` `/` input, shows `×` `÷`; `r` inputs `√`; Enter or `=` gives the result | delegated (default stated, user agreed) |
+| 17 | Out-of-scope items | See the Out of scope list | confirmed |
+| 18 | Permission ceiling | Can go as far as PR auto-merge and delivering files; placing it on the intranet is done by the school teachers | confirmed |
+| 19 | Delivery deadline | Before school starts in two months | confirmed |
 
 ## Inferred answers & sources
 
-- **Chrome 109 是 Windows 7 上能装的最后一个 Chrome 版本：** Google 对 Windows 7 的支持在 Chrome 109 结束；与用户说的“机房的 Chrome 109”一致。
-- **期限换算为 2026-12-09：** 访谈日期 2026-10-09 加两个月。
-- **仓库没有可复用的东西：** 来自对仓库的检查（见 Verified current behaviour）。
-- **验收需要断网测试：** 来自用户的“必须完全不联网也能用”。
-- **所有依赖打包进同一个文件：** 来自“U 盘拷一下就行、双击打开”和“完全不联网”两条要求的组合。
+- **Chrome 109 is the last Chrome version installable on Windows 7:** Google's support for Windows 7 ended with Chrome 109; this matches the user's "Chrome 109 in the lab".
+- **Deadline converted to 2026-12-09:** interview date 2026-10-09 plus two months.
+- **Nothing in the repository is reusable:** from checking the repository (see Verified current behaviour).
+- **Acceptance needs an offline test:** from the user's "must work fully offline".
+- **All dependencies bundled into one file:** from the combination of the two requirements "just copy it via USB drive and double-click to open" and "fully offline".

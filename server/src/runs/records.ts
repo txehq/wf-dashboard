@@ -74,7 +74,7 @@ export function listMessages(db: Db, runId: string): MessageRow[] {
     .all();
 }
 
-// 每个 run 每种产物一行（friction 除外）；内容与位置都没变时不改写
+// One row per run per artifact kind (except friction); not rewritten when content and location are unchanged
 export function upsertArtifact(
   db: Db,
   runId: string,
@@ -105,7 +105,7 @@ export function upsertArtifact(
   events.publish({ type: 'run.artifact', runId, artifact: artifactView(row) });
 }
 
-// friction：每个 issue 或评论 URL 一行，snapshot 为 issue 标题
+// friction: one row per issue or comment URL, snapshot is the issue title
 export function upsertFriction(db: Db, runId: string, url: string, title: string) {
   const row = db
     .insert(artifacts)

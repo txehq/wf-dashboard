@@ -1,14 +1,14 @@
 import type { Element, Root } from 'hast';
 
-// 渲染后的对比（Contracts 21.3）：源文件中改动的行所在的段落加上标记。lines 是 1 起的闭区间
+// Rendered comparison (Contracts 21.3): marks the paragraphs that contain changed source lines. lines are 1-based closed ranges
 export interface LineMarks {
   kind: 'added' | 'removed';
   lines: [number, number][];
 }
 
-// 容器：改动落在某个子块中时只标那个子块，例如列表中的一项、表格中的一行
+// Containers: when a change falls in a child block, only that block is marked, for example a list item or a table row
 const containers = new Set(['ul', 'ol', 'li', 'blockquote', 'table', 'thead', 'tbody', 'details']);
-// 容器中可以单独标出的子块；行内的元素（code、a、input 等）不单独标
+// Child blocks of a container that can be marked on their own; inline elements (code, a, input and so on) are not
 const blocks = new Set([
   ...containers,
   'p',

@@ -8,6 +8,7 @@ import { EnvironmentWarning } from '@/components/environment/environment-warning
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { formatNoun } from '@/lib/format';
 import { createBatch, settingsQuery } from '@/lib/runs-api';
 import { tasksQuery } from '@/lib/tasks';
 import { defaultBatchVariants, evalKindOf, workflowsQuery } from '@/lib/workflows-api';
@@ -25,7 +26,7 @@ function toggle(list: string[], id: string): string[] {
   return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
 }
 
-// 发起 batch：已构建的 variant × task × 重复次数；model 与 effort 作用于其中全部 run（Contracts 16.5）
+// Start a batch: built variants x tasks x repeats; model and effort apply to every run in it (Contracts 16.5)
 export function LaunchBatch() {
   const client = useQueryClient();
   const variants = useQuery(variantsQuery);
@@ -33,7 +34,7 @@ export function LaunchBatch() {
   const settings = useQuery(settingsQuery);
   const options = useQuery(variantOptionsQuery);
   const workflows = useQuery(workflowsQuery);
-  // 还没有勾选过时为空：用默认的 variant
+  // null until the user ticks something: use the default variants
   const [pickedVariants, setPickedVariants] = useState<string[] | null>(null);
   const [taskIds, setTaskIds] = useState<string[]>([]);
   const [repeats, setRepeats] = useState<number | null>(null);
@@ -49,7 +50,7 @@ export function LaunchBatch() {
     },
   });
 
-  // 默认次数、模型与 effort 来自设置；设置还没有读到（或读取失败）时不能发起，不用别的值代替
+  // Default repeats, model and effort come from Settings; until Settings load (or if they fail) the batch cannot start, and no other value stands in
   const repeatCount = repeats ?? settings.data?.defaultRepeats ?? null;
   const chosenModel = model ?? settings.data?.agentModel ?? null;
   const chosenEffort = effort ?? settings.data?.agentEffort ?? null;
@@ -62,12 +63,12 @@ export function LaunchBatch() {
   const variantIds = pickedVariants ?? defaultVariants;
   const total = variantIds.length * taskIds.length * (repeatCount ?? 0);
   const prepares = chosenTasks.flatMap((t) => EVAL_KINDS[t.task.kind].prepare);
-  // task 按评测类型分组（Contracts 16.3）
+  // Tasks grouped by evaluation kind (Contracts 16.3)
   const taskGroups = evalKinds.map((kind) => ({
     kind,
     records: (tasks.data ?? []).filter((t) => t.task.kind === kind),
   }));
-  // 只有评测类型的 workflow 的 variant 能发起 run（Contracts 16.1）
+  // Only variants of evaluation workflows can start runs (Contracts 16.1)
   const evaluable = (variants.data ?? []).filter(
     (v) => evalKindOf(workflows.data, v.workflowId) !== null,
   );
@@ -75,22 +76,22 @@ export function LaunchBatch() {
   return (
     <Card data-testid="launch-batch">
       <CardHeader>
-        <CardTitle>发起评估</CardTitle>
-        <CardDescription>每个 variant 在每个 task 上各运行若干次。</CardDescription>
+        <CardTitle>Start evaluation</CardTitle>
+        <CardDescription>Each variant runs on each task a set number of times.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
         <div className="grid gap-5 lg:grid-cols-[3fr_3fr_1fr]">
           <fieldset className="flex flex-col gap-1.5">
-            <legend className="mb-1 text-sm font-medium">variant</legend>
-            {variants.isPending && <p className="text-sm text-muted-foreground">加载中…</p>}
+            <legend className="mb-1 text-sm font-medium">Variant</legend>
+            {variants.isPending && <p className="text-sm text-muted-foreground">Loading…</p>}
             {variants.isError && (
               <p className="text-sm text-destructive">{variants.error.message}</p>
             )}
             {variants.data?.length === 0 && (
               <p className="text-sm text-muted-foreground">
-                还没有 variant。
+                No variants yet.{' '}
                 <Link to="/workflows" className="underline">
-                  去 Workflows 页面导入基线
+                  Import a baseline on the Workflows page
                 </Link>
               </p>
             )}
@@ -118,19 +119,21 @@ export function LaunchBatch() {
                       }
                     />
                     {kind !== v.workflowId && (
-                      <span className="shrink-0 text-xs text-muted-foreground">评测 {kind}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        Evaluates {kind}
+                      </span>
                     )}
                   </label>
                   {!built && v.installDir === null && (
                     <span className="shrink-0 text-xs text-muted-foreground">
-                      导入的历史记录，不能运行
+                      Imported history, cannot run
                     </span>
                   )}
                   {!built && v.installDir !== null && (
                     <span className="shrink-0 text-xs text-muted-foreground">
                       {buildLabel(v)} ·{' '}
                       <Link to={variantHref(v)} className="underline">
-                        去构建
+                        Build it
                       </Link>
                     </span>
                   )}
@@ -139,8 +142,8 @@ export function LaunchBatch() {
             })}
           </fieldset>
           <fieldset className="flex flex-col gap-2">
-            <legend className="mb-1 text-sm font-medium">task</legend>
-            {tasks.isPending && <p className="text-sm text-muted-foreground">加载中…</p>}
+            <legend className="mb-1 text-sm font-medium">Task</legend>
+            {tasks.isPending && <p className="text-sm text-muted-foreground">Loading…</p>}
             {tasks.isError && <p className="text-sm text-destructive">{tasks.error.message}</p>}
             {taskGroups.map(({ kind, records }) => (
               <div key={kind} className="flex flex-col gap-1">
@@ -162,14 +165,14 @@ export function LaunchBatch() {
           </fieldset>
           <div className="flex flex-col gap-3">
             <label className="flex flex-col gap-1.5 text-sm">
-              <span className="font-medium">重复次数</span>
+              <span className="font-medium">Repeats</span>
               {repeatCount === null ? (
                 settings.isError ? (
                   <span role="alert" className="text-destructive" data-testid="repeats-error">
-                    读取默认次数失败：{settings.error.message}
+                    Could not load the default repeats: {settings.error.message}
                   </span>
                 ) : (
-                  <span className="text-muted-foreground">加载中…</span>
+                  <span className="text-muted-foreground">Loading…</span>
                 )
               ) : (
                 <Input
@@ -185,7 +188,7 @@ export function LaunchBatch() {
               )}
             </label>
             <label className="flex flex-col gap-1.5 text-sm">
-              <span className="font-medium">model</span>
+              <span className="font-medium">Model</span>
               <select
                 className="h-9 rounded-md border bg-background px-2"
                 data-testid="launch-model"
@@ -197,13 +200,13 @@ export function LaunchBatch() {
               >
                 {options.data?.models.map((m) => (
                   <option key={m.alias} value={m.alias}>
-                    {m.alias}（{m.model}）
+                    {m.alias} ({m.model})
                   </option>
                 ))}
               </select>
             </label>
             <label className="flex flex-col gap-1.5 text-sm">
-              <span className="font-medium">effort</span>
+              <span className="font-medium">Effort</span>
               <select
                 className="h-9 rounded-md border bg-background px-2"
                 data-testid="launch-effort"
@@ -222,7 +225,7 @@ export function LaunchBatch() {
             </label>
             {options.isError && (
               <span role="alert" className="text-sm text-destructive">
-                读取模型列表失败：{options.error.message}
+                Could not load the model list: {options.error.message}
               </span>
             )}
           </div>
@@ -238,7 +241,7 @@ export function LaunchBatch() {
             }
             onClick={() => {
               if (repeatCount === null || chosenModel === null || chosenEffort === null) {
-                throw new Error('还没有重复次数、model 或 effort');
+                throw new Error('Repeats, model or effort is not set yet');
               }
               launch.mutate({
                 variantIds,
@@ -250,37 +253,41 @@ export function LaunchBatch() {
             }}
           >
             <Play />
-            {launch.isPending ? '正在建立…' : `发起 ${String(total)} 个 run`}
+            {launch.isPending ? 'Creating…' : `Start ${formatNoun(total, 'run')}`}
           </Button>
           <div
             className="flex flex-col gap-0.5 text-xs text-muted-foreground"
             data-testid="launch-summary"
           >
             <span>
-              {variantIds.length} 个 variant × {taskIds.length} 个 task × {repeatCount ?? '?'} 次 ={' '}
-              {total} 个 run（{chosenModel ?? '?'} · {chosenEffort ?? '?'}）；选中的 variant
-              将被冻结，之后不能再编辑。
+              {formatNoun(variantIds.length, 'variant')} × {formatNoun(taskIds.length, 'task')} ×{' '}
+              {repeatCount ?? '?'} = {formatNoun(total, 'run')} ({chosenModel ?? '?'} ·{' '}
+              {chosenEffort ?? '?'}). The selected variants are frozen and can no longer be edited.
             </span>
-            {prepares.includes('empty-repo') && <span>每个 run 会在 txehq 建一个空仓库。</span>}
-            {prepares.includes('vault-dir') && (
-              <span>每个 run 会写入 vault 的 Project Magi Eval。</span>
+            {prepares.includes('empty-repo') && (
+              <span>Each run creates an empty repo in txehq.</span>
             )}
-            {prepares.includes('repo-copy') && <span>每个 run 会在 txehq 建起始仓库的副本。</span>}
+            {prepares.includes('vault-dir') && (
+              <span>Each run writes to Project Magi Eval in the vault.</span>
+            )}
+            {prepares.includes('repo-copy') && (
+              <span>Each run creates a copy of the starting repo in txehq.</span>
+            )}
             {prepares.includes('ticket-copy') && (
-              <span>每个 run 会在 Linear Workflow Eval 建工单。</span>
+              <span>Each run creates a ticket in Linear Workflow Eval.</span>
             )}
           </div>
           <EnvironmentWarning />
         </div>
         {launch.isError && (
           <p role="alert" className="text-sm text-destructive">
-            发起失败：{launch.error.message}
+            Could not start: {launch.error.message}
           </p>
         )}
         {launch.isSuccess && (
           <p className="text-sm" data-testid="launch-done">
-            已建 batch <span className="font-mono">{launch.data.id}</span>，共{' '}
-            {launch.data.runList.length} 个 run，已加入队列。
+            Created batch <span className="font-mono">{launch.data.id}</span> with{' '}
+            {formatNoun(launch.data.runList.length, 'run')}, now queued.
           </p>
         )}
       </CardContent>

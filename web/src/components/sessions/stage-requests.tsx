@@ -2,8 +2,8 @@ import { Button } from '@/components/ui/button';
 import { StageDetail } from '@/components/sessions/stage-detail';
 import type { StageView, SubagentInfo, WorkflowCycle } from '@/lib/sessions-api';
 
-// Contracts 第 12 节：选中阶段后请求明细只显示该阶段（所选轮次与阶段的 seq 区间），
-// "显示全部"恢复全部请求。Sessions 详情与 Runs 详情共用
+// Contracts section 12: with a stage selected, Requests shows only that stage (the seq range of the chosen
+// cycle and stage); "Show all" brings back every request. Shared by Sessions detail and Runs detail
 export function StageRequests({
   sessionId,
   workflow,
@@ -23,7 +23,7 @@ export function StageRequests({
   return (
     <div className="flex min-w-0 flex-col gap-3" data-testid="stage-requests">
       <Button variant="outline" size="sm" className="self-start" onClick={onShowAll}>
-        显示全部
+        Show all
       </Button>
       <StageDetail
         sessionId={sessionId}

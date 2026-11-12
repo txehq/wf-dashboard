@@ -4,10 +4,11 @@ import path from 'node:path';
 import { execa } from 'execa';
 import lockfile from 'proper-lockfile';
 
-// pnpm check：完整的基础档（typecheck、lint、test、e2e）。全机同一时间只运行一份：开始前获取 WFD_TEST_LOCK
-// （默认主仓库的 .work/locks/basic-tier.lock，各 worktree 由 git 的公共目录找到同一个主仓库），拿不到时等待。
-// 结束时（通过或某一步失败）由这里释放锁：execa 带的 signal-exit 让 proper-lockfile 自己的退出处理不再执行。
-// 进程被信号结束（Ctrl+C、kill）时锁留下，在 stale 时间（30 秒）后过期，等待的一份随后获取
+// pnpm check: typecheck, lint and vitest, all three at the same time (Contracts 38.2). Only one check runs on the machine
+// at a time: it takes .work/locks/basic-tier.lock in the main repository first (every worktree finds the same main
+// repository through git's common dir) and waits if it is held.
+// On finish (pass or a failed step) the lock is released here: the signal-exit bundled with execa keeps proper-lockfile's own exit handler from running.
+// If the process is killed by a signal (Ctrl+C, kill) the lock stays and expires after the stale time (30 s); a waiting run then takes it
 const root = import.meta.dirname;
 const { stdout: commonDir } = await execa('git', [
   '-C',
@@ -16,9 +17,7 @@ const { stdout: commonDir } = await execa('git', [
   '--path-format=absolute',
   '--git-common-dir',
 ]);
-const lockPath =
-  process.env.WFD_TEST_LOCK ??
-  path.join(path.dirname(commonDir.trim()), '.work', 'locks', 'basic-tier.lock');
+const lockPath = path.join(path.dirname(commonDir.trim()), '.work', 'locks', 'basic-tier.lock');
 fs.mkdirSync(path.dirname(lockPath), { recursive: true });
 const options = { lockfilePath: lockPath, realpath: false, stale: 30_000 } as const;
 
@@ -29,22 +28,26 @@ const load = () =>
     .join(' ');
 
 if (await lockfile.check(lockPath, options)) {
-  console.log(`等待另一份基础档结束（${lockPath}）`);
+  console.log(`Waiting for another pnpm check to finish (${lockPath})`);
 }
 const release = await lockfile.lock(lockPath, {
   ...options,
   retries: { forever: true, minTimeout: 2_000, maxTimeout: 5_000 },
 });
-console.log(`已获取 ${lockPath}`);
+console.log(`Acquired ${lockPath}`);
 
-// 每 5 秒取一次：
-// - 系统的 1 分钟 load average 与空闲内存（vm.page_free_count，即 vm_stat 的 Pages free）。系统 load 还含 macOS
-//   与其他程序的后台活动（W92 实测测试只有 0–1 个线程运行时系统 load 也会升 5），照实报告；
-// - 测试自身的 load：用 ps -AM 数这一步的进程树中处于 R（运行或等待 CPU）状态的线程，按 1 分钟 load average 的
-//   算法（每 5 秒衰减 e^(-5/60)）累积。上限是每一步不超过 4；
-// - 进程树之外 R 线程最多的 3 个进程（系统 load 高时是谁）。
-// 记下每一步中两种 load 的最高值与空闲内存的最低值；每次的取值连同当时的步骤写进 .work/check-load.log。
-// 基线是开始第一步之前的系统 1 分钟 load average
+const steps = ['typecheck', 'lint', 'test'] as const;
+type Step = (typeof steps)[number];
+
+// Sampled every 5 seconds:
+// - the system 1-minute load average and free memory (vm.page_free_count, i.e. vm_stat's Pages free). System load also
+//   includes background activity of macOS and other programs (in W92 it rose by 5 with only 0-1 test threads running); reported as is;
+// - each step's own load: ps -AM counts threads in state R (running or waiting for CPU) in that step's process tree,
+//   accumulated like the 1-minute load average (decay e^(-5/60) every 5 s). The three steps run together, so their
+//   sum is what the machine carries;
+// - the 3 processes outside the three trees with the most R threads (who is behind a high system load).
+// The run records each step's own peak, the peak of their sum, and the lowest free memory; every sample goes to .work/check-load.log.
+// The baseline is the system 1-minute load average before the steps start
 const pageSize = Number((await execa('sysctl', ['-n', 'hw.pagesize'])).stdout);
 const freeMb = async () =>
   (Number((await execa('sysctl', ['-n', 'vm.page_free_count'])).stdout) * pageSize) / 2 ** 20;
@@ -53,28 +56,29 @@ fs.mkdirSync(path.dirname(loadLog), { recursive: true });
 fs.writeFileSync(loadLog, '');
 const DECAY = Math.exp(-5 / 60);
 
-// 这一步的进程树中 R 状态的线程数，与树之外 R 线程最多的 3 个进程（名字与线程数）
-async function runningThreads(stepPid: number | undefined) {
+// R-state threads in each step's process tree, and the 3 processes outside them with the most R threads (name and count)
+async function runningThreads(pids: Map<Step, number>) {
   const { stdout } = await execa('ps', ['-AM', '-o', 'pid,ppid,state']);
   const parent = new Map<number, number>();
   const running = new Map<number, number>();
-  // 每行（进程与它的每个线程）最后三列是 pid、ppid、state
+  // The last three columns of each line (a process and each of its threads) are pid, ppid, state
   for (const line of stdout.split('\n').slice(1)) {
     const [pid, ppid, state] = line.trim().split(/\s+/).slice(-3);
     parent.set(Number(pid), Number(ppid));
     if (state?.startsWith('R') === true)
       running.set(Number(pid), (running.get(Number(pid)) ?? 0) + 1);
   }
-  const inTree = (pid: number) => {
+  const stepOf = (pid: number) => {
     for (let p: number | undefined = pid; p !== undefined && p > 1; p = parent.get(p))
-      if (p === stepPid) return true;
-    return false;
+      for (const [step, stepPid] of pids) if (p === stepPid) return step;
+    return undefined;
   };
-  let own = 0;
+  const own = new Map<Step, number>();
   const others: [number, number][] = [];
   for (const [pid, n] of running) {
-    if (inTree(pid)) own += n;
-    else others.push([pid, n]);
+    const step = stepOf(pid);
+    if (step === undefined) others.push([pid, n]);
+    else own.set(step, (own.get(step) ?? 0) + n);
   }
   const top = others.sort((a, b) => b[1] - a[1]).slice(0, 3);
   const names =
@@ -83,7 +87,7 @@ async function runningThreads(stepPid: number | undefined) {
       : new Map(
           (
             await execa('ps', ['-o', 'pid=,comm=', '-p', top.map(([p]) => String(p)).join(',')], {
-              // 取样到这里之间退出了的进程不再列出，ps 以 1 退出
+              // Processes that exited since sampling are not listed, and ps exits with 1
               reject: false,
             })
           ).stdout
@@ -96,75 +100,85 @@ async function runningThreads(stepPid: number | undefined) {
         );
   return {
     own,
-    others: top.map(([pid, n]) => `${names.get(pid) ?? String(pid)}×${String(n)}`).join(','),
+    others: top.map(([pid, n]) => `${names.get(pid) ?? String(pid)}x${String(n)}`).join(','),
   };
 }
 
-let current = '开始之前';
-let stepPid: number | undefined;
+const pids = new Map<Step, number>();
+const ownLoad = new Map<Step, number>(steps.map((step) => [step, 0]));
+const ownPeak = new Map<Step, number>(steps.map((step) => [step, 0]));
 let peak = 0;
-let ownLoad = 0;
-let ownPeak = 0;
+let totalPeak = 0;
 let minFree = Infinity;
 let sampling = false;
-setInterval(() => {
-  // 上一次还没有取完时跳过这一次
+const sampler = setInterval(() => {
+  // Skip this sample while the previous one is still running
   if (sampling) return;
   sampling = true;
   const now = os.loadavg()[0] ?? 0;
   peak = Math.max(peak, now);
   void (async () => {
-    const threads = await runningThreads(stepPid);
-    ownLoad = ownLoad * DECAY + threads.own * (1 - DECAY);
-    ownPeak = Math.max(ownPeak, ownLoad);
+    const threads = await runningThreads(pids);
+    let total = 0;
+    for (const step of steps) {
+      const value = (ownLoad.get(step) ?? 0) * DECAY + (threads.own.get(step) ?? 0) * (1 - DECAY);
+      ownLoad.set(step, value);
+      ownPeak.set(step, Math.max(ownPeak.get(step) ?? 0, value));
+      total += value;
+    }
+    totalPeak = Math.max(totalPeak, total);
     const mb = await freeMb();
     minFree = Math.min(minFree, mb);
+    const own = steps.map((step) => `${step} ${(ownLoad.get(step) ?? 0).toFixed(2)}`).join(' ');
     fs.appendFileSync(
       loadLog,
-      `${new Date().toISOString()} ${current} 系统 ${now.toFixed(2)} 测试自身 ${ownLoad.toFixed(2)}（R 线程 ${String(threads.own)}）空闲 ${mb.toFixed(0)} MB 其他 ${threads.others}\n`,
+      `${new Date().toISOString()} system ${now.toFixed(2)} own ${own} total ${total.toFixed(2)} free ${mb.toFixed(0)} MB others ${threads.others}\n`,
     );
     sampling = false;
   })();
-}, 5_000).unref();
+}, 5_000);
+sampler.unref();
 
 const baseline = os.loadavg()[0] ?? 0;
 console.log(
-  `基线：1 分钟 load average ${baseline.toFixed(2)}，空闲内存 ${(await freeMb()).toFixed(0)} MB`,
+  `Baseline: 1-minute load average ${baseline.toFixed(2)}, free memory ${(await freeMb()).toFixed(0)} MB, ${String(os.availableParallelism())} cores`,
 );
-// 两步之间等上一步的负载回落（1 分钟 load average 不超过基线 + 1），不让两步的负载叠在一起；
-// 机器上别的程序让 load 一直降不下来时最多等 2 分钟
-const COOL_DOWN_MS = 120_000;
-async function coolDown() {
-  current = '等负载回落';
-  const t = Date.now();
-  while ((os.loadavg()[0] ?? 0) > baseline + 1 && Date.now() - t < COOL_DOWN_MS)
-    await new Promise((resolve) => setTimeout(resolve, 5_000));
-  console.log(
-    `等负载回落 ${String(Math.round((Date.now() - t) / 1000))} 秒，load average ${load()}`,
-  );
-}
-const rows: string[] = [];
+console.log(`Running ${steps.join(', ')} together`);
+
+// Each step's output is collected and printed when it ends, so three streams do not interleave; it is also kept in
+// .work/check/<step>.log. A failing step does not stop the others: every failure is reported in one place at the end
+const logDir = path.join(root, '.work', 'check');
+fs.mkdirSync(logDir, { recursive: true });
 const started = Date.now();
-try {
-  for (const [i, step] of ['typecheck', 'lint', 'test', 'e2e'].entries()) {
-    if (i > 0) await coolDown();
-    current = step;
+const results = await Promise.all(
+  steps.map(async (step) => {
     const t = Date.now();
-    peak = 0;
-    ownPeak = 0;
-    minFree = Infinity;
-    console.log(`\n=== pnpm ${step} 开始，load average ${load()}`);
-    const child = execa('pnpm', [step], { cwd: root, stdio: 'inherit' });
-    stepPid = child.pid;
-    await child;
-    stepPid = undefined;
-    const row = `${step}：${String(Math.round((Date.now() - t) / 1000))} 秒，测试自身的 load 最高 ${ownPeak.toFixed(2)}，系统 1 分钟 load average 最高 ${peak.toFixed(2)}（基线 + ${(peak - baseline).toFixed(2)}），空闲内存最低 ${minFree.toFixed(0)} MB`;
-    rows.push(row);
-    console.log(`=== pnpm ${step} 通过，${row}（${String(os.availableParallelism())} 核）`);
-  }
-} finally {
-  await release();
-}
-console.log(`\n基础档全部通过，${String(Math.round((Date.now() - started) / 1000))} 秒`);
-console.log(`基线 load average ${baseline.toFixed(2)}`);
-for (const row of rows) console.log(row);
+    const child = execa('pnpm', [step], { cwd: root, all: true, reject: false });
+    const { pid } = child;
+    if (pid === undefined) throw new Error(`pnpm ${step} did not start`);
+    pids.set(step, pid);
+    const result = await child;
+    pids.delete(step);
+    const seconds = Math.round((Date.now() - t) / 1000);
+    const output = result.all;
+    fs.writeFileSync(path.join(logDir, `${step}.log`), output);
+    console.log(
+      `\n=== pnpm ${step} ${result.exitCode === 0 ? 'passed' : 'FAILED'} in ${String(seconds)} s\n${output}`,
+    );
+    return { step, seconds, failed: result.exitCode !== 0 };
+  }),
+);
+await release();
+
+const total = Math.round((Date.now() - started) / 1000);
+const failed = results.filter((r) => r.failed);
+console.log(`\n${failed.length === 0 ? 'Check passed' : 'Check FAILED'} in ${String(total)} s`);
+console.log(
+  `Load: baseline ${baseline.toFixed(2)}, system 1-minute load average peak ${peak.toFixed(2)} (baseline + ${(peak - baseline).toFixed(2)}), own load peak of the three together ${totalPeak.toFixed(2)}, lowest free memory ${minFree.toFixed(0)} MB`,
+);
+for (const { step, seconds, failed: stepFailed } of results)
+  console.log(
+    `${step}: ${String(seconds)} s, own load peak ${(ownPeak.get(step) ?? 0).toFixed(2)}${stepFailed ? ', FAILED' : ''} (${path.relative(root, path.join(logDir, `${step}.log`))})`,
+  );
+console.log(`Load average now ${load()}`);
+if (failed.length > 0) process.exitCode = 1;

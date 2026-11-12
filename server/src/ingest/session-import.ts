@@ -17,33 +17,43 @@ import {
   type SessionEngine,
   sessionEngines,
   sessions,
+  sshHosts,
   variants,
   workflowTable,
 } from '../db/schema.js';
 import { sessionTitle } from '../api/user-text.js';
 import { HttpError } from '../variants/errors.js';
+import { DRAFT_WORKFLOWS } from '../workflows/schema.js';
 import { codexHead, codexHomeOf } from './codex.js';
+import { importProblemOf } from './import-problems.js';
 import { clearedSessionIds, managed } from './imports.js';
 import { claudeHead, readCompleteLines } from './ingest.js';
-import { configOwners, ownerOf, sessionConfigOf, type Variant } from './session-config.js';
+import {
+  configOwners,
+  designVariantOfSession,
+  ownerOf,
+  sessionConfigOf,
+  type Variant,
+} from './session-config.js';
 import {
   designClaudeDirs,
   designCodexRollouts,
-  importInChunks,
+  importIsolated,
   localCodexRollouts,
   restoreClearedRecords,
   rolloutsOf,
   type SourceDirs,
 } from './sources.js';
 
-// Sessions 页面上面的三列（Contracts 25.1、25.5）：配置、项目、磁盘上的 session。只读文件的元数据，不导入
+// The three columns at the top of the Sessions page (Contracts 25.1, 25.5): configurations, projects and sessions on
+// disk. Only file metadata is read; nothing is imported
 
 export interface ImportConfig {
   id: string;
   label: string;
-  // variant 的配置所属的 workflow（第一列按它分组）；本机配置、设计与优化为 null
+  // The workflow a variant configuration belongs to (the first column groups by it); null for the local configuration
   workflow: { id: string; name: string } | null;
-  // 磁盘上的 session 数
+  // Number of sessions on disk
   sessionCount: number;
 }
 
@@ -67,7 +77,7 @@ export interface Page<T> {
   total: number;
 }
 
-// 一个配置下的一个 session 文件与它所在项目的工作目录
+// A session file under a configuration and the working directory of its project
 interface Entry {
   file: string;
   id: string;
@@ -92,10 +102,11 @@ const sessionFiles = (dir: string) =>
     .filter((e) => e.isFile() && e.name.endsWith('.jsonl'))
     .map((e) => path.join(dir, e.name));
 
-// 第二列的项目名：工作目录的目录名
+// The project name in the second column: the working directory's name
 export const projectName = (cwd: string) => path.basename(cwd) || cwd;
 
-// 读开头信息时每段读的字节数与最多读的字节数：第一条用户消息之前可能有很长的 skill 正文或 Codex 的 base_instructions
+// Bytes per chunk and at most when reading the beginning: a long skill body or Codex's base_instructions may come before
+// the first user message
 const HEAD_CHUNK = 256 * 1024;
 const HEAD_LIMIT = 4 * 1024 * 1024;
 
@@ -105,7 +116,7 @@ interface FileHead {
   title: string | null;
 }
 
-// 文件的开头信息按文件的大小与修改时间缓存
+// The beginning of a file is cached by its size and modification time
 const headCache = new Map<string, { size: number; mtimeMs: number; head: FileHead }>();
 
 function headOf(engine: SessionEngine, file: string): FileHead & { size: number; mtimeMs: number } {
@@ -128,7 +139,8 @@ function headOf(engine: SessionEngine, file: string): FileHead & { size: number;
   return { ...head, size: stat.size, mtimeMs: stat.mtimeMs };
 }
 
-// Claude Code 项目目录的工作目录：已导入的 session 中记下的，否则从目录中最新的 jsonl 读出；都没有时为目录本身
+// The working directory of a Claude Code project directory: as recorded in imported sessions, else read from the
+// newest jsonl in it; the directory itself when neither has one
 function cwdOfClaudeDir(db: Db, dir: string, files: string[]): string {
   const imported = db
     .select({ cwd: sessions.cwd })
@@ -153,15 +165,27 @@ function claudeEntries(db: Db, dirs: string[]): Entry[] {
   });
 }
 
-// 全部未删除的 variant 的配置（Contracts 24.3、25.1）：按 workflow 分组（workflow 按创建时间），组内按创建时间，没有 session 的
-// 也列出。配置目录 data/variants/<storage_id 或 id>/home/claude/projects 由 16.4 的迁移拆出的 lfg、ic 共用时，目录中的
-// session 按 ownerOf 归入其中一个
-function variantConfigs(db: Db, dirs: SourceDirs): ConfigEntries[] {
+// The configurations of every variant not deleted (Contracts 24.3, 25.1, 33.3): grouped by workflow (workflows by
+// creation time), by creation time within a group, listed even without sessions. When the migrated lfg and ic of 16.4
+// share the Claude Code configuration directory data/variants/<storage_id or id>/home/claude/projects, its sessions go
+// to one of them per ownerOf; sessions of design and optimize sessions (in each draft's or analysis's own configuration
+// directory) go to the workflow-design or workflow-optimize variant used. Codex sessions come only from design and
+// optimize sessions, so only those two workflows are listed
+function variantConfigs(
+  db: Db,
+  dirs: SourceDirs,
+  engine: SessionEngine,
+  designEntries: Entry[],
+): ConfigEntries[] {
   const rows = db
     .select({ variant: variants, workflowName: workflowTable.name })
     .from(variants)
     .innerJoin(workflowTable, eq(workflowTable.id, variants.workflowId))
-    .where(isNull(variants.deletedAt))
+    .where(
+      engine === 'claude'
+        ? isNull(variants.deletedAt)
+        : and(isNull(variants.deletedAt), inArray(variants.workflowId, [...DRAFT_WORKFLOWS])),
+    )
     .orderBy(
       asc(workflowTable.createdAt),
       asc(workflowTable.id),
@@ -171,7 +195,8 @@ function variantConfigs(db: Db, dirs: SourceDirs): ConfigEntries[] {
     .all();
   const dirOf = (v: Variant) => v.storageId ?? v.id;
   const entriesOf = new Map<string, Entry[]>(rows.map((r) => [r.variant.id, []]));
-  for (const storageId of new Set(rows.map((r) => dirOf(r.variant)))) {
+  const storageIds = engine === 'claude' ? new Set(rows.map((r) => dirOf(r.variant))) : [];
+  for (const storageId of storageIds) {
     const projects = path.join(dirs.variantsDir, storageId, 'home', 'claude', 'projects');
     if (!isDir(projects)) continue;
     const entries = claudeEntries(db, subdirs(projects));
@@ -182,9 +207,14 @@ function variantConfigs(db: Db, dirs: SourceDirs): ConfigEntries[] {
     const owners = configOwners(db, storageId);
     for (const e of entries) {
       const owner = ownerOf(owners, bound.get(e.id) ?? null);
-      if (owner === undefined) throw new Error(`配置目录 ${storageId} 没有未删除的 variant`);
+      if (owner === undefined)
+        throw new Error(`Configuration directory ${storageId} has no variant that is not deleted`);
       entriesOf.get(owner.id)?.push(e);
     }
+  }
+  for (const e of designEntries) {
+    const variantId = designVariantOfSession(db, e.id);
+    if (variantId !== null) entriesOf.get(variantId)?.push(e);
   }
   return rows.map(({ variant: v, workflowName }) => ({
     id: `variant:${v.id}`,
@@ -194,7 +224,7 @@ function variantConfigs(db: Db, dirs: SourceDirs): ConfigEntries[] {
   }));
 }
 
-// session 绑定的 variant（没有记录或没有绑定的不在其中）
+// The variants sessions are bound to (sessions without a record or binding are absent)
 function boundVariants(db: Db, ids: string[]): Map<string, string> {
   if (ids.length === 0) return new Map();
   return new Map(
@@ -207,10 +237,19 @@ function boundVariants(db: Db, ids: string[]): Map<string, string> {
   );
 }
 
-// 一个引擎的全部配置与其中的 session 文件：本机配置、各 variant 的配置目录、设计与优化（Contracts 25.1）。
-// 增量导入只要 dashboard 自己的配置（withLocal 为 false）
-const LOCAL_LABEL = '本机配置';
-const DESIGN_LABEL = '设计与优化';
+// Every configuration of an engine and the session files in it: the local configuration and each variant's
+// (Contracts 25.1, 33.3). Incremental imports need only the dashboard's own configurations (withLocal false)
+const LOCAL_LABEL = 'Local config';
+
+// Name of an SSH host's configuration (Contracts 31.6): "<label> config"; "Deleted host config" when the host is gone
+export function hostConfigLabel(db: Db, hostId: string): string {
+  const host = db
+    .select({ label: sshHosts.label })
+    .from(sshHosts)
+    .where(eq(sshHosts.id, hostId))
+    .get();
+  return `${host?.label ?? 'Deleted host'} config`;
+}
 function allConfigs(
   db: Db,
   dirs: SourceDirs,
@@ -219,32 +258,29 @@ function allConfigs(
 ): ConfigEntries[] {
   const local = (entries: Entry[]): ConfigEntries[] =>
     withLocal ? [{ id: 'local', label: LOCAL_LABEL, workflow: null, entries }] : [];
-  const design = (entries: Entry[]): ConfigEntries[] =>
-    entries.length > 0 ? [{ id: 'design', label: DESIGN_LABEL, workflow: null, entries }] : [];
   if (engine === 'claude') {
     return [
       ...local(
         withLocal && isDir(dirs.projectsDir) ? claudeEntries(db, subdirs(dirs.projectsDir)) : [],
       ),
-      ...variantConfigs(db, dirs),
-      ...design(claudeEntries(db, designClaudeDirs(dirs))),
+      ...variantConfigs(db, dirs, engine, claudeEntries(db, designClaudeDirs(dirs))),
     ];
   }
   const entriesOf = (rollouts: ReturnType<typeof localCodexRollouts>): Entry[] =>
     rollouts.map((r) => ({ file: r.file, id: r.id, cwd: r.cwd }));
   return [
     ...local(withLocal ? entriesOf(localCodexRollouts(dirs)) : []),
-    ...design(entriesOf(designCodexRollouts(dirs))),
+    ...variantConfigs(db, dirs, engine, entriesOf(designCodexRollouts(dirs))),
   ];
 }
 
 function configOf(db: Db, dirs: SourceDirs, engine: SessionEngine, id: string): ConfigEntries {
   const found = allConfigs(db, dirs, engine).find((c) => c.id === id);
-  if (found === undefined) throw new HttpError(400, `没有这个配置：${id}（${engine}）`);
+  if (found === undefined) throw new HttpError(400, `No such configuration: ${id} (${engine})`);
   return found;
 }
 
-// 在管理表格中的（已导入、没有清除）
+// In the management table (imported and not cleared)
 export function importedIds(db: Db, engine: SessionEngine, ids: string[]): Set<string> {
   if (ids.length === 0) return new Set();
   return new Set(
@@ -271,7 +307,7 @@ export function importConfigs(db: Db, dirs: SourceDirs, engine: SessionEngine): 
   }));
 }
 
-// 第二列：按工作目录合并，按名字排序；q 不分大小写地搜索名字与 cwd
+// Second column: merged by working directory, sorted by name; q searches name and cwd case-insensitively
 export function importProjects(
   db: Db,
   dirs: SourceDirs,
@@ -303,8 +339,8 @@ export function importProjects(
   return pageOf(matched, query.page, query.pageSize);
 }
 
-// 第三列：一个项目在磁盘上的 session，按开始时间、id 倒序；q 不分大小写地搜索标题与 session id。
-// 已导入的标题由调用者换成 dashboard 中的
+// Third column: a project's sessions on disk, by start time and id descending; q searches title and session id
+// case-insensitively. The caller replaces imported titles with the dashboard's
 export function diskSessions(
   db: Db,
   dirs: SourceDirs,
@@ -320,7 +356,7 @@ export function diskSessions(
         id: e.id,
         file: e.file,
         title: head.title,
-        // 还没有带时间的记录时取文件的修改时间
+        // With no timed record yet, use the file's modification time
         startedAt: new Date(head.firstAt ?? head.mtimeMs),
         size: head.size,
       };
@@ -332,7 +368,7 @@ export function diskSessions(
   return pageOf(matched, query.page, query.pageSize);
 }
 
-// 这个引擎的配置下列出的全部 session 文件与所在的配置
+// Every session file listed under this engine's configurations, with its configuration
 function listedFiles(
   db: Db,
   dirs: SourceDirs,
@@ -347,12 +383,15 @@ function listedFiles(
   const unknown = files.filter((f) => !known.has(f));
   if (unknown.length > 0) {
     const name = engine === 'claude' ? 'Claude Code' : 'Codex';
-    throw new HttpError(400, `不是 ${name} 配置下的 session 文件：${unknown.join(', ')}`);
+    throw new HttpError(
+      400,
+      `Not session files under a ${name} configuration: ${unknown.join(', ')}`,
+    );
   }
   return files.flatMap((f) => known.get(f) ?? []);
 }
 
-// POST /api/session-import 的 files：必须是这个引擎某个配置下列出的 session 文件
+// files of POST /api/session-import: must be session files listed under one of this engine's configurations
 export function importableFiles(
   db: Db,
   dirs: SourceDirs,
@@ -362,12 +401,12 @@ export function importableFiles(
   return listedFiles(db, dirs, engine, files).map((f) => f.entry);
 }
 
-// 配置的名字（分析的范围与右栏，Contracts 27）：variant 的写「variant 名 (workflow)」
+// A configuration's name (analysis scope and right pane, Contracts 27): variants are written "variant name (workflow)"
 export const configLabel = (c: { label: string; workflow: { name: string } | null }) =>
   c.workflow === null ? c.label : `${c.label} (${c.workflow.name})`;
 
-// 新建分析中从磁盘选的 session（Contracts 27）：必须是这个引擎某个配置下列出的文件；所在的配置与第一列的归属相同，
-// 标题与开始时间与第三列相同
+// Sessions picked from disk for a new analysis (Contracts 27): must be files listed under one of this engine's
+// configurations; the configuration matches the first column's grouping, title and start time match the third column
 export interface AnalysisEntry {
   id: string;
   engine: SessionEngine;
@@ -398,8 +437,9 @@ export function analysisEntries(
   });
 }
 
-// 已在 dashboard 中的 session 所在的配置（Contracts 25.1、27）：与第一列的归属相同（variant 的配置目录中按 ownerOf 归入）；
-// 不在任何配置中（测试自己的目录、目录的 variant 都已删除）时为 null
+// The configuration of a session already in the dashboard (Contracts 25.1, 27): as the first column groups it (by
+// ownerOf in variant configuration directories); null when in no configuration (tests' own directories, directories
+// whose variants are all deleted)
 export function sessionConfig(
   db: Db,
   dirs: SourceDirs,
@@ -410,22 +450,32 @@ export function sessionConfig(
   const c = sessionConfigOf(dirs, engine, filePath);
   if (c === null) return null;
   if (c.id === 'local') return { id: 'local', label: LOCAL_LABEL };
-  if (c.id === 'design') return { id: 'design', label: DESIGN_LABEL };
-  const owner = ownerOf(configOwners(db, c.storageId), variantId);
+  if (c.id === 'ssh') return { id: `ssh:${c.hostId}`, label: hostConfigLabel(db, c.hostId) };
+  // A design or optimize session's session belongs to the variant used, which is its bound variant (Contracts 33.3)
+  const owner =
+    c.id === 'design'
+      ? variantId === null
+        ? undefined
+        : db
+            .select()
+            .from(variants)
+            .where(and(eq(variants.id, variantId), isNull(variants.deletedAt)))
+            .get()
+      : ownerOf(configOwners(db, c.storageId), variantId);
   if (owner === undefined) return null;
   const workflow = db
     .select({ name: workflowTable.name })
     .from(workflowTable)
     .where(eq(workflowTable.id, owner.workflowId))
     .get();
-  if (workflow === undefined) throw new Error(`variant ${owner.id} 的 workflow 不存在`);
+  if (workflow === undefined) throw new Error(`The workflow of variant ${owner.id} does not exist`);
   return { id: `variant:${owner.id}`, label: configLabel({ label: owner.name, workflow }) };
 }
 
-// LIKE 模式中的字面量：% 与 _ 不是通配符（与 escape '\\' 一起用）
+// A literal in a LIKE pattern: % and _ are not wildcards (used with escape '\\')
 const likeLiteral = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 
-// 文件在这些目录之一中的 session
+// Sessions whose file is in one of these directories
 const under = (...dirList: string[]) =>
   sql`(${sql.join(
     dirList.map(
@@ -437,8 +487,8 @@ const under = (...dirList: string[]) =>
 const localDir = (dirs: SourceDirs, engine: SessionEngine) =>
   engine === 'claude' ? dirs.projectsDir : dirs.codexHome;
 
-// GET /api/sessions 的 config 参数（Contracts 25.5）：这个配置中的 session，与第一列的归属相同（variant 的配置目录中按
-// ownerOf 归入）
+// The config parameter of GET /api/sessions (Contracts 25.5): sessions in this configuration, as the first column groups
+// them (by ownerOf in variant configuration directories)
 export function configCondition(
   db: Db,
   dirs: SourceDirs,
@@ -446,32 +496,43 @@ export function configCondition(
   configId: string,
 ): SQL {
   if (configId === 'local') return under(localDir(dirs, engine));
-  if (configId === 'design') return under(dirs.draftsDir, dirs.analysesDir);
+  // SSH hosts (Contracts 31.6): copies under data/remote/<hostId>/
+  const hostId = /^ssh:([^:]+)$/.exec(configId)?.[1];
+  if (hostId !== undefined) return under(path.join(dirs.remoteDir, hostId));
   const variantId = /^variant:(.+)$/.exec(configId)?.[1];
   const variant =
-    variantId === undefined || engine !== 'claude'
+    variantId === undefined
       ? undefined
       : db
           .select()
           .from(variants)
           .where(and(eq(variants.id, variantId), isNull(variants.deletedAt)))
           .get();
-  if (variant === undefined) throw new HttpError(400, `没有这个配置：${configId}（${engine}）`);
+  if (variant === undefined)
+    throw new HttpError(400, `No such configuration: ${configId} (${engine})`);
+  // Sessions of design and optimize sessions are in each draft's or analysis's own configuration directory, bound to
+  // the variant used (Contracts 33.3)
+  const designed = sql`(${under(dirs.draftsDir, dirs.analysesDir)} and ${eq(sessions.variantId, variant.id)})`;
+  if (engine !== 'claude') return designed;
   const storageId = variant.storageId ?? variant.id;
   const inDir = under(path.join(dirs.variantsDir, storageId, 'home', 'claude', 'projects'));
   const owners = configOwners(db, storageId);
-  if (owners[0]?.id !== variant.id) return sql`${inDir} and ${eq(sessions.variantId, variant.id)}`;
-  // 最早建的得到除了绑定共用这个目录的其他 variant 以外的全部
+  if (owners[0]?.id !== variant.id)
+    return sql`((${inDir} and ${eq(sessions.variantId, variant.id)}) or ${designed})`;
+  // The earliest-created one gets everything except what other variants sharing this directory are bound to
   const others = owners.slice(1).map((o) => o.id);
-  if (others.length === 0) return inDir;
-  return sql`${inDir} and (${isNull(sessions.variantId)} or ${notInArray(sessions.variantId, others)})`;
+  if (others.length === 0) return sql`(${inDir} or ${designed})`;
+  return sql`((${inDir} and (${isNull(sessions.variantId)} or ${notInArray(sessions.variantId, others)})) or ${designed})`;
 }
 
-// 增量导入的上一次所见的修改时间：文件大小不变但修改时间变了时（子代理写入、rollout 被改写）也导入一次
+// The modification time the last incremental import saw: a file with the same size but a new modification time
+// (subagent writes, a rewritten rollout) is imported once too
 const seenMtimes = new Map<string, number>();
 
-// 一次增量导入（Contracts 25.1、25.5）：已导入的 session（含清除了的）中变长或修改时间变了的；dashboard 自己的配置（variant 的
-// 配置目录、设计与优化）中新出现的、没有清除过的。本机配置中没有导入的不导入。返回导入了的文件数
+// One incremental import (Contracts 25.1, 25.5): imported sessions (cleared ones included) that grew or changed
+// modification time; new, never-cleared sessions in the dashboard's own configurations (variant configuration
+// directories, design and optimize). Sessions not imported from the local configuration are not imported. Returns the
+// number of files imported
 export async function tailSessions(db: Db, dirs: SourceDirs): Promise<number> {
   let imported = await restoreClearedRecords(db);
   const rows = db
@@ -488,7 +549,8 @@ export async function tailSessions(db: Db, dirs: SourceDirs): Promise<number> {
   for (const row of rows) {
     let file = row.filePath;
     let stat = statSync(file, { throwIfNoEntry: false });
-    // Codex 的 rollout 在 dashboard 之外归档或恢复后换了位置：在同一个 CODEX_HOME 中按 session id 找到它（Contracts 25.3）
+    // A Codex rollout archived or restored outside the dashboard has moved: find it by session id in the same
+    // CODEX_HOME (Contracts 25.3)
     if (stat === undefined && row.engine === 'codex') {
       const found = rolloutsOf(codexHomeOf(file)).find((r) => r.id === row.id);
       if (found !== undefined) {
@@ -496,25 +558,30 @@ export async function tailSessions(db: Db, dirs: SourceDirs): Promise<number> {
         stat = statSync(file);
       }
     }
-    // 在 dashboard 之外删除了的文件：记录保留，内容不再变化
+    // Files deleted outside the dashboard: the record stays and its content no longer changes
     if (stat === undefined) continue;
     const seen = seenMtimes.get(file);
     seenMtimes.set(file, stat.mtimeMs);
     const moved = file !== row.filePath;
-    if (!moved && stat.size <= row.parseOffset && (seen === undefined || seen === stat.mtimeMs))
+    // Try again those that failed last time or wait for spill files (while a subagent record waits the main jsonl may
+    // no longer change) (Requirements Log round 13, item 19)
+    if (
+      !moved &&
+      stat.size <= row.parseOffset &&
+      (seen === undefined || seen === stat.mtimeMs) &&
+      importProblemOf(row.id) === null
+    )
       continue;
-    // 这一次开始之后删除了的不再导入
+    // Sessions deleted after this import started are not imported
     if (!exists(row.id)) continue;
-    await importInChunks(db, row.engine, file);
-    imported++;
+    if (await importIsolated(db, row.id, row.engine, file)) imported++;
   }
   const cleared = clearedSessionIds(db);
   for (const engine of sessionEngines)
     for (const c of allConfigs(db, dirs, engine, false))
       for (const e of c.entries) {
         if (cleared.has(e.id) || exists(e.id)) continue;
-        await importInChunks(db, engine, e.file);
-        imported++;
+        if (await importIsolated(db, e.id, engine, e.file)) imported++;
       }
   return imported;
 }
@@ -523,10 +590,12 @@ export interface SessionTail {
   close(): void;
 }
 
-// 增量导入的间隔
+// Interval of incremental imports
 const TAIL_MS = 5000;
 
-// 服务运行期间每 TAIL_MS 做一次增量导入（main.ts 启动）。一次没做完时不开始下一次；出错时交给 onError，之后不再导入
+// An incremental import every TAIL_MS while the service runs (started by main.ts). The next one does not start until
+// the last is done; importIsolated records one session's error, errors belonging to no session go to onError and stop
+// further imports
 export function startSessionTail(
   db: Db,
   dirs: SourceDirs,

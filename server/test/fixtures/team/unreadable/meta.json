@@ -1,0 +1,11 @@
+{
+  "scope": { "parentId": "TXE-4847" },
+  "updatedAfter": "2026-11-01T05:38:11.728Z",
+  "issues": ["TXE-5547", "TXE-5358"],
+  "updatedSince": ["TXE-5547", "TXE-5358"],
+  "prs": [
+    "https://github.com/txehq/action-runner-ops/pull/114",
+    "https://github.com/txehq/action-runner-ops/pull/113"
+  ],
+  "recordedAt": "2026-11-04T04:04:45.009Z"
+}

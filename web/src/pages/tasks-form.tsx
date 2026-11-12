@@ -118,17 +118,17 @@ function RubricGroupEditor({
           }}
         >
           <Plus />
-          添加条目
+          Add item
         </Button>
       </div>
       <Table className="table-fixed">
         <TableHeader>
           <TableRow>
-            <TableHead className="w-24">编号</TableHead>
-            <TableHead>判定标准</TableHead>
-            <TableHead className="w-24">满分</TableHead>
+            <TableHead className="w-24">ID</TableHead>
+            <TableHead>Criterion</TableHead>
+            <TableHead className="w-24">Max score</TableHead>
             <TableHead className="w-12">
-              <span className="sr-only">删除</span>
+              <span className="sr-only">Delete</span>
             </TableHead>
           </TableRow>
         </TableHeader>
@@ -137,7 +137,7 @@ function RubricGroupEditor({
             <TableRow key={index}>
               <TableCell className="align-top">
                 <Input
-                  aria-label={`${label} 第 ${String(index + 1)} 条的编号`}
+                  aria-label={`${label} item ${String(index + 1)} ID`}
                   value={item.id}
                   onChange={(e) => {
                     updateItem(index, { id: e.target.value });
@@ -146,7 +146,7 @@ function RubricGroupEditor({
               </TableCell>
               <TableCell className="align-top whitespace-normal">
                 <Textarea
-                  aria-label={`${label} 第 ${String(index + 1)} 条的判定标准`}
+                  aria-label={`${label} item ${String(index + 1)} criterion`}
                   value={item.criterion}
                   className="min-h-9"
                   onChange={(e) => {
@@ -156,7 +156,7 @@ function RubricGroupEditor({
               </TableCell>
               <TableCell className="align-top">
                 <Input
-                  aria-label={`${label} 第 ${String(index + 1)} 条的满分`}
+                  aria-label={`${label} item ${String(index + 1)} max score`}
                   type="number"
                   min={1}
                   step={1}
@@ -170,7 +170,7 @@ function RubricGroupEditor({
                 <Button
                   variant="ghost"
                   size="icon"
-                  aria-label={`删除 ${label} 第 ${String(index + 1)} 条`}
+                  aria-label={`Delete ${label} item ${String(index + 1)}`}
                   disabled={group.items.length === 1}
                   onClick={() => {
                     onChange({ ...group, items: group.items.filter((_, i) => i !== index) });
@@ -184,7 +184,7 @@ function RubricGroupEditor({
         </TableBody>
         <TableFooter>
           <TableRow>
-            <TableCell colSpan={2}>{label} 满分</TableCell>
+            <TableCell colSpan={2}>{label} max score</TableCell>
             <TableCell colSpan={2}>{rubricMaxScore([group])}</TableCell>
           </TableRow>
         </TableFooter>
@@ -205,15 +205,16 @@ function DraftView({
   return (
     <Card className="border-primary/40 bg-muted/30" data-testid="rubric-draft">
       <CardHeader>
-        <CardTitle>LLM 草稿</CardTitle>
+        <CardTitle>LLM draft</CardTitle>
         <p className="text-sm text-muted-foreground">
-          满分 {rubricMaxScore(draft.rubric)} · {draft.model} · 花费 ${draft.costUsd.toFixed(3)}
-          。采纳后会替换下方的 rubric，保存前仍可修改。
+          Max score {rubricMaxScore(draft.rubric)} · {draft.model} · cost $
+          {draft.costUsd.toFixed(3)}. Adopting replaces the rubric below; you can still edit it
+          before saving.
         </p>
         <CardAction className="flex gap-2">
-          <Button onClick={onAdopt}>采纳草稿</Button>
+          <Button onClick={onAdopt}>Adopt draft</Button>
           <Button variant="outline" onClick={onDiscard}>
-            放弃
+            Discard
           </Button>
         </CardAction>
       </CardHeader>
@@ -221,7 +222,7 @@ function DraftView({
         {draft.rubric.map((group) => (
           <div key={group.artifact} className="flex flex-col gap-1">
             <h3 className="text-sm font-semibold">
-              {artifactLabel(group.artifact)}（满分 {rubricMaxScore([group])}）
+              {artifactLabel(group.artifact)} (max {rubricMaxScore([group])})
             </h3>
             <Table className="table-fixed">
               <TableBody>
@@ -261,7 +262,7 @@ function RubricEditor({ form, onChange }: { form: LfgForm; onChange: (form: LfgF
       <CardHeader>
         <CardTitle>Rubric</CardTitle>
         <p className="text-sm text-muted-foreground" data-testid="rubric-total">
-          满分合计 {rubricMaxScore(form.rubric)}
+          Total max score {rubricMaxScore(form.rubric)}
         </p>
         <CardAction>
           <Button
@@ -272,14 +273,14 @@ function RubricEditor({ form, onChange }: { form: LfgForm; onChange: (form: LfgF
             }}
           >
             <Sparkles />
-            {drafting.isPending ? '起草中，约需 30 秒…' : '让 LLM 起草 rubric'}
+            {drafting.isPending ? 'Drafting, about 30s…' : 'Draft rubric with LLM'}
           </Button>
         </CardAction>
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
         {drafting.isError && (
           <Alert variant="destructive">
-            <AlertTitle>起草失败</AlertTitle>
+            <AlertTitle>Could not draft</AlertTitle>
             <AlertDescription>{drafting.error.message}</AlertDescription>
           </Alert>
         )}
@@ -322,7 +323,7 @@ function CriteriaEditor({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <Label>验收标准</Label>
+        <Label>Acceptance criteria</Label>
         <Button
           variant="outline"
           size="sm"
@@ -331,13 +332,13 @@ function CriteriaEditor({
           }}
         >
           <Plus />
-          添加
+          Add
         </Button>
       </div>
       {criteria.map((criterion, index) => (
         <div key={index} className="flex items-start gap-2">
           <Textarea
-            aria-label={`验收标准第 ${String(index + 1)} 条`}
+            aria-label={`Acceptance criterion ${String(index + 1)}`}
             value={criterion}
             className="min-h-9"
             onChange={(e) => {
@@ -347,7 +348,7 @@ function CriteriaEditor({
           <Button
             variant="ghost"
             size="icon"
-            aria-label={`删除验收标准第 ${String(index + 1)} 条`}
+            aria-label={`Delete acceptance criterion ${String(index + 1)}`}
             disabled={criteria.length === 1}
             onClick={() => {
               onChange(criteria.filter((_, i) => i !== index));
@@ -361,7 +362,7 @@ function CriteriaEditor({
   );
 }
 
-// requiredChecks 可以为空
+// requiredChecks may be empty
 function RequiredChecksEditor({
   checks,
   onChange,
@@ -372,12 +373,14 @@ function RequiredChecksEditor({
   return (
     <div className="flex flex-col gap-2" data-testid="required-checks">
       {checks.length === 0 && (
-        <p className="text-sm text-muted-foreground">没有。终点只要求 PR 不是草稿。</p>
+        <p className="text-sm text-muted-foreground">
+          None. The endpoint only requires the PR to not be a draft.
+        </p>
       )}
       {checks.map((check, index) => (
         <div key={index} className="flex items-center gap-2">
           <Input
-            aria-label={`required check 第 ${String(index + 1)} 个`}
+            aria-label={`Required check ${String(index + 1)}`}
             value={check}
             className="font-mono"
             onChange={(e) => {
@@ -387,7 +390,7 @@ function RequiredChecksEditor({
           <Button
             variant="ghost"
             size="icon"
-            aria-label={`删除 required check 第 ${String(index + 1)} 个`}
+            aria-label={`Delete required check ${String(index + 1)}`}
             onClick={() => {
               onChange(checks.filter((_, i) => i !== index));
             }}
@@ -405,7 +408,7 @@ function RequiredChecksEditor({
         }}
       >
         <Plus />
-        添加 check
+        Add check
       </Button>
     </div>
   );
@@ -431,18 +434,18 @@ function IcFields({
     <>
       <Card>
         <CardHeader>
-          <CardTitle>工单</CardTitle>
+          <CardTitle>Ticket</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <TextField
-            label="工单标题"
+            label="Ticket title"
             value={form.ticket.title}
             onChange={(title) => {
               onChange({ ...form, ticket: { ...form.ticket, title } });
             }}
           />
           <TextField
-            label="工单正文"
+            label="Ticket body"
             multiline
             rows={form.source === undefined ? 8 : 20}
             value={form.ticket.body}
@@ -461,19 +464,21 @@ function IcFields({
       {form.source === undefined ? (
         <Card>
           <CardHeader>
-            <CardTitle>起始仓库</CardTitle>
-            <p className="text-sm text-muted-foreground">bundle 的路径相对 task 目录。</p>
+            <CardTitle>Starting repo</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              The bundle path is relative to the task folder.
+            </p>
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-4">
             <TextField
-              label="仓库 bundle"
+              label="Repo bundle"
               value={form.repo.path}
               onChange={(path) => {
                 onChange({ ...form, repo: { ...form.repo, path } });
               }}
             />
             <TextField
-              label="固定 commit"
+              label="Pinned commit"
               value={form.repo.commit}
               onChange={(commit) => {
                 onChange({ ...form, repo: { ...form.repo, commit } });
@@ -491,10 +496,10 @@ function IcFields({
       )}
       <Card>
         <CardHeader>
-          <CardTitle>终点要求通过的 check</CardTitle>
+          <CardTitle>Checks required at the endpoint</CardTitle>
           <p className="text-sm text-muted-foreground">
-            副本仓库以这些 check 建 ruleset；终点为 PR 不是草稿且它们全部通过。为空时只要求 PR
-            不是草稿。
+            The copy repo gets a ruleset with these checks. The endpoint is reached when the PR is
+            not a draft and all of them pass. When empty, the PR only needs to not be a draft.
           </p>
         </CardHeader>
         <CardContent>
@@ -508,14 +513,18 @@ function IcFields({
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle>隐藏测试</CardTitle>
+          <CardTitle>Hidden tests</CardTitle>
           <p className="text-sm text-muted-foreground">
             {form.hasHiddenTests
-              ? '清单是评分的分母，键为测试文件相对仓库根目录的路径。'
-              : '没有隐藏测试：judge 对照验收标准逐条评分。'}
+              ? 'The manifest is the grading denominator. Keys are test file paths relative to the repo root.'
+              : 'No hidden tests: the judge scores each acceptance criterion.'}
           </p>
           <CardAction className="flex items-center gap-3">
-            {declared !== null && <Badge variant="secondary">{declared} 个隐藏测试</Badge>}
+            {declared !== null && (
+              <Badge variant="secondary">
+                {declared} {declared === 1 ? 'hidden test' : 'hidden tests'}
+              </Badge>
+            )}
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -524,34 +533,34 @@ function IcFields({
                   onChange({ ...form, hasHiddenTests: e.target.checked });
                 }}
               />
-              有隐藏测试
+              Has hidden tests
             </label>
           </CardAction>
         </CardHeader>
         {form.hasHiddenTests && (
           <CardContent className="grid grid-cols-2 gap-4">
             <TextField
-              label="隐藏测试目录"
+              label="Hidden tests folder"
               value={form.hiddenTests.dir}
               onChange={(dir) => {
                 onChange({ ...form, hiddenTests: { ...form.hiddenTests, dir } });
               }}
             />
             <TextField
-              label="测试命令"
+              label="Test command"
               value={form.hiddenTests.command}
               onChange={(command) => {
                 onChange({ ...form, hiddenTests: { ...form.hiddenTests, command } });
               }}
             />
             <TextField
-              label="测试配置"
+              label="Test config"
               value={form.hiddenTests.config}
               onChange={(config) => {
                 onChange({ ...form, hiddenTests: { ...form.hiddenTests, config } });
               }}
             />
-            <Field label="每一步的时限（秒）">
+            <Field label="Time limit per step (seconds)">
               {(id) => (
                 <Input
                   id={id}
@@ -570,7 +579,7 @@ function IcFields({
             </Field>
             <div className="col-span-2">
               <TextField
-                label="测试清单（YAML）"
+                label="Test manifest (YAML)"
                 multiline
                 rows={10}
                 value={form.hiddenTests.manifestYaml}
@@ -595,14 +604,14 @@ export function TaskFormFields({
   form: TaskForm;
   onChange: (form: TaskForm) => void;
   idEditable: boolean;
-  // 从 Linear 导入时预览中的 workflow 分析
+  // Workflow analysis from the preview when importing from Linear
   analysis?: WorkflowAnalysis | null;
 }) {
   return (
     <div className="flex flex-col gap-6">
       <Card>
         <CardHeader>
-          <CardTitle>基本信息</CardTitle>
+          <CardTitle>Basics</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <div className="grid grid-cols-2 gap-4">
@@ -615,7 +624,7 @@ export function TaskFormFields({
               }}
             />
             <TextField
-              label="标题"
+              label="Title"
               value={form.title}
               onChange={(title) => {
                 onChange({ ...form, title });
@@ -624,7 +633,7 @@ export function TaskFormFields({
           </div>
           {form.kind === 'lfg' && (
             <TextField
-              label="交给 /lfg 的输入"
+              label="Input to /lfg"
               value={form.input}
               onChange={(input) => {
                 onChange({ ...form, input });
@@ -632,7 +641,7 @@ export function TaskFormFields({
             />
           )}
           <TextField
-            label="Persona（模拟用户扮演的人）"
+            label="Persona (who the simulated user plays)"
             multiline
             rows={5}
             value={form.persona}
@@ -641,7 +650,7 @@ export function TaskFormFields({
             }}
           />
           <TextField
-            label="隐藏需求（只在被问到时透露）"
+            label="Hidden requirements (revealed only when asked)"
             multiline
             rows={12}
             value={form.hiddenRequirements}

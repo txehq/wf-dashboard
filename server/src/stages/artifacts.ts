@@ -6,9 +6,10 @@ import { fromMarkdown } from 'mdast-util-from-markdown';
 import { toString } from 'mdast-util-to-string';
 import type { RubricArtifactSpec } from '../workflows/schema.js';
 
-// rubric 评分的产物（Contracts 7.2、16.2）：feature 目录中由 wf obsidian 写出的文件与 plan 锁定后的快照，不参与阶段划分
+// Artifacts for rubric grading (Contracts 7.2, 16.2): files wf obsidian writes into the feature directory and the
+// snapshot after the plan is locked; they take no part in the stage partition
 
-// 与 wf obsidian 的 slugify 一致
+// Same as wf obsidian's slugify
 export function slugify(s: string): string {
   return s
     .trim()
@@ -22,10 +23,13 @@ export function featureDir(vault: string, product: string, feature: string): str
   return path.join(vault, name, 'Features', slugify(feature));
 }
 
-const PLAN_HEADING = /^(?:\d+\.\s*)?(?:plan|计划|实施计划)(?![a-z])/i;
-const LOCKED_STATUS = /^(?:status|状态)\s*[:：]\s*locked\b/i;
+// The escapes also match the Chinese heading ("plan", "implementation plan"), status word and full-width colon of
+// vault documents written before Contracts 36
+const PLAN_HEADING =
+  /^(?:\d+\.\s*)?(?:plan|\u{8BA1}\u{5212}|\u{5B9E}\u{65BD}\u{8BA1}\u{5212})(?![a-z])/iu;
+const LOCKED_STATUS = /^(?:status|\u{72B6}\u{6001})\s*[:\u{FF1A}]\s*locked\b/iu;
 
-// 正文（不含 frontmatter）中 Plan 一节的锁定状态行；没有时为 null
+// The lock status line in the Plan section of the body (without frontmatter); null when there is none
 export function planLockedLine(body: string): string | null {
   const tree = fromMarkdown(body);
   let inPlan = false;
@@ -56,7 +60,7 @@ export function readDoc(file: string): FeatureDoc | null {
   const fm = data as Record<string, unknown>;
   return {
     path: file,
-    // 没有 frontmatter 或缺字段时为 null：不是 wf obsidian 写出的产物，下面的比较不会通过
+    // null without frontmatter or a field: not an artifact wf obsidian wrote, so the comparisons below fail
     kind: typeof fm.kind === 'string' ? fm.kind : null,
     feature: typeof fm.feature === 'string' ? fm.feature : null,
     hash: createHash('sha256').update(raw).digest('hex'),
@@ -64,7 +68,8 @@ export function readDoc(file: string): FeatureDoc | null {
   };
 }
 
-// 产物的候选文件中 frontmatter 的 kind 相符、feature 为 run id 的那些，按候选顺序；不存在的为 null
+// The artifact's candidate files whose frontmatter kind matches and whose feature is the run id, in candidate order;
+// null for missing ones
 export function candidateDocs(
   dir: string,
   feature: string,
@@ -76,8 +81,9 @@ export function candidateDocs(
   });
 }
 
-// 实时运行中 feature 目录的产物：每次 observe() 读一次目录，返回每个产物 id 当前的文件。
-// lockedPlan 的产物要求锁定标记出现在文件首次出现之后的某次改写中，因此记住每个候选文件首次被看到时的 hash
+// Artifacts in the feature directory during a live run: each observe() reads the directory once and returns the
+// current file of each artifact id. A lockedPlan artifact needs the lock marker to appear in a rewrite after the
+// file first appeared, so the hash of each candidate file when first seen is remembered
 export class ArtifactTracker {
   private readonly firstHash = new Map<string, string>();
 

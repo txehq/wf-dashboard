@@ -2,10 +2,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { config } from '../config.js';
 
-// sandbox-exec 的 SBPL 字符串字面量
+// A string literal in sandbox-exec SBPL
 const literal = (value: string) => JSON.stringify(value);
 
-// wf 命令的 profile：真实 home 下只允许写 variant 目录，越界写入的进程被 SIGKILL
+// Profile for wf commands: under the real home only the variant directory is writable; a process writing elsewhere gets SIGKILL
 export function wfSandboxProfile(variantDir: string): string {
   return (
     '(version 1)(allow default)' +
@@ -15,9 +15,9 @@ export function wfSandboxProfile(variantDir: string): string {
 }
 
 export interface SandboxRoots {
-  // dashboard 仓库（源代码、tasks/ 中的隐藏测试与 rubric、.spikes/、.work/）
+  // The dashboard repo (source, hidden tests and rubrics in tasks/, .spikes/, .work/)
   repoRoot: string;
-  // 数据目录（db.sqlite、各 run 与各 variant）；WFD_DATA_DIR 指向仓库外时同样整体禁止读
+  // The data directory (db.sqlite, every run and variant); reading is denied as a whole even when WFD_DATA_DIR is outside the repo
   dataDir: string;
   runsDir: string;
   variantsDir: string;
@@ -35,7 +35,7 @@ const defaultRoots = (): SandboxRoots => ({
   home: os.homedir(),
 });
 
-// home 下工具运行需要写的缓存与状态目录（npm、Playwright 浏览器、gh、mcp-remote 的登录、ctx）
+// Cache and state directories under home that tools write (npm, Playwright browsers, gh, mcp-remote login, ctx)
 const homeCaches = [
   '.npm',
   '.cache',
@@ -48,7 +48,7 @@ const homeCaches = [
   'Library/pnpm',
 ];
 
-// 真实的 Claude 配置、wf 状态、Codex 配置与 ~/.local/bin：越界写入的进程被 SIGKILL
+// The real Claude config, wf state, Codex config and ~/.local/bin: a process writing there gets SIGKILL
 const protectedDirs = [
   '.claude',
   'Library/Application Support/wf',
@@ -57,10 +57,11 @@ const protectedDirs = [
   '.local/bin',
 ];
 
-// 设计与分析优化的 Claude Code 会话的 profile（Contracts 22.2）：写——home、dashboard 仓库与数据目录中只允许工作目录（其中有会话自己的
-// claude-config/ 与 .claude/skills/）、npm 缓存与 mcp-remote 的登录（~/.mcp-auth，刷新 token 时写回，Contracts 28.1）；
-// 读——dashboard 仓库与数据目录中只放行工作目录与 files
-// （claude 读的 hooks 设置文件、在仓库中时的 claude 程序本身）。网络照常
+// Profile of design and analysis-optimisation Claude Code sessions (Contracts 22.2): write - within home, the dashboard repo and the
+// data directory only the working directory (holding the session's claude-config/ and .claude/skills/), the npm cache and the
+// mcp-remote login (~/.mcp-auth, written back on token refresh, Contracts 28.1);
+// read - within the dashboard repo and data directory only the working directory and files
+// (the hooks settings files claude reads, the claude program itself when it is in the repo). Network as usual
 export function sessionSandboxProfile(
   workDir: string,
   files: string[],
@@ -81,24 +82,22 @@ export function sessionSandboxProfile(
   ].join('');
 }
 
-// claude 进程的 profile（Contracts 7.3），claude、hook、MCP 与 tool 子进程都继承：
-// 写——home、dashboard 仓库、数据目录与 vault 的 Project <product> 目录中只允许本 run 的目录、本 variant 的目录、
-// 本 run 的 feature 目录与工具缓存（它们不在 home 下时同样禁止写）；
-// 读——整个 dashboard 仓库与数据目录都不能读，只放行本 run 的目录与本 variant 的目录（其中再禁止其他 run 的 session），
-// 也不能读其他 run 的 feature 目录。
-// 本地仓库模式（Contracts 7.2）下 localRepo 是本 run 的 bare 仓库：可读写，同目录下其他 run 的仓库不能读。
-// 读限制只拦 file-read-data（文件内容与目录列表），路径查找与 stat 照常，父目录不影响访问自己的目录。
-// SBPL 中后出现的规则优先
+// Profile of the claude process (Contracts 7.3), inherited by claude, hook, MCP and tool children:
+// write - within home, the dashboard repo, the data directory and the vault's Project <product> directory only this run's directory,
+// this variant's directory, this run's feature directory and tool caches (also denied when they are not under home);
+// read - the whole dashboard repo and data directory are unreadable except this run's and this variant's directories (other runs'
+// sessions inside are denied again), and other runs' feature directories are unreadable.
+// The read limit only blocks file-read-data (file contents and directory listings); path lookup and stat work, so parents do not block own directories.
+// Later SBPL rules take precedence
 export function claudeSandboxProfile(
   runId: string,
   variantId: string,
   roots: SandboxRoots = defaultRoots(),
-  localRepo: string | null = null,
 ): string {
   const variantDir = path.join(roots.variantsDir, variantId);
   const projectsDir = path.join(variantDir, 'home', 'claude', 'projects');
   const subpath = (dir: string) => `(subpath ${literal(dir)})`;
-  return runProfile(runId, roots, localRepo, {
+  return runProfile(runId, roots, {
     write: [variantDir],
     read: [
       `(allow file-read-data ${subpath(variantDir)})`,
@@ -108,14 +107,13 @@ export function claudeSandboxProfile(
   });
 }
 
-// isolated 环境中用本机配置的交互进程（Contracts 29.2）：与 claudeSandboxProfile 相同，只是 variant 目录换成
-// claudeHome 下的 .claude 与 .claude.json（Claude Code 读凭据、写 session 与状态），以及用户的 hook 与 wf 装的 skill
-// 调用的 wf 所写的状态目录，这些都可读写：用户自己的配置照常工作
+// An interactive process in the isolated environment using the local machine's config (Contracts 29.2): like claudeSandboxProfile, with the
+// variant directory replaced by .claude and .claude.json under claudeHome (Claude Code reads credentials, writes sessions and state) and the
+// state directories written by wf as called from the user's hooks and wf-installed skills, all readable and writable: the user's own config works
 export function localClaudeSandboxProfile(
   runId: string,
   claudeHome: string,
   roots: SandboxRoots = defaultRoots(),
-  localRepo: string | null = null,
 ): string {
   const subpath = (dir: string) => `(subpath ${literal(dir)})`;
   const owned = [
@@ -123,24 +121,23 @@ export function localClaudeSandboxProfile(
     ...wfStateDirs.map((d) => path.join(claudeHome, d)),
   ];
   const state = path.join(claudeHome, '.claude.json');
-  // .claude.json 先写到同目录的临时文件再改名，旁边还有它的备份
+  // .claude.json is written to a temporary file beside it and renamed; its backups sit next to it
   const stateFiles = `(literal ${literal(state)}) (regex #"^${escapeRegex(state)}\\.")`;
-  return runProfile(runId, roots, localRepo, {
+  return runProfile(runId, roots, {
     write: [],
     read: [`(allow file-read-data file-write* ${owned.map(subpath).join(' ')} ${stateFiles})`],
   });
 }
 
-// wf 的状态目录（protectedDirs 中的两个）
+// wf state directories (two of protectedDirs)
 const wfStateDirs = ['Library/Application Support/wf', 'Library/Caches/wf'];
 
 const escapeRegex = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-// 一个 run（或交互项）的 claude 进程的 profile；config 是它的 Claude 配置额外可写的目录与最后追加的读写规则
+// Profile of a run's (or interactive item's) claude process; config holds its Claude config's extra writable directories and the final read/write rules
 function runProfile(
   runId: string,
   roots: SandboxRoots,
-  localRepo: string | null,
   config: { write: string[]; read: string[] },
 ): string {
   const runDir = path.join(roots.runsDir, runId);
@@ -158,11 +155,5 @@ function runProfile(
     `(deny file-read-data ${[roots.repoRoot, roots.dataDir, roots.runsDir, roots.variantsDir, roots.featuresDir].map(subpath).join(' ')})`,
     `(allow file-read-data ${subpath(runDir)} ${subpath(featureDir)})`,
     ...config.read,
-    ...(localRepo === null
-      ? []
-      : [
-          `(deny file-read-data ${subpath(path.dirname(localRepo))})`,
-          `(allow file-read-data file-write* ${subpath(localRepo)})`,
-        ]),
   ].join('');
 }

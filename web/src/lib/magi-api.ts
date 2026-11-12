@@ -10,7 +10,7 @@ import { requestJson } from '@/lib/http';
 import type { LiveDetail, LiveSummary } from '@/lib/live-api';
 import { invalidateThrottled, useLiveEvent } from '@/lib/live-events';
 
-// 与 Contracts 第 23 节（Magi Agent）的 API 对应
+// Matches the API in Contracts section 23 (Magi Agent)
 export type { MagiAgentView, MagiDeployView, MagiSessionView };
 export type MagiEngine = LiveSummary['engine'];
 
@@ -21,12 +21,14 @@ export const magiQuery = queryOptions({
 
 export const useMagi = () => useQuery(magiQuery);
 
-// worktree 中文件的改动没有事件：显示 Magi Agent 这一项时每 5 秒重新读取分支状态（领先、落后、未提交）
+// File changes in the worktree emit no events: while the Magi Agent item is shown, re-read the branch
+// status (ahead, behind, uncommitted) every 5 seconds
 const WORKTREE_REFRESH_MS = 5_000;
 export const useMagiWorktree = () =>
   useQuery({ ...magiQuery, refetchInterval: WORKTREE_REFRESH_MS });
 
-// 打开（Contracts 23.6）：继续所选的会话（没有运行中的进程时 resume），liveId 为空时新建
+// Open (Contracts 23.6): continue the chosen session (resume when no process is running); an empty
+// liveId creates a new one
 export async function openMagi(body: MagiOpenBody): Promise<LiveDetail> {
   return (await requestJson('POST', '/api/magi-agent/open', body)) as LiveDetail;
 }
@@ -37,9 +39,10 @@ export async function resumeMagi(liveId: string): Promise<LiveDetail> {
 
 export const deployLogUrl = (id: number) => `/api/magi-agent/deploys/${String(id)}/log`;
 
-// 弹出框的三项选择（Contracts 23.6）：引擎（默认 Codex）、配置（默认本机配置）、会话（继续哪一个或新会话）。
-// localStorage 中记下上次打开的会话（新会话时为新建的那一个），下次默认继续它；它不在所选的引擎与配置下时
-// （被删除，或换了引擎与配置）选最近的一个
+// The popover's three choices (Contracts 23.6): engine (Codex by default), config (local config by
+// default), session (which one to continue, or a new one). localStorage remembers the last opened
+// session (for a new session, the one created) and continues it by default next time; when it is not
+// under the chosen engine and config (deleted, or engine/config changed), the most recent one is chosen
 export interface MagiChoice {
   engine: MagiEngine;
   config: string;
@@ -67,8 +70,8 @@ export function saveMagiChoice(opened: { engine: MagiEngine; config: string; liv
   localStorage.setItem(CHOICE_KEY, JSON.stringify(StoredChoice.parse(opened)));
 }
 
-// magi.updated 与 magi.deploy：重新读取 Magi Agent 的状态与交互列表（worktree 的准备、部署的进度）；
-// live.updated：弹出框中会话的列表与顺序
+// magi.updated and magi.deploy: re-read the Magi Agent status and the interaction list (worktree
+// preparation, deploy progress); live.updated: the list and order of sessions in the popover
 export function useMagiEvents() {
   const client = useQueryClient();
   useLiveEvent((type) => {

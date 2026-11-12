@@ -21,7 +21,7 @@ export function openTestDb(): { db: Db; close: () => void } {
   };
 }
 
-// 由已导入样本的请求行拼出的 session（lfg 离线规则测试中加入真实 wf obsidian 调用）
+// A session composed from request rows of imported samples (the lfg offline rule tests add real wf obsidian calls)
 export function insertSession(db: Db, sessionId: string, rows: RequestRow[], cwd: string | null) {
   const times = rows.map((r) => r.timestamp.getTime());
   db.insert(sessions)
@@ -34,7 +34,7 @@ export function insertSession(db: Db, sessionId: string, rows: RequestRow[], cwd
       parseState: initialParseState(),
     })
     .run();
-  // id 由 SQLite 自增
+  // SQLite assigns the id
   for (const row of rows) {
     db.insert(requests)
       .values({ ...row, sessionId, id: undefined })

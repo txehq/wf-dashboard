@@ -7,8 +7,8 @@ import { artifacts, fixedArtifactKinds, liveEvents, liveSessions, runs } from '.
 import { featureDir } from '../stages/artifacts.js';
 import { issueIdentifier } from '../tasks/import-schema.js';
 
-// Session 详情的"绑定的对象"（Contracts 18.2）：run 的产物（仓库、工单、PR、vault 产物）与 isolated 交互项的
-// 副本仓库、工单副本、vault 目录
+// "Bound objects" of the Session detail (Contracts 18.2): run artifacts (repo, ticket, PR, vault artifacts) and, for
+// isolated Live items, the copied repo, ticket copy and vault directory
 export const SessionLinks = z.object({
   github: z.array(z.object({ label: z.string(), url: z.string() })),
   linear: z.array(z.object({ label: z.string(), url: z.string() })),
@@ -16,11 +16,10 @@ export const SessionLinks = z.object({
 });
 export type SessionLinks = z.infer<typeof SessionLinks>;
 
-// 本地仓库模式的仓库是本机路径，不是 GitHub 网页
 const GITHUB = /^https:\/\/github\.com\/([^/]+\/[^/]+)(?:\/pull\/(\d+))?\/?$/;
 const fixedKinds = new Set<string>(fixedArtifactKinds);
 
-// 交互项 start 事件中 isolated 环境建出的副本（Contracts 14.2）
+// Copies created by the isolated environment, from the Live item's start event (Contracts 14.2)
 const StartPayload = z.looseObject({
   repoUrl: z.string().optional(),
   ticketUrl: z.string().optional(),
@@ -63,7 +62,7 @@ export function sessionLinks(
       .all();
     for (const { kind, location } of rows) {
       if (kind === 'repo' || kind === 'pr' || kind === 'ticket') addUrl(location);
-      // rubric 产物是 feature 目录中的文档
+      // rubric artifacts are documents in the feature directory
       else if (!fixedKinds.has(kind) && path.isAbsolute(location)) obsidian.add(location);
     }
   }
@@ -93,7 +92,7 @@ export function sessionLinks(
     }
   }
 
-  // 仓库排在它的 PR 之前
+  // A repo sorts before its PRs
   return {
     github: [...github]
       .map(([url, label]) => ({ label, url }))

@@ -4,7 +4,7 @@ import { requestJson } from '@/lib/http';
 import { invalidateThrottled, useLiveEvent } from '@/lib/live-events';
 import type { SessionEngine } from '@/lib/sessions-api';
 
-// Contracts 第 15 节、第 19 节：session 绑定 variant 与由 session-analysis 驱动的分析
+// Contracts sections 15 and 19: binding a session to a variant, and analyses driven by session-analysis
 
 export type VariantBinding = 'run' | 'auto' | 'manual';
 
@@ -14,27 +14,27 @@ export interface Named {
 }
 
 export interface SessionBinding {
-  // deleted：绑定的 variant 已删除（run 的 session 随 run 保留，Contracts 24.3），不能点进 variant 页面
+  // deleted: the bound variant was deleted (a run's sessions stay with the run, Contracts 24.3); the variant page cannot be opened
   variant: (Named & { deleted: boolean }) | null;
   binding: VariantBinding | null;
-  // 与 session 的 skill 逐字节一致的全部 variant，按创建时间
+  // Every variant whose skills match the session's byte for byte, by creation time
   matching: Named[];
   skills: { name: string; loads: number }[];
   defaultBase: Named | null;
 }
 
 export const bindingLabel: Record<VariantBinding, string> = {
-  run: 'run 所用',
-  auto: '自动',
-  manual: '手动',
+  run: 'from run',
+  auto: 'auto',
+  manual: 'manual',
 };
 
-// 绑定种类为 run 的有 run 的 session 与 Live 交互的 session（交互所用的 variant，Contracts 14.1）；只有前者写"run 所用"
-// （28.5）。session 详情的绑定标签
+// Binding kind run covers run sessions and Live interaction sessions (the variant the interaction used, Contracts 14.1);
+// only the former says "from run" (28.5). Binding label on the session detail
 export const bindingKindLabel = (binding: VariantBinding, fromRun: boolean) =>
-  binding === 'run' && !fromRun ? '交互所用' : bindingLabel[binding];
+  binding === 'run' && !fromRun ? 'from Live' : bindingLabel[binding];
 
-// Sessions 表格 variant 一列的第二行：run 的 session 写 run id，Live 交互的不写，其余写绑定种类
+// Second line of the variant column in the Sessions table: run id for run sessions, nothing for Live interactions, otherwise the binding kind
 export function tableBindingNote(s: {
   variantBinding: VariantBinding | null;
   runId: string | null;
@@ -72,46 +72,46 @@ export const engineLabel: Record<AnalysisEngine, string> = {
   codex: 'Codex',
 };
 
-// 方面与步骤是所选 session-analysis variant 的小阶段（Contracts 19.2）；W45 之前的分析是四个方面与 synthesis
+// Aspects and steps are the stages of the chosen session-analysis variant (Contracts 19.2); analyses before W45 have four aspects and synthesis
 const stageNames: Record<string, string> = {
-  'process-adherence': '流程遵守',
-  'plan-adherence': '计划遵守',
-  failures: '经常失败的地方',
-  'repeated-work': '重复的工作',
-  'token-waste': '浪费 token',
-  'time-waste': '浪费时间',
-  'user-interaction': '和用户的交互',
-  'output-quality': '产物质量',
-  'request-conflicts': '与请求的冲突',
-  synthesize: '综合：报告与修改建议',
-  process: '流程遵守',
-  efficiency: '效率与花费',
-  interaction: '和用户的交互',
-  quality: '产物质量',
-  synthesis: '综合修改建议',
+  'process-adherence': 'Process adherence',
+  'plan-adherence': 'Plan adherence',
+  failures: 'Frequent failures',
+  'repeated-work': 'Repeated work',
+  'token-waste': 'Wasted tokens',
+  'time-waste': 'Wasted time',
+  'user-interaction': 'User interaction',
+  'output-quality': 'Output quality',
+  'request-conflicts': 'Conflicts with the request',
+  synthesize: 'Synthesis: report and suggested changes',
+  process: 'Process adherence',
+  efficiency: 'Efficiency and cost',
+  interaction: 'User interaction',
+  quality: 'Output quality',
+  synthesis: 'Synthesis of suggested changes',
 };
 
-// 已知的小阶段显示中文名，其余（派生出的 workflow 的阶段）显示阶段 id
+// Known stages show a name; others (stages of a derived workflow) show the stage id
 export const stageName = (key: string) => stageNames[key] ?? key;
 
-// 综合步骤：最后一步
+// The synthesis step: the last step
 const SYNTHESIS_KEYS = ['synthesize', 'synthesis'];
 export const aspectKeys = (steps: { key: string }[]) =>
   steps.map((s) => s.key).filter((k) => !SYNTHESIS_KEYS.includes(k));
 
 export const outcomeLabel: Record<AnalysisReport['outcome'], string> = {
-  achieved: '完成',
-  partially_achieved: '部分完成',
-  not_achieved: '没有完成',
-  unclear: '看不出',
+  achieved: 'Achieved',
+  partially_achieved: 'Partially achieved',
+  not_achieved: 'Not achieved',
+  unclear: 'Unclear',
 };
 
 export const statusLabel: Record<AnalysisStatus, string> = {
-  queued: '排队中',
-  running: '进行中',
-  succeeded: '已完成',
-  failed: '失败',
-  cancelled: '已取消',
+  queued: 'Queued',
+  running: 'Running',
+  succeeded: 'Succeeded',
+  failed: 'Failed',
+  cancelled: 'Cancelled',
 };
 
 export interface AnalysisTokens {
@@ -137,10 +137,10 @@ export interface AnalysisSummary {
   id: string;
   engine: AnalysisEngine;
   model: string;
-  // 本机配置的 session 的分析没有 variant（Contracts 25.4），页面显示"本机配置"
+  // Analyses of local-config sessions have no variant (Contracts 25.4); the page shows "Local config"
   variantId: string | null;
   variantName: string | null;
-  // 驱动分析的 session-analysis variant；W45 之前的分析为空
+  // The session-analysis variant that drove the analysis; null for analyses before W45
   analysisVariantId: string | null;
   analysisVariantName: string | null;
   sessionIds: string[];
@@ -152,7 +152,7 @@ export interface AnalysisSummary {
   endedAt: string | null;
 }
 
-// 配置（Contracts 25.1、27）：local、variant:<id>、design 与名字（"本机配置"或「variant 名 (workflow)」）
+// Config (Contracts 25.1, 27): local, variant:<id>, design, with a name ("Local config" or "variant name (workflow)")
 export interface ScopeConfig {
   id: string;
   label: string;
@@ -165,24 +165,24 @@ export interface ScopeSession {
   runId: string | null;
   variant: Named | null;
   binding: VariantBinding | null;
-  // 本机配置的 session（Contracts 25.4）
+  // A local-config session (Contracts 25.4)
   local: boolean;
   engine: SessionEngine;
-  // 所在的配置；不在任何配置中时为空
+  // The config it belongs to; null when it is in none
   config: ScopeConfig | null;
-  // 项目：工作目录的目录名
+  // Project: the name of the working directory
   project: string | null;
-  // 已在 dashboard 中；为 false 时开始分析时读入，不进入管理表格
+  // Already in the dashboard; when false it is imported when the analysis starts and stays out of the management table
   inDashboard: boolean;
 }
 
 export interface AnalysisScope {
   sessions: ScopeSession[];
-  // 一次分析的全部 session 属于同一种引擎、同一个配置（Contracts 27）；不是时为空
+  // All sessions of one analysis share one engine and one config (Contracts 27); null when they do not
   engine: SessionEngine | null;
   config: ScopeConfig | null;
   variant: Named | null;
-  // 全部是本机配置的 session：分析没有 variant，只有报告
+  // All are local-config sessions: the analysis has no variant, only a report
   local: boolean;
   problem: string | null;
 }
@@ -200,7 +200,7 @@ export interface Finding {
 
 export interface Hunk {
   index: number;
-  // 原文中的行号（0 起）；行含换行符
+  // Line number in the original (0-based); lines include the newline
   start: number;
   remove: string[];
   insert: string[];
@@ -214,7 +214,7 @@ export interface FileProposal {
   hunks: Hunk[];
 }
 
-// synthesize 写出的报告（Contracts 19.2）：workflowChanges 是"需要新建 workflow"的建议
+// The report written by synthesize (Contracts 19.2): workflowChanges are suggestions that need a new workflow
 export interface AnalysisReport {
   summary: string;
   goal: string;
@@ -224,12 +224,12 @@ export interface AnalysisReport {
 }
 
 export interface AnalysisDetail extends AnalysisSummary {
-  // 被分析的与驱动分析的 variant 已删除（Contracts 24.3）：只显示名字
+  // The analyzed and the driving variant were deleted (Contracts 24.3): show only the name
   variantDeleted: boolean;
   analysisVariantDeleted: boolean;
   sessions: ScopeSession[];
   report: AnalysisReport | null;
-  // 交给 Codex 优化的草稿与它在 Live 中的项（Contracts 19.3）
+  // Drafts handed to Codex for optimizing and their Live items (Contracts 19.3)
   optimizeDrafts: { id: string; liveId: string | null }[];
   findings: Finding[];
   patches: { file: string; findingIds: string[]; rationale: string; patch: string }[];
@@ -238,11 +238,11 @@ export interface AnalysisDetail extends AnalysisSummary {
 
 export const tokenTotal = (t: AnalysisTokens) => t.input + t.output + t.cacheRead + t.cacheWrite;
 
-// Codex 没有价格时只显示 token
+// Codex without a price shows only tokens
 export function costText(a: Pick<AnalysisSummary, 'costUsd' | 'steps'>): string {
   if (a.costUsd !== null) return formatUsd(a.costUsd);
   const tokens = a.steps.reduce((sum, s) => sum + tokenTotal(s.tokens), 0);
-  return `${formatInteger(tokens)} token（无价格）`;
+  return `${formatInteger(tokens)} ${tokens === 1 ? 'token' : 'tokens'} (no price)`;
 }
 
 export const analysesQuery = queryOptions({
@@ -258,7 +258,7 @@ export const analysisQuery = (id: string) =>
 
 export interface AnalysisOptions {
   defaults: Record<AnalysisEngine, string> & { analysisVariantId: string | null };
-  // 可以选用的 session-analysis variant（按当前内容构建通过的）
+  // session-analysis variants that can be chosen (built successfully from their current content)
   analysisVariants: Named[];
 }
 
@@ -267,14 +267,14 @@ export const analysisOptionsQuery = queryOptions({
   queryFn: () => call<AnalysisOptions>('GET', '/api/analyses/options'),
 });
 
-// 范围：已在 dashboard 中的 session（?sessions=、?picked=）与新建分析中从磁盘选的文件（Contracts 27），或 ?batch=<id>
+// Scope: sessions already in the dashboard (?sessions=, ?picked=) and files picked from disk in a new analysis (Contracts 27), or ?batch=<id>
 export interface DiskPick {
   engine: SessionEngine;
   files: string[];
 }
 export type ScopeInput = { sessions: string[]; disk?: DiskPick | undefined } | { batch: string };
 
-// 选中的 session 不经地址传 id（选中全部时很多）：放进本标签页的 sessionStorage，地址只带一个键（Contracts 25.5）
+// Selected session ids do not go in the URL (there are many when all are selected): they go in this tab's sessionStorage, and the URL carries one key (Contracts 25.5)
 const pickedItem = (key: string) => `analysis-sessions:${key}`;
 
 export function rememberPicked(ids: readonly string[]): string {
@@ -288,7 +288,7 @@ export function pickedSessions(key: string): string[] | null {
   return raw === null ? null : (JSON.parse(raw) as string[]);
 }
 
-// 已在 dashboard 中的 session 与从磁盘选的文件（Contracts 27），空的不传
+// Sessions already in the dashboard and files picked from disk (Contracts 27); empty ones are not sent
 const scopeBody = (input: { sessions: string[]; disk?: DiskPick | undefined }) => ({
   ...(input.sessions.length > 0 ? { ids: input.sessions } : {}),
   ...(input.disk !== undefined && input.disk.files.length > 0 ? { disk: input.disk } : {}),
@@ -326,12 +326,12 @@ export function createAnalysis(
   });
 }
 
-// 优化（Contracts 19.3、22.1）：用选的引擎在 Live 中建会话，返回草稿与 Live 中的项
-export function startOptimize(id: string, engine: 'codex' | 'claude') {
+// Optimize (Contracts 19.3, 22.1, 33.2): start a Live session with the chosen engine and workflow-optimize variant; returns the draft and the Live item
+export function startOptimize(id: string, engine: 'codex' | 'claude', designVariantId: string) {
   return call<{ draft: { id: string }; live: { id: string } }>(
     'POST',
     `/api/analyses/${id}/optimize`,
-    { engine },
+    { engine, designVariantId },
   );
 }
 
@@ -339,7 +339,7 @@ export function cancelAnalysis(id: string) {
   return call<{ id: string }>('POST', `/api/analyses/${id}/cancel`);
 }
 
-// 另存为 variant（Contracts 15.3、19.3）：名字与描述必填，不构建
+// Save as variant (Contracts 15.3, 19.3): name and description are required; does not build
 export function saveAnalysisVariant(
   id: string,
   body: { name: string; description: string; files: { path: string; content: string }[] },
@@ -347,7 +347,7 @@ export function saveAnalysisVariant(
   return call<Named>('POST', `/api/analyses/${id}/variant`, body);
 }
 
-// 页面同样的算法：按选择的改动生成结果
+// Build the result from the chosen hunks
 export function applyHunks(original: string, hunks: Hunk[]): string {
   const lines = original.match(/[^\n]*\n|[^\n]+$/g) ?? [];
   const out: string[] = [];

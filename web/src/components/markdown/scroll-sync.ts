@@ -1,6 +1,6 @@
 import { type RefObject, useEffect } from 'react';
 
-// 两个滚动区域按比例同步滚动：滚动其中一个，另一个跟到相同的比例
+// Two scroll areas scroll in proportion: scrolling one moves the other to the same ratio
 export function useScrollSync(
   first: RefObject<HTMLElement | null>,
   second: RefObject<HTMLElement | null>,
@@ -9,8 +9,8 @@ export function useScrollSync(
     const a = first.current;
     const b = second.current;
     if (a === null || b === null) return;
-    // 被带动的一侧随后发出的 scroll 事件不再带动回去：事件在之后的一帧才到（机器忙时可能晚很久），
-    // 按带动后它所在的位置认出
+    // The scroll event that the moved side fires afterwards must not move the first side back: it arrives a frame later (much later on a
+    // busy machine), so it is recognised by the position it was moved to
     const movedTo = new Map<HTMLElement, number>();
     const follow = (source: HTMLElement, target: HTMLElement) => () => {
       const moved = source.scrollTop === movedTo.get(source);
@@ -20,7 +20,7 @@ export function useScrollSync(
       const ratio = range <= 0 ? 0 : source.scrollTop / range;
       const from = target.scrollTop;
       target.scrollTop = ratio * (target.scrollHeight - target.clientHeight);
-      // 位置没有变时不会有滚动事件
+      // No scroll event fires when the position does not change
       if (target.scrollTop === from) movedTo.delete(target);
       else movedTo.set(target, target.scrollTop);
     };

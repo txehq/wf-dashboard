@@ -27,7 +27,7 @@ export function StageText({ stage }: { stage: RunSummary['currentStage'] }) {
   return (
     <span className="font-mono text-xs">
       /{stage.workflow} · {stage.stage}
-      {stage.status === 'active' ? '' : `（${statusMeta[stage.status].label}）`}
+      {stage.status === 'active' ? '' : ` (${statusMeta[stage.status].label})`}
     </span>
   );
 }
@@ -42,7 +42,7 @@ function FilterSelect<T extends string>({
   label: string;
   value: T | null;
   options: { value: T; label: string }[];
-  // 选项读取失败时显示原文，不当作没有选项
+  // When options fail to load, show the error text; do not treat it as no options
   error?: Error | null;
   onChange: (value: T | null) => void;
 }) {
@@ -57,7 +57,7 @@ function FilterSelect<T extends string>({
           onChange(event.target.value === '' ? null : (event.target.value as T));
         }}
       >
-        <option value="">全部</option>
+        <option value="">All</option>
         {options.map((o) => (
           <option key={o.value} value={o.value}>
             {o.label}
@@ -66,7 +66,7 @@ function FilterSelect<T extends string>({
       </select>
       {error !== null && (
         <span role="alert" className="text-xs text-destructive">
-          选项读取失败：{error.message}
+          Could not load options: {error.message}
         </span>
       )}
     </label>
@@ -79,13 +79,13 @@ function RunRow({ run, now }: { run: RunSummary; now: number }) {
     <tr
       className={cn(
         'border-b last:border-0 hover:bg-muted/40',
-        // 标为无效的 run：整行删除线，原因在最后一列与悬停提示中
+        // Invalidated run: the whole row is struck through; the reason is in the last column and the tooltip
         run.invalidReason !== null && 'text-muted-foreground line-through',
       )}
       data-testid="run-row"
       data-run={run.id}
       data-invalid={run.invalidReason !== null}
-      title={run.invalidReason === null ? undefined : `已标为无效：${run.invalidReason}`}
+      title={run.invalidReason === null ? undefined : `Invalidated: ${run.invalidReason}`}
     >
       <td className="py-2 pr-3">
         <Link to={`/runs/${run.id}`} className="font-medium hover:underline">
@@ -99,7 +99,7 @@ function RunRow({ run, now }: { run: RunSummary; now: number }) {
           {run.model} · {run.effort}
         </span>
       </td>
-      <td className="px-3 py-2 tabular-nums">第 {run.repeatIndex + 1} 次</td>
+      <td className="px-3 py-2 tabular-nums">#{run.repeatIndex + 1}</td>
       <td className="px-3 py-2">
         <RunStatusLabel status={run.status} />
       </td>
@@ -118,33 +118,33 @@ function RunRow({ run, now }: { run: RunSummary; now: number }) {
               data-testid="invalid"
             >
               <CircleSlash className="size-3.5" aria-hidden />
-              已标为无效
+              Invalidated
             </span>
           )}
           {run.humanIntervened && (
             <span className="inline-flex items-center gap-1 text-xs" data-testid="intervened">
               <Hand className="size-3.5" aria-hidden />
-              有人工干预
+              Human intervened
             </span>
           )}
           {run.crossRunRefs.length > 0 && (
             <span
               className="inline-flex items-center gap-1 text-xs"
               data-testid="cross-ref"
-              title={[...new Set(run.crossRunRefs.map((r) => r.runId))].join('、')}
+              title={[...new Set(run.crossRunRefs.map((r) => r.runId))].join(', ')}
             >
               <Link2 className="size-3.5" aria-hidden />
-              参考了其他 run
+              Referenced other runs
             </span>
           )}
           {run.sourceRefs.length > 0 && (
             <span
               className="inline-flex items-center gap-1 text-xs"
               data-testid="source-ref"
-              title={`${String(run.sourceRefs.length)} 处`}
+              title={`${String(run.sourceRefs.length)} ${run.sourceRefs.length === 1 ? 'place' : 'places'}`}
             >
               <Link2 className="size-3.5" aria-hidden />
-              读取了来源
+              Read the source
             </span>
           )}
           <RerunButton run={run} className="no-underline" />
@@ -176,11 +176,11 @@ export function RunList() {
   return (
     <section className="flex flex-col gap-3" aria-labelledby="run-list-title">
       <h2 id="run-list-title" className="text-lg font-semibold">
-        运行
+        Runs
       </h2>
       <div className="flex flex-wrap items-center gap-4">
         <FilterSelect<RunStatus>
-          label="状态"
+          label="Status"
           value={filter.status}
           options={runStatuses.map((s) => ({ value: s, label: statusLabel[s] }))}
           onChange={(status) => {
@@ -188,7 +188,7 @@ export function RunList() {
           }}
         />
         <FilterSelect
-          label="task"
+          label="Task"
           value={filter.task}
           options={(tasks.data ?? []).map((t) => ({ value: t.task.id, label: t.task.title }))}
           error={tasks.error}
@@ -197,7 +197,7 @@ export function RunList() {
           }}
         />
         <FilterSelect
-          label="variant"
+          label="Variant"
           value={filter.variant}
           options={(variants.data ?? []).map((v) => ({ value: v.id, label: v.name }))}
           error={variants.error}
@@ -206,13 +206,13 @@ export function RunList() {
           }}
         />
       </div>
-      {runs.isPending && <p className="text-sm text-muted-foreground">加载中…</p>}
+      {runs.isPending && <p className="text-sm text-muted-foreground">Loading…</p>}
       {runs.isError && <p className="text-sm text-destructive">{runs.error.message}</p>}
       {runs.data?.length === 0 && (
         <p className="rounded-lg border border-dashed py-8 text-center text-sm text-muted-foreground">
           {filtered
-            ? '没有符合筛选条件的 run。'
-            : '还没有 run。在上方选择 variant 与 task 发起评估。'}
+            ? 'No runs match these filters.'
+            : 'No runs yet. Pick variants and tasks above to start an evaluation.'}
         </p>
       )}
       {groups.map((group) => {
@@ -229,8 +229,9 @@ export function RunList() {
               {batch !== undefined && (
                 <>
                   <span className="text-xs text-muted-foreground">
-                    {formatDateTime(new Date(batch.createdAt).toISOString())} · {batch.runs} 个 run
-                    · 每格 {batch.repeats} 次
+                    {formatDateTime(new Date(batch.createdAt).toISOString())} · {batch.runs}{' '}
+                    {batch.runs === 1 ? 'run' : 'runs'} · {batch.repeats}{' '}
+                    {batch.repeats === 1 ? 'repeat' : 'repeats'} each
                   </span>
                   <span className="text-xs text-muted-foreground">
                     {Object.entries(batch.statusCounts)
@@ -238,7 +239,7 @@ export function RunList() {
                       .join(' · ')}
                   </span>
                   <span className="ml-auto text-xs tabular-nums">
-                    共 {formatUsd(batch.costUsd)}
+                    Total {formatUsd(batch.costUsd)}
                   </span>
                 </>
               )}
@@ -247,7 +248,7 @@ export function RunList() {
                 className={`text-xs underline ${batch === undefined ? 'ml-auto' : ''}`}
                 data-testid="analyze-batch"
               >
-                分析这些 session
+                Analyze these sessions
               </Link>
             </div>
             <table className="w-full table-fixed text-sm">
@@ -263,13 +264,13 @@ export function RunList() {
               </colgroup>
               <thead>
                 <tr className="border-b text-left text-xs text-muted-foreground">
-                  <th className="py-1.5 pr-3 pl-3 font-medium">task</th>
-                  <th className="px-3 py-1.5 font-medium">variant</th>
-                  <th className="px-3 py-1.5 font-medium">重复</th>
-                  <th className="px-3 py-1.5 font-medium">状态</th>
-                  <th className="px-3 py-1.5 font-medium">当前阶段</th>
-                  <th className="px-3 py-1.5 text-right font-medium">花费</th>
-                  <th className="px-3 py-1.5 text-right font-medium">耗时</th>
+                  <th className="py-1.5 pr-3 pl-3 font-medium">Task</th>
+                  <th className="px-3 py-1.5 font-medium">Variant</th>
+                  <th className="px-3 py-1.5 font-medium">Repeat</th>
+                  <th className="px-3 py-1.5 font-medium">Status</th>
+                  <th className="px-3 py-1.5 font-medium">Current stage</th>
+                  <th className="px-3 py-1.5 text-right font-medium">Cost</th>
+                  <th className="px-3 py-1.5 text-right font-medium">Duration</th>
                   <th className="py-1.5 pl-3 font-medium" />
                 </tr>
               </thead>

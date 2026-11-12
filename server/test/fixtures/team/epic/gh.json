@@ -1,0 +1,466 @@
+{
+  "commands": [
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4330",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":1660,\"closed_at\":\"2026-10-30T05:57:20Z\",\"created_at\":\"2026-10-29T15:26:29Z\",\"deletions\":158,\"draft\":false,\"id\":5070824019,\"merged_at\":\"2026-10-30T05:57:20Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4508",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":392,\"closed_at\":null,\"created_at\":\"2026-11-02T07:54:08Z\",\"deletions\":0,\"draft\":true,\"id\":5116886762,\"merged_at\":null,\"state\":\"open\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4320",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":1168,\"closed_at\":\"2026-11-03T11:48:30Z\",\"created_at\":\"2026-10-29T13:59:52Z\",\"deletions\":31,\"draft\":false,\"id\":5069383244,\"merged_at\":\"2026-11-03T11:48:30Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4509",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":236,\"closed_at\":\"2026-11-03T12:02:59Z\",\"created_at\":\"2026-11-02T07:59:08Z\",\"deletions\":3,\"draft\":false,\"id\":5116938924,\"merged_at\":\"2026-11-03T12:02:59Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4388",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":2009,\"closed_at\":\"2026-11-03T13:17:36Z\",\"created_at\":\"2026-10-30T10:43:54Z\",\"deletions\":196,\"draft\":false,\"id\":5083091232,\"merged_at\":\"2026-11-03T13:17:36Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4396",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":924,\"closed_at\":\"2026-11-03T12:10:37Z\",\"created_at\":\"2026-10-30T12:05:38Z\",\"deletions\":90,\"draft\":false,\"id\":5084049778,\"merged_at\":\"2026-11-03T12:10:37Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4329",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":3983,\"closed_at\":\"2026-11-03T13:50:40Z\",\"created_at\":\"2026-10-29T15:14:12Z\",\"deletions\":45,\"draft\":false,\"id\":5070619566,\"merged_at\":\"2026-11-03T13:50:40Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4353",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":1616,\"closed_at\":\"2026-11-03T11:45:37Z\",\"created_at\":\"2026-10-30T02:25:38Z\",\"deletions\":199,\"draft\":false,\"id\":5078511438,\"merged_at\":\"2026-11-03T11:45:37Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4548",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":222,\"closed_at\":\"2026-11-03T07:37:53Z\",\"created_at\":\"2026-11-03T07:08:59Z\",\"deletions\":10,\"draft\":false,\"id\":5133288989,\"merged_at\":\"2026-11-03T07:37:53Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4325",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":4316,\"closed_at\":\"2026-11-03T11:04:18Z\",\"created_at\":\"2026-10-29T14:31:14Z\",\"deletions\":20,\"draft\":false,\"id\":5069897318,\"merged_at\":\"2026-11-03T11:04:18Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4503",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":682,\"closed_at\":\"2026-11-02T07:39:19Z\",\"created_at\":\"2026-11-02T06:13:34Z\",\"deletions\":45,\"draft\":false,\"id\":5115867368,\"merged_at\":\"2026-11-02T07:39:19Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4321",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":1532,\"closed_at\":\"2026-10-30T06:20:56Z\",\"created_at\":\"2026-10-29T14:04:21Z\",\"deletions\":48,\"draft\":false,\"id\":5069454141,\"merged_at\":\"2026-10-30T06:20:56Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4558",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":1604,\"closed_at\":\"2026-11-03T12:24:29Z\",\"created_at\":\"2026-11-03T10:11:02Z\",\"deletions\":0,\"draft\":false,\"id\":5135415851,\"merged_at\":\"2026-11-03T12:24:28Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4354",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":7384,\"closed_at\":null,\"created_at\":\"2026-10-30T02:27:04Z\",\"deletions\":183,\"draft\":true,\"id\":5078522429,\"merged_at\":null,\"state\":\"open\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4537",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":696,\"closed_at\":\"2026-11-03T10:18:57Z\",\"created_at\":\"2026-11-02T14:23:57Z\",\"deletions\":0,\"draft\":false,\"id\":5121889076,\"merged_at\":\"2026-11-03T10:18:57Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4536",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":1810,\"closed_at\":\"2026-11-03T06:54:56Z\",\"created_at\":\"2026-11-02T14:05:44Z\",\"deletions\":57,\"draft\":false,\"id\":5121622677,\"merged_at\":\"2026-11-03T06:54:56Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4531",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":1210,\"closed_at\":\"2026-11-02T13:16:33Z\",\"created_at\":\"2026-11-02T12:40:35Z\",\"deletions\":27,\"draft\":false,\"id\":5120467250,\"merged_at\":\"2026-11-02T13:16:33Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4433",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":1337,\"closed_at\":\"2026-11-02T07:55:33Z\",\"created_at\":\"2026-10-31T08:23:29Z\",\"deletions\":25,\"draft\":false,\"id\":5095910667,\"merged_at\":\"2026-11-02T07:55:33Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4324",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":2435,\"closed_at\":\"2026-10-30T07:10:35Z\",\"created_at\":\"2026-10-29T14:19:55Z\",\"deletions\":213,\"draft\":false,\"id\":5069710527,\"merged_at\":\"2026-10-30T07:10:35Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4322",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":3311,\"closed_at\":\"2026-10-30T10:57:01Z\",\"created_at\":\"2026-10-29T14:06:40Z\",\"deletions\":349,\"draft\":false,\"id\":5069491469,\"merged_at\":\"2026-10-30T10:57:01Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4315",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":1245,\"closed_at\":\"2026-11-02T10:25:38Z\",\"created_at\":\"2026-10-29T13:26:25Z\",\"deletions\":80,\"draft\":false,\"id\":5068854849,\"merged_at\":\"2026-11-02T10:25:38Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4519",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":6215,\"closed_at\":null,\"created_at\":\"2026-11-02T12:08:09Z\",\"deletions\":27,\"draft\":true,\"id\":5120044792,\"merged_at\":null,\"state\":\"open\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/bifrost/pulls/24",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":2052,\"closed_at\":null,\"created_at\":\"2026-10-23T16:15:08Z\",\"deletions\":874,\"draft\":false,\"id\":4985787147,\"merged_at\":null,\"state\":\"open\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/bifrost/pulls/92",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":398,\"closed_at\":\"2026-11-02T11:12:20Z\",\"created_at\":\"2026-11-02T09:52:46Z\",\"deletions\":11,\"draft\":false,\"id\":5118315648,\"merged_at\":\"2026-11-02T11:12:20Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4157",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":1,\"closed_at\":\"2026-10-23T04:45:09Z\",\"created_at\":\"2026-10-23T04:05:42Z\",\"deletions\":1,\"draft\":true,\"id\":4977640034,\"merged_at\":null,\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4124",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":4,\"closed_at\":\"2026-10-23T04:45:08Z\",\"created_at\":\"2026-10-22T15:41:02Z\",\"deletions\":0,\"draft\":true,\"id\":4970059366,\"merged_at\":null,\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4123",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":4,\"closed_at\":\"2026-10-23T04:45:06Z\",\"created_at\":\"2026-10-22T15:38:08Z\",\"deletions\":0,\"draft\":true,\"id\":4970019987,\"merged_at\":null,\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4122",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":4,\"closed_at\":\"2026-10-22T15:31:10Z\",\"created_at\":\"2026-10-22T15:23:22Z\",\"deletions\":0,\"draft\":false,\"id\":4969810269,\"merged_at\":null,\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4120",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":1318,\"closed_at\":\"2026-10-26T04:07:11Z\",\"created_at\":\"2026-10-22T15:18:38Z\",\"deletions\":4,\"draft\":false,\"id\":4969740313,\"merged_at\":\"2026-10-26T04:07:11Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4501",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":371,\"closed_at\":\"2026-11-02T06:17:42Z\",\"created_at\":\"2026-11-02T04:59:38Z\",\"deletions\":134,\"draft\":false,\"id\":5115212895,\"merged_at\":\"2026-11-02T06:17:42Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4172",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":1819,\"closed_at\":\"2026-10-30T12:36:26Z\",\"created_at\":\"2026-10-23T15:42:50Z\",\"deletions\":124,\"draft\":false,\"id\":4985354894,\"merged_at\":\"2026-10-30T12:36:26Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4317",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":1284,\"closed_at\":\"2026-10-30T07:47:57Z\",\"created_at\":\"2026-10-29T13:33:15Z\",\"deletions\":136,\"draft\":false,\"id\":5068964618,\"merged_at\":\"2026-10-30T07:47:57Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4415",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":188,\"closed_at\":\"2026-11-02T03:05:01Z\",\"created_at\":\"2026-10-30T15:15:29Z\",\"deletions\":8,\"draft\":false,\"id\":5086625538,\"merged_at\":\"2026-11-02T03:05:01Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4414",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":17,\"closed_at\":\"2026-11-02T03:04:53Z\",\"created_at\":\"2026-10-30T15:01:31Z\",\"deletions\":17,\"draft\":false,\"id\":5086423882,\"merged_at\":\"2026-11-02T03:04:53Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4318",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":1840,\"closed_at\":\"2026-10-30T03:10:44Z\",\"created_at\":\"2026-10-29T13:48:40Z\",\"deletions\":42,\"draft\":false,\"id\":5069209821,\"merged_at\":\"2026-10-30T03:10:44Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4170",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":1316,\"closed_at\":\"2026-10-29T09:48:39Z\",\"created_at\":\"2026-10-23T13:33:30Z\",\"deletions\":189,\"draft\":false,\"id\":4983554893,\"merged_at\":\"2026-10-29T09:48:39Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4323",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":1394,\"closed_at\":\"2026-10-30T04:54:06Z\",\"created_at\":\"2026-10-29T14:15:10Z\",\"deletions\":42,\"draft\":false,\"id\":5069633215,\"merged_at\":\"2026-10-30T04:54:06Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4316",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":455,\"closed_at\":\"2026-10-30T03:10:34Z\",\"created_at\":\"2026-10-29T13:28:51Z\",\"deletions\":38,\"draft\":false,\"id\":5068892594,\"merged_at\":\"2026-10-30T03:10:34Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4215",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":2826,\"closed_at\":\"2026-10-29T11:16:28Z\",\"created_at\":\"2026-10-26T05:06:56Z\",\"deletions\":305,\"draft\":false,\"id\":5012360548,\"merged_at\":\"2026-10-29T11:16:28Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4171",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":1033,\"closed_at\":\"2026-10-29T10:10:52Z\",\"created_at\":\"2026-10-23T13:53:25Z\",\"deletions\":105,\"draft\":false,\"id\":4983825011,\"merged_at\":\"2026-10-29T10:10:52Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4125",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":24897,\"closed_at\":\"2026-10-28T13:41:49Z\",\"created_at\":\"2026-10-22T16:12:13Z\",\"deletions\":179,\"draft\":false,\"id\":4970492603,\"merged_at\":\"2026-10-28T13:41:49Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/4119",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":317,\"closed_at\":\"2026-10-28T12:22:56Z\",\"created_at\":\"2026-10-22T15:17:12Z\",\"deletions\":58,\"draft\":false,\"id\":4969718469,\"merged_at\":\"2026-10-28T12:22:56Z\",\"state\":\"closed\",\"user\":{\"login\":\"elowenluo\"}}",
+      "stderr": ""
+    }
+  ]
+}

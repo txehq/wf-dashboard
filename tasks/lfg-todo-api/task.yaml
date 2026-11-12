@@ -1,123 +1,123 @@
 id: lfg-todo-api
 kind: lfg
-title: 移动 App 用的待办清单 HTTP API
+title: A to-do list HTTP API for a mobile app
 persona: |
-  王磊，一家 20 人创业公司的 iOS 工程师，公司 App 要加待办功能，原来的后端同事离职了，后端暂时由他负责。
-  关心：接口稳定、能配合 App 的离线编辑；上线后他自己要能维护，所以希望用他熟悉的 TypeScript；不想因为后端出问题被叫起来。
-  说话方式：技术熟练，回答直接简短，常用 App 端的具体场景举例（地铁里没网、重复点击提交）；拿不准时会反问"你建议呢？"，听完理由后给出明确决定。
+  Wang Lei, an iOS engineer at a 20-person startup. The company app is getting a to-do feature, the backend colleague has left, and he is in charge of the backend for now.
+  Cares about: a stable API that supports the app's offline editing; he has to maintain it himself after launch, so he wants TypeScript, which he knows; he does not want to be woken up because the backend broke.
+  How he talks: technically fluent, answers directly and briefly, often gives concrete app-side scenarios (no network on the subway, tapping submit twice); when unsure he asks back "what do you suggest?", and after hearing the reasons he makes a clear decision.
 hiddenRequirements: |
-  调用方与规模
-  - 只有公司自己的 iOS App 通过 HTTPS 调用；约 5 万月活，峰值约 200 请求/秒；没有网页端。
-  - 6 周后 App 新版本提审，API 需要在那之前上线 staging 并稳定。
-  技术与部署
-  - TypeScript + Node 22；数据库用公司已有的 PostgreSQL（AWS RDS）；以 Docker 镜像部署到公司已有的 AWS ECS。
-  认证
-  - 沿用公司已有的 JWT：RS256 签名，公钥从公司的 JWKS 地址获取；API 不负责注册与登录。
-  - 每个用户只能读写自己的清单与待办，访问别人的资源返回 404。
-  数据
-  - 待办：标题（必填，最多 200 个字符）、备注（最多 2000 个字符）、截止时间（可选）、优先级（低、中、高）、完成状态、所属清单。
-  - 清单：名称、颜色、排序位置。
-  - 用户删除账号时，公司已有的 user.deleted 事件（经 SQS）到达后删除他的全部数据。
-  接口
-  - REST + JSON，路径前缀 /v1；自动生成 OpenAPI 文档。
-  - 待办列表支持按清单、完成状态、截止时间范围筛选，按截止时间或创建时间排序，cursor 分页，每页最多 100 条。
-  - 错误统一为 { "error": { "code", "message" } }；校验错误返回 422 并列出出错字段。
-  离线同步
-  - App 离线修改，上线后同步：提供 GET /v1/changes?since=<cursor>，返回之后新增、修改、删除的清单与待办和新的 cursor。
-  - 删除为软删除，墓碑保留 30 天；cursor 早于 30 天时返回 410，App 做全量同步。
-  - 冲突按最后写入者胜，依据客户端提交的 updatedAt。
-  可靠性
-  - 创建接口接受 Idempotency-Key 头：24 小时内用同一个 key 重复提交返回第一次的结果（App 在弱网下会重试）。
-  - p95 延迟低于 200ms；每个用户每分钟 60 次请求的限流，超出返回 429 并带 Retry-After。
-  不做
-  - 网页端；推送通知（App 自己做本地提醒）；共享或协作清单；附件；全文搜索；标签与子任务；管理后台；注册登录；数据导出。
-  授权
-  - agent 可以新建仓库、写代码、开 PR；不能碰生产数据库与 AWS 生产环境；部署到 staging 之前要先问他。
-input: 做一个待办清单的 HTTP API
+  Callers and scale
+  - Only the company's own iOS app calls it, over HTTPS; about 50,000 monthly active users, peaking at about 200 requests per second; there is no web client.
+  - The new app version goes to review in 6 weeks, and the API must be live and stable on staging before then.
+  Technology and deployment
+  - TypeScript + Node 22; the database is the company's existing PostgreSQL (AWS RDS); deployed as a Docker image to the company's existing AWS ECS.
+  Authentication
+  - Reuses the company's existing JWT: RS256 signatures, public keys fetched from the company's JWKS URL; the API does not handle sign-up or login.
+  - Each user can read and write only their own lists and to-dos; accessing someone else's resources returns 404.
+  Data
+  - To-do: title (required, at most 200 characters), notes (at most 2000 characters), due time (optional), priority (low, medium, high), completion status, owning list.
+  - List: name, colour, sort position.
+  - When a user deletes their account, all their data is deleted once the company's existing user.deleted event arrives (via SQS).
+  API
+  - REST + JSON under the path prefix /v1; OpenAPI documentation is generated automatically.
+  - The to-do list endpoint filters by list, completion status and due time range, sorts by due time or creation time, and uses cursor pagination with at most 100 items per page.
+  - Errors are always { "error": { "code", "message" } }; validation errors return 422 and list the invalid fields.
+  Offline sync
+  - The app edits offline and syncs when back online: GET /v1/changes?since=<cursor> returns the lists and to-dos created, changed or deleted since then, and a new cursor.
+  - Deletes are soft deletes and tombstones are kept for 30 days; a cursor older than 30 days returns 410 and the app does a full sync.
+  - Conflicts are resolved last writer wins, based on the updatedAt submitted by the client.
+  Reliability
+  - Create endpoints accept an Idempotency-Key header: repeating a request with the same key within 24 hours returns the first result (the app retries on weak networks).
+  - p95 latency below 200ms; a rate limit of 60 requests per user per minute, exceeding it returns 429 with Retry-After.
+  Out of scope
+  - A web client; push notifications (the app does local reminders itself); shared or collaborative lists; attachments; full-text search; tags and subtasks; an admin console; sign-up and login; data export.
+  Authority
+  - The agent may create a repository, write code and open PRs; it must not touch the production database or the AWS production environment; it must ask him before deploying to staging.
+input: build an HTTP API for a to-do list
 rubric:
   - artifact: brief
     items:
       - id: b1
-        criterion: Brief 是否写明调用方只有自家 iOS App、规模（约 5 万月活、峰值约 200 请求/秒），且没有网页端。
+        criterion: Does the brief state that the only caller is the company's own iOS app, the scale (about 50,000 monthly active users, peak about 200 requests per second), and that there is no web client?
         maxScore: 3
       - id: b2
-        criterion: Brief 是否写明认证沿用公司已有 JWT（RS256、JWKS 公钥）、API 不做注册登录，且用户只能访问自己的数据。
+        criterion: Does the brief state that authentication reuses the company's existing JWT (RS256, JWKS public keys), that the API does no sign-up or login, and that users can only access their own data?
         maxScore: 5
       - id: b3
-        criterion: Brief 是否写明待办与清单的字段及长度限制，并明确不做标签、子任务、附件与共享清单。
+        criterion: Does the brief state the to-do and list fields with their length limits, and explicitly exclude tags, subtasks, attachments and shared lists?
         maxScore: 4
       - id: b4
-        criterion: Brief 是否写明离线增量同步：变更接口、软删除墓碑保留 30 天、过期 cursor 的处理、最后写入者胜。
+        criterion: Does the brief state the offline incremental sync (changes endpoint, soft-delete tombstones kept for 30 days, handling of expired cursors, last writer wins)?
         maxScore: 5
       - id: b5
-        criterion: Brief 是否写明创建接口的幂等要求（Idempotency-Key，24 小时内返回第一次的结果）。
+        criterion: Does the brief state the idempotency requirement for create endpoints (Idempotency-Key, returning the first result within 24 hours)?
         maxScore: 3
       - id: b6
-        criterion: Brief 是否写明非功能要求：p95 低于 200ms、每用户每分钟 60 次限流与 429。
+        criterion: Does the brief state the non-functional requirements (p95 below 200ms, a rate limit of 60 per user per minute with 429)?
         maxScore: 3
       - id: b7
-        criterion: Brief 是否写明技术与部署约束：TypeScript + Node 22、已有 PostgreSQL、Docker 部署到已有 ECS。
+        criterion: Does the brief state the technology and deployment constraints (TypeScript + Node 22, the existing PostgreSQL, Docker deployment to the existing ECS)?
         maxScore: 3
       - id: b8
-        criterion: Brief 是否写明授权上限：可以建仓库与开 PR，不碰生产环境，部署到 staging 前要询问。
+        criterion: Does the brief state the limits of authority (may create repositories and open PRs, must not touch production, must ask before deploying to staging)?
         maxScore: 3
   - artifact: research
     items:
       - id: r1
-        criterion: Research 是否比较了至少两种 Node HTTP 框架或数据库访问方案，给出选择理由并附出处。
+        criterion: Does the research compare at least two Node HTTP frameworks or database access approaches, give reasons for the choice and cite sources?
         maxScore: 3
       - id: r2
-        criterion: Research 是否调研了增量同步的做法（单调递增的 cursor 或变更序号、软删除墓碑、过期处理）并附出处。
+        criterion: Does the research look into incremental sync approaches (a monotonically increasing cursor or change sequence, soft-delete tombstones, expiry handling) with sources?
         maxScore: 5
       - id: r3
-        criterion: Research 是否调研了 Idempotency-Key 的实现（存储位置、过期、同一 key 并发请求的处理）并附出处。
+        criterion: Does the research look into implementing Idempotency-Key (where it is stored, expiry, concurrent requests with the same key) with sources?
         maxScore: 4
       - id: r4
-        criterion: Research 是否调研了 RS256 JWT 校验与 JWKS 公钥获取、缓存所用的库。
+        criterion: Does the research look into libraries for RS256 JWT verification and for fetching and caching JWKS public keys?
         maxScore: 3
       - id: r5
-        criterion: Research 是否调研了 cursor 分页与按用户限流的实现方式。
+        criterion: Does the research look into how to implement cursor pagination and per-user rate limiting?
         maxScore: 3
       - id: r6
-        criterion: Research 的 spec 是否拆成部分，每部分有测试计划与验收标准。
+        criterion: Is the spec in the research split into parts, each with a test plan and acceptance criteria?
         maxScore: 4
   - artifact: plan
     items:
       - id: p1
-        criterion: Plan 是否带有锁定状态与锁定日期。
+        criterion: Does the plan carry a locked status and a lock date?
         maxScore: 2
       - id: p2
-        criterion: Plan 的顺序是否合理：数据模型与认证先于业务接口，同步接口排在软删除之后。
+        criterion: Is the plan's order sound, with the data model and authentication before the business endpoints and the sync endpoint after soft delete?
         maxScore: 3
       - id: p3
-        criterion: Plan 中同步部分的验证是否包含离线修改、冲突与删除三类场景。
+        criterion: Does the verification of the sync part in the plan cover the three scenarios of offline edits, conflicts and deletes?
         maxScore: 5
       - id: p4
-        criterion: Plan 是否写明数据库迁移的做法与回退方式。
+        criterion: Does the plan state how database migrations are done and how they are rolled back?
         maxScore: 3
       - id: p5
-        criterion: Plan 是否写明 user.deleted 事件的处理方式与验证方法。
+        criterion: Does the plan state how the user.deleted event is handled and how that is verified?
         maxScore: 3
       - id: p6
-        criterion: Plan 是否没有包含超出范围的工作（推送、共享、全文搜索、管理后台、注册登录）。
+        criterion: Is the plan free of out-of-scope work (push, sharing, full-text search, admin console, sign-up and login)?
         maxScore: 3
   - artifact: tickets
     items:
       - id: t1
-        criterion: Tickets.md 是否存在并列出每张工单的 Linear 编号与标题。
+        criterion: Does Tickets.md exist and list the Linear identifier and title of every ticket?
         maxScore: 2
       - id: t2
-        criterion: 依赖关系是否正确：认证与数据模型的工单阻塞业务接口工单，同步工单依赖软删除。
+        criterion: Are the dependencies correct, with the authentication and data model tickets blocking the business endpoint tickets and the sync ticket depending on soft delete?
         maxScore: 4
       - id: t3
-        criterion: 每张工单是否有可验证的验收标准，并写出具体的状态码与错误格式。
+        criterion: Does every ticket have verifiable acceptance criteria that spell out the concrete status codes and error format?
         maxScore: 4
       - id: t4
-        criterion: 幂等、限流、增量同步是否各自出现在某张工单的验收标准中。
+        criterion: Do idempotency, rate limiting and incremental sync each appear in the acceptance criteria of some ticket?
         maxScore: 4
       - id: t5
-        criterion: 每张工单是否有估算与推荐负责人，并各附一句理由。
+        criterion: Does every ticket have an estimate and a recommended assignee, each with a one-sentence reason?
         maxScore: 2
       - id: t6
-        criterion: Tickets 阶段是否停在 dispatch gate，没有派发任何 /ic。
+        criterion: Did the tickets stage stop at the dispatch gate without dispatching any /ic?
         maxScore: 3

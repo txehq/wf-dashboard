@@ -1,7 +1,7 @@
 import { parsePatch } from 'diff';
 import type { ChangeData, HunkData } from 'react-diff-view';
 
-// 共用的 diff 显示（Contracts 21.3）的数据：一个文件的若干处改动，行号从 1 起
+// Data for the shared diff display (Contracts 21.3): the changes to one file, line numbers from 1
 
 export type DiffStatus = 'added' | 'removed' | 'modified';
 
@@ -16,7 +16,7 @@ export interface DiffFile {
 const isMissing = (name: string | undefined) => name === undefined || name === '/dev/null';
 const stripPrefix = (name: string) => name.replace(/^[ab]\//, '');
 
-// unified diff 的一行：第一个字符是标记，其余是内容
+// A unified diff line: the first character is the marker, the rest is the content
 function changesOf(lines: string[], oldStart: number, newStart: number): ChangeData[] {
   const changes: ChangeData[] = [];
   let oldLine = oldStart;
@@ -40,7 +40,7 @@ function changesOf(lines: string[], oldStart: number, newStart: number): ChangeD
       oldLine += 1;
       newLine += 1;
     }
-    // 其余是 "\ No newline at end of file"，不是内容行
+    // Anything else is "\ No newline at end of file", not a content line
   }
   return changes;
 }
@@ -53,7 +53,7 @@ export const countChanges = (hunks: HunkData[]) => ({
   deletions: hunks.reduce((n, h) => n + h.changes.filter((c) => c.type === 'delete').length, 0),
 });
 
-// unified diff 文本（可以含多个文件）由 jsdiff 解析，再转成 react-diff-view 的 hunk
+// Unified diff text (possibly several files) parsed by jsdiff, then turned into react-diff-view hunks
 export function parseUnifiedDiff(text: string): DiffFile[] {
   return parsePatch(text)
     .filter((file) => file.hunks.length > 0)
@@ -62,9 +62,9 @@ export function parseUnifiedDiff(text: string): DiffFile[] {
       const removed = isMissing(file.newFileName);
       const name = removed ? file.oldFileName : file.newFileName;
       if (name === undefined || name === '/dev/null') {
-        throw new Error('unified diff 中的文件没有路径');
+        throw new Error('A file in the unified diff has no path');
       }
-      // 一侧没有行的 hunk，jsdiff 已把起始行号改为插入位置所在的行
+      // For a hunk with no lines on one side, jsdiff already set the start line to the insertion point
       const hunks = file.hunks.map((h) => ({
         content: hunkTitle(h),
         oldStart: h.oldStart,
@@ -82,7 +82,7 @@ export function parseUnifiedDiff(text: string): DiffFile[] {
     });
 }
 
-// 原文中的一处改动：从第 start 行（0 起）删除 remove，插入 insert；行可以带换行符
+// One change in the original: from line start (0-based) remove `remove` and insert `insert`; lines may keep their newline
 export interface ChangeBlock {
   start: number;
   remove: string[];
@@ -92,12 +92,12 @@ export interface ChangeBlock {
 export const splitLines = (text: string) => text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
 const chomp = (line: string) => (line.endsWith('\n') ? line.slice(0, -1) : line);
 
-// 每处改动各成一个 hunk，前后各带至多 context 行未改动的内容；两处改动之间的行不够时前一处先取。
-// 返回的 hunk 与 blocks 一一对应，顺序相同
+// Each change becomes its own hunk with up to `context` unchanged lines on each side; when the lines between two
+// changes run short, the earlier change takes them first. The hunks match blocks one to one, in the same order
 export function hunksOfBlocks(original: string, blocks: ChangeBlock[], context = 3): HunkData[] {
   const lines = splitLines(original).map(chomp);
   const hunks: HunkData[] = [];
-  // 新旧两侧行号之差
+  // Difference between new and old line numbers
   let shift = 0;
   let previousEnd = 0;
   for (const [i, block] of blocks.entries()) {
@@ -148,8 +148,8 @@ export function hunksOfBlocks(original: string, blocks: ChangeBlock[], context =
   return hunks;
 }
 
-// 相邻两个 hunk 之间（previous 为空时是文件开头到第一个 hunk，next 为空时是最后一个 hunk 到文件结尾）没有显示的行：
-// 原文中的范围 [from, to)（0 起）与它在新文件中的起始行
+// Lines not shown between two adjacent hunks (previous null: from the file start to the first hunk; next null: from the
+// last hunk to the file end): the range [from, to) in the original (0-based) and its start line in the new file
 export function gapBetween(
   previous: HunkData | null,
   next: HunkData | null,

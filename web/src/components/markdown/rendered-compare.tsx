@@ -3,7 +3,7 @@ import type { LineMarks } from './mark-lines';
 import { Markdown } from './markdown';
 import { useScrollSync } from './scroll-sync';
 
-// 原文中的一处改动：从第 start 行（0 起）删除 remove 行、插入 insert 行
+// One change in the original: from line start (0-based) remove the `remove` lines and insert the `insert` lines
 interface Change {
   start: number;
   remove: string[];
@@ -26,13 +26,13 @@ function marksOf(changes: Change[]): { removed: LineMarks; added: LineMarks } {
   return { removed: { kind: 'removed', lines: removed }, added: { kind: 'added', lines: added } };
 }
 
-// 渲染后的对比（Contracts 21.3）：左右两份渲染的 Markdown，改动的段落标出，滚动同步
+// Rendered comparison (Contracts 21.3): two rendered Markdown documents side by side, changed paragraphs marked, scrolling in sync
 export function RenderedCompare({
   path,
   original,
   modified,
   changes,
-  labels = ['原文', '修改后'],
+  labels = ['Original', 'Modified'],
 }: {
   path: string;
   original: string;

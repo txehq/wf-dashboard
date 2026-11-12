@@ -6,42 +6,55 @@ import { models, parseStructured } from '../llm/client.js';
 import { isFiller } from '../llm/filler.js';
 import { type EvalSpec, hasRepo } from '../workflows/schema.js';
 
-// dispatch gate 的固定回答（Spikes/Stage Markers 1.5）
-export const DISPATCH_GATE_REPLY = '不派发，到此结束。';
+// Fixed answer to the dispatch gate (Spikes/Stage Markers 1.5)
+export const DISPATCH_GATE_REPLY = 'Do not dispatch. Stop here.';
 const GO = /\bgo\b/i;
 
-// 模拟用户看到的评测配置：入口命令（workflow id）、积木（评估环境的事实）、结束条件与 dispatch gate（Contracts 16.2）
+// Eval config the simulated user sees: entry command (workflow id), building blocks (facts of the eval environment), done condition and dispatch gate (Contracts 16.2)
 export type PersonaStage = Pick<EvalSpec, 'id' | 'prepare' | 'done' | 'dispatchGate'>;
 
-// 模拟用户扮演的人：run 与选了 task 的交互取 task 的字段
+// The person the simulated user plays: runs and interactions with a task take the task's fields
 export interface SimulatedPersona {
-  // 对话所在 workflow 的评测配置；resume 的 session 与没有评测类型的 workflow 为空
+  // Eval config of the conversation's workflow; null for resumed sessions and workflows without an eval kind
   stage: PersonaStage | null;
   persona: string;
-  // 只在被问到时透露的需求；为空字符串时没有这一节
+  // Requirements revealed only when asked; no section when empty
   hiddenRequirements: string;
 }
 
-// 评估环境（run 与 isolated 交互）的公共事实
+// Shared facts of the eval environment (runs and isolated interactions)
 export interface EvalFacts {
-  // run id 或交互 id，也是 feature slug
+  // Run id or interaction id, also the feature slug
   runId: string;
-  // txehq/wfe-<id>；评测类型没有仓库积木时为空
+  // txehq/wfe-<id>; null when the eval kind has no repo building block
   repo: string | null;
-  // 工单副本的 identifier
+  // Identifier of the ticket copy
   ticket: string | null;
   product: string;
 }
 
+// Goal handed to the simulated user for a Live item without a task (Contracts 34.2): only what to do, no persona
+export interface SimulatedGoal {
+  goal: string;
+  // The item's original user request (initial message without the slash command, or the first user message of an existing session)
+  request: string;
+  // Eval config of the conversation's workflow; null without an eval kind and for items started from an existing session
+  stage: PersonaStage | null;
+}
+
+export const isGoal = (role: SimulatedPersona | SimulatedGoal): role is SimulatedGoal =>
+  'goal' in role;
+
 export interface SimulatedUserContext {
-  task: SimulatedPersona;
-  // real 环境的交互为空：agent 在用户真实的目录、仓库与工单上工作
+  // The person to play (runs and interactions with a task), or the goal to reach (Contracts 34.2)
+  task: SimulatedPersona | SimulatedGoal;
+  // null for real-environment interactions: the agent works on the user's real directories, repos and tickets
   eval: EvalFacts | null;
-  // 交互中驾驶者变为人时取消生成
+  // Cancels generation when a human takes over driving an interaction
   signal?: AbortSignal | undefined;
 }
 
-// 对话记录中的一条：agent 的话，或扮演的用户（模拟用户与人）发出的话
+// One transcript entry: what the agent said, or what the played user (simulated user or human) sent
 export interface TranscriptEntry {
   speaker: 'agent' | 'user';
   content: string;
@@ -52,22 +65,24 @@ export type AgentPrompt =
 
 export interface SimulatedReply {
   reply: string;
-  // 回答 AskUserQuestion 时给出：键为问题原文，值为选项 label
+  // Given when answering AskUserQuestion: key is the question text, value the option label
   answers?: Record<string, string>;
-  // 同一回答按问题顺序的选项编号与"其他"的文字；交互中换成终端按键
+  // The same answer as option numbers and "other" text in question order; interactions turn it into terminal keys
   selections?: QuestionAnswer[];
   done: boolean;
+  // Goal mode (Contracts 34.2): the reason for the judgement, shown to the user when done
+  reason?: string;
   costUsd: number;
   model: string;
 }
 
-// 文字提问的回答没有 answers 字段；AskUserQuestion 的回答必须给出 answers。
-// 结构化输出不支持任意键的对象：answers 按提问生成固定的键 question_1、question_2…，再转成以问题原文为键的 Record
-// （/ic 的 Goal 确认问题长达数百字，模型逐字抄写会抄错或留空）。
-// 选项也用编号：gateway 上 strict tool 的自由文本字段会被填成 placeholder、空串或乱码（opus 与 sonnet 都会），
-// 要抄写 label 的字段最常出错，见 Reports/W21。
-// 评测类型有 dispatch gate 时多一个 answeringDispatchGate，排在 done 之前：模型先判断这一轮是否在回答 gate，
-// 再判断 done（sonnet 一步判断 done 时在 gate 这一轮给出 true，见 Reports/W40）
+// Answers to text prompts have no answers field; answers to AskUserQuestion must give answers.
+// Structured output does not support objects with arbitrary keys: answers gets fixed keys question_1, question_2... per question, then becomes a Record keyed by question text
+// (the /ic Goal confirmation question runs to hundreds of characters; the model copies it wrong or leaves it empty).
+// Options are numbered too: on the gateway, free-text fields of strict tools get filled with placeholders, empty strings or garbage (both opus and sonnet),
+// and fields that copy a label fail most often, see Reports/W21.
+// When the eval kind has a dispatch gate, answeringDispatchGate comes before done: the model first decides whether this turn answers the gate,
+// then decides done (sonnet deciding done in one step gives true on the gate turn, see Reports/W40)
 const GateField = z.object({ answeringDispatchGate: z.boolean() });
 const QuestionAnswer = z.object({
   optionNumbers: z.array(z.number().int()),
@@ -77,14 +92,21 @@ type QuestionAnswer = z.infer<typeof QuestionAnswer>;
 
 const questionKey = (index: number) => `question_${String(index + 1)}`;
 
-// 有 dispatch gate 时在最前面加 answeringDispatchGate；没有时不出现这个字段
-type WithGate<T> = T & { answeringDispatchGate?: boolean };
+// With a dispatch gate, answeringDispatchGate goes first; goal mode (Contracts 34.2) adds a reason for done at the end
+type WithGate<T> = T & { answeringDispatchGate?: boolean; reason?: string };
+
+const ReasonField = z.object({ reason: z.string().min(1) });
 
 const TextAnswer = z.object({ reply: z.string().min(1), done: z.boolean() });
-export const textOutput = (gate: boolean): z.ZodType<WithGate<z.infer<typeof TextAnswer>>> =>
-  gate ? GateField.extend(TextAnswer.shape) : TextAnswer;
+export const textOutput = (
+  gate: boolean,
+  goal = false,
+): z.ZodType<WithGate<z.infer<typeof TextAnswer>>> => {
+  const base = gate ? GateField.extend(TextAnswer.shape) : TextAnswer;
+  return goal ? base.extend(ReasonField.shape) : base;
+};
 
-export function questionOutput(questions: AskQuestion[], gate: boolean) {
+export function questionOutput(questions: AskQuestion[], gate: boolean, goal = false) {
   const fields = z.object({
     reply: z.string().min(1),
     answers: z.object(
@@ -92,100 +114,178 @@ export function questionOutput(questions: AskQuestion[], gate: boolean) {
     ),
     done: z.boolean(),
   });
-  const schema: z.ZodType<WithGate<z.infer<typeof fields>>> = gate
-    ? GateField.extend(fields.shape)
-    : fields;
+  const base = gate ? GateField.extend(fields.shape) : fields;
+  const schema: z.ZodType<WithGate<z.infer<typeof fields>>> = goal
+    ? base.extend(ReasonField.shape)
+    : base;
   return schema;
 }
 
-// reply 或任一回答是占位内容时抛错，run 因此失败
+// Throws when reply or any answer is filler, which fails the run
 export function rejectFiller(reply: string, answers: Record<string, string> = {}) {
   const fields: [string, string][] = [
     ['reply', reply],
-    ...Object.entries(answers).map(([q, a]): [string, string] => [`对「${q}」的回答`, a]),
+    ...Object.entries(answers).map(([q, a]): [string, string] => [`answer to "${q}"`, a]),
   ];
   for (const [field, text] of fields) {
     if (isFiller(text)) {
-      throw new Error(`模拟用户的 ${field} 是占位内容：${JSON.stringify(text)}`);
+      throw new Error(`Simulated user's ${field} is filler: ${JSON.stringify(text)}`);
     }
   }
 }
 
-// 按积木生成（Contracts 16.2）：仓库积木给出本次运行的仓库，vault-dir 给出 product 与 feature slug，ticket-copy 给出工单
+// Built from the building blocks (Contracts 16.2): the repo block gives this run's repo, vault-dir gives product and feature slug, ticket-copy gives the ticket
 function facts(stage: PersonaStage | null, ctx: EvalFacts): string[] {
   const prepare = stage?.prepare ?? [];
   return [
-    `- 工单系统：Linear 的 ${EVAL_TEAM} team，"${EVAL_PROJECT}" project。`,
+    `- Ticket system: Linear team ${EVAL_TEAM}, project "${EVAL_PROJECT}".`,
     stage !== null && hasRepo(stage) && ctx.repo !== null
-      ? `- 代码托管：GitHub 组织 ${ORG}；本次运行的仓库是 ${ctx.repo}。`
-      : `- 代码托管：GitHub 组织 ${ORG}。`,
+      ? `- Code hosting: GitHub organization ${ORG}; this run's repo is ${ctx.repo}.`
+      : `- Code hosting: GitHub organization ${ORG}.`,
     ...(prepare.includes('vault-dir')
-      ? [`- 文档写进 Obsidian vault，product 是 "${ctx.product}"，feature slug 是 ${ctx.runId}。`]
+      ? [
+          `- Documents go into the Obsidian vault; the product is "${ctx.product}" and the feature slug is ${ctx.runId}.`,
+        ]
       : []),
-    ...(prepare.includes('ticket-copy') ? [`- 要做的工单是 ${ctx.ticket ?? '（未建）'}。`] : []),
+    ...(prepare.includes('ticket-copy')
+      ? [`- The ticket to work on is ${ctx.ticket ?? '(not created)'}.`]
+      : []),
   ];
 }
 
-const SENTENCE_END = /[。！？.!?]$/u;
-const sentence = (text: string) => `${text}${SENTENCE_END.test(text) ? '' : '。'}`;
+const SENTENCE_END = /[.!?]$/u;
+const sentence = (text: string) => `${text}${SENTENCE_END.test(text) ? '' : '.'}`;
 
-// agent 停下来等一个外部条件（额度恢复、服务可用、别人操作）而不是向用户提问时，对话不会再推进
+// When the agent stops to wait for an external condition (quota reset, a service coming back, someone else acting) without asking the user, the conversation will not move on
 const WAITING_RULE =
-  'agent 最新一轮没有向你提问，而是说明它在等待某个外部条件（例如额度恢复、某个服务恢复、别人完成某个操作）才能继续 → 视为 agent 无法继续，done 为 true。';
+  'The agent did not ask you anything in its latest turn and instead says it is waiting for some external condition before it can continue (for example a quota reset, a service coming back, or someone else finishing an action) → treat the agent as unable to continue; done is true.';
 
-// Contracts 7.4：按顺序逐条核对，命中一条就停。有 dispatch gate 时第一条是"这一轮在回答 gate → done 为 false"
+// Contracts 7.4: check the rules in order and stop at the first match. With a dispatch gate the first rule is "this turn answers the gate → done is false"
 function doneRule(stage: PersonaStage | null): string[] {
   const reached =
     stage === null
-      ? 'agent 最新一轮报告你交给它的工作已经全部完成；或 agent 明确报告无法继续。'
+      ? 'The agent reports in its latest turn that all the work you gave it is finished, or the agent explicitly reports that it cannot continue.'
       : sentence(stage.done.trim());
   const steps = [
     ...(stage?.dispatchGate === true
       ? [
-          'answeringDispatchGate 为 true（你这一轮正在回答 dispatch gate）→ done 必须为 false。你的回答要发给 agent，agent 收到后才会报告结束状态，那之后的一轮才可能结束。',
+          'answeringDispatchGate is true (you are answering the dispatch gate in this turn) → done must be false. Your answer is sent to the agent, which reports its final state only after receiving it; only a later turn can end the conversation.',
         ]
       : []),
-    `满足这一条 → done 为 true：${reached}`,
+    `This condition holds → done is true: ${reached}`,
     WAITING_RULE,
-    '以上都不满足 → done 为 false。',
+    'None of the above holds → done is false.',
   ];
   return [
-    ...(stage === null ? [] : [`这是 /${stage.id} 运行。`]),
-    '按顺序逐条核对，命中一条就停，不再看后面的：',
+    ...(stage === null ? [] : [`This is a /${stage.id} run.`]),
+    'Check the rules in order and stop at the first one that matches; do not look at the rest:',
     ...steps.map((s, i) => `${String(i + 1)}. ${s}`),
   ];
 }
 
-export function systemPrompt(ctx: SimulatedUserContext): string {
-  const { task } = ctx;
+// Goal mode (Contracts 34.2): on behalf of the person who set the goal, push the agent to reach it; each time the agent stops, decide the next message or judge it done
+function goalSystemPrompt(ctx: SimulatedUserContext, role: SimulatedGoal): string {
   const lines = [
-    ctx.eval === null
-      ? '你在一次 Magi workflow 的真实使用中扮演用户，与一个编程 agent（Claude Code）对话。'
-      : '你在一次 Magi workflow 的评估运行中扮演用户，与一个编程 agent（Claude Code）对话。',
+    'On behalf of the person who set the goal below, you talk with a coding agent and push it to reach the goal.',
     '',
-    '## 你扮演的人',
-    task.persona.trim(),
+    '## What to do this time',
+    role.goal.trim(),
+    '',
+    '## Rules',
+    '- Each time the agent stops, look at the goal, the original request and the conversation so far, and write the next message to send it: answer its question, or tell it what to do next.',
+    '- Answer only from the goal and the original request; decide details the goal does not cover by common sense, and do not add new requirements.',
+    '- Do not ask the agent to skip, merge or simplify any step of the workflow; when it asks you to confirm, choose or review, answer from the standpoint of the goal.',
+    '- You cannot open links, run commands, operate any external system or do research for the agent; when it asks you to do such things, say truthfully that you cannot.',
   ];
-  if (task.hiddenRequirements.trim() !== '') {
-    lines.push('', '## 你心里的完整需求（只在被问到时透露）', task.hiddenRequirements.trim());
-  }
-  lines.push(
-    '',
-    '## 规则',
-    '- 只回答 agent 问到的内容。被问到哪一部分就透露哪一部分需求，不要一次把全部需求倒出来，也不要主动补充没被问到的细节。',
-    '- 始终保持这个人的身份、知识水平和说话方式。',
-    '- 不要求 agent 跳过、合并或简化 workflow 的任何步骤；agent 请你确认、选择或审阅时，按这个人的立场作答。',
-    '- 你不能打开链接、运行命令、操作任何外部系统，也不能替 agent 做调研；agent 请你做这些事时，如实说明你做不到。',
-  );
   if (ctx.eval === null) {
     lines.push(
-      '- 授权范围：agent 在用户真实的目录、仓库与工单上工作。被问到是否授权时，只授权完成你交给它的工作所必需的操作。',
+      "- Authorization: the agent works on the user's real directories, repos and tickets. When asked for authorization, authorize only the operations needed to reach this goal.",
     );
   } else {
     lines.push(
-      '- 授权范围：agent 可以在上述 Linear project 中建工单，在 GitHub 组织 txehq 中建仓库与 PR，写 vault 的 Project Magi Eval/。被问到是否授权这些操作时回答可以；超出范围的操作不授权。',
+      '- Authorization: the agent may create tickets in the Linear project above, create repos and PRs in the GitHub organization txehq, and write to Project Magi Eval/ in the vault. When asked whether these operations are authorized, say yes; do not authorize anything beyond them.',
       '',
-      '## 评估环境的公共事实（agent 问到时如实回答）',
+      '## Shared facts of the eval environment (answer truthfully when the agent asks)',
+      ...facts(role.stage, ctx.eval),
+    );
+  }
+  if (role.stage?.dispatchGate === true) {
+    lines.push(
+      '',
+      '## dispatch gate',
+      `When the agent has created the tickets, shown the execution plan and asks whether to dispatch (for example by replying go or go wave N to dispatch the implementation), the answer is always "${DISPATCH_GATE_REPLY}". Your answer must never contain the word go, not even in a phrase such as "go ahead". When the agent asks with options, choose the option that means not dispatching.`,
+      'answeringDispatchGate: true when the agent asks you exactly this, whether to dispatch, in its latest turn; false in every other turn. Decide it first, then decide done.',
+    );
+  }
+  lines.push(
+    '',
+    '## When to finish (done)',
+    'Check the rules in order and stop at the first one that matches; do not look at the rest:',
+    ...(role.stage?.dispatchGate === true
+      ? [
+          '1. answeringDispatchGate is true (you are answering the dispatch gate in this turn) → done must be false.',
+          '2. The goal is reached (the agent reports it is finished and what it built matches the goal) → done is true.',
+          `3. ${WAITING_RULE}`,
+          '4. The agent explicitly reports that it cannot continue → done is true.',
+          '5. None of the above holds → done is false.',
+        ]
+      : [
+          '1. The goal is reached (the agent reports it is finished and what it built matches the goal) → done is true.',
+          `2. ${WAITING_RULE}`,
+          '3. The agent explicitly reports that it cannot continue → done is true.',
+          '4. None of the above holds → done is false.',
+        ]),
+    'reason: one sentence giving the reason for this judgement; it is shown to the user when done is true.',
+    'When done is true, reply is a short closing sentence; it is not sent to the agent.',
+    '',
+    '## Output',
+    "- Write in English. When the text needs quotation marks, use single quotes ('...'); never use double quotes.",
+    '- When the agent asks or reports in text (even if the text lists options such as A/B): reply is what you send to the agent; state your choice in reply.',
+    '',
+    '## AskUserQuestion answer format',
+    "When the agent asks with options, answers has one key per question: 'Question 1' is question_1, 'Question 2' is question_2, and so on.",
+    "- optionNumbers holds the numbers of the chosen options ('Option 1' is 1). Give one number for a single-choice question; give all chosen numbers for a multiple-choice question. When you chose options, otherAnswer is an empty string.",
+    '- When no option fits, optionNumbers is an empty array and otherAnswer holds your own short answer.',
+    '- reply: one sentence explaining your choice.',
+  );
+  return lines.join('\n');
+}
+
+export function systemPrompt(ctx: SimulatedUserContext): string {
+  const { task } = ctx;
+  if (isGoal(task)) return goalSystemPrompt(ctx, task);
+  const lines = [
+    ctx.eval === null
+      ? 'You play the user in a real use of a Magi workflow, talking with a coding agent (Claude Code).'
+      : 'You play the user in an eval run of a Magi workflow, talking with a coding agent (Claude Code).',
+    '',
+    '## The person you play',
+    task.persona.trim(),
+  ];
+  if (task.hiddenRequirements.trim() !== '') {
+    lines.push(
+      '',
+      '## The full requirements in your head (reveal only when asked)',
+      task.hiddenRequirements.trim(),
+    );
+  }
+  lines.push(
+    '',
+    '## Rules',
+    '- Answer only what the agent asks. Reveal only the part of the requirements it asks about; do not pour out all requirements at once, and do not volunteer details nobody asked for.',
+    "- Always keep this person's identity, level of knowledge and way of speaking.",
+    "- Do not ask the agent to skip, merge or simplify any step of the workflow; when the agent asks you to confirm, choose or review, answer from this person's standpoint.",
+    '- You cannot open links, run commands, operate any external system or do research for the agent; when the agent asks you to do such things, say truthfully that you cannot.',
+  );
+  if (ctx.eval === null) {
+    lines.push(
+      "- Authorization: the agent works on the user's real directories, repos and tickets. When asked for authorization, authorize only the operations needed to finish the work you gave it.",
+    );
+  } else {
+    lines.push(
+      '- Authorization: the agent may create tickets in the Linear project above, create repos and PRs in the GitHub organization txehq, and write to Project Magi Eval/ in the vault. When asked whether these operations are authorized, say yes; do not authorize anything beyond them.',
+      '',
+      '## Shared facts of the eval environment (answer truthfully when the agent asks)',
       ...facts(task.stage, ctx.eval),
     );
   }
@@ -193,25 +293,25 @@ export function systemPrompt(ctx: SimulatedUserContext): string {
     lines.push(
       '',
       '## dispatch gate',
-      `agent 建完工单、展示执行计划并问是否派发（例如回复 go 或 go wave N 派发实现）时，回答固定为"${DISPATCH_GATE_REPLY}"。回答中绝不能出现 go 这个词。agent 用选项提问时，选择表示不派发的那个选项。`,
-      'answeringDispatchGate：agent 最新一轮正是这样问你是否派发时为 true，你这一轮的回答就是对 dispatch gate 的回答；其他任何一轮（包括你回答 gate 之后 agent 报告结束状态的那一轮）为 false。先确定它，再判断 done。',
+      `When the agent has created the tickets, shown the execution plan and asks whether to dispatch (for example by replying go or go wave N to dispatch the implementation), the answer is always "${DISPATCH_GATE_REPLY}". Your answer must never contain the word go, not even in a phrase such as "go ahead". When the agent asks with options, choose the option that means not dispatching.`,
+      'answeringDispatchGate: true when the agent asks you exactly this, whether to dispatch, in its latest turn, so that your answer in this turn is the answer to the dispatch gate; false in every other turn (including the turn after you answered the gate, in which the agent reports its final state). Decide it first, then decide done.',
     );
   }
   lines.push(
     '',
-    '## 何时结束（done）',
+    '## When to finish (done)',
     ...doneRule(task.stage),
-    'done 为 true 时，reply 写一句简短的结束语，它不会发给 agent。',
+    'When done is true, reply is a short closing sentence; it is not sent to the agent.',
     '',
-    '## 输出',
-    '- 文字中需要引号时一律用中文引号「」，不要用英文双引号。',
-    '- agent 用文字提问或汇报时（即使文字里列出了 A/B 之类的选项）：reply 是你要发给 agent 的话，在 reply 里写出你的选择。',
+    '## Output',
+    "- Write in English. When the text needs quotation marks, use single quotes ('...'); never use double quotes.",
+    '- When the agent asks or reports in text (even if the text lists options such as A/B): reply is what you send to the agent; state your choice in reply.',
     '',
-    '## AskUserQuestion 的回答格式',
-    'agent 用选项提问时，answers 中每个问题对应一个键：「问题 1」是 question_1，「问题 2」是 question_2，依此类推。',
-    '- optionNumbers 是所选选项的编号（「选项 1」即 1）。只能选一项的问题给一个编号；可多选的问题给出所选的全部编号。选了选项时 otherAnswer 为空字符串。',
-    '- 没有合适的选项时 optionNumbers 为空数组，并在 otherAnswer 写你自己的简短回答。',
-    '- reply 用一句话说明你的选择。',
+    '## AskUserQuestion answer format',
+    "When the agent asks with options, answers has one key per question: 'Question 1' is question_1, 'Question 2' is question_2, and so on.",
+    "- optionNumbers holds the numbers of the chosen options ('Option 1' is 1). Give one number for a single-choice question; give all chosen numbers for a multiple-choice question. When you chose options, otherAnswer is an empty string.",
+    '- When no option fits, optionNumbers is an empty array and otherAnswer holds your own short answer.',
+    '- reply: one sentence explaining your choice.',
   );
   return lines.join('\n');
 }
@@ -220,60 +320,79 @@ function formatQuestions(questions: AskQuestion[]): string {
   return questions
     .map((q, i) =>
       [
-        `问题 ${String(i + 1)}${q.header ? `（${q.header}）` : ''}：${q.question}${q.multiSelect ? '（可多选）' : ''}`,
+        `Question ${String(i + 1)}${q.header ? ` (${q.header})` : ''}: ${q.question}${q.multiSelect ? ' (multiple choice)' : ''}`,
         ...q.options.map(
           (o, j) =>
-            `  - 选项 ${String(j + 1)}：${o.label}${o.description ? `（说明：${o.description}）` : ''}`,
+            `  - Option ${String(j + 1)}: ${o.label}${o.description ? ` (description: ${o.description})` : ''}`,
         ),
       ].join('\n'),
     )
     .join('\n');
 }
 
-// 编号换回 AskUserQuestion 的回答：所选选项的 label（多选用 ", " 连接），或自己的回答
+// Maps numbers back to the AskUserQuestion answer: the chosen options' labels (joined with ", " for multiple choice), or the own answer
 function answerText(where: string, question: AskQuestion, answer: QuestionAnswer): string {
   const { optionNumbers, otherAnswer } = answer;
   if (optionNumbers.length === 0) return otherAnswer;
   if (otherAnswer !== '') {
     throw new Error(
-      `${where} 既选了选项 ${JSON.stringify(optionNumbers)} 又写了回答 ${JSON.stringify(otherAnswer)}`,
+      `${where} chose options ${JSON.stringify(optionNumbers)} and also wrote the answer ${JSON.stringify(otherAnswer)}`,
     );
   }
   if (!question.multiSelect && optionNumbers.length > 1) {
-    throw new Error(`${where} 只能选一项，模拟用户选了 ${JSON.stringify(optionNumbers)}`);
+    throw new Error(
+      `${where} allows one option, the simulated user chose ${JSON.stringify(optionNumbers)}`,
+    );
   }
   if (new Set(optionNumbers).size !== optionNumbers.length) {
-    throw new Error(`${where} 的选项编号重复：${JSON.stringify(optionNumbers)}`);
+    throw new Error(`${where} has duplicate option numbers: ${JSON.stringify(optionNumbers)}`);
   }
   return optionNumbers
     .map((n) => {
       const option = question.options[n - 1];
-      if (option === undefined) throw new Error(`${where} 没有选项 ${String(n)}`);
+      if (option === undefined) throw new Error(`${where} has no option ${String(n)}`);
       return option.label;
     })
     .join(', ');
 }
 
-export function userPrompt(transcript: TranscriptEntry[], prompt: AgentPrompt): string {
+export function userPrompt(
+  transcript: TranscriptEntry[],
+  prompt: AgentPrompt,
+  // Goal mode (Contracts 34.2): the goal and the original user request come before the conversation
+  role?: SimulatedGoal,
+): string {
   const history = transcript.map(
-    (e) => `[${e.speaker === 'agent' ? 'agent' : '你'}]\n${e.content}`,
+    (e) => `[${e.speaker === 'agent' ? 'agent' : 'you'}]\n${e.content}`,
   );
   const latest =
     prompt.kind === 'text'
-      ? ['## agent 最新一轮的文字', prompt.text]
-      : ['## agent 用选项向你提问', formatQuestions(prompt.questions)];
+      ? ["## The agent's latest turn (text)", prompt.text]
+      : ['## The agent asks you with options', formatQuestions(prompt.questions)];
   return [
-    '## 之前的对话',
-    history.length > 0 ? history.join('\n\n') : '（无）',
+    ...(role === undefined
+      ? []
+      : [
+          '## What to do this time',
+          role.goal,
+          '',
+          '## The original user request',
+          role.request,
+          '',
+        ]),
+    '## Conversation so far',
+    history.length > 0 ? history.join('\n\n') : '(none)',
     '',
     ...latest,
     '',
-    '以你扮演的人的身份作答。',
+    role === undefined
+      ? 'Answer as the person you play.'
+      : 'Write the next message to send to the agent, or judge that the goal is done.',
   ].join('\n');
 }
 
-// 评测类型有 dispatch gate 时（Contracts 7.4）：回答中不能出现 go；回答 gate 的这一轮 done 必须为 false，
-// 文字提问的回答必须是固定的那一句。不满足时以原文失败
+// When the eval kind has a dispatch gate (Contracts 7.4): answers must not contain go; on the turn that answers the gate done must be false,
+// and the answer to a text prompt must be the fixed sentence. Otherwise fails with the raw output
 export function checkDispatchGate(
   stage: PersonaStage,
   prompt: AgentPrompt,
@@ -286,38 +405,43 @@ export function checkDispatchGate(
 ): void {
   const said = [output.reply, ...Object.values(output.answers ?? {})];
   if (said.some((s) => GO.test(s))) {
-    throw new Error(`/${stage.id} 运行中模拟用户的回答出现了 go：${JSON.stringify(said)}`);
+    throw new Error(
+      `In the /${stage.id} run the simulated user's answer contains go: ${JSON.stringify(said)}`,
+    );
   }
   if (!output.answeringDispatchGate) return;
   if (output.done) {
     throw new Error(
-      `/${stage.id} 运行中模拟用户在回答 dispatch gate 的这一轮给出 done: true（回答 gate 之后才能结束）：${JSON.stringify(output)}`,
+      `In the /${stage.id} run the simulated user gave done: true on the turn answering the dispatch gate (it can finish only after answering the gate): ${JSON.stringify(output)}`,
     );
   }
   if (prompt.kind === 'text' && output.reply !== DISPATCH_GATE_REPLY) {
     throw new Error(
-      `/${stage.id} 运行中模拟用户对 dispatch gate 的回答不是"${DISPATCH_GATE_REPLY}"：${JSON.stringify(output.reply)}`,
+      `In the /${stage.id} run the simulated user's answer to the dispatch gate is not "${DISPATCH_GATE_REPLY}": ${JSON.stringify(output.reply)}`,
     );
   }
 }
 
-// agent 一轮结束（文字）或 AskUserQuestion 时调用；回答不满足约束直接抛错
+// Called when an agent turn ends (text) or on AskUserQuestion; throws when the answer breaks a constraint
 export async function simulateUser(
   ctx: SimulatedUserContext,
   transcript: TranscriptEntry[],
   prompt: AgentPrompt,
 ): Promise<SimulatedReply> {
+  const role = ctx.task;
+  const goal = isGoal(role);
   const call = {
     model: models.simulatedUser,
     system: systemPrompt(ctx),
-    user: userPrompt(transcript, prompt),
+    user: userPrompt(transcript, prompt, goal ? role : undefined),
     maxTokens: 4096,
     ...(ctx.signal === undefined ? {} : { signal: ctx.signal }),
   };
-  const stage = ctx.task.stage;
+  const stage = role.stage;
   const gate = stage?.dispatchGate === true;
   let reply: string;
   let done: boolean;
+  let reason: string | undefined;
   let answeringDispatchGate: boolean | undefined;
   let answers: Record<string, string> | undefined;
   let selections: QuestionAnswer[] | undefined;
@@ -325,33 +449,42 @@ export async function simulateUser(
   if (prompt.kind === 'questions') {
     const result = await parseStructured({
       ...call,
-      schema: questionOutput(prompt.questions, gate),
+      schema: questionOutput(prompt.questions, gate, goal),
     });
-    ({ reply, done, answeringDispatchGate } = result.value);
+    ({ reply, done, reason, answeringDispatchGate } = result.value);
     cost = result;
     const given = result.value.answers;
     selections = prompt.questions.map((_, i) => {
       const answer = given[questionKey(i)];
-      if (answer === undefined) throw new Error(`模拟用户没有回答问题 ${String(i + 1)}`);
+      if (answer === undefined)
+        throw new Error(`Simulated user did not answer question ${String(i + 1)}`);
       return answer;
     });
     const chosen = selections;
     answers = Object.fromEntries(
       prompt.questions.map((question, i): [string, string] => {
         const answer = chosen[i];
-        if (answer === undefined) throw new Error(`模拟用户没有回答问题 ${String(i + 1)}`);
-        return [question.question, answerText(`问题 ${String(i + 1)}`, question, answer)];
+        if (answer === undefined)
+          throw new Error(`Simulated user did not answer question ${String(i + 1)}`);
+        return [question.question, answerText(`Question ${String(i + 1)}`, question, answer)];
       }),
     );
   } else {
-    const result = await parseStructured({ ...call, schema: textOutput(gate) });
-    ({ reply, done, answeringDispatchGate } = result.value);
+    const result = await parseStructured({ ...call, schema: textOutput(gate, goal) });
+    ({ reply, done, reason, answeringDispatchGate } = result.value);
     cost = result;
   }
   rejectFiller(reply, answers);
+  if (goal) {
+    if (reason === undefined || isFiller(reason)) {
+      throw new Error(
+        `Simulated user gave no reason for the judgement: ${JSON.stringify(reason ?? null)}`,
+      );
+    }
+  }
   if (gate) {
     if (answeringDispatchGate === undefined)
-      throw new Error('模拟用户的回答缺少 answeringDispatchGate');
+      throw new Error('Simulated user answer lacks answeringDispatchGate');
     checkDispatchGate(stage, prompt, {
       reply,
       ...(answers === undefined ? {} : { answers }),
@@ -364,6 +497,7 @@ export async function simulateUser(
     ...(answers === undefined ? {} : { answers }),
     ...(selections === undefined ? {} : { selections }),
     done,
+    ...(reason === undefined ? {} : { reason }),
     costUsd: cost.costUsd,
     model: cost.model,
   };

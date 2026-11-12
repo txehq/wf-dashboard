@@ -14,6 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { formatNoun } from '@/lib/format';
 import { tasksQuery } from '@/lib/tasks';
 
 function summary({ task }: TaskRecord) {
@@ -22,21 +23,22 @@ function summary({ task }: TaskRecord) {
 
 function measure({ task }: TaskRecord) {
   if (task.rubric !== undefined) {
-    return `${String(task.rubric.flatMap((g) => g.items).length)} 条 · 满分 ${String(rubricMaxScore(task.rubric))}`;
+    return `${formatNoun(task.rubric.flatMap((g) => g.items).length, 'item')} · max ${String(rubricMaxScore(task.rubric))}`;
   }
   if (task.hiddenTests !== undefined) {
-    return `${String(Object.values(task.hiddenTests.manifest).flat().length)} 个隐藏测试`;
+    return formatNoun(Object.values(task.hiddenTests.manifest).flat().length, 'hidden test');
   }
-  return `${String(task.ticket?.acceptanceCriteria.length ?? 0)} 条验收标准`;
+  const criteria = task.ticket?.acceptanceCriteria.length ?? 0;
+  return `${String(criteria)} acceptance ${criteria === 1 ? 'criterion' : 'criteria'}`;
 }
 
-// 两种评测类型的说明（Contracts 16.2）
+// What the two evaluation kinds measure (Contracts 16.2)
 const descriptions: Record<EvalKind, string> = {
-  lfg: '输入一个想法，模拟用户按隐藏需求回答，按 rubric 给四个产物打分。',
-  ic: '一张工单加固定 commit 的起始仓库，按隐藏测试的通过率评分；没有隐藏测试时按验收标准逐条评分。',
+  lfg: 'Give an idea; the simulated user answers from hidden requirements, and a rubric scores the four outputs.',
+  ic: 'A ticket plus a starting repo at a fixed commit, scored by the hidden test pass rate, or per acceptance criterion when there are no hidden tests.',
 };
 
-// task 按评测类型分组（Contracts 16.3），lfg 在前
+// Tasks grouped by evaluation kind (Contracts 16.3), lfg first
 function groupsOf(records: TaskRecord[]) {
   return evalKinds.map((kind) => ({
     kind,
@@ -65,12 +67,12 @@ function TaskGroup({
       </CardHeader>
       <CardContent>
         {records.length === 0 ? (
-          <p className="text-sm text-muted-foreground">还没有 task。</p>
+          <p className="text-sm text-muted-foreground">No tasks yet.</p>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>标题</TableHead>
+                <TableHead>Title</TableHead>
                 <TableHead>{summaryLabel}</TableHead>
                 <TableHead>{measureLabel}</TableHead>
                 <TableHead>ID</TableHead>
@@ -106,19 +108,19 @@ export function TasksPage() {
       <div className="flex items-start justify-between">
         <div className="flex flex-col gap-2">
           <h1 className="text-2xl font-semibold">Tasks</h1>
-          <p className="text-sm text-muted-foreground">评估用的 task 与 rubric。</p>
+          <p className="text-sm text-muted-foreground">Tasks and rubrics for evaluation.</p>
         </div>
         <Button asChild>
           <Link to="/tasks/new">
             <Plus />
-            新建 task
+            New task
           </Link>
         </Button>
       </div>
-      {tasks.isPending && <p className="text-sm text-muted-foreground">加载中…</p>}
+      {tasks.isPending && <p className="text-sm text-muted-foreground">Loading…</p>}
       {tasks.isError && (
         <Alert variant="destructive">
-          <AlertTitle>无法读取 task 列表</AlertTitle>
+          <AlertTitle>Could not load tasks</AlertTitle>
           <AlertDescription>{tasks.error.message}</AlertDescription>
         </Alert>
       )}
@@ -128,8 +130,8 @@ export function TasksPage() {
             key={group.kind}
             title={`/${group.kind}`}
             description={descriptions[group.kind]}
-            summaryLabel={group.kind === 'ic' ? '工单' : '输入'}
-            measureLabel={group.kind === 'ic' ? '评分依据' : 'Rubric'}
+            summaryLabel={group.kind === 'ic' ? 'Ticket' : 'Input'}
+            measureLabel={group.kind === 'ic' ? 'Graded by' : 'Rubric'}
             records={group.records}
           />
         ))}

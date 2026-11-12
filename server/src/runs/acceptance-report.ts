@@ -7,10 +7,12 @@ import { commandsOf } from '../stages/shell.js';
 import { COST_REFRESH_MS, onSessionUpdates } from './cost-refresh.js';
 import { upsertArtifact } from './records.js';
 
-// Contracts 7.2：被测 agent 的 /acceptance 用 `wf publish-artifact` 发布到 engapp.dev 的验收报告
+// Contracts 7.2: the acceptance report the agent under test publishes to engapp.dev with `wf publish-artifact` in /acceptance
 const PAGE_URL = /https:\/\/engapp\.dev\/artifacts\/page\/[0-9a-z]+/g;
-// acceptance skill 规定标题为 "<delivery> - acceptance"
-const ACCEPTANCE_TITLE = /acceptance|验收/i;
+// The acceptance skill sets the title to "<delivery> - acceptance"
+// Acceptance report titles; the code points are the Chinese word for acceptance, used by runs recorded before
+// Contracts 36
+const ACCEPTANCE_TITLE = /acceptance|\u{9A8C}\u{6536}/iu;
 
 export interface AcceptanceReport {
   url: string;
@@ -18,8 +20,8 @@ export interface AcceptanceReport {
   toolCallId: string;
 }
 
-// 脚本中最后一个 `wf publish-artifact … --title <标题>` 的标题；wf 前可以有 env 与环境变量赋值；
-// --dry-run 不算发布
+// Title of the last `wf publish-artifact … --title <title>` in the script; env and variable assignments may precede wf;
+// --dry-run does not count as publishing
 function publishedTitle(script: string): string | null {
   let title: string | null = null;
   for (const argv of commandsOf(script)) {
@@ -36,7 +38,7 @@ function publishedTitle(script: string): string | null {
   return title;
 }
 
-// 成功发布的验收报告；按时间顺序，最后一次在最后
+// Acceptance reports published successfully, in time order with the latest last
 export function acceptanceReports(rows: RequestRow[]): AcceptanceReport[] {
   const out: AcceptanceReport[] = [];
   for (const row of rows) {
@@ -54,7 +56,7 @@ export function acceptanceReports(rows: RequestRow[]): AcceptanceReport[] {
   return out;
 }
 
-// 主 session 与子代理中最后一次发布的验收报告写入 artifacts（每个 run 一条）
+// The last acceptance report published in the main session and subagents goes into artifacts (one per run)
 export function recordAcceptanceReport(db: Db, runId: string, sessionId: string): void {
   const rows = db
     .select()
@@ -73,8 +75,9 @@ export function recordAcceptanceReport(db: Db, runId: string, sessionId: string)
   );
 }
 
-// /ic 整个是一轮：除每轮结束与 run 结束外，session 有新请求写入时也扫描（与成本刷新同样节流），
-// 验收报告发布后一分钟内出现在运行详情。返回停止函数
+// /ic is one whole round: besides the end of each round and of the run, scan whenever the session gets new requests
+// (throttled like the cost refresh), so a published acceptance report shows in run details within a minute. Returns a
+// stop function
 export function watchAcceptanceReport(
   db: Db,
   runId: string,

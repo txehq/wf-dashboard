@@ -1,6 +1,6 @@
-// 用户以 slash 命令开始的消息，Claude Code 记录为
-// <command-message>lfg</command-message> <command-name>/lfg</command-name> <command-args>做一个计算器…</command-args>；
-// 页面显示为 "/lfg 做一个计算器…"（命令名加参数原文）
+// Claude Code records a user message that starts with a slash command as
+// <command-message>lfg</command-message> <command-name>/lfg</command-name> <command-args>Build a calculator…</command-args>;
+// the page shows "/lfg Build a calculator…" (command name plus the raw args)
 const COMMAND_NAME = /<command-name>([^<]*)<\/command-name>/;
 const COMMAND_ARGS = /<command-args>([\s\S]*?)<\/command-args>/;
 const COMMAND_MARKUP = /^\s*<command-(?:message|name|args)>/;
@@ -13,7 +13,7 @@ export function displayUserText(text: string): string {
   return args === '' ? name : `${name} ${args}`;
 }
 
-// slash 命令消息的参数原文（不去空白）；不是 slash 命令时为 null，没有参数时为空字符串
+// Raw args of a slash command message (whitespace kept); null when not a slash command, empty string without args
 export function commandArgs(text: string): string | null {
   if (!COMMAND_MARKUP.test(text) || COMMAND_NAME.exec(text) === null) return null;
   return COMMAND_ARGS.exec(text)?.[1] ?? '';
@@ -21,7 +21,7 @@ export function commandArgs(text: string): string | null {
 
 const TITLE_LENGTH = 80;
 
-// 列表标题：首条用户消息的前 80 个字符，空白压成一个空格；slash 命令为命令名加参数的第一行
+// List title: first 80 characters of the first user message, whitespace collapsed; for a slash command, the first line of name plus args
 export function sessionTitle(firstUserText: string): string {
   const shown = displayUserText(firstUserText);
   const text = shown === firstUserText ? shown : (shown.split('\n')[0] ?? '');

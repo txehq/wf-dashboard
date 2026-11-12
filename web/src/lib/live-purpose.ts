@@ -1,21 +1,24 @@
 import { useState } from 'react';
 import type { LiveSummary } from '@/lib/live-api';
 
-// 交互项的用途（Contracts 14.3、26.1）：标签文字与列表上方的筛选；筛选的选择记在 localStorage
+// Purpose of an interaction item (Contracts 14.3, 26.1): tag text and the filter above the list; the
+// filter choice is kept in localStorage
 
 export function purposeLabel(live: Pick<LiveSummary, 'purpose'>): string {
-  if (live.purpose === 'interaction') return '交互';
-  if (live.purpose === 'optimize') return '优化';
+  if (live.purpose === 'interaction') return 'Interaction';
+  if (live.purpose === 'optimize') return 'Optimize';
   if (live.purpose === 'agent') return 'Magi Agent';
-  return '设计';
+  if (live.purpose === 'orca') return 'Orca';
+  return 'Design';
 }
 
 export const purposeFilters = [
-  { value: 'all', label: '全部' },
-  { value: 'interaction', label: '交互' },
-  { value: 'design', label: '设计' },
-  { value: 'optimize', label: '优化' },
+  { value: 'all', label: 'All' },
+  { value: 'interaction', label: 'Interaction' },
+  { value: 'design', label: 'Design' },
+  { value: 'optimize', label: 'Optimize' },
   { value: 'agent', label: 'Magi Agent' },
+  { value: 'orca', label: 'Orca' },
 ] as const;
 export type PurposeFilter = (typeof purposeFilters)[number]['value'];
 

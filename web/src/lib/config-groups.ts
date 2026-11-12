@@ -1,13 +1,13 @@
 import type { ImportConfig } from '@/lib/sessions-api';
 
 export interface ConfigGroup {
-  // variant 的配置所属的 workflow，作为组的标题；本机配置、设计与优化不在组中，为 null
+  // The workflow a variant config belongs to, used as the group heading; null for local config, which is in no group
   workflow: { id: string; name: string } | null;
   configs: ImportConfig[];
 }
 
-// 第一列的配置按 workflow 分组（Contracts 25.1）：服务端已按本机配置、各 workflow 的 variant、设计与优化的顺序返回，
-// 相邻的同一 workflow 的配置合为一组
+// First-column configs grouped by workflow (Contracts 25.1, 33.3): the server returns local config first, then each
+// workflow's variants in order; adjacent configs of the same workflow form one group
 export function configGroups(configs: ImportConfig[]): ConfigGroup[] {
   const groups: ConfigGroup[] = [];
   for (const c of configs) {
@@ -19,7 +19,7 @@ export function configGroups(configs: ImportConfig[]): ConfigGroup[] {
   return groups;
 }
 
-// 第一列的搜索：配置的名字或所属 workflow 的名字中含有 q（不分大小写）
+// First-column search: q appears in the config name or its workflow's name (case-insensitive)
 export function matchesConfig(c: ImportConfig, q: string): boolean {
   const text = q.trim().toLowerCase();
   return (

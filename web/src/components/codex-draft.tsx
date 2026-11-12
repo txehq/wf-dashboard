@@ -3,6 +3,7 @@ import { RotateCcw, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { EngineChoice } from '@/components/engine-choice';
+import { useSessionVariant } from '@/components/session-variant';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { createDraft, type Draft, type DraftStepView } from '@/lib/drafts-api';
@@ -11,7 +12,7 @@ import { useDesignEngine } from '@/lib/design-engine';
 import { useNow } from '@/lib/use-now';
 import { type Variant, variantLabel, variantsQuery } from '@/pages/variants-api';
 
-// 最早建出的 variant（列表按创建时间倒序）：默认的底子
+// The earliest variant (the list is newest first): the default base
 function earliest(variants: Variant[]): Variant | undefined {
   return variants.reduce<Variant | undefined>(
     (first, v) => (first === undefined || v.createdAt < first.createdAt ? v : first),
@@ -19,22 +20,23 @@ function earliest(variants: Variant[]): Variant | undefined {
   );
 }
 
-// Contracts 17.1、22.1、28.4："生成 workflow"（Workflows 列表）与"生成 variant"（Workflow 页面），引擎为 Codex 或
-// Claude Code（默认上次选的）。发起后服务端建草稿目录、装 skill、在 Live 中建会话，页面跳到它
+// Contracts 17.1, 22.1, 28.4: "Generate workflow" (Workflows list) and "Generate variant" (Workflow page), with
+// Codex or Claude Code as the engine (defaults to the last choice). On start the server creates the draft
+// directory, installs skills and creates a Live session; the page navigates to it
 export function CodexDraftForm({
   mode,
   workflowId,
   onCancel,
 }: {
   mode: 'workflow' | 'variant';
-  // mode 为 variant 时是所属 workflow
+  // The owning workflow when mode is variant
   workflowId?: string | undefined;
   onCancel: () => void;
 }) {
   const client = useQueryClient();
   const navigate = useNavigate();
   const variants = useQuery(variantsQuery);
-  // mode 为 variant 时底子默认是这个 workflow 的第一个 variant；mode 为 workflow 时从空白骨架开始（Contracts 18.5）
+  // In variant mode the base defaults to this workflow's first variant; workflow mode starts from a blank skeleton (Contracts 18.5)
   const choices = (variants.data ?? []).filter((v) => v.workflowId === workflowId);
   const fallback = earliest(choices);
   const [engine, setEngine] = useDesignEngine();
@@ -44,12 +46,28 @@ export function CodexDraftForm({
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [requirement, setRequirement] = useState('');
+  const session = useSessionVariant('design');
   const create = useMutation({
     mutationFn: () =>
       createDraft(
         mode === 'workflow'
-          ? { mode, engine, workflowId: id, name, description, requirement }
-          : { mode, engine, workflowId: workflowId ?? '', requirement, baseVariantId: base },
+          ? {
+              mode,
+              engine,
+              designVariantId: session.variantId,
+              workflowId: id,
+              name,
+              description,
+              requirement,
+            }
+          : {
+              mode,
+              engine,
+              designVariantId: session.variantId,
+              workflowId: workflowId ?? '',
+              requirement,
+              baseVariantId: base,
+            },
       ),
     onSuccess: async ({ live }) => {
       await client.invalidateQueries({ queryKey: ['live'] });
@@ -57,7 +75,9 @@ export function CodexDraftForm({
     },
   });
   const ready =
-    requirement.trim() !== '' && (mode === 'variant' ? base !== '' : id !== '' && name !== '');
+    session.variantId !== '' &&
+    requirement.trim() !== '' &&
+    (mode === 'variant' ? base !== '' : id !== '' && name !== '');
   return (
     <form
       className="flex flex-col gap-4 rounded-lg border p-4"
@@ -69,15 +89,16 @@ export function CodexDraftForm({
     >
       <div className="flex flex-wrap items-center gap-3">
         <h2 className="text-base font-semibold">
-          {mode === 'workflow' ? '生成 workflow' : `生成 /${workflowId ?? ''} 的 variant`}
+          {mode === 'workflow' ? 'Generate workflow' : `Generate a variant of /${workflowId ?? ''}`}
         </h2>
         <EngineChoice value={engine} onChange={setEngine} />
+        {session.select}
       </div>
       <div className="flex flex-wrap items-end gap-3">
         {mode === 'workflow' && (
           <>
             <label className="flex flex-col gap-1 text-sm">
-              id（入口命令 /id）
+              id (entry command /id)
               <input
                 className="h-9 w-48 rounded-md border px-3 font-mono"
                 data-testid="codex-draft-id"
@@ -89,7 +110,7 @@ export function CodexDraftForm({
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              名字
+              Name
               <input
                 className="h-9 w-56 rounded-md border px-3"
                 data-testid="codex-draft-name"
@@ -104,7 +125,7 @@ export function CodexDraftForm({
         )}
         {mode === 'variant' && (
           <label className="flex flex-col gap-1 text-sm">
-            底子 variant
+            Base variant
             <select
               className="h-9 w-72 rounded-md border bg-background px-2"
               data-testid="codex-draft-base"
@@ -114,7 +135,7 @@ export function CodexDraftForm({
               }}
               required
             >
-              {base === '' && <option value="">选择…</option>}
+              {base === '' && <option value="">Select…</option>}
               {choices.map((v) => (
                 <option key={v.id} value={v.id}>
                   {variantLabel(v)}
@@ -126,7 +147,7 @@ export function CodexDraftForm({
       </div>
       {mode === 'workflow' && (
         <label className="flex flex-col gap-1 text-sm">
-          描述
+          Description
           <textarea
             className="min-h-14 rounded-md border px-3 py-2"
             data-testid="codex-draft-description"
@@ -138,7 +159,7 @@ export function CodexDraftForm({
         </label>
       )}
       <label className="flex flex-col gap-1 text-sm">
-        需求
+        Requirements
         <textarea
           className="min-h-20 rounded-md border px-3 py-2"
           data-testid="codex-draft-requirement"
@@ -151,12 +172,12 @@ export function CodexDraftForm({
       </label>
       <p className="text-sm text-muted-foreground">
         {mode === 'workflow'
-          ? '草稿从空白骨架开始（入口与一个小阶段的 SKILL.md）；写好 skill 与小阶段后，在 Live 中保存为新 workflow。'
-          : '只改 skill 内容，入口与小阶段不变；写好后，在 Live 中保存为新 variant。'}
+          ? 'The draft starts from a blank skeleton (SKILL.md for the entry and one stage). When the skills and stages are written, save it as a new workflow in Live.'
+          : 'Only skill content changes; the entry and stages stay the same. When done, save it as a new variant in Live.'}
       </p>
       {create.isError && (
         <Alert variant="destructive">
-          <AlertTitle>发起失败</AlertTitle>
+          <AlertTitle>Could not start</AlertTitle>
           <AlertDescription className="whitespace-pre-wrap">
             {create.error.message}
           </AlertDescription>
@@ -169,10 +190,10 @@ export function CodexDraftForm({
           data-testid="codex-draft-submit"
         >
           <Sparkles />
-          {create.isPending ? '发起中…' : '在 Live 中开始'}
+          {create.isPending ? 'Starting…' : 'Start in Live'}
         </Button>
         <Button type="button" variant="ghost" onClick={onCancel}>
-          取消
+          Cancel
         </Button>
       </div>
     </form>
@@ -180,19 +201,19 @@ export function CodexDraftForm({
 }
 
 const stepLabel: Record<DraftStepView['status'], string> = {
-  pending: '等待',
-  running: '进行中…',
-  done: '完成',
-  failed: '失败',
+  pending: 'Pending',
+  running: 'Running…',
+  done: 'Done',
+  failed: 'Failed',
 };
 
-// 一步的实际耗时：完成或失败的是开始到结束，进行中的是到现在
+// A step's actual duration: start to end when done or failed, start to now while running
 function stepDuration(step: DraftStepView, now: number): string | null {
   if (step.startedAt === null) return null;
   return formatDuration((step.endedAt ?? now) - step.startedAt);
 }
 
-// 草稿准备的每一步（Contracts 17.1、28.4）：每一步写实际耗时；失败时显示那一步的原文与"重试准备"
+// Each draft preparation step (Contracts 17.1, 28.4) with its actual duration; on failure, the step's raw error and "Retry preparation"
 export function DraftProgress({
   draft,
   retrying,
@@ -211,8 +232,8 @@ export function DraftProgress({
     >
       <p className="font-medium">
         {draft.status === 'preparing'
-          ? `正在准备草稿目录，完成后启动 ${draft.engine === 'codex' ? 'Codex' : 'Claude Code'}`
-          : '准备失败，草稿保留'}
+          ? `Preparing the draft directory; ${draft.engine === 'codex' ? 'Codex' : 'Claude Code'} starts when it is ready`
+          : 'Preparation failed. The draft is kept.'}
       </p>
       <ol className="flex flex-col gap-1">
         {draft.steps.map((step) => {
@@ -255,7 +276,7 @@ export function DraftProgress({
           onClick={onRetry}
         >
           <RotateCcw />
-          重试准备
+          Retry preparation
         </Button>
       )}
     </div>

@@ -8,11 +8,7 @@ data/
 pnpm-lock.yaml
 server/drizzle/
 tasks/
-# 模拟 agent 产物的快照，保持原样
-server/scripts/fixtures/
-# gateway 响应的原文，保持原样
-server/test/fixtures/llm/
-# vault 中真实文档的副本，保持原样
+# Copies of real vault documents, kept as is
 server/test/fixtures/vault/
-# 真实分析写出的 patches.json，保持原样
-web/src/components/diff/fixtures/
+# Verbatim copies of third-party skills (source and commit in each directory's SOURCE.md)
+server/src/workflows/external-skills/

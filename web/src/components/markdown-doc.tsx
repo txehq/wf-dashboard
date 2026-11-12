@@ -3,7 +3,7 @@ import remarkFrontmatter from 'remark-frontmatter';
 import remarkGfm from 'remark-gfm';
 import { cn } from '@/lib/utils';
 
-// 产物文档的 markdown 渲染；frontmatter 不显示。bare 用于对话气泡内的 agent 文字：没有边框与内边距
+// Markdown rendering for output documents, without frontmatter. bare is for agent text in chat bubbles: no border or padding
 export function MarkdownDoc({
   content,
   className,

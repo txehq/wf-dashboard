@@ -13,8 +13,8 @@ export interface ModelEffort {
   effort: Effort;
 }
 
-// 新建交互与 resume 时选的模型与 effort（Contracts 16.5）：没有选时取设置的 agentModel 与 agentEffort；
-// 设置还没有读到时为 null，调用方不能提交
+// The model and effort chosen for a new interaction or resume (Contracts 16.5): the settings' agentModel and
+// agentEffort when nothing is chosen; null while settings are not loaded yet, and the caller cannot submit
 export function useModelEffort(choice: {
   model: string | null;
   effort: string | null;

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-// 仓库根目录的 data/ 是用户实例的数据目录：测试运行前后 data/runs、data/variants 的条目与 db.sqlite* 文件不能有新增
+// data/ at the repo root is the user instance's data directory: a test run must add no entries to data/runs or data/variants and no db.sqlite* files
 const data = path.resolve(import.meta.dirname, '../../../data');
 
 function entries(): Set<string> {
@@ -24,7 +24,9 @@ export function setup() {
   return () => {
     const added = [...entries()].filter((p) => !before.has(p)).sort();
     if (added.length > 0) {
-      throw new Error(`测试写入了仓库根目录的 data/（用户实例的数据目录）：\n${added.join('\n')}`);
+      throw new Error(
+        `Tests wrote to data/ at the repo root (the user instance's data directory):\n${added.join('\n')}`,
+      );
     }
   };
 }

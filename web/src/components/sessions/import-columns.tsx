@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
+import { Server } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { Pager } from '@/components/pager';
 import { SearchBox } from '@/components/search-box';
 import { configGroups, matchesConfig } from '@/lib/config-groups';
-import { formatBytes, formatDateTime, formatInteger } from '@/lib/format';
+import { formatBytes, formatDateTime, formatInteger, formatNoun } from '@/lib/format';
 import {
   changeKind,
   type ImportChanges,
@@ -27,11 +28,11 @@ import {
 import { useDebounced } from '@/lib/use-debounced';
 import { cn } from '@/lib/utils';
 
-// 选中的一项：浅灰底、加粗
+// The selected item: light gray background, bold
 const itemClass =
   'flex h-8 w-full min-w-0 shrink-0 items-center gap-2 rounded px-2 text-left text-sm hover:bg-muted/60 aria-[current=true]:bg-muted aria-[current=true]:font-semibold';
 
-// live 中第二列不显示改动
+// In Live the second column shows no changes
 const noChanges: ImportChanges = new Map();
 
 function Count({ children }: { children: ReactNode }) {
@@ -46,8 +47,8 @@ function Hint({ children }: { children: ReactNode }) {
   return <p className="px-2 py-3 text-sm text-muted-foreground">{children}</p>;
 }
 
-// 一列：顶部是搜索框，中间的列表在固定高度内滚动，底部是数目与分页。busy：翻页或搜索后新的一页还没有到达，
-// 列表与分页都还是上一次的数据
+// One column: search box on top, a list scrolling within a fixed height, count and pager at the bottom.
+// busy: after paging or searching the new page has not arrived yet, so list and pager still show the previous data
 function Column({
   label,
   header,
@@ -77,7 +78,7 @@ function Column({
   );
 }
 
-// 搜索改变时回到第一页
+// Back to the first page when the search changes
 function useSearch() {
   const [text, setText] = useState('');
   const [page, setPage] = useState(1);
@@ -90,29 +91,31 @@ function useSearch() {
   return { text, setText, q, page, setPage };
 }
 
-// 新建分析中的选择（Contracts 27）：第三列的勾选即已选的 session，由页面持有；第一列选定已选的所在的配置，
-// 不能点选的配置灰显并悬停说明原因
+// Picking in a new analysis (Contracts 27): the third column's checks are the selected sessions, held by the
+// page; the first column is locked to the config of the selection, and configs that cannot be picked are
+// grayed out with the reason on hover
 export interface ColumnsPick {
   has: (s: DiskSession) => boolean;
   onChange: (list: DiskSession[], want: boolean, place: ImportPlace & { project: string }) => void;
   blocked: (c: ImportConfig) => string | null;
-  // 已选的所在的配置；清空已选后第一列停在原来的配置
+  // Config of the selection; after the selection is cleared the first column stays on that config
   config: string | null;
 }
 
-// 高度与列宽可以由 className 改（新建分析中三列更高、更窄）
+// className can change height and column widths (taller and narrower in a new analysis)
 type ColumnsProps = { engine: SessionEngine; className?: string } & (
   | {
       mode: ImportMode;
-      // 暂存的改动，按文件；翻页、换项目、换配置时保留
+      // Staged changes by file; kept across pages, projects and configs
       changes: ImportChanges;
       onChanges: (next: ImportChanges) => void;
     }
   | { mode: 'pick'; pick: ColumnsPick }
 );
 
-// 上面的三列（Contracts 25.1）：第一列配置，第二列这个配置下的项目，第三列这个项目在磁盘上的 session。
-// 三列高度固定、各自滚动与搜索，第二、三列每页 50 个。只读磁盘上的元数据，改动由调用者应用
+// The three columns (Contracts 25.1): configs, the projects of the chosen config, and that project's sessions
+// on disk. Fixed height, each column scrolls and searches on its own, 50 per page in columns two and three.
+// Reads only metadata on disk; the caller applies the changes
 export function ImportColumns(props: ColumnsProps) {
   const { engine } = props;
   const [configText, setConfigText] = useState('');
@@ -120,7 +123,7 @@ export function ImportColumns(props: ColumnsProps) {
   const [project, setProject] = useState<{ cwd: string; name: string } | null>(null);
   const projectSearch = useSearch();
   const sessionSearch = useSearch();
-  // 切换视图时回到第一个配置
+  // Back to the first config when the view switches
   const [stateFor, setStateFor] = useState(engine);
   if (stateFor !== engine) {
     setStateFor(engine);
@@ -132,9 +135,9 @@ export function ImportColumns(props: ColumnsProps) {
   }
 
   const configs = useQuery(importConfigsQuery(engine));
-  // 还没有点选时为第一个配置
+  // The first config until one is clicked
   const activeConfig = config ?? configs.data?.[0]?.id ?? null;
-  // 新建分析：选定已选的所在的配置（已经是它时只记下，项目不变）
+  // New analysis: lock to the config of the selection (if already on it, only record it; project unchanged)
   const lockedConfig = props.mode === 'pick' ? props.pick.config : null;
   if (lockedConfig !== null && config !== lockedConfig) {
     setConfig(lockedConfig);
@@ -177,7 +180,7 @@ export function ImportColumns(props: ColumnsProps) {
     activeConfig !== null && project !== null ? { config: activeConfig, cwd: project.cwd } : null;
   const { mode } = props;
   const changes = props.mode === 'pick' ? noChanges : props.changes;
-  // 勾选的状态与改动：Sessions 与 Live 中是暂存的改动，新建分析中是已选的 session
+  // Check state and changes: staged changes in Sessions and Live, the selected sessions in a new analysis
   const select =
     props.mode === 'pick'
       ? {
@@ -210,9 +213,10 @@ export function ImportColumns(props: ColumnsProps) {
   };
 
   const shownConfigs = (configs.data ?? []).filter((c) => matchesConfig(c, configText));
-  // 组内的 variant 比组的标题缩进一级
+  // Variants in a group are indented one level below the group title
   const configButton = (c: ImportConfig) => {
-    const blocked = props.mode === 'pick' ? props.pick.blocked(c) : null;
+    // Unreachable hosts are grayed out, with ssh's original error on hover (Contracts 31.6)
+    const blocked = c.error ?? (props.mode === 'pick' ? props.pick.blocked(c) : null);
     return (
       <button
         key={c.id}
@@ -225,13 +229,14 @@ export function ImportColumns(props: ColumnsProps) {
         )}
         aria-current={c.id === activeConfig}
         aria-disabled={blocked !== null}
-        title={blocked ?? (c.workflow === null ? c.label : `${c.label}（${c.workflow.name}）`)}
+        title={blocked ?? (c.workflow === null ? c.label : `${c.label} (${c.workflow.name})`)}
         data-testid="import-config"
         data-config={c.id}
         onClick={() => {
           if (blocked === null) chooseConfig(c.id);
         }}
       >
+        {c.hostId !== null && <Server className="size-3.5 shrink-0" aria-label="SSH host" />}
         <span className="truncate">{c.label}</span>
         <Count>{formatInteger(c.sessionCount)}</Count>
       </button>
@@ -247,33 +252,33 @@ export function ImportColumns(props: ColumnsProps) {
       data-testid="import-columns"
     >
       <Column
-        label="配置"
+        label="Configs"
         testId="import-configs"
         header={
           <SearchBox
             className="min-w-0 flex-1"
             value={configText}
             onChange={setConfigText}
-            label="搜索配置"
-            placeholder="搜索配置"
+            label="Search configs"
+            placeholder="Search configs"
           />
         }
         footer={
           configs.data !== undefined && (
             <span className="text-sm text-muted-foreground">
-              共 {formatInteger(configs.data.length)} 个配置
+              {formatNoun(configs.data.length, 'config')}
             </span>
           )
         }
       >
         {configs.isError ? (
           <p role="alert" className="px-2 py-3 text-sm text-destructive">
-            读取配置失败：{configs.error.message}
+            Failed to load configs: {configs.error.message}
           </p>
         ) : configs.data === undefined ? (
-          <Hint>正在读取配置…</Hint>
+          <Hint>Loading configs…</Hint>
         ) : shownConfigs.length === 0 ? (
-          <Hint>没有符合「{configText.trim()}」的配置。</Hint>
+          <Hint>No configs match "{configText.trim()}".</Hint>
         ) : (
           configGroups(shownConfigs).map((g) =>
             g.workflow === null ? (
@@ -297,7 +302,7 @@ export function ImportColumns(props: ColumnsProps) {
       </Column>
 
       <Column
-        label="项目"
+        label="Projects"
         testId="import-projects"
         busy={projects.isPlaceholderData}
         header={
@@ -305,8 +310,8 @@ export function ImportColumns(props: ColumnsProps) {
             className="min-w-0 flex-1"
             value={projectSearch.text}
             onChange={projectSearch.setText}
-            label="搜索项目"
-            placeholder="搜索项目或路径"
+            label="Search projects"
+            placeholder="Search projects or paths"
           />
         }
         footer={
@@ -315,8 +320,8 @@ export function ImportColumns(props: ColumnsProps) {
               page={projects.data.page}
               pageSize={IMPORT_PAGE_SIZE}
               total={projects.data.total}
-              unit="个项目"
-              label="项目的分页"
+              unit={projects.data.total === 1 ? 'project' : 'projects'}
+              label="Project pages"
               onPage={projectSearch.setPage}
               testId="project-pager"
             />
@@ -324,18 +329,18 @@ export function ImportColumns(props: ColumnsProps) {
         }
       >
         {activeConfig === null ? (
-          <Hint>没有配置。</Hint>
+          <Hint>No configs.</Hint>
         ) : projects.isError ? (
           <p role="alert" className="px-2 py-3 text-sm text-destructive">
-            读取项目失败：{projects.error.message}
+            Failed to load projects: {projects.error.message}
           </p>
         ) : projects.data === undefined ? (
-          <Hint>正在读取项目…</Hint>
+          <Hint>Loading projects…</Hint>
         ) : projects.data.total === 0 ? (
           <Hint>
             {projects.data.q === ''
-              ? '这个配置中还没有 session。'
-              : `没有符合「${projects.data.q}」的项目。`}
+              ? 'No sessions in this config yet.'
+              : `No projects match "${projects.data.q}".`}
           </Hint>
         ) : (
           <div className={cn('flex flex-col', projects.isPlaceholderData && 'opacity-70')}>
@@ -363,7 +368,7 @@ export function ImportColumns(props: ColumnsProps) {
       </Column>
 
       <Column
-        label="磁盘上的 session"
+        label="Sessions on disk"
         testId="import-sessions"
         busy={sessions.isPlaceholderData}
         header={
@@ -377,14 +382,14 @@ export function ImportColumns(props: ColumnsProps) {
                 data-testid="import-select-page"
                 onChange={toggleAll}
               />
-              全选
+              Select all
             </label>
             <SearchBox
               className="min-w-0 flex-1"
               value={sessionSearch.text}
               onChange={sessionSearch.setText}
-              label="搜索磁盘上的 session"
-              placeholder="搜索标题或 session id"
+              label="Search sessions on disk"
+              placeholder="Search titles or session ids"
             />
           </>
         }
@@ -394,8 +399,8 @@ export function ImportColumns(props: ColumnsProps) {
               page={sessions.data.page}
               pageSize={IMPORT_PAGE_SIZE}
               total={sessions.data.total}
-              unit="个 session"
-              label="磁盘上的 session 的分页"
+              unit={sessions.data.total === 1 ? 'session' : 'sessions'}
+              label="Pages of sessions on disk"
               onPage={sessionSearch.setPage}
               testId="disk-pager"
             />
@@ -403,15 +408,15 @@ export function ImportColumns(props: ColumnsProps) {
         }
       >
         {project === null ? (
-          <Hint>点一个项目，列出其中的 session。</Hint>
+          <Hint>Choose a project to list its sessions.</Hint>
         ) : sessions.isError ? (
           <p role="alert" className="px-2 py-3 text-sm text-destructive">
-            读取 session 失败：{sessions.error.message}
+            Failed to load sessions: {sessions.error.message}
           </p>
         ) : sessions.data === undefined ? (
-          <Hint>正在读取 {project.name} 中的 session…</Hint>
+          <Hint>Loading sessions in {project.name}…</Hint>
         ) : sessions.data.total === 0 ? (
-          <Hint>没有符合「{sessions.data.q}」的 session。</Hint>
+          <Hint>No sessions match "{sessions.data.q}".</Hint>
         ) : (
           <div className={cn('flex flex-col', sessions.isPlaceholderData && 'opacity-70')}>
             {pageSessions.map((s) => {
@@ -419,7 +424,7 @@ export function ImportColumns(props: ColumnsProps) {
               const taken = mode === 'live' && !can;
               const change = changes.get(s.file);
               const kind = mode === 'manage' && change !== undefined ? changeKind(change) : null;
-              const title = s.title ?? '（没有用户消息）';
+              const title = s.title ?? '(no user message)';
               return (
                 <label
                   key={s.file}
@@ -437,7 +442,7 @@ export function ImportColumns(props: ColumnsProps) {
                   <input
                     type="checkbox"
                     className="size-4 shrink-0 accent-foreground"
-                    aria-label={`勾选 session ${s.id.slice(0, 8)}`}
+                    aria-label={`Select session ${s.id.slice(0, 8)}`}
                     checked={checked(s)}
                     disabled={!can}
                     onChange={() => {
@@ -454,7 +459,7 @@ export function ImportColumns(props: ColumnsProps) {
                       )}
                       data-testid="disk-change"
                     >
-                      {kind === 'import' ? '+ 导入' : '− 清除'}
+                      {kind === 'import' ? '+ Import' : '− Clear'}
                     </span>
                   )}
                   <span className="min-w-0 flex-1 truncate">{title}</span>
@@ -463,13 +468,13 @@ export function ImportColumns(props: ColumnsProps) {
                       className="shrink-0 rounded border px-1.5 text-xs text-muted-foreground"
                       data-testid={taken ? 'import-taken' : 'disk-imported'}
                     >
-                      {taken ? '已在交互区' : '已导入'}
+                      {taken ? 'In workspace' : 'Imported'}
                     </span>
                   )}
                   <span className="w-24 shrink-0 text-right text-xs text-muted-foreground tabular-nums">
                     {formatDateTime(s.startedAt)}
                   </span>
-                  {/* 新建分析中三列更窄：窄的窗口中不显示大小，把宽度留给标题 */}
+                  {/* Columns are narrower in a new analysis: hide the size in narrow windows to leave room for the title */}
                   <span
                     className={cn(
                       'w-16 shrink-0 text-right text-xs text-muted-foreground tabular-nums',

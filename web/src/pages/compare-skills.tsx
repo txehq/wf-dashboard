@@ -4,7 +4,7 @@ import { SkillDiffEditor } from '@/components/skill-diff-editor';
 import { type SelectedVariant, skillDiffQuery } from '@/lib/compare';
 import { cn } from '@/lib/utils';
 
-const diffStatusLabel = { added: '新增', removed: '删除', modified: '修改' } as const;
+const diffStatusLabel = { added: 'Added', removed: 'Removed', modified: 'Modified' } as const;
 
 function VariantSelect({
   label,
@@ -46,13 +46,15 @@ function DiffView({ from, to }: { from: string; to: string }) {
     <div className="flex h-[560px] rounded-lg border">
       <div className="flex w-64 shrink-0 flex-col border-r text-sm">
         <div className="border-b px-3 py-2 text-xs text-muted-foreground">
-          {diff.data === undefined ? '' : `${String(diff.data.files.length)} 个文件不同`}
+          {diff.data === undefined
+            ? ''
+            : `${String(diff.data.files.length)} ${diff.data.files.length === 1 ? 'file differs' : 'files differ'}`}
         </div>
-        <div className="min-h-0 flex-1 overflow-auto py-1" aria-label="不同的文件">
-          {diff.isPending && <p className="px-3 text-muted-foreground">加载中…</p>}
+        <div className="min-h-0 flex-1 overflow-auto py-1" aria-label="Changed files">
+          {diff.isPending && <p className="px-3 text-muted-foreground">Loading…</p>}
           {diff.isError && <p className="px-3 text-destructive">{diff.error.message}</p>}
           {diff.data?.files.length === 0 && (
-            <p className="px-3 text-muted-foreground">skills 内容相同，没有差异。</p>
+            <p className="px-3 text-muted-foreground">The skills are identical.</p>
           )}
           {diff.data?.files.map((f) => (
             <button
@@ -85,7 +87,7 @@ export function SkillDiffSection({ variants }: { variants: SelectedVariant[] }) 
   const [baseline, second] = variants;
   const [picked, setPicked] = useState<{ from: string; to: string } | null>(null);
   if (baseline === undefined || second === undefined) {
-    return <p className="text-sm text-muted-foreground">至少选择两个 variant。</p>;
+    return <p className="text-sm text-muted-foreground">Select at least two variants.</p>;
   }
   const ids = new Set(variants.map((v) => v.id));
   const current =
@@ -96,7 +98,7 @@ export function SkillDiffSection({ variants }: { variants: SelectedVariant[] }) 
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-4">
         <VariantSelect
-          label="旧"
+          label="Old"
           value={current.from}
           variants={variants}
           onChange={(id) => {
@@ -104,7 +106,7 @@ export function SkillDiffSection({ variants }: { variants: SelectedVariant[] }) 
           }}
         />
         <VariantSelect
-          label="新"
+          label="New"
           value={current.to}
           variants={variants}
           onChange={(id) => {

@@ -8,12 +8,12 @@ import { type GhResult, ghResult } from '../external/github.js';
 import { type EvalKind, type ReleaseView, WF_WORKFLOWS } from '../workflows/schema.js';
 import type { Variants } from './index.js';
 
-// lfg、ic 默认带 txe-workflow 最新版的 variant（Contracts 29.1）
+// lfg and ic come with a variant of the latest txe-workflow release by default (Contracts 29.1)
 
 export const RELEASE_REPO = 'txehq/txe-workflow';
 export const RELEASE_CHECK_MS = 6 * 60 * 60 * 1000;
 
-// tag 为空时读 GitHub 上标为 Latest 的 release
+// Without a tag, reads the release marked Latest on GitHub
 export const releaseArgs = (repo: string, tag: string | null) => [
   'release',
   'view',
@@ -31,11 +31,11 @@ export interface Release {
   publishedAt: Date;
 }
 
-// gh 非零退出时以它的 stderr 原文失败
+// A non-zero gh exit fails with its stderr
 export function releaseFrom(args: string[], result: GhResult): Release {
   if (result.exitCode !== 0) {
     throw new Error(
-      `gh ${args.join(' ')} 退出码 ${String(result.exitCode)}：${result.stderr.trim()}`,
+      `gh ${args.join(' ')} exited with code ${String(result.exitCode)}: ${result.stderr.trim()}`,
     );
   }
   const json = ReleaseJson.parse(JSON.parse(result.stdout));
@@ -53,7 +53,7 @@ const readLatestRelease = async (): Promise<ReleaseRead> => ({
   result: await ghResult(latestArgs),
 });
 
-// tag 的 commit：本地没有这个 tag 时先只 fetch 这一个 tag（不改工作区与分支）
+// The tag's commit: when the tag is missing locally, fetch only that tag first (working tree and branches untouched)
 export async function releaseCommit(repo: string, tag: string): Promise<string> {
   const ref = `refs/tags/${tag}^{commit}`;
   const local = await execa('git', ['-C', repo, 'rev-parse', '--verify', '--quiet', ref], {
@@ -67,7 +67,7 @@ export async function releaseCommit(repo: string, tag: string): Promise<string> 
 
 export const releaseVariantName = (tag: string) => `txe-workflow ${tag}`;
 
-// 某个 tag 自动导入的 variant，包括已删除的：删除后不再建回
+// The variant auto-imported for a tag, deleted ones included: once deleted it is not recreated
 function releaseVariant(db: Db, workflowId: EvalKind, tag: string) {
   return db
     .select()
@@ -76,7 +76,7 @@ function releaseVariant(db: Db, workflowId: EvalKind, tag: string) {
     .get();
 }
 
-// GET /api/workflows/:id 的 release；不是 lfg、ic 或还没有检查过时为空
+// The release of GET /api/workflows/:id; null for workflows other than lfg and ic, or before the first check
 export function releaseView(db: Db, workflowId: string): ReleaseView | null {
   const row = db
     .select()
@@ -112,9 +112,9 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
 export interface ReleaseCheckOptions {
   db: Db;
   variants: Variants;
-  // txe-workflow 仓库（config.txeWorkflowRepo）
+  // The txe-workflow repo (config.txeWorkflowRepo)
   repo: string;
-  // gh release view 的参数与结果；测试传入录下的真实输出
+  // gh release view arguments and result; tests pass recorded real output
   readRelease?: (() => Promise<ReleaseRead>) | undefined;
 }
 
@@ -127,7 +127,7 @@ export function createReleaseCheck({
   let running: Promise<void> | null = null;
   let timer: ReturnType<typeof setInterval> | undefined;
 
-  // 只改给出的字段；tag 与 publishedAt 保留上次读到的
+  // Changes only the given fields; tag and publishedAt keep the last values read
   function record(
     workflowId: EvalKind,
     values: { checkedAt: Date; error: string | null; release?: Release | undefined },
@@ -146,7 +146,7 @@ export function createReleaseCheck({
     events.publish({ type: 'workflow.release', workflowId });
   }
 
-  // 还没有这个 tag 的 variant 时按导入基线建一个；导入后还没有构建成功过的（例如构建被服务重启中断）照常构建
+  // Without a variant for this tag, create one as an imported baseline; one imported but never built successfully (e.g. a build cut off by a restart) is built as usual
   async function ensureVariant(workflowId: EvalKind, release: Release, commit: string) {
     const existing = releaseVariant(db, workflowId, release.tag);
     if (existing !== undefined && existing.deletedAt !== null) return;
@@ -156,7 +156,7 @@ export function createReleaseCheck({
         name: releaseVariantName(release.tag),
         commit,
         workflowId,
-        description: `txe-workflow ${release.tag} release，自动导入`,
+        description: `txe-workflow ${release.tag} release, auto-imported`,
         releaseTag: release.tag,
       }));
     if (existing === undefined) events.publish({ type: 'workflow.release', workflowId });
@@ -167,13 +167,13 @@ export function createReleaseCheck({
     const checkedAt = new Date();
     let release: Release | undefined;
     let commit: string;
-    // 后台检查的失败记为原文，经 release.error 显示，服务照常运行
+    // A background check failure is recorded verbatim and shown through release.error; the server keeps running
     try {
       const read = await readRelease();
       release = releaseFrom(read.args, read.result);
       commit = await releaseCommit(repo, release.tag);
     } catch (error) {
-      console.error('[release] 检查 txe-workflow 最新版失败', error);
+      console.error('[release] Checking the latest txe-workflow release failed', error);
       for (const id of WF_WORKFLOWS) record(id, { checkedAt, error: messageOf(error), release });
       return;
     }
@@ -182,14 +182,14 @@ export function createReleaseCheck({
       try {
         await ensureVariant(id, release, commit);
       } catch (error) {
-        console.error(`[release] ${id} 导入或构建 ${release.tag} 失败`, error);
+        console.error(`[release] ${id}: importing or building ${release.tag} failed`, error);
         record(id, { checkedAt, error: messageOf(error) });
       }
     }
   }
 
   return {
-    // 一次检查；上一次还没结束时返回它
+    // One check; returns the previous one while it is still running
     check(): Promise<void> {
       running ??= run().finally(() => {
         running = null;
@@ -197,7 +197,7 @@ export function createReleaseCheck({
       return running;
     },
 
-    // 服务监听后开始：立即检查一次，之后每 6 小时一次，都在后台进行
+    // Starts once the server listens: one check at once, then every 6 hours, all in the background
     start(intervalMs = RELEASE_CHECK_MS) {
       void this.check();
       timer = setInterval(() => {
@@ -205,7 +205,7 @@ export function createReleaseCheck({
       }, intervalMs);
     },
 
-    // 关闭服务时停止定时检查；进行中的构建随服务进程结束，下次启动时 variants 把它标为中断，检查时重新构建
+    // Stops the timer on server close; an in-flight build ends with the server process, variants marks it interrupted on next start and the check rebuilds it
     stop() {
       clearInterval(timer);
     },

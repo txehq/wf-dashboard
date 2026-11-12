@@ -27,11 +27,11 @@ interface Measure {
 }
 
 const measures: Measure[] = [
-  { title: '各阶段花费', value: (v) => v.stats.costUsd, format: formatUsd },
-  { title: '各阶段耗时', value: (v) => v.stats.durationMs, format: formatDuration },
+  { title: 'Cost by stage', value: (v) => v.stats.costUsd, format: formatUsd },
+  { title: 'Duration by stage', value: (v) => v.stats.durationMs, format: formatDuration },
 ];
 
-// 跳过与未到达的阶段没有数值：轴标签写明状态，避免读成 0
+// Skipped and not-reached stages have no value: the axis label names the status so it does not read as 0
 function hasValue(d: Datum): boolean {
   return d.status !== 'skipped' && d.status !== 'not-reached';
 }
@@ -91,7 +91,7 @@ function MeasureChart({ views, measure }: { views: StageView[]; measure: Measure
                 const d = data.find((x) => x.stage === stage);
                 return d === undefined || hasValue(d)
                   ? stage
-                  : `${stage}（${statusMeta[d.status].label}）`;
+                  : `${stage} (${statusMeta[d.status].label})`;
               }}
               tick={{ fontSize: 12, fill: 'var(--muted-foreground)', fontFamily: 'ui-monospace' }}
               axisLine={{ stroke: 'var(--viz-axis)' }}
@@ -135,15 +135,15 @@ function StageTable({ views }: { views: StageView[] }) {
     <table className="w-full text-xs tabular-nums">
       <thead className="text-muted-foreground">
         <tr className="border-b">
-          <th className="py-1.5 text-left font-medium">阶段</th>
-          <th className="py-1.5 text-left font-medium">状态</th>
-          <th className="py-1.5 text-right font-medium">请求</th>
+          <th className="py-1.5 text-left font-medium">Stage</th>
+          <th className="py-1.5 text-left font-medium">Status</th>
+          <th className="py-1.5 text-right font-medium">Requests</th>
           <th className="py-1.5 text-right font-medium">input</th>
           <th className="py-1.5 text-right font-medium">output</th>
-          <th className="py-1.5 text-right font-medium">cache 读</th>
-          <th className="py-1.5 text-right font-medium">cache 写</th>
-          <th className="py-1.5 text-right font-medium">花费</th>
-          <th className="py-1.5 text-right font-medium">耗时</th>
+          <th className="py-1.5 text-right font-medium">cache read</th>
+          <th className="py-1.5 text-right font-medium">cache write</th>
+          <th className="py-1.5 text-right font-medium">Cost</th>
+          <th className="py-1.5 text-right font-medium">Duration</th>
         </tr>
       </thead>
       <tbody>
@@ -178,13 +178,14 @@ export function StageBars({ views }: { views: StageView[] }) {
             setTable(!table);
           }}
         >
-          {table ? '显示条形图' : '显示表格'}
+          {table ? 'Show chart' : 'Show table'}
         </button>
       </div>
       {table ? (
         <StageTable views={views} />
       ) : (
-        // 按所在的框（Sessions 详情或终端旁的抽屉）的宽度排成两栏或一栏，抽屉中每张图都有画条的宽度
+        // Two columns or one by the width of the container (Sessions detail or the drawer beside the terminal),
+        // so every chart in the drawer has room for its bars
         <div className="@container" data-testid="stage-charts">
           <div className="grid grid-cols-1 gap-6 @2xl:grid-cols-2">
             {measures.map((m) => (

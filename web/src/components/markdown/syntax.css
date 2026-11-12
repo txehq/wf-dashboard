@@ -1,5 +1,5 @@
-/* 代码块的语法高亮（highlight.js 的 class）：颜色取 GitHub 现在的 prettylights（与 github-markdown-css 的 pl-* 相同），
-   明暗两种，在代码块的底色上都达到 WCAG AA 的 4.5:1 */
+/* Syntax highlighting in code blocks (highlight.js classes): GitHub's current prettylights colours (the same as github-markdown-css pl-*),
+   light and dark, each reaching WCAG AA 4.5:1 on the code block background */
 :root {
   --wfd-syntax-keyword: #cf222e;
   --wfd-syntax-entity: #6639ba;
@@ -30,7 +30,7 @@
   --wfd-syntax-deleted-bg: #67060c;
 }
 
-/* 底色与正文颜色随所在的代码块（github-markdown-css 的 pre） */
+/* Background and text colour follow the enclosing code block (github-markdown-css pre) */
 .hljs {
   color: inherit;
   background: transparent;

@@ -6,11 +6,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { deleteLive, hideLive, type LiveSummary, unhideLive } from '@/lib/live-api';
 
-// 关闭、恢复显示与删除（Contracts 14.5）：有运行中进程的项不能关闭或删除，先结束进程
+// Close, restore and delete (Contracts 14.5): an item with a running process can't be closed or
+// deleted until the process is stopped
 
-const stopFirst = '运行中：先结束进程';
+const stopFirst = 'Running: stop the process first';
 
-// 左侧列表中一项的"×"：只从交互区隐藏，不需要确认
+// The "×" on a list item: only hides it from the workspace, no confirmation needed
 export function HideButton({ live, onHidden }: { live: LiveSummary; onHidden: () => void }) {
   const client = useQueryClient();
   const hiding = useMutation({
@@ -24,8 +25,8 @@ export function HideButton({ live, onHidden }: { live: LiveSummary; onHidden: ()
   return (
     <button
       type="button"
-      aria-label="关闭这一项"
-      title={running ? stopFirst : '关闭（只从交互区隐藏，可以恢复显示）'}
+      aria-label="Close item"
+      title={running ? stopFirst : 'Close (hides it from the workspace; you can restore it)'}
       data-testid="live-hide"
       disabled={running || hiding.isPending}
       className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
@@ -39,7 +40,7 @@ export function HideButton({ live, onHidden }: { live: LiveSummary; onHidden: ()
   );
 }
 
-// 已关闭的项的"恢复显示"
+// "Restore" for a closed item
 export function UnhideButton({ live }: { live: LiveSummary }) {
   const client = useQueryClient();
   const showing = useMutation({
@@ -61,12 +62,12 @@ export function UnhideButton({ live }: { live: LiveSummary }) {
       }}
     >
       <Eye />
-      恢复显示
+      Restore
     </Button>
   );
 }
 
-// 删除的确认框：列出将要删除与不删除的内容，输入这一项的名字后才能删除
+// Delete confirmation: lists what will and won't be deleted; deleting requires typing the item's name
 function DeleteDialog({
   live,
   open,
@@ -106,50 +107,53 @@ function DeleteDialog({
             event.stopPropagation();
           }}
         >
-          <Dialog.Title className="text-base font-semibold">删除这一项</Dialog.Title>
+          <Dialog.Title className="text-base font-semibold">Delete item</Dialog.Title>
           <Dialog.Description asChild>
             <div className="flex flex-col gap-2 text-sm">
-              <p>将要删除：</p>
+              <p>Will be deleted:</p>
               <ul className="list-disc pl-5">
-                <li>交互项「{live.title}」，它的进程与事件记录</li>
+                <li>The interaction item "{live.title}", its process and event records</li>
                 <li>
-                  <code className="text-xs break-all">data/live/{live.id}/</code>
-                  ：终端输出、hooks.json、isolated 环境的 workspace
+                  <code className="text-xs break-all">data/live/{live.id}/</code>: terminal output,
+                  hooks.json, the isolated environment's workspace
                 </li>
-                {live.purpose === 'agent' && <li>这个会话发起的部署记录</li>}
+                {live.purpose === 'agent' && <li>Deploy records started by this session</li>}
               </ul>
-              <p>不会删除：</p>
+              <p>Won't be deleted:</p>
               {live.purpose === 'agent' ? (
-                // Magi Agent 的会话（Contracts 23.1）：session 文件在用户自己的配置目录或 variant 的配置目录中
+                // Magi Agent sessions (Contracts 23.1): the session file lives in the user's own config
+                // directory or the variant's config directory
                 <ul
                   className="list-disc pl-5 text-muted-foreground"
                   data-testid="delete-agent-files"
                 >
                   <li>
-                    磁盘上的 session 文件（
+                    The session file on disk (
                     {live.engine === 'codex'
-                      ? '~/.codex 下的'
+                      ? 'under ~/.codex'
                       : live.agentConfig === 'local'
-                        ? '~/.claude 下的'
-                        : `variant ${live.agentConfigName ?? ''} 的配置目录下的`}
-                    ）与 Sessions 中的记录
+                        ? 'under ~/.claude'
+                        : `in the config directory of variant ${live.agentConfigName ?? ''}`}
+                    ) and its record in Sessions
                   </li>
-                  <li>worktree 与 magi-agent 分支</li>
+                  <li>The worktree and the magi-agent branch</li>
                 </ul>
               ) : (
                 <ul className="list-disc pl-5 text-muted-foreground">
-                  <li>session 本身（Claude Code 的 jsonl 与副本、Sessions 中的记录）</li>
-                  <li>GitHub 仓库与 Linear 工单（由你自己处理）</li>
+                  <li>
+                    The session itself (Claude Code's jsonl and copies, its record in Sessions)
+                  </li>
+                  <li>GitHub repos and Linear tickets (handle these yourself)</li>
                 </ul>
               )}
             </div>
           </Dialog.Description>
           <label className="flex flex-col gap-1.5 text-sm">
             <span>
-              输入这一项的名字确认：<span className="font-medium">{live.title}</span>
+              Type the item's name to confirm: <span className="font-medium">{live.title}</span>
             </span>
             <Input
-              aria-label="输入名字确认删除"
+              aria-label="Type the name to confirm deletion"
               data-testid="delete-confirm-input"
               value={typed}
               onChange={(event) => {
@@ -164,7 +168,7 @@ function DeleteDialog({
           )}
           <div className="flex justify-end gap-2">
             <Dialog.Close asChild>
-              <Button variant="outline">取消</Button>
+              <Button variant="outline">Cancel</Button>
             </Dialog.Close>
             <Button
               variant="destructive"
@@ -175,7 +179,7 @@ function DeleteDialog({
               }}
             >
               <Trash2 />
-              {deleting.isPending ? '正在删除…' : '删除'}
+              {deleting.isPending ? 'Deleting…' : 'Delete'}
             </Button>
           </div>
         </Dialog.Content>
@@ -184,7 +188,7 @@ function DeleteDialog({
   );
 }
 
-// 每一项的菜单："删除"
+// Each item's menu: "Delete"
 export function ItemMenu({ live, onDeleted }: { live: LiveSummary; onDeleted: () => void }) {
   const [confirming, setConfirming] = useState(false);
   const running = live.status === 'running';
@@ -194,7 +198,7 @@ export function ItemMenu({ live, onDeleted }: { live: LiveSummary; onDeleted: ()
         <DropdownMenu.Trigger asChild>
           <button
             type="button"
-            aria-label="这一项的菜单"
+            aria-label="Item menu"
             data-testid="live-menu"
             className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
             onClick={(event) => {
@@ -219,7 +223,7 @@ export function ItemMenu({ live, onDeleted }: { live: LiveSummary; onDeleted: ()
               }}
             >
               <Trash2 className="size-3.5" />
-              删除…
+              Delete…
             </DropdownMenu.Item>
           </DropdownMenu.Content>
         </DropdownMenu.Portal>

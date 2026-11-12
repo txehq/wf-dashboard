@@ -3,22 +3,22 @@ import path from 'node:path';
 import { listSkillFiles } from '../variants/skills.js';
 import type { DraftLayout } from './dir.js';
 
-// 设计与优化会话的面板中"对比"的对象（Contracts 26.4、28.4）：上一版的快照与上次保存的副本，放在草稿目录
-// （优化时为分析目录）下由 dashboard 管理的 .dashboard/workspace/。每一份的目录下是 skills/，与 src/ 的结构相同，
-// 文件按 skills/<skill>/<文件> 读
+// What Compare in the design and optimize session panel compares against (Contracts 26.4, 28.4): the previous snapshot and a copy of the last save,
+// kept in .dashboard/workspace/ managed by the dashboard under the draft dir (the analysis dir when optimising). Each one holds skills/, structured like src/,
+// with files read as skills/<skill>/<file>
 const managedDir = (layout: DraftLayout) => path.join(layout.dir, '.dashboard', 'workspace');
 const snapshotsDir = (layout: DraftLayout) => path.join(managedDir(layout), 'snapshots');
 const savedDir = (layout: DraftLayout) => path.join(managedDir(layout), 'saved');
 
-// 只保留最新两份：工作目录与最新一份相同时，上一版是倒数第二份
+// Keep only the latest two: when the working dir equals the latest, the previous version is the second to last
 const KEEP = 2;
 
-// skills/ 下的文件（相对这一份的根）；没有 skills/ 时为空
+// Files under skills/ (relative to this copy's root); empty when there is no skills/
 const filesIn = (root: string) =>
   fs.existsSync(path.join(root, 'skills')) ? listSkillFiles(root) : [];
 
-// 把 src/skills 复制到 dest/skills。符号链接不是文件，不复制；列出之后、复制之前被 agent 删除的文件不复制
-// （下一次比较时这次改动照常算作变化）
+// Copy src/skills to dest/skills. Symlinks are not files and are not copied; files the agent deletes between listing and copying are skipped
+// (the next comparison counts this change as usual)
 function copySkills(src: string, dest: string) {
   fs.mkdirSync(path.join(dest, 'skills'), { recursive: true });
   for (const file of filesIn(src)) {
@@ -30,7 +30,7 @@ function copySkills(src: string, dest: string) {
   }
 }
 
-// 两份 skills/ 的文件与内容是否完全相同
+// Whether two skills/ copies have exactly the same files and contents
 function sameSkills(a: string, b: string): boolean {
   const left = filesIn(a);
   const right = filesIn(b);
@@ -42,7 +42,7 @@ function sameSkills(a: string, b: string): boolean {
   });
 }
 
-// 已记下的快照，从旧到新；目录名是记下时的毫秒时间（<at>.tmp 是写了一半的）
+// Recorded snapshots, oldest first; the dir name is the record time in ms (<at>.tmp is half-written)
 function snapshots(layout: DraftLayout): { at: number; root: string }[] {
   const dir = snapshotsDir(layout);
   if (!fs.existsSync(dir)) return [];
@@ -53,7 +53,7 @@ function snapshots(layout: DraftLayout): { at: number; root: string }[] {
     .sort((a, b) => a.at - b.at);
 }
 
-// 工作目录的 src/skills 停下 5 秒后调用：与最新一份快照不同时记下新的一份，返回是否记下
+// Called after the working dir's src/skills has been still for 5 seconds: records a new copy when it differs from the latest; returns whether it did
 export function recordSnapshot(layout: DraftLayout, now: number): boolean {
   const all = snapshots(layout);
   const latest = all.at(-1);
@@ -70,7 +70,7 @@ export function recordSnapshot(layout: DraftLayout, now: number): boolean {
   return true;
 }
 
-// 上一版：工作目录与最新一份快照相同时为倒数第二份，不同时为最新一份
+// Previous version: the second to last when the working dir equals the latest snapshot, otherwise the latest
 export function previousSnapshot(layout: DraftLayout): { at: number; root: string } | null {
   const all = snapshots(layout);
   const latest = all.at(-1);
@@ -78,7 +78,7 @@ export function previousSnapshot(layout: DraftLayout): { at: number; root: strin
   return sameSkills(layout.src, latest.root) ? (all.at(-2) ?? null) : latest;
 }
 
-// 保存（Contracts 17.4）成功后复制 src/skills，即"上次保存"
+// Copy src/skills after a successful save (Contracts 17.4): the "Last saved" copy
 export function recordSaved(layout: DraftLayout) {
   const dir = savedDir(layout);
   const tmp = `${dir}.tmp`;

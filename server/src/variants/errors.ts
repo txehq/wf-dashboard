@@ -1,4 +1,4 @@
-// 带 HTTP 状态码的错误；Fastify 按 statusCode 返回响应
+// An error with an HTTP status code; Fastify responds with statusCode
 export class HttpError extends Error {
   constructor(
     readonly statusCode: number,

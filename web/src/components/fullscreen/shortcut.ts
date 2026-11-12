@@ -1,9 +1,9 @@
-// 进入与退出全屏的快捷键（Contracts 20.1）：⌃⇧F，即 macOS 上的 Control + Shift + F（不是 Command）。
-// 实测选定（Reports/W46）：
-// - macOS 上的 Chrome 只有 Control+F2、Control+F5 两个 Control 快捷键，没有 Control+Shift+F；
-// - Monaco 在 macOS 上把 Control+F 用作光标右移，Control+Shift 只与 A、E、M、R 和方向键组合，没有 Control+Shift+F；
-// - 终端中的 Claude Code 不用 Control+F，Codex 用 Control+F（右移、下一页）。这里只认带 Shift 的组合，
-//   不带 Shift 的 Control+F 照常进入终端
+// Shortcut to enter and exit full screen (Contracts 20.1): ⌃⇧F, Control + Shift + F on macOS (not Command).
+// Chosen by testing (Reports/W46):
+// - Chrome on macOS has only two Control shortcuts, Control+F2 and Control+F5, and no Control+Shift+F;
+// - Monaco on macOS uses Control+F to move the cursor right and combines Control+Shift only with A, E, M, R and the arrows, not Control+Shift+F;
+// - Claude Code in the terminal does not use Control+F; Codex does (move right, next page). Only the Shift combination is taken here,
+//   so Control+F without Shift still reaches the terminal
 export const FULLSCREEN_SHORTCUT_LABEL = '⌃⇧F';
 
 export function isFullscreenShortcut(event: KeyboardEvent): boolean {

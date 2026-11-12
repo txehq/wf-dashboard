@@ -19,7 +19,7 @@ import { cn } from '@/lib/utils';
 
 const time = (ms: number) => formatTime(new Date(ms).toISOString());
 
-// 回答的值是选项 label（多选以 ", " 连接）或自由文本
+// An answer is the option label (multi-select joined with ", ") or free text
 function chosenLabels(question: AskQuestion, answer: string | undefined): Set<string> {
   if (answer === undefined) return new Set();
   const labels = new Set(question.options.map((o) => o.label));
@@ -29,11 +29,11 @@ function chosenLabels(question: AskQuestion, answer: string | undefined): Set<st
 function QuestionCards({
   questions,
   answers,
-  unansweredLabel = '等待回答',
+  unansweredLabel = 'Waiting for answer',
 }: {
   questions: AskQuestion[];
   answers: Record<string, string> | null;
-  // answers 为空时的说明：运行中为"等待回答"，session 记录中为"没有回答"
+  // Shown when answers is null: "Waiting for answer" in a live run, "No answer" in a session record
   unansweredLabel?: string;
 }) {
   return (
@@ -46,7 +46,9 @@ function QuestionCards({
           <div key={q.question} className="rounded-md border bg-background p-3">
             {q.header !== undefined && <p className="text-xs text-muted-foreground">{q.header}</p>}
             <p className="text-sm font-medium">{q.question}</p>
-            {q.multiSelect === true && <p className="text-xs text-muted-foreground">可多选</p>}
+            {q.multiSelect === true && (
+              <p className="text-xs text-muted-foreground">Select one or more</p>
+            )}
             <ul className="mt-2 grid gap-1.5 sm:grid-cols-2">
               {q.options.map((o) => {
                 const picked = chosen.has(o.label);
@@ -72,7 +74,7 @@ function QuestionCards({
             </ul>
             {freeText !== null && (
               <p className="mt-2 text-sm">
-                <span className="text-xs text-muted-foreground">自由回答：</span>
+                <span className="text-xs text-muted-foreground">Free answer: </span>
                 {freeText}
               </p>
             )}
@@ -86,8 +88,8 @@ function QuestionCards({
   );
 }
 
-// 一条对话：agent 在左，回答的一方在右；有 onJump 时点击跳到请求明细中对应的请求
-function Bubble({
+// One message: agent on the left, the answering side on the right; with onJump, clicking jumps to the request in Requests
+export function Bubble({
   side,
   label,
   icon: Icon,
@@ -137,7 +139,7 @@ function JumpButton({ seq, onJump }: { seq: number; onJump: () => void }) {
       type="button"
       data-testid="conversation-jump"
       className="ml-1 rounded border px-1 font-mono hover:bg-muted"
-      title="在请求明细中查看"
+      title="Show in Requests"
       onClick={onJump}
     >
       #{seq}
@@ -145,7 +147,7 @@ function JumpButton({ seq, onJump }: { seq: number; onJump: () => void }) {
   );
 }
 
-function SystemLine({
+export function SystemLine({
   testId,
   icon: Icon,
   tone,
@@ -170,7 +172,7 @@ function SystemLine({
   );
 }
 
-function AgentText({ text }: { text: string }) {
+export function AgentText({ text }: { text: string }) {
   return (
     <div className="min-w-0 rounded-lg border bg-muted/40 px-3 py-2">
       <MarkdownDoc content={text} bare />
@@ -188,7 +190,7 @@ function MessageBubble({ message, answered }: { message: RunMessage; answered: b
           data-testid="message-initial"
         >
           <span className="text-xs text-muted-foreground">
-            {time(message.createdAt)} · 发给 agent 的初始消息
+            {time(message.createdAt)} · Initial message to the agent
           </span>
           <pre className="font-mono text-xs break-words whitespace-pre-wrap">{message.content}</pre>
         </div>
@@ -211,12 +213,12 @@ function MessageBubble({ message, answered }: { message: RunMessage; answered: b
     message.role === 'agent'
       ? { label: 'agent', icon: Bot }
       : message.role === 'human'
-        ? { label: '人工回答', icon: Hand }
-        : { label: '模拟用户', icon: UserRound };
+        ? { label: 'Human answer', icon: Hand }
+        : { label: 'Simulated user', icon: UserRound };
   const meta = [
     time(message.createdAt),
     message.costUsd > 0 ? formatUsd(message.costUsd) : null,
-    p?.kind === 'reply' && p.done ? '判断运行可以结束' : null,
+    p?.kind === 'reply' && p.done ? 'Judged the run can end' : null,
   ]
     .filter((part) => part !== null)
     .join(' · ');
@@ -271,7 +273,7 @@ function TextReply({ runId }: { runId: string }) {
       }}
     >
       <label className="text-sm font-medium" htmlFor="human-reply">
-        你的回答
+        Your answer
       </label>
       <Textarea
         id="human-reply"
@@ -283,7 +285,7 @@ function TextReply({ runId }: { runId: string }) {
       />
       <div className="flex items-center gap-2">
         <Button type="submit" size="sm" disabled={text.trim() === '' || send.isPending}>
-          {send.isPending ? '发送中…' : '发送回答'}
+          {send.isPending ? 'Sending…' : 'Send answer'}
         </Button>
         {send.isError && <span className="text-sm text-destructive">{send.error.message}</span>}
       </div>
@@ -351,7 +353,7 @@ function QuestionReply({
             );
           })}
           <label className="flex items-center gap-2 text-sm">
-            其他回答
+            Other answer
             <input
               className="h-8 flex-1 rounded-md border bg-background px-2"
               value={other[q.question] ?? ''}
@@ -364,16 +366,16 @@ function QuestionReply({
       ))}
       <div className="flex items-center gap-2">
         <Button type="submit" size="sm" disabled={!complete || send.isPending}>
-          {send.isPending ? '发送中…' : '提交选择'}
+          {send.isPending ? 'Sending…' : 'Submit answers'}
         </Button>
-        {!complete && <span className="text-xs text-muted-foreground">每个问题都需要回答</span>}
+        {!complete && <span className="text-xs text-muted-foreground">Answer every question</span>}
         {send.isError && <span className="text-sm text-destructive">{send.error.message}</span>}
       </div>
     </form>
   );
 }
 
-// 操作成功后等运行详情重新拉取完：按钮在新状态出现之前保持不可用，连点不会发出第二次请求
+// After an action succeeds, wait for the run detail to refetch: buttons stay disabled until the new state appears, so double clicks send no second request
 function useRefreshRun(runId: string) {
   const client = useQueryClient();
   return () => client.invalidateQueries({ queryKey: ['runs', 'detail', runId] });
@@ -389,8 +391,8 @@ function Takeover({ run }: { run: RunDetail }) {
     return (
       <p className="text-sm text-muted-foreground" data-testid="takeover-closed">
         {run.status === 'queued' || run.status === 'preparing'
-          ? 'run 开始运行后可以接管对话。'
-          : 'run 已不在运行，不能再回答。'}
+          ? 'You can take over the conversation once the run starts.'
+          : 'The run is no longer running and cannot be answered.'}
       </p>
     );
   }
@@ -407,13 +409,16 @@ function Takeover({ run }: { run: RunDetail }) {
           }}
         >
           <User />
-          接管
+          Take over
         </Button>
         <span className="text-sm text-muted-foreground" data-testid="takeover-hint">
-          {pending === null ? 'agent 正在工作，提问由模拟用户回答。' : '模拟用户正在回答这个提问。'}
+          {pending === null
+            ? 'The agent is working. The simulated user answers its questions.'
+            : 'The simulated user is answering this question.'}
         </span>
         <span className="w-full text-xs text-muted-foreground">
-          接管后这个 run 记为"有人工干预"，此后不能撤销；对比时默认排除。
+          Taking over marks this run as human-intervened, permanently. Compare excludes it by
+          default.
         </span>
         {action.isError && <span className="text-sm text-destructive">{action.error.message}</span>}
       </div>
@@ -423,11 +428,11 @@ function Takeover({ run }: { run: RunDetail }) {
     <div className="flex flex-col gap-3" data-testid="takeover-area">
       <p className="flex items-center gap-1.5 text-sm font-medium">
         <Hand className="size-4" aria-hidden />
-        你正在回答
+        You are answering
       </p>
       {pending === null && (
         <p className="text-sm text-muted-foreground" data-testid="takeover-hint">
-          agent 正在工作，有新的提问时在这里回答。
+          The agent is working. Answer here when it asks something.
         </p>
       )}
       {pending?.kind === 'text' && <TextReply key={pending.since} runId={run.id} />}
@@ -443,27 +448,28 @@ function Takeover({ run }: { run: RunDetail }) {
             action.mutate('release');
           }}
         >
-          交还模拟用户
+          Hand back to simulated user
         </Button>
         <Button
           variant="outline"
           size="sm"
           disabled={busy}
           onClick={() => {
-            if (window.confirm('结束运行：关闭对话并进入评分。确定？')) action.mutate('finish');
+            if (window.confirm('End the run? The conversation closes and grading starts.'))
+              action.mutate('finish');
           }}
         >
-          结束运行
+          End run
         </Button>
-        <span className="text-xs text-muted-foreground">结束运行后进入评分。</span>
+        <span className="text-xs text-muted-foreground">Grading starts when the run ends.</span>
         {action.isError && <span className="text-sm text-destructive">{action.error.message}</span>}
       </div>
     </div>
   );
 }
 
-// 对话区块的外框：Runs 详情与 Sessions 详情共用。follow 时新消息出现自动滚到底部；
-// 用户向上滚动后不再跟随，滚回底部后恢复
+// Conversation frame shared by Runs and Sessions detail. With follow, new messages scroll to the bottom;
+// scrolling up stops following, scrolling back to the bottom resumes it
 function ConversationPanel({
   empty,
   footer,
@@ -474,7 +480,7 @@ function ConversationPanel({
   empty: boolean;
   footer?: ReactNode;
   description?: ReactNode;
-  // 跟随时传入消息条数，条数增加时滚到底部
+  // Message count when following; scrolls to the bottom when it grows
   follow?: number | null;
   children: ReactNode;
 }) {
@@ -494,7 +500,7 @@ function ConversationPanel({
         id="conversation-title"
         className="flex flex-wrap items-baseline gap-2 border-b px-4 py-2 text-sm font-medium"
       >
-        对话
+        Conversation
         {description !== undefined && (
           <span className="text-xs font-normal text-muted-foreground">{description}</span>
         )}
@@ -508,7 +514,9 @@ function ConversationPanel({
           atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
         }}
       >
-        {empty && <p className="py-6 text-center text-sm text-muted-foreground">还没有消息。</p>}
+        {empty && (
+          <p className="py-6 text-center text-sm text-muted-foreground">No messages yet.</p>
+        )}
         {children}
       </div>
       {footer !== undefined && <div className="border-t bg-muted/20 px-4 py-3">{footer}</div>}
@@ -517,7 +525,7 @@ function ConversationPanel({
 }
 
 export function Conversation({ run }: { run: RunDetail }) {
-  // agent 的 AskUserQuestion 之后有回答时，问题卡片里不再显示"等待回答"
+  // Once an agent AskUserQuestion has an answer, its card no longer shows "Waiting for answer"
   const answeredRequests = new Set(
     run.messages.flatMap((m) => (m.payload?.kind === 'answers' ? [m.payload.requestId] : [])),
   );
@@ -559,7 +567,7 @@ function SessionItem({
       return (
         <Bubble
           side="right"
-          label="用户"
+          label="User"
           icon={UserRound}
           meta={isoTime(item.timestamp)}
           testId="message-user"
@@ -589,9 +597,9 @@ function SessionItem({
       return (
         <Bubble
           side="left"
-          label="agent 提问"
+          label="agent question"
           icon={Bot}
-          meta={`${isoTime(item.timestamp)}${item.answers === null ? ' · 没有回答' : ''}`}
+          meta={`${isoTime(item.timestamp)}${item.answers === null ? ' · No answer' : ''}`}
           testId="message-question"
           seq={item.seq}
           onJump={jump}
@@ -600,7 +608,7 @@ function SessionItem({
             <QuestionCards
               questions={item.questions}
               answers={item.answers}
-              unansweredLabel="没有回答"
+              unansweredLabel="No answer"
             />
           </div>
         </Bubble>
@@ -616,7 +624,7 @@ function SessionItem({
   }
 }
 
-// Sessions 详情：从 session 记录整理出的对话（Contracts 第 11 节）
+// Sessions detail: the conversation rebuilt from the session record (Contracts 11)
 export function SessionConversation({
   sessionId,
   onJump,
@@ -626,18 +634,21 @@ export function SessionConversation({
 }) {
   const conversation = useQuery(conversationQuery(sessionId));
   if (conversation.isPending) {
-    return <p className="text-sm text-muted-foreground">正在整理对话…</p>;
+    return <p className="text-sm text-muted-foreground">Building conversation…</p>;
   }
   if (conversation.isError) {
     return (
       <p role="alert" className="text-sm text-destructive">
-        读取对话失败：{conversation.error.message}
+        Could not load the conversation: {conversation.error.message}
       </p>
     );
   }
   const items = conversation.data;
   return (
-    <ConversationPanel empty={items.length === 0} description="点击 # 编号跳到请求明细中的那一行">
+    <ConversationPanel
+      empty={items.length === 0}
+      description="Click a # number to jump to that row in Requests"
+    >
       {items.map((item, index) => (
         <SessionItem
           key={`${item.kind}:${item.timestamp}:${String(index)}`}

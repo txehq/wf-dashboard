@@ -3,7 +3,7 @@ import { Save } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 
-// workflow 与 variant 的基本描述（Contracts 18.3）：改了之后保存
+// The basic description of a workflow or variant (Contracts 18.3), saved after editing
 export function DescriptionEditor({
   value,
   onSave,
@@ -24,7 +24,7 @@ export function DescriptionEditor({
           className="min-h-16 max-w-3xl rounded-md border bg-background px-3 py-2"
           aria-label={label}
           value={text}
-          placeholder="写一句这是做什么的"
+          placeholder="One line on what this does"
           onChange={(event) => {
             setText(event.target.value);
           }}
@@ -40,11 +40,11 @@ export function DescriptionEditor({
           }}
         >
           <Save />
-          {save.isPending ? '保存中…' : '保存描述'}
+          {save.isPending ? 'Saving…' : 'Save description'}
         </Button>
         {save.isSuccess && !changed && (
           <span className="text-xs text-muted-foreground" data-testid="description-saved">
-            已保存。
+            Saved.
           </span>
         )}
         {save.isError && <span className="text-destructive">{save.error.message}</span>}

@@ -1,5 +1,5 @@
-/* GitHub 的 diff 配色（Contracts 21.3）：行的底色、行号栏、行内改动的词，明暗两种；
-   diff 与渲染后的 Markdown 对比共用 */
+/* GitHub diff colours (Contracts 21.3): line backgrounds, gutter, changed words, light and dark;
+   shared by the diff and the rendered Markdown comparison */
 :root {
   --wfd-diff-add-line: #e6ffec;
   --wfd-diff-add-gutter: #ccffd8;

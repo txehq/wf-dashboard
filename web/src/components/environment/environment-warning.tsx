@@ -2,7 +2,7 @@ import { CircleAlert } from 'lucide-react';
 import { EnvironmentDialog } from '@/components/environment/environment-dialog';
 import { useEnvironment } from '@/components/environment/environment-api';
 
-// 发起 batch 的按钮旁：有未通过的项时列出它们，点开是检查清单
+// Next to the Start batch button: lists failed checks; opens the checklist
 export function EnvironmentWarning() {
   const { query } = useEnvironment();
   const failed = query.data?.checks.filter((c) => !c.ok) ?? [];
@@ -15,13 +15,13 @@ export function EnvironmentWarning() {
       <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
       <div className="flex flex-col gap-1">
         <span>
-          运行环境有 {failed.length} 项未通过，相关的 run 可能失败：
-          {failed.map((c) => c.label).join('；')}
+          {failed.length} environment {failed.length === 1 ? 'check' : 'checks'} failed; affected
+          runs may fail: {failed.map((c) => c.label).join('; ')}
         </span>
         <EnvironmentDialog
           trigger={
             <button type="button" className="w-fit underline">
-              查看原因与修复方法
+              See causes and fixes
             </button>
           }
         />

@@ -2,17 +2,17 @@ import { CircleAlert, CircleCheck, LoaderCircle } from 'lucide-react';
 import { EnvironmentDialog } from '@/components/environment/environment-dialog';
 import { useEnvironment } from '@/components/environment/environment-api';
 
-// 左侧导航底部：全部通过 / 有 N 项未通过，点开是检查清单
+// Bottom of the side nav: all passed / N failed; opens the checklist
 export function EnvironmentStatus() {
   const { query } = useEnvironment();
   const failed = query.data?.checks.filter((c) => !c.ok).length ?? 0;
   const label = query.isError
-    ? '环境检查失败'
+    ? 'Environment check failed'
     : query.data === undefined
-      ? '环境检查中…'
+      ? 'Checking environment…'
       : failed === 0
-        ? '环境：全部通过'
-        : `环境：有 ${String(failed)} 项未通过`;
+        ? 'Environment: all passed'
+        : `Environment: ${String(failed)} failed`;
   const Icon =
     query.data === undefined && !query.isError
       ? LoaderCircle

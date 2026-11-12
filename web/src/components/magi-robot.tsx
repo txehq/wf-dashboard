@@ -1,9 +1,10 @@
 import { cn } from '@/lib/utils';
 
-// Magi Agent 的标志（Contracts 23.6）：Microsoft Fluent Emoji 的 robot（Flat 风格，MIT 许可，原文件
-// assets/fluent-emoji/robot_flat.svg，出处见 THIRD_PARTY_NOTICES.md）。路径与原文件相同，身体与两侧的天线
-// 改为 Magi Agent 的青绿色；身体是浅色、面罩是深色，明暗主题下都清楚。悬停在标志或带 magi-robot-host 的父元素上时
-// 轻轻上下浮动（index.css）
+// Magi Agent logo (Contracts 23.6): the robot from Microsoft Fluent Emoji (Flat style, MIT license,
+// original file assets/fluent-emoji/robot_flat.svg, attribution in THIRD_PARTY_NOTICES.md). Paths match
+// the original; the body and side antennas use the Magi Agent teal. The body is light and the visor
+// dark, clear in both light and dark themes. Floats gently up and down when hovering the logo or a
+// parent with magi-robot-host (index.css)
 export function MagiRobot({ className, label }: { className?: string; label?: string }) {
   return (
     <svg
@@ -15,7 +16,7 @@ export function MagiRobot({ className, label }: { className?: string; label?: st
       data-testid="magi-robot"
       className={cn('magi-robot shrink-0', className)}
     >
-      {/* 两侧的天线 */}
+      {/* Side antennas */}
       <path
         d="M5 3.5C5 4.15311 4.5826 4.70873 4 4.91465V12L6.16075 17.4867L4 23C2.9 23 2 22.1008 2 21.0018V13.9982C2 13.2625 2.40334 12.6163 3 12.2695V4.91465C2.4174 4.70873 2 4.15311 2 3.5C2 2.67157 2.67157 2 3.5 2C4.32843 2 5 2.67157 5 3.5Z"
         fill="#14A39A"
@@ -28,13 +29,13 @@ export function MagiRobot({ className, label }: { className?: string; label?: st
         d="M11 4.5C11 3.67157 11.6716 3 12.5 3H19.5C20.3284 3 21 3.67157 21 4.5C21 5.17932 20.5484 5.75317 19.9291 5.93774C19.6526 6.02012 19.3595 6.04161 19.0829 6.12355L16.0299 7.02792L12.9108 6.11964C12.6383 6.04028 12.3501 6.01951 12.0777 5.93974C11.4549 5.75736 11 5.1818 11 4.5Z"
         fill="#FFB02E"
       />
-      {/* 身体 */}
+      {/* Body */}
       <path
         d="M22.05 30H9.95C6.66 30 4 27.34 4 24.05V12.03C4 8.7 6.7 6 10.03 6H21.98C25.3 6 28 8.7 28 12.03V24.06C28 27.34 25.34 30 22.05 30Z"
         fill="#BFE3DE"
         data-part="body"
       />
-      {/* 面罩、嘴与眼睛 */}
+      {/* Visor, mouth and eyes */}
       <path
         d="M9.24738 18.5H22.7526C25.0822 18.5 27 16.581 27 14.25C27 11.909 25.0922 10 22.7526 10H9.24738C6.9078 10 5 11.909 5 14.25C5 16.591 6.9078 18.5 9.24738 18.5Z"
         fill="#212121"

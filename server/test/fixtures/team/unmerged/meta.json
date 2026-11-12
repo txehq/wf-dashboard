@@ -1,0 +1,8 @@
+{
+  "scope": { "query": "Organize docs using the TXE Docs Atlas", "state": "In Progress" },
+  "updatedAfter": "2026-09-11T16:31:37.627Z",
+  "issues": ["TXE-1889", "TXE-3681"],
+  "updatedSince": ["TXE-1889", "TXE-3681"],
+  "prs": ["https://github.com/capsohq/txe/pull/2131"],
+  "recordedAt": "2026-11-04T04:50:55.025Z"
+}

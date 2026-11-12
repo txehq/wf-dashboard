@@ -5,15 +5,19 @@ import { z } from 'zod';
 import { models, parseStructured, type StructuredRequest } from '../llm/client.js';
 import { isFiller } from '../llm/filler.js';
 
-// 由 judge 读工单标题与完整正文确定验收标准（Contracts 第 13 节）；quote 是该条依据的正文原文片段
+// The judge reads the ticket title and full body to determine the acceptance criteria (Contracts section 13); quote is the body excerpt the criterion rests on
 
-const system = `你为一个 AI 编码 workflow 的评估系统整理工单的验收标准。评估时另一个评分员会逐条对照这些标准，判断 agent 开出的 PR 是否满足工单。
+// The two Chinese section titles user-written tickets use ("acceptance criteria", "acceptance conditions")
+const ZH_CRITERIA = '\u{9A8C}\u{6536}\u{6807}\u{51C6}';
+const ZH_CONDITIONS = '\u{9A8C}\u{6536}\u{6761}\u{4EF6}';
 
-规则：
-- 正文中有明确的验收标准一节（标题或加粗的段落标题为"验收标准""验收条件""Acceptance criteria""Acceptance"等，下面是列表）时：这一节的每个列表项是一条，按原顺序逐条照原文取出。text 是该列表项的原文，不改写、不翻译、不合并、不拆分；去掉列表符号（"-"、"*"、"1."）与任务勾选框（"[ ]"、"[x]"），保留其余全部文字，包括 AC1 这类编号、行内代码的反引号与标点。
-- 正文中没有这样一节时：从正文的问题描述、修复要求与测试要求整理出可以检查的条目。每条是一个能对照 PR 的 diff 与 CI 结果判断"满足 / 部分满足 / 未满足"的具体要求；只写正文中有依据的要求，不加正文没有的要求；条目之间不重复。text 用正文的语言书写。
-- quote 是这一条依据的正文原文片段：从正文中逐字复制一段连续的文字（可以是一句话或一个列表项的一部分），必须与正文完全一致，包括大小写、标点、空格与反引号；不要跨越换行，不要省略中间的文字。
-- 必须调用 respond 给出结果：criteria 按顺序排列。`;
+const system = `You compile the acceptance criteria of a ticket for an evaluation system for AI coding workflows. During evaluation another grader checks each criterion to decide whether the PR the agent opened satisfies the ticket.
+
+Rules:
+- When the body has an explicit acceptance criteria section (a heading or bold paragraph title such as "${ZH_CRITERIA}", "${ZH_CONDITIONS}", "Acceptance criteria" or "Acceptance", followed by a list): each list item of that section is one criterion, taken verbatim in the original order. text is the original text of the list item, not rewritten, translated, merged or split; remove the list marker ("-", "*", "1.") and task checkbox ("[ ]", "[x]") and keep all the remaining text, including numbering such as AC1, backticks of inline code and punctuation.
+- When the body has no such section: compile checkable items from the body's problem description, fix requirements and test requirements. Each item is a concrete requirement that can be judged "met / partly met / not met" against the PR's diff and CI results; write only requirements grounded in the body, add none the body does not have, and do not repeat items. Write text in the language of the body.
+- quote is the body excerpt this criterion rests on: copy one continuous piece of text verbatim from the body (a sentence or part of a list item); it must match the body exactly, including case, punctuation, spaces and backticks; do not cross line breaks and do not omit text in the middle.
+- You must call respond to give the result: criteria in order.`;
 
 const Output = z.object({
   criteria: z.array(z.object({ text: z.string().min(1), quote: z.string().min(1) })).min(1),
@@ -33,8 +37,11 @@ export interface CriteriaDraft {
   costUsd: number;
 }
 
-// 与 prompt 中"明确的验收标准一节"相同的标题：标题行，或整段只有加粗文字的段落标题（可带冒号）
-const SECTION_TITLE = /^(?:验收标准|验收条件|acceptance criteria|acceptance)\s*[:：]?$/i;
+// Same titles as "an explicit acceptance criteria section" in the prompt: a heading line, or a paragraph that is only bold text (optionally with a colon)
+const SECTION_TITLE = new RegExp(
+  `^(?:${ZH_CRITERIA}|${ZH_CONDITIONS}|acceptance criteria|acceptance)\\s*[:\\u{FF1A}]?$`,
+  'iu',
+);
 
 const isBoldTitle = (node: RootContent) =>
   node.type === 'paragraph' && node.children.length === 1 && node.children[0]?.type === 'strong';
@@ -42,13 +49,13 @@ const isBoldTitle = (node: RootContent) =>
 const isSectionTitle = (node: RootContent) =>
   (node.type === 'heading' || isBoldTitle(node)) && SECTION_TITLE.test(toString(node).trim());
 
-// 正文中验收标准一节的列表项数：该节到下一个同级或更高的标题（加粗标题时到下一个标题或加粗标题）为止，
-// 其中各个列表的顶层列表项之和。没有这一节、或这一节中没有列表时为 null；有两个这样的节时抛错
+// Number of list items in the body's acceptance criteria section: from that section to the next heading of the same or higher level (for a bold title, to the next heading or bold title),
+// the sum of the top-level items of its lists. null when there is no such section or it has no list; throws when there are two such sections
 export function criteriaSectionItemCount(body: string): number | null {
   const nodes = fromMarkdown(body).children;
   const starts = nodes.flatMap((node, i) => (isSectionTitle(node) ? [i] : []));
   if (starts.length > 1) {
-    throw new Error(`正文中有 ${String(starts.length)} 个验收标准一节，不能确定以哪一节为准`);
+    throw new Error(`The body has ${String(starts.length)} acceptance criteria sections, so which one applies cannot be determined`);
   }
   const start = starts[0];
   if (start === undefined) return null;
@@ -75,33 +82,33 @@ export function criteriaDraftRequest(
   return {
     model,
     system,
-    user: `工单标题：${title}\n\n工单正文全文如下，位于 <body> 标签之间：\n<body>\n${body}\n</body>`,
+    user: `Ticket title: ${title}\n\nThe full ticket body follows, between <body> tags:\n<body>\n${body}\n</body>`,
     schema: Output,
     maxTokens: 8000,
   };
 }
 
-// quote 不是正文的子串、text 是占位内容、或正文有验收标准一节而条数与该节的列表项数不同时以原文抛错
+// Throws with the exact text when a quote is not a substring of the body, a text is filler, or the body has an acceptance criteria section and the count differs from its list items
 export function readCriteriaDraft(body: string, output: Output): DraftedCriterion[] {
   const expected = criteriaSectionItemCount(body);
   if (expected !== null && output.criteria.length !== expected) {
     throw new Error(
-      `judge 给出 ${String(output.criteria.length)} 条验收标准，正文的验收标准一节有 ${String(expected)} 个列表项`,
+      `The judge gave ${String(output.criteria.length)} acceptance criteria, but the body's acceptance criteria section has ${String(expected)} list items`,
     );
   }
   return output.criteria.map((c, i) => {
     const n = String(i + 1);
     if (isFiller(c.text)) {
-      throw new Error(`judge 给第 ${n} 条验收标准的 text 是占位内容：${JSON.stringify(c.text)}`);
+      throw new Error(`The text the judge gave for acceptance criterion ${n} is filler: ${JSON.stringify(c.text)}`);
     }
     if (!body.includes(c.quote)) {
-      throw new Error(`judge 给第 ${n} 条验收标准的 quote 不是正文的原文：${JSON.stringify(c.quote)}`);
+      throw new Error(`The quote the judge gave for acceptance criterion ${n} is not verbatim body text: ${JSON.stringify(c.quote)}`);
     }
     return { text: c.text, quote: c.quote };
   });
 }
 
-// 正文为空时没有可以依据的原文，不调用 judge，由用户在表单中填写
+// With an empty body there is no text to rest on: the judge is not called and the user fills in the form
 export async function draftCriteria(title: string, body: string): Promise<CriteriaDraft> {
   if (body.trim() === '') {
     return { criteria: [], model: models.judge, inputTokens: 0, outputTokens: 0, costUsd: 0 };

@@ -1,6 +1,6 @@
 import { requestJson } from '@/lib/http';
 
-// "在访达中打开"的目标（Contracts 16.7、18.2）：服务端解析出已知的目录，不传任意路径
+// Targets of "Open in Finder" (Contracts 16.7, 18.2): the server resolves known directories; no arbitrary paths are sent
 export type OpenTarget =
   | { kind: 'variant'; id: string }
   | { kind: 'live-cwd'; id: string }

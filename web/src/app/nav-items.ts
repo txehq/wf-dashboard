@@ -1,4 +1,5 @@
 import {
+  ChartColumn,
   Columns2,
   FlaskConical,
   History,
@@ -7,16 +8,17 @@ import {
   Microscope,
   Play,
   SquareTerminal,
+  Users,
   WandSparkles,
   Workflow,
 } from 'lucide-react';
 
-// 左侧导航的全部项：顶层项与分组，按显示顺序。加一项、改顺序或分组只改这份数据
+// All entries of the left navigation, top-level items and groups, in display order. Adding, reordering or regrouping changes only this data
 export interface NavItem {
   to: string;
   label: string;
   icon: LucideIcon;
-  // 也属于这一项的其他路径前缀（这些页面打开时这一项高亮，标签页标题取这一项）
+  // Other path prefixes that belong to this item (it is highlighted on those pages and gives the tab title)
   also?: string[];
 }
 
@@ -28,7 +30,7 @@ export interface NavGroup {
 
 export const navEntries: (NavItem | NavGroup)[] = [
   { to: '/sessions', label: 'Sessions', icon: History },
-  // 没有单独的 Variants 项（Contracts 16.7）：variant 页面 /variants/:id 属于 Workflows
+  // No separate Variants item (Contracts 16.7): the variant page /variants/:id belongs to Workflows
   { to: '/workflows', label: 'Workflows', icon: Workflow, also: ['/variants'] },
   { to: '/live', label: 'Live', icon: SquareTerminal },
   {
@@ -45,7 +47,16 @@ export const navEntries: (NavItem | NavGroup)[] = [
     icon: WandSparkles,
     items: [{ to: '/analyses', label: 'Analyses', icon: Microscope }],
   },
+  {
+    label: 'Team',
+    icon: Users,
+    items: [{ to: '/team', label: 'Linear stats', icon: ChartColumn }],
+  },
 ];
 
-// 浏览器标签页标题与菜单名不同的页面
-export const pageTitles: Record<string, string> = { '/analyses/new': 'New analysis' };
+// Pages whose browser tab title differs from the menu name
+export const pageTitles: Record<string, string> = {
+  '/analyses/new': 'New analysis',
+  // Settings is not in the left menu; the gear at the top right opens it
+  '/settings': 'Settings',
+};

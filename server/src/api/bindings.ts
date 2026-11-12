@@ -17,18 +17,18 @@ import type { Variants } from '../variants/index.js';
 const Named = z.object({ id: z.string(), name: z.string() });
 
 const Binding = z.object({
-  // deleted：绑定的 variant 已删除（Contracts 24.3）
+  // deleted: the bound variant was deleted (Contracts 24.3)
   variant: Named.extend({ deleted: z.boolean() }).nullable(),
   binding: z.enum(variantBindings).nullable(),
   matching: z.array(Named),
   skills: z.array(z.object({ name: z.string(), loads: z.number().int() })),
-  // "按 session 的 skill 新建 variant" 的默认底子
+  // Default base for "new variant from the session's skills"
   defaultBase: Named.nullable(),
 });
 
 const Params = z.object({ id: z.string() });
 
-// Contracts 15.1：session 的 variant 绑定
+// Contracts 15.1: variant binding of a session
 export const bindingRoutes: FastifyPluginCallbackZod<{
   db: Db;
   variants: Variants;
@@ -51,7 +51,7 @@ export const bindingRoutes: FastifyPluginCallbackZod<{
     (request) => view(request.params.id),
   );
 
-  // 手动改选（variantId 为空表示解除），或 { auto: true } 恢复自动判定
+  // Manual choice (an empty variantId unbinds), or { auto: true } to restore automatic matching
   app.put(
     '/api/sessions/:id/binding',
     {

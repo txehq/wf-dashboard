@@ -14,6 +14,7 @@ import { events } from '../events.js';
 import {
   configOwners,
   configSourceDirs,
+  designVariantOfSession,
   type SessionConfig,
   sessionConfigOf,
 } from '../ingest/session-config.js';
@@ -23,46 +24,46 @@ import type { Variants } from '../variants/index.js';
 import { dataLayout } from '../variants/layout.js';
 import { displayName } from '../variants/names.js';
 
-// Contracts 15.1：session 绑定 variant
+// Contracts 15.1: binding sessions to variants
 
 type Variant = typeof variantsTable.$inferSelect;
 type SkillLoad = typeof sessionSkills.$inferSelect;
 
 export const SKILL_PREFIX = /^Base directory for this skill: (.+)\n\n/;
 
-// Claude Code 自带的 skill（解压到 <TMPDIR>/claude-<uid>/bundled-skills/<版本>/…）不属于任何 variant，不参与比较
+// Claude Code's bundled skills (unpacked to <TMPDIR>/claude-<uid>/bundled-skills/<version>/…) belong to no variant and are not compared
 export const isBundledSkill = (baseDir: string) => baseDir.split('/').includes('bundled-skills');
 
-// gray-matter 只用来切分 frontmatter 与正文，不解析 YAML：正在编辑的 SKILL.md 的 frontmatter 可能暂时不是合法的 YAML，
-// 比较与派生只需要正文
+// gray-matter only splits frontmatter from body and does not parse YAML: the frontmatter of a SKILL.md being edited may
+// briefly be invalid YAML, and comparing and deriving need only the body
 const splitFrontmatter = (file: string) => matter(file, { engines: { yaml: () => ({}) } });
 
-// SKILL.md 文件 → 加载时写入 session 的正文：去掉 frontmatter 与紧随其后的一个换行
+// SKILL.md file → body written into the session on load: drop the frontmatter and the one newline after it
 export function skillFileBody(file: string): string {
   return splitFrontmatter(file).content.replace(/^\n/, '');
 }
 
-// 加载时的渲染：有参数时，正文含 $ARGUMENTS 则替换，否则末尾加 ARGUMENTS 行
+// Rendering on load: with arguments, replace $ARGUMENTS if the body has it, otherwise append an ARGUMENTS line
 export function renderSkill(body: string, args: string): string {
   if (args === '') return body;
   if (body.includes('$ARGUMENTS')) return body.replaceAll('$ARGUMENTS', args);
   return `${body}\n\nARGUMENTS: ${args}`;
 }
 
-// 由 session 中的原文还原正文；参数被替换进正文（$ARGUMENTS）时无法还原
+// Restore the body from the session text; impossible when the arguments were substituted into the body ($ARGUMENTS)
 export function loadBody(load: Pick<SkillLoad, 'name' | 'text' | 'args'>): string {
   if (load.args === '') return load.text;
   const suffix = `\n\nARGUMENTS: ${load.args}`;
   if (!load.text.endsWith(suffix)) {
     throw new HttpError(
       409,
-      `skill ${load.name} 的正文中参数已被替换（$ARGUMENTS），无法还原 SKILL.md 的正文`,
+      `Arguments were substituted into the body of skill ${load.name} ($ARGUMENTS), so the SKILL.md body cannot be restored`,
     );
   }
   return load.text.slice(0, -suffix.length);
 }
 
-// 参与比较的 skill 加载（不含 Claude Code 自带的），按时间排序
+// Skill loads to compare (excluding Claude Code's bundled ones), in time order
 export function sessionSkillLoads(db: Db, sessionId: string): SkillLoad[] {
   return db
     .select()
@@ -73,7 +74,7 @@ export function sessionSkillLoads(db: Db, sessionId: string): SkillLoad[] {
     .filter((l) => !isBundledSkill(l.baseDir));
 }
 
-// variant 的 src/skills/<name>/SKILL.md（目录为 data/variants/<storage_id 或 id>）；一次比较中缓存，同一文件只读一次
+// A variant's src/skills/<name>/SKILL.md (directory data/variants/<storage_id or id>); cached per comparison, each file read once
 function skillFileReader(dataDir: string) {
   const layout = dataLayout(dataDir);
   const cache = new Map<string, string | null>();
@@ -103,7 +104,7 @@ function matches(
   });
 }
 
-// session 加载过的全部 skill 都与其逐字节一致的 variant，按创建时间从早到晚；没有 skill 加载时为空
+// Variants that match every skill the session loaded byte for byte, oldest first; empty when no skill was loaded
 export function matchingVariants(
   db: Db,
   dataDir: string,
@@ -132,7 +133,7 @@ function setBinding(
     .where(eq(sessions.id, sessionId))
     .run();
   events.publish({ type: 'session.updated', sessionId });
-  // 绑定的 variant 决定阶段划分所用的 workflow（Contracts 16.6）：workflow 变化时从头重算
+  // The bound variant decides the workflow used for stage partitioning (Contracts 16.6): recompute from scratch when it changes
   publishStageChanges(sessionId, updateStages(db, sessionId));
 }
 
@@ -142,19 +143,20 @@ function configOfSession(db: Db, sessionId: string): SessionConfig | null {
     .from(sessions)
     .where(eq(sessions.id, sessionId))
     .get();
-  if (row === undefined) throw new HttpError(404, `session ${sessionId} 不存在`);
+  if (row === undefined) throw new HttpError(404, `Session ${sessionId} does not exist`);
   return sessionConfigOf(configSourceDirs, row.engine, row.filePath);
 }
 
-// 本机配置的 session 不绑定 variant（Contracts 25.4）
+// Sessions of the local-machine config are not bound to a variant (Contracts 25.4)
 const localSession = (db: Db, sessionId: string) => configOfSession(db, sessionId)?.id === 'local';
 
 const LOCAL_NO_BINDING =
-  '本机配置的 session 不绑定 variant：绑定只用于 variant 配置与设计与优化下的 session';
+  'Sessions of the local-machine config are not bound to a variant: binding applies only to sessions under a variant config or design and optimize';
 
-// 重新判定一个 session 的自动绑定：run 与手动的绑定不动；本机配置的 session 不绑定；variant 配置下的 session 绑定
-// 这个配置目录所属的 variant（Contracts 25.4，共用目录的取当前绑定的、否则与 skill 一致的、否则最早创建的）；
-// 其余的：当前自动绑定的 variant 仍一致时保留，否则绑定一致的 variant 中最早创建的，没有时解除
+// Re-decide a session's automatic binding: run and manual bindings stay; local-machine sessions are not bound; a session under a
+// variant config is bound to the variant owning that config directory (Contracts 25.4; for a shared directory, the current one,
+// else the one matching the skills, else the oldest); otherwise keep the auto-bound variant while it still matches, else bind
+// the oldest matching variant, or unbind when none
 export function rebindSession(
   db: Db,
   dataDir: string,
@@ -166,11 +168,18 @@ export function rebindSession(
     .from(sessions)
     .where(eq(sessions.id, sessionId))
     .get();
-  if (row === undefined) throw new Error(`session ${sessionId} 不存在`);
+  if (row === undefined) throw new Error(`Session ${sessionId} does not exist`);
   if (row.binding === 'run' || row.binding === 'manual') return;
   const c = configOfSession(db, sessionId);
   if (c?.id === 'local') {
     if (row.variantId !== null || row.binding !== null) setBinding(db, sessionId, null, null);
+    return;
+  }
+  // Design session sessions bind to the workflow-design / workflow-optimize variant they use (Contracts 33.3)
+  if (c?.id === 'design') {
+    const designVariantId = designVariantOfSession(db, sessionId);
+    if (designVariantId !== null && (designVariantId !== row.variantId || row.binding !== 'auto'))
+      setBinding(db, sessionId, designVariantId, 'auto');
     return;
   }
   const owners = c?.id === 'variant' ? configOwners(db, c.storageId) : [];
@@ -186,8 +195,8 @@ export function rebindSession(
   setBinding(db, sessionId, variantId, next === null ? null : 'auto');
 }
 
-// variant 新建或 skill 内容变化后，重新判定全部可以自动绑定的 session（variant 配置下的 session 没有 skill 加载时
-// 也绑定所属的 variant）
+// After a variant is created or skill content changes, re-decide every session that can be auto-bound (a session under a
+// variant config is bound to its owning variant even without skill loads)
 export function rebindAll(db: Db, dataDir: string): void {
   const read = skillFileReader(dataDir);
   const candidates = db
@@ -198,7 +207,7 @@ export function rebindAll(db: Db, dataDir: string): void {
   for (const { id } of candidates) rebindSession(db, dataDir, id, read);
 }
 
-// run 的 session 绑定 run 所用的 variant；本表出现之前导入的 run session 在启动时补上
+// A run's sessions bind to the run's variant; run sessions imported before this table existed are filled in at startup
 export function bindRunSessions(db: Db): void {
   const rows = db
     .select({ id: sessions.id, variantId: runs.variantId, binding: sessions.variantBinding })
@@ -212,8 +221,8 @@ export function bindRunSessions(db: Db): void {
   }
 }
 
-// 交互的 session（Contracts 14.1 的 live_sessions.variant_id）导入时由交互模块调用：绑定它所用的 variant；
-// variantId 为空（本机配置）时不绑定 variant，仍按导入的 skill 自动判定
+// Called by the Live module when a Live session (live_sessions.variant_id, Contracts 14.1) is imported: bind it to its variant;
+// with no variantId (local-machine config) no variant is bound and the imported skills decide automatically
 export function bindLiveSession(
   db: Db,
   dataDir: string,
@@ -228,12 +237,12 @@ export function bindLiveSession(
 }
 
 export interface BindingView {
-  // deleted：绑定的 variant 已删除（run 的 session 随 run 保留，Contracts 24.3），不能点进 variant 页面
+  // deleted: the bound variant was deleted (a run's sessions stay with the run, Contracts 24.3); its variant page cannot be opened
   variant: { id: string; name: string; deleted: boolean } | null;
   binding: VariantBinding | null;
-  // 与 session 的 skill 一致的全部 variant（含已绑定的），按创建时间
+  // Every variant matching the session's skills (including the bound one), by creation time
   matching: { id: string; name: string }[];
-  // 参与比较的 skill（去重，按首次加载的顺序）与加载次数
+  // Compared skills (deduplicated, in order of first load) and their load counts
   skills: { name: string; loads: number }[];
 }
 
@@ -243,7 +252,7 @@ export function bindingView(db: Db, dataDir: string, sessionId: string): Binding
     .from(sessions)
     .where(eq(sessions.id, sessionId))
     .get();
-  if (row === undefined) throw new HttpError(404, `session ${sessionId} 不存在`);
+  if (row === undefined) throw new HttpError(404, `Session ${sessionId} does not exist`);
   const variant =
     row.variantId === null ? undefined : boundVariantNames(db, [row.variantId]).get(row.variantId);
   const skills: { name: string; loads: number }[] = [];
@@ -256,7 +265,7 @@ export function bindingView(db: Db, dataDir: string, sessionId: string): Binding
     variant:
       row.variantId === null || variant === undefined ? null : { id: row.variantId, ...variant },
     binding: row.binding,
-    // 本机配置的 session 不绑定，不列出一致的 variant（Contracts 25.4）
+    // Local-machine sessions are not bound and list no matching variants (Contracts 25.4)
     matching: localSession(db, sessionId)
       ? []
       : matchingVariants(db, dataDir, sessionId).map((v) => ({ id: v.id, name: v.name })),
@@ -264,7 +273,7 @@ export function bindingView(db: Db, dataDir: string, sessionId: string): Binding
   };
 }
 
-// 列表用：一批 session 绑定的 variant 的显示名字（已删除的为"<名字>（已删除）"，Contracts 24.3）与是否已删除
+// For lists: display names of the variants a batch of sessions is bound to (a deleted one shows as "<name> (deleted)", Contracts 24.3) and whether deleted
 export function boundVariantNames(
   db: Db,
   variantIds: string[],
@@ -284,7 +293,7 @@ export function boundVariantNames(
   );
 }
 
-// 手动改选（variantId 为空表示解除），或恢复自动判定
+// Manual choice (a null variantId unbinds), or back to automatic
 export function setManualBinding(
   db: Db,
   dataDir: string,
@@ -296,9 +305,12 @@ export function setManualBinding(
     .from(sessions)
     .where(eq(sessions.id, sessionId))
     .get();
-  if (exists === undefined) throw new HttpError(404, `session ${sessionId} 不存在`);
+  if (exists === undefined) throw new HttpError(404, `Session ${sessionId} does not exist`);
   if (exists.binding === 'run') {
-    throw new HttpError(409, `session ${sessionId} 属于 run 或交互，绑定的是它所用的 variant`);
+    throw new HttpError(
+      409,
+      `Session ${sessionId} belongs to a run or Live and is bound to the variant it uses`,
+    );
   }
   if (localSession(db, sessionId)) throw new HttpError(409, LOCAL_NO_BINDING);
   if (choice === 'auto') {
@@ -316,13 +328,13 @@ export function setManualBinding(
       .from(variantsTable)
       .where(eq(variantsTable.id, choice.variantId))
       .get();
-    if (v === undefined) throw new HttpError(404, `variant 不存在：${choice.variantId}`);
-    if (v.deletedAt !== null) throw new HttpError(404, `variant ${v.name} 已删除`);
+    if (v === undefined) throw new HttpError(404, `Variant does not exist: ${choice.variantId}`);
+    if (v.deletedAt !== null) throw new HttpError(404, `Variant ${v.name} was deleted`);
   }
   setBinding(db, sessionId, choice.variantId, 'manual');
 }
 
-// 默认的底子：最早创建的基线（没有 parent、有安装目录）；没有基线时取最早的 variant
+// The default base: the oldest baseline (no parent, has an install directory); without a baseline, the oldest variant
 export function defaultBaseVariant(db: Db): Variant | null {
   const all = db
     .select()
@@ -333,8 +345,8 @@ export function defaultBaseVariant(db: Db): Variant | null {
   return all.find((v) => v.parentId === null && v.installDir !== null) ?? all[0] ?? null;
 }
 
-// "按这个 session 的 skill 新建 variant"：从底子派生草稿，把 session 加载过的每个 skill 的 SKILL.md 正文换成 session 中的正文，
-// frontmatter 与同一 skill 目录中的其他文件来自底子；记录来源 session，并自动绑定这个 session
+// "New variant from this session's skills": derive a draft from the base and replace the SKILL.md body of every skill the session
+// loaded with the session's body; frontmatter and other files in the skill directory come from the base; record the source session and auto-bind it
 export function deriveFromSession(
   db: Db,
   variants: Variants,
@@ -344,13 +356,16 @@ export function deriveFromSession(
 ): Variant {
   const loads = sessionSkillLoads(db, sessionId);
   if (localSession(db, sessionId)) throw new HttpError(409, LOCAL_NO_BINDING);
-  if (loads.length === 0) throw new HttpError(409, `session ${sessionId} 没有加载过 skill`);
+  if (loads.length === 0) throw new HttpError(409, `Session ${sessionId} loaded no skill`);
   const bodies = new Map<string, string>();
   for (const load of loads) {
     const body = loadBody(load);
     const seen = bodies.get(load.name);
     if (seen !== undefined && seen !== body) {
-      throw new HttpError(409, `skill ${load.name} 在 session 中加载过两种不同的正文`);
+      throw new HttpError(
+        409,
+        `Skill ${load.name} was loaded with two different bodies in the session`,
+      );
     }
     bodies.set(load.name, body);
   }
@@ -361,12 +376,13 @@ export function deriveFromSession(
     if (!fs.existsSync(absolute)) {
       throw new HttpError(
         409,
-        `底子 variant ${base.name} 中没有 skill ${name}，取不到它的 frontmatter`,
+        `Base variant ${base.name} has no skill ${name}, so its frontmatter is unavailable`,
       );
     }
     const original = fs.readFileSync(absolute, 'utf8');
     const content = splitFrontmatter(original).content;
-    if (!original.endsWith(content)) throw new Error(`${absolute} 的正文不是文件的结尾部分`);
+    if (!original.endsWith(content))
+      throw new Error(`The body of ${absolute} is not the end of the file`);
     const front = original.slice(0, original.length - content.length);
     return { relative, content: `${front}\n${body}` };
   });
@@ -378,7 +394,9 @@ export function deriveFromSession(
     .run();
   const read = skillFileReader(dataDir);
   if (!matches(loads, variants.get(created.id), read)) {
-    throw new Error(`新建的 variant ${created.name} 与 session ${sessionId} 的 skill 不一致`);
+    throw new Error(
+      `New variant ${created.name} does not match the skills of session ${sessionId}`,
+    );
   }
   const row = db
     .select({ binding: sessions.variantBinding })

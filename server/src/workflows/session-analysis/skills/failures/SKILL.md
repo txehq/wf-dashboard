@@ -3,31 +3,31 @@ name: failures
 description: Session-analysis stage for failures — every point where the session stopped going forward (tool errors, failed commands, retries, loops, workarounds, getting stuck), whether and where it recovered, and what each failure chain cost.
 ---
 
-# 经常失败的地方
+# Where things keep failing
 
-先照 `session-analysis` skill 读过 `../session-analysis/references/` 的五份参考；证据、格式与归属以它们为准。输出：`output/findings-failures.json`。
+First read the five references in `../session-analysis/references/` as the `session-analysis` skill says; they govern evidence, format and ownership. Output: `output/findings-failures.json`.
 
-关键词：**stumble**（一次失败）与 **retry chain**（从第一次失败到恢复或放弃的一串请求）。失败链中的重复与花费只在本阶段报告。
+Keywords: **stumble** (one failure) and **retry chain** (the run of requests from the first failure to recovery or giving up). Repetition and cost within a failure chain are reported only in this stage.
 
-## 步骤
+## Steps
 
-1. **列出每一次失败**（主 agent 与子代理都要）：
-   - `isError` 为 true 的 tool 调用；
-   - 命令的非零退出、`command not found`、`No such file`、超时；
-   - 权限拒绝、hook 失败、API 错误、限流与配额（`rate limit`、`quota`、`429`、`overloaded`）；
-   - 撤回的修改：一次编辑之后又改回原样，或对改过的文件 `git checkout`、`git restore`、`git reset`；
-   - 回复中的回头（"actually"、"let me instead"、"之前错了"、"换一种方式"）。
+1. **List every failure** (both main agent and subagents):
+   - tool calls with `isError` true;
+   - non-zero command exits, `command not found`, `No such file`, timeouts;
+   - permission denials, hook failures, API errors, rate limits and quotas (`rate limit`, `quota`, `429`, `overloaded`);
+   - reverted changes: an edit later changed back, or `git checkout`, `git restore`, `git reset` on a changed file;
+   - backtracking in replies ("actually", "let me instead", "that was wrong", "try another way").
 
-   完成条件：每个 `isError` 为 true 的调用都已归入某条失败链，或写明可以忽略的理由（例如预期中的探测）。
+   Done when: every call with `isError` true belongs to some failure chain, or has a stated reason it can be ignored (for example an expected probe).
 
-2. **连成失败链。** 从一次失败开始，往后找：同一动作原样重试、换参数重试、换策略、绕路（换一种方式避开问题）、放弃。判断卡住：
-   - 同一动作与同一错误出现 3 次；
-   - 同一动作与同一结果连续 4 次；
-   - 两个动作交替（A-B-A-B）6 步以上；
-   - 对同一处代码的修改反复进行而测试结果不变。
+2. **Link into failure chains.** Starting from a failure, look forward for: the same action retried unchanged, retried with other arguments, a change of strategy, a detour (avoiding the problem another way), giving up. It is stuck when:
+   - the same action and the same error appear 3 times;
+   - the same action and the same result appear 4 times in a row;
+   - two actions alternate (A-B-A-B) for more than 6 steps;
+   - the same code keeps being changed while the test results stay the same.
 
-   每条链写明：起止 seq、失败了什么、之后怎样（同一轮恢复 / 在 seq N 恢复 / 没有恢复）、换策略时有没有依据。
+   For each chain, give: start and end seq, what failed, what happened next (recovered in the same turn / recovered at seq N / did not recover), and whether a strategy change had a basis.
 
-3. **算成本。** 每条链覆盖的请求的 `costUsd`、token 之和与 `timestamp` 跨度（写算法）。
-4. **分类。** 每条链标明原因：环境问题（缺工具、缺凭据、外部服务不可用或配额）、skill 的规定导致（引用原文）、agent 的做法。相同的失败（同一错误原文）合并为一条发现并写出次数与所在的全部 seq。
-5. 按 `findings.md` 写出 `output/findings-failures.json` 并用 `jq .` 检查。
+3. **Compute the cost.** For the requests each chain covers: the sum of `costUsd` and tokens, and the `timestamp` span (state the method).
+4. **Classify.** Mark each chain's cause: environment (missing tool, missing credentials, external service unavailable or out of quota), caused by a skill's rule (quote it), or the agent's approach. Merge identical failures (same error text) into one finding with the count and all their seq.
+5. Write `output/findings-failures.json` as `findings.md` describes and check it with `jq .`.

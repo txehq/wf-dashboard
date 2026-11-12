@@ -15,15 +15,15 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-// 证据：进入这个阶段的那次 Skill 调用或用户输入的 slash 命令
+// Evidence: the Skill call or the slash command the user typed that entered this stage
 function Evidence({ view }: { view: StageView }) {
   const e = view.evidence;
   if (e === null)
     return (
       <p className="text-sm text-muted-foreground">
         {view.status === 'skipped'
-          ? '这一轮中这个阶段没有被调用，直接进入了后面的阶段。'
-          : '这一轮没有进入这个阶段。'}
+          ? 'This stage was not called in this cycle; a later stage started directly.'
+          : 'This cycle did not reach this stage.'}
       </p>
     );
   return (
@@ -31,15 +31,16 @@ function Evidence({ view }: { view: StageView }) {
       <Row label={evidenceKindLabel[e.kind]}>
         <span className="whitespace-pre-wrap">{e.text}</span>
       </Row>
-      <Row label="所在请求">#{e.seq}</Row>
+      <Row label="In request">#{e.seq}</Row>
     </dl>
   );
 }
 
 function rangeText(view: StageView): string {
-  if (view.startSeq === null || view.endSeq === null) return '没有请求区间';
-  if (view.endSeq < view.startSeq) return `区间为空（下一阶段从 #${String(view.startSeq)} 开始）`;
-  return `主 session 请求 #${String(view.startSeq)} – #${String(view.endSeq)}`;
+  if (view.startSeq === null || view.endSeq === null) return 'No request range';
+  if (view.endSeq < view.startSeq)
+    return `Empty range (the next stage starts at #${String(view.startSeq)})`;
+  return `Main session requests #${String(view.startSeq)} – #${String(view.endSeq)}`;
 }
 
 export function StageDetail({
@@ -60,7 +61,7 @@ export function StageDetail({
   const hasRange = view.startSeq !== null && view.endSeq !== null && view.endSeq >= view.startSeq;
   return (
     <section
-      aria-label={`${view.stage} 阶段详情`}
+      aria-label={`${view.stage} stage detail`}
       className="flex flex-col gap-4"
       data-testid="stage-detail"
     >
@@ -85,31 +86,32 @@ export function StageDetail({
       </header>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="flex flex-col gap-2 rounded-lg border px-4 py-3">
-          <h3 className="text-sm font-medium">进入这个阶段的调用</h3>
+          <h3 className="text-sm font-medium">Call that entered this stage</h3>
           <Evidence view={view} />
         </div>
         <div className="flex flex-col gap-2 rounded-lg border px-4 py-3">
-          <h3 className="text-sm font-medium">阶段统计</h3>
+          <h3 className="text-sm font-medium">Stage stats</h3>
           <dl className="grid grid-cols-[auto_1fr_auto_1fr] gap-x-3 gap-y-1 text-xs tabular-nums">
-            <dt className="text-muted-foreground">请求</dt>
+            <dt className="text-muted-foreground">Requests</dt>
             <dd>
-              {formatInteger(s.requests)}（含 {s.subagents} 个子代理）
+              {formatInteger(s.requests)} (including {s.subagents}{' '}
+              {s.subagents === 1 ? 'subagent' : 'subagents'})
             </dd>
-            <dt className="text-muted-foreground">花费</dt>
+            <dt className="text-muted-foreground">Cost</dt>
             <dd>{formatUsd(s.costUsd)}</dd>
             <dt className="text-muted-foreground">input</dt>
             <dd>{formatCount(s.inputTokens)}</dd>
             <dt className="text-muted-foreground">output</dt>
             <dd>{formatCount(s.outputTokens)}</dd>
-            <dt className="text-muted-foreground">cache 读</dt>
+            <dt className="text-muted-foreground">cache read</dt>
             <dd>{formatCount(s.cacheReadTokens)}</dd>
-            <dt className="text-muted-foreground">cache 写</dt>
+            <dt className="text-muted-foreground">cache write</dt>
             <dd>{formatCount(s.cacheCreationTokens)}</dd>
-            <dt className="text-muted-foreground">耗时</dt>
+            <dt className="text-muted-foreground">Duration</dt>
             <dd>{formatDuration(s.durationMs)}</dd>
           </dl>
           {Object.keys(s.toolCalls).length > 0 && (
-            <ToolBars counts={s.toolCalls} label={`${view.stage} 阶段各 tool 的调用次数`} />
+            <ToolBars counts={s.toolCalls} label={`Calls per tool in the ${view.stage} stage`} />
           )}
         </div>
       </div>
@@ -123,10 +125,10 @@ export function StageDetail({
       ) : (
         <p className="rounded-lg border border-dashed py-8 text-center text-sm text-muted-foreground">
           {view.status === 'skipped'
-            ? '这个阶段被跳过，没有请求。'
+            ? 'This stage was skipped and has no requests.'
             : view.status === 'active'
-              ? '已进入这个阶段，但之后还没有请求。'
-              : '没有进入这个阶段。'}
+              ? 'This stage has started, but no requests have followed yet.'
+              : 'This stage was not reached.'}
         </p>
       )}
     </section>

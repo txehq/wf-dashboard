@@ -4,20 +4,20 @@ import type { Db } from '../db/index.js';
 import { runs } from '../db/schema.js';
 import { events } from '../events.js';
 
-// session.updated 触发的刷新，同一 run 最多每这么久一次（Contracts 7.8）
+// Refreshes triggered by session.updated happen at most this often per run (Contracts 7.8)
 export const COST_REFRESH_MS = 30_000;
 
-// 重新计算 run 的四项成本，写入 runs.cost_usd 缓存；变化时推送 run.cost
+// Recomputes the run's four cost items into the runs.cost_usd cache; publishes run.cost on change
 export function refreshRunCost(db: Db, runId: string) {
   const row = db.select({ costUsd: runs.costUsd }).from(runs).where(eq(runs.id, runId)).get();
-  if (row === undefined) throw new Error(`run ${runId} 不存在`);
+  if (row === undefined) throw new Error(`Run ${runId} does not exist`);
   const { total } = runCostBreakdown(db, runId);
   if (total === row.costUsd) return;
   db.update(runs).set({ costUsd: total }).where(eq(runs.id, runId)).run();
   events.publish({ type: 'run.cost', runId, costUsd: total });
 }
 
-// 一轮可以持续一两个小时：该 run 的 session 有新请求写入时也刷新成本缓存
+// A turn can last an hour or two: the cost cache also refreshes when the run's session gets new requests
 export function watchRunCost(
   db: Db,
   runId: string,
@@ -35,9 +35,9 @@ export function watchRunCost(
   );
 }
 
-// session 收到 session.updated 时调用 work，最多每 intervalMs 一次（runner 用 COST_REFRESH_MS，测试用短的间隔）。
-// 间隔从上次调用结束时算起；距上次结束不足 intervalMs 时推迟到满 intervalMs 再调用一次，最后一批写入不会漏掉。
-// work 出错交给 onError（runner 让 run 失败）。返回停止函数
+// Calls work on session.updated for the session, at most once per intervalMs (runner uses COST_REFRESH_MS, tests a short interval).
+// The interval counts from the end of the last call; within intervalMs of it, one call is deferred until the interval is up, so the last batch of writes is not missed.
+// Errors from work go to onError (the runner fails the run). Returns a stop function
 export function onSessionUpdates(
   sessionId: string,
   work: () => void | Promise<void>,
@@ -47,7 +47,7 @@ export function onSessionUpdates(
   let last = 0;
   let timer: NodeJS.Timeout | undefined;
   const refresh = () => {
-    // setTimeout 按 libuv 缓存的循环时间计时，按 Date.now() 量可能早到一两毫秒：不足间隔时等到满间隔
+    // setTimeout uses libuv's cached loop time and can fire a millisecond or two early by Date.now(): wait out the full interval
     const wait = last + intervalMs - Date.now();
     if (wait > 0) {
       timer = setTimeout(refresh, wait);

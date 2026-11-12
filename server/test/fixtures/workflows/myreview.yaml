@@ -1,6 +1,6 @@
-# Contracts 16.1 的例子：入口 /myreview，小阶段 scan、fix、report；fix 可重复，其中调用 scan 不算切换
+# Contracts 16.1 example: entry /myreview, small stages scan, fix, report; fix can repeat, and calling scan within it does not count as a switch
 id: myreview
-name: 我的 review 流程
+name: My review workflow
 stages:
   - id: scan
   - id: fix

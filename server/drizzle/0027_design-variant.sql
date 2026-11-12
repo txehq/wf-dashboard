@@ -1,0 +1,1 @@
+ALTER TABLE `workflow_drafts` ADD `design_variant_id` text REFERENCES variants(id);

@@ -4,24 +4,24 @@ import path from 'node:path';
 import { z } from 'zod';
 import { HttpError } from './errors.js';
 
-// 任意 workflow 的 variant 安装到本机（Contracts 18.6）：skill 复制进用户自己的 ~/.claude/skills（Claude Code）
-// 与 ~/.agents/skills（Codex），清单写在 data/installs/<variantId>.json。同一 workflow 同一时间只装一个 variant
+// Installs a variant of any workflow on this machine (Contracts 18.6): skills are copied into the user's own ~/.claude/skills (Claude Code)
+// and ~/.agents/skills (Codex), with the manifest in data/installs/<variantId>.json. One variant per workflow at a time
 
-// 清单不记 variant 的名字（Contracts 16.4，改名后按 id 取当前名字）；旧清单中的 variantName 读入时丢弃
+// The manifest does not store the variant name (Contracts 16.4, the current name is read by id after a rename); variantName in old manifests is dropped on read
 export const InstallManifest = z.object({
   variantId: z.string(),
   workflowId: z.string(),
   installedAt: z.number(),
-  // 两个目标目录
+  // The two target directories
   targets: z.object({ claude: z.string(), agents: z.string() }),
-  // 建出的 skill 目录（目标目录/<名字>）
+  // Created skill directories (target/<name>)
   dirs: z.array(z.string()),
-  // 复制的每个文件的绝对路径与 sha256
+  // Absolute path and sha256 of every copied file
   files: z.array(z.object({ path: z.string(), sha256: z.string() })),
 });
 export type InstallManifest = z.infer<typeof InstallManifest>;
 
-// 接口返回的清单：加上 variant 当前的名字
+// The manifest returned by the API: plus the variant's current name
 export const InstallView = InstallManifest.extend({ variantName: z.string() });
 export type InstallView = z.infer<typeof InstallView>;
 
@@ -35,7 +35,7 @@ function filesUnder(dir: string): string[] {
     .sort();
 }
 
-// 自下而上删去 dir 中的空目录，最后是 dir 本身（还有文件时保留）
+// Removes empty directories in dir bottom-up, finally dir itself (kept while it still has files)
 function removeEmptyDirs(dir: string) {
   if (!fs.existsSync(dir)) return;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -64,12 +64,12 @@ export function createLocalInstalls({ installsDir, home }: { installsDir: string
       .filter((name) => name.endsWith('.json'))
       .map((name) => {
         const manifest = read(name.slice(0, -'.json'.length));
-        if (manifest === null) throw new Error(`安装清单消失了：${name}`);
+        if (manifest === null) throw new Error(`Install manifest disappeared: ${name}`);
         return manifest;
       });
   }
 
-  // 装在本机时安装后被改过的文件（sha256 不同）；没有装时为空
+  // Files changed after install (different sha256) when installed on this machine; empty when not installed
   function modifiedFiles(variantId: string): string[] {
     const manifest = read(variantId);
     if (manifest === null) return [];
@@ -78,15 +78,16 @@ export function createLocalInstalls({ installsDir, home }: { installsDir: string
       .map((f) => f.path);
   }
 
-  // 按清单删除文件与空目录；文件被改过（sha256 不同）时拒绝并列出。已经不存在的文件不再删除
+  // Deletes the manifest's files and empty directories; refuses and lists files changed since install (different sha256). Files already gone are skipped
   function uninstall(variantId: string): InstallManifest {
     const manifest = read(variantId);
-    if (manifest === null) throw new HttpError(404, `variant ${variantId} 没有装在本机`);
+    if (manifest === null)
+      throw new HttpError(404, `Variant ${variantId} is not installed on this machine`);
     const changed = modifiedFiles(variantId);
     if (changed.length > 0) {
       throw new HttpError(
         409,
-        `这些文件在安装后被改过，没有卸载（先把改动移走或恢复原样）：\n${changed.join('\n')}`,
+        `These files were changed after install, so nothing was uninstalled (move the changes away or restore them first):\n${changed.join('\n')}`,
       );
     }
     for (const f of manifest.files) fs.rmSync(f.path, { force: true });
@@ -100,8 +101,8 @@ export function createLocalInstalls({ installsDir, home }: { installsDir: string
 
     status: read,
 
-    // skillsDir 中每个 skill 目录复制到两个目标目录。目标中已有同名目录、且不是为同一 workflow 装的：拒绝并列出；
-    // 同一 workflow 已经装了 variant（含这一个）时先按它的清单卸载
+    // Copies every skill directory of skillsDir into both targets. A same-named directory in a target not installed for this workflow: refuse and list;
+    // when this workflow already has a variant installed (this one included), uninstall it by its manifest first
     install(variant: { id: string; workflowId: string }, skillsDir: string) {
       const names = fs
         .readdirSync(skillsDir, { withFileTypes: true })
@@ -116,7 +117,7 @@ export function createLocalInstalls({ installsDir, home }: { installsDir: string
       if (conflicts.length > 0) {
         throw new HttpError(
           409,
-          `这些目录已经存在，不是 dashboard 为 workflow ${variant.workflowId} 装的，没有覆盖：\n${conflicts.join('\n')}`,
+          `These directories already exist and were not installed by the dashboard for workflow ${variant.workflowId}, so nothing was overwritten:\n${conflicts.join('\n')}`,
         );
       }
       const replaced = sameWorkflow.map((m) => uninstall(m.variantId));

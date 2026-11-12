@@ -1,50 +1,78 @@
 # Magi Dashboard
 
-Magi Dashboard 是在本机评估 [txe-workflow](https://github.com/txehq/txe-workflow)（Magi workflow，`/lfg` 与 `/ic`）的网页。它可以：
+Magi Dashboard is a local web app for evaluating [txe-workflow](https://github.com/txehq/txe-workflow) (the Magi workflow, `/lfg` and `/ic`). With it you can:
 
-- 打开本机已有的 Claude Code 与 Codex session，按 workflow 的阶段切块，看每个阶段的请求、token、花费与耗时；
-- 修改 skill 得到 variant，用预先定义的 task 让 Claude Code 完整跑一遍 workflow，由 LLM 扮演的模拟用户回答 agent 的提问，跑完后评分；
-- 把几个 variant 的分数与花费放在一起对比；
-- 用 LLM 分析 session，给出 skill 的修改建议，另存为新的 variant。
+- open the Claude Code and Codex sessions already on this machine, split them into the workflow's stages, and see each stage's requests, tokens, cost and duration;
+- edit skills to make a variant, have Claude Code run the whole workflow on a predefined task while an LLM plays the simulated user who answers the agent's questions, and grade the result;
+- compare the scores and costs of several variants side by side;
+- have an LLM analyze sessions, suggest changes to the skills, and save them as a new variant.
 
-完整的使用说明在 Obsidian vault 的 `Project Magi/Dashboard/User Guide.md`，设计与接口在同一目录的 `Brief.md`、`System Design.md`、`Contracts.md`。
+The full user guide is `Project Magi/Dashboard/User Guide.md` in the Obsidian vault; the design and interfaces are in `Brief.md`, `System Design.md` and `Contracts.md` in the same folder.
 
-## 安装
+## Install
 
-只支持 macOS（Apple Silicon）。安装分三步：先装好 txe-workflow，再准备 dashboard 用到的账号与工具，最后安装并启动 dashboard。
+For macOS on Apple Silicon. You need:
 
-### 1. 安装 txe-workflow
+- `gh` logged in with an account that is a member of txehq (`gh auth login --hostname github.com --git-protocol https --web`);
+- Claude Code and the Magi workflow (`wf`), installed as the [txe-workflow README](https://github.com/txehq/txe-workflow#install) describes.
 
-按 txe-workflow 的 README 安装：<https://github.com/txehq/txe-workflow#install>
+Then run this one command (no clone, no pnpm, no build):
 
-1. 按 [getting started](https://github.com/txehq/txe-workflow/blob/main/docs/operations/getting-started.md) 准备好账号、Obsidian vault 与发布用的凭据。
-2. 把 README 中 Install 一节的那段 prompt 整段交给 Claude Code。它会运行 `/install`：检查平台与工具，下载并校验稳定版，把 `wf` 装进本机所有的 coding agent，再配置 Linear 与 artifact 发布。
-3. 装完后运行 `wf doctor`，确认没有未通过的项。
+```sh
+gh release download --repo txehq/wf-dashboard --pattern install.sh --output - | bash
+```
 
-dashboard 还要读取 txe-workflow 的源码，从它的某个 commit 导出基线 variant：
+It checks the prerequisites and stops with the failing command's output and the fix when one is missing, installs the latest release, starts it in the background (it also starts after you log in), and opens <http://127.0.0.1:7317>. The dashboard uses your own Claude Code, Codex, gh, Linear sign-in and Obsidian vault; the environment status at the bottom of the navigation lists anything still missing, with the command that fixes it.
+
+- Everything lives in `~/Library/Application Support/wf-dashboard/`: `app/<version>/` is the installed package, `current` points at the running version, and `data/` holds your data (database, variants, runs). Logs are in `logs/server.log`.
+- The background service is the LaunchAgent `~/Library/LaunchAgents/dev.engapp.wf-dashboard.plist`. It runs inside your login shell, so it sees the same `PATH`, `MAGI_VAULT` and proxy settings as a terminal.
+- It updates itself: at start and every 6 hours it reads the latest release and switches to it when no run or interactive session is running. The version is shown at the bottom of the navigation, with the reason when an update waits or fails.
+- When txe-workflow is not at `~/Project/txe/txe-workflow` (and `WFD_TXE_WORKFLOW` is not set), the installer clones it into `~/Library/Application Support/wf-dashboard/txe-workflow/`.
+- Port 7317 must be free: stop a dashboard started from the repository first.
+
+Uninstall (keeps `data/`):
+
+```sh
+"$HOME/Library/Application Support/wf-dashboard/current/uninstall.sh"
+```
+
+## Running from the repository
+
+The sections below are for developing the dashboard. Installation has three steps: install txe-workflow, set up the accounts and tools the dashboard uses, then install and start the dashboard.
+
+### 1. Install txe-workflow
+
+Follow the txe-workflow README: <https://github.com/txehq/txe-workflow#install>
+
+1. Set up the accounts, the Obsidian vault and the publishing credentials as described in [getting started](https://github.com/txehq/txe-workflow/blob/main/docs/operations/getting-started.md).
+2. Give the whole prompt from the README's Install section to Claude Code. It runs `/install`: checks the platform and tools, downloads and verifies the stable release, installs `wf` into every coding agent on the machine, then configures Linear and artifact publishing.
+3. When it finishes, run `wf doctor` and make sure nothing fails.
+
+The dashboard also reads the txe-workflow source to export baseline variants from one of its commits:
 
 ```sh
 git clone https://github.com/txehq/txe-workflow.git ~/Project/txe/txe-workflow
 ```
 
-放在别的位置时，用环境变量 `WFD_TXE_WORKFLOW` 指向它。
+If you put it somewhere else, point the `WFD_TXE_WORKFLOW` environment variable at it.
 
-### 2. 准备 dashboard 用到的账号与工具
+### 2. Set up the accounts and tools the dashboard uses
 
-| 项                                                        | 用途                                                                                  | 安装或配置                                                                                                                                                                                                                          |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Node 22.12 及以上、pnpm 12.10.1                           | 构建与运行 dashboard                                                                  | `npm install --global pnpm@12.10.1`                                                                                                                                                                                                 |
-| `claude`（Claude Code CLI）                               | 被评估的 agent                                                                        | `npm install --global @anthropic-ai/claude-code`；`~/.claude/settings.json` 的 `env` 中要有 gateway 的 `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` 与 sonnet / opus / haiku 的模型名                                               |
-| `gh`，登录的账号是 txehq 的成员                           | 每个 run 在 txehq 建一个 `wfe-<runId>` 仓库，/ic 的 PR 也开在那里                     | `gh auth login --hostname github.com --git-protocol https --web`                                                                                                                                                                    |
-| Linear MCP 的 OAuth 登录                                  | /ic 的工单副本建在 Linear TXE team 的 "Workflow Eval" project；从 Linear 导入 ic task | 运行 `npx -y mcp-remote https://mcp.linear.app/mcp`，在浏览器中授权，看到 Proxy established 后按 Ctrl-C                                                                                                                             |
-| Codex CLI，`~/.codex/auth.json` 与 `~/.codex/config.toml` | skill 中的评审（/review-pr 等）调用 `codex exec`                                      | `codex login`                                                                                                                                                                                                                       |
-| Obsidian vault，其中有 `Project Magi Eval/`               | /lfg 的产物写到 `Project Magi Eval/Features/<runId>/`                                 | vault 的位置由环境变量 `MAGI_VAULT` 决定，与 txe-workflow 的 `wf obsidian` 相同（`/install` 把 `export MAGI_VAULT=…` 写进 shell 的配置文件）；没有设时为 `~/Projects/Obsidian/TXE`。然后 `mkdir -p "$MAGI_VAULT/Project Magi Eval"` |
-| `wf`、`uv`、`ctx`                                         | variant 的构建与安装；skill 在运行中调用的工具                                        | `wf` 与 `ctx` 由第 1 步装好；uv：`curl -LsSf https://astral.sh/uv/install.sh \| sh`                                                                                                                                                 |
-| Rust（`cargo`）                                           | 构建 variant 时从基线 commit 的源码编译 `wf`                                          | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh`，然后在 txe-workflow 目录中运行一次 `cargo --version`，rustup 按它的 `rust-toolchain.toml` 装好钉住的版本                                                         |
+| Item                                                       | Used for                                                                                                            | Install or configure                                                                                                                                                                                                                                                                       |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Node 22.12 or later, pnpm 12.10.1                          | Building and running the dashboard                                                                                  | `npm install --global pnpm@12.10.1`                                                                                                                                                                                                                                                        |
+| `claude` (Claude Code CLI)                                 | The agent being evaluated                                                                                           | `npm install --global @anthropic-ai/claude-code`; the `env` in `~/.claude/settings.json` needs the gateway's `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` and the sonnet / opus / haiku model names                                                                                     |
+| `gh`, signed in with an account that is a member of txehq  | Each run creates a `wfe-<runId>` repo in txehq, and /ic opens its PR there                                          | `gh auth login --hostname github.com --git-protocol https --web`                                                                                                                                                                                                                           |
+| Linear MCP OAuth sign-in                                   | /ic ticket copies are created in the "Workflow Eval" project of the Linear TXE team; importing ic tasks from Linear | Run `npx -y mcp-remote https://mcp.linear.app/mcp`, authorize in the browser, and press Ctrl-C once you see Proxy established                                                                                                                                                              |
+| Codex CLI, `~/.codex/auth.json` and `~/.codex/config.toml` | Reviews inside skills (/review-pr and others) call `codex exec`                                                     | `codex login`                                                                                                                                                                                                                                                                              |
+| Obsidian vault containing `Project Magi Eval/`             | /lfg writes its output to `Project Magi Eval/Features/<runId>/`                                                     | The vault location comes from the `MAGI_VAULT` environment variable, the same as txe-workflow's `wf obsidian` (`/install` writes `export MAGI_VAULT=...` into your shell config); when it is unset, `~/Projects/Obsidian/TXE` is used. Then run `mkdir -p "$MAGI_VAULT/Project Magi Eval"` |
+| `wf`, `uv`, `ctx`                                          | Building and installing variants; tools that skills call while running                                              | `wf` and `ctx` are installed in step 1; uv: `curl -LsSf https://astral.sh/uv/install.sh \| sh`                                                                                                                                                                                             |
+| Rust (`cargo`)                                             | Building a variant compiles `wf` from the source at the baseline commit                                             | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh`, then run `cargo --version` once in the txe-workflow directory so rustup installs the version pinned by its `rust-toolchain.toml`                                                                                        |
+| `cargo-zigbuild`, `zig`, the Rust Linux target             | When lfg and ic variants run on a remote Linux host, `wf` for that host is cross-compiled on this machine           | `brew install cargo-zigbuild zig`, then run `rustup target add x86_64-unknown-linux-gnu` in the txe-workflow directory (use `aarch64-unknown-linux-gnu` when the remote is aarch64)                                                                                                        |
 
-### 3. 安装并启动 dashboard
+### 3. Install and start the dashboard
 
-本仓库是 txehq 组织的私有仓库，clone 要用 txehq 成员的 GitHub 账号（第 2 步 `gh auth login` 登录的账号；`gh auth setup-git` 让 git 使用它的凭据）。
+This is a private repository of the txehq organization. Cloning it needs a GitHub account that is a member of txehq (the account you signed in with `gh auth login` in step 2; `gh auth setup-git` makes git use its credentials).
 
 ```sh
 git clone https://github.com/txehq/wf-dashboard.git
@@ -53,115 +81,131 @@ pnpm install
 pnpm start
 ```
 
-浏览器打开 <http://127.0.0.1:7317>。
+Open <http://127.0.0.1:7317> in a browser.
 
-- `pnpm start` 先构建页面与服务端，再由同一个进程在 7317 端口提供页面与 API。端口用 `WFD_PORT` 修改，例如 `WFD_PORT=7400 pnpm start`。
-- 在普通终端（或 Orca 终端）中运行 `pnpm start`。从 Claude Code 的 Bash 后台启动的服务会随那次 Bash 调用一起结束，正在进行的 run 会中断。
-- 运行时数据都在 `data/` 下：`db.sqlite`、`variants/`（每个 variant 的源码、构建产物与它自己的 Claude Code / Codex / wf 配置目录）、`runs/`（每个 run 的 workspace 与事件记录）。数据库迁移在服务启动时自动执行。
-- 按 Ctrl-C 停止服务：正在运行的 run 记为失败，排队中的 run 保留，下次启动后继续排队。
+- `pnpm start` builds the pages and the server, then one process serves both the pages and the API on port 7317. Change the port with `WFD_PORT`, for example `WFD_PORT=7400 pnpm start`.
+- Run `pnpm start` in a normal terminal (or an Orca terminal). A server started in the background from Claude Code's Bash tool ends together with that Bash call, and any run in progress is interrupted.
+- All runtime data lives under `data/`: `db.sqlite`, `variants/` (each variant's source, build output and its own Claude Code / Codex / wf config directories) and `runs/` (each run's workspace and event log). Database migrations run automatically when the server starts.
+- Press Ctrl-C to stop the server: running runs are marked as failed, queued runs stay queued and continue after the next start.
 
-打开页面后先看左侧导航底部的环境状态。「环境：全部通过」才能发起评估；有未通过的项时点开它，每一项都有真实的输出与修复命令。命令行上 `curl http://127.0.0.1:7317/api/environment` 给出同样的结果。
+After the page opens, first check the environment status at the bottom of the left navigation. Evaluations can only start when it reads "Environment: all passed". If some checks fail, click it: every check shows its real output and the command that fixes it. On the command line, `curl http://127.0.0.1:7317/api/environment` gives the same result.
 
-## 各模块的功能
+## What each part does
 
 ```mermaid
 flowchart LR
-  WF[Workflows 与 variant] -->|构建好的 variant| RUNS[Runs]
+  WF[Workflows and variants] -->|built variant| RUNS[Runs]
   TASKS[Tasks] -->|task| RUNS
-  RUNS -->|评分后的 run| CMP[Compare]
-  RUNS -->|run 的 session| SES[Sessions]
-  LIVE[Live] -->|交互的 session| SES
-  SES -->|选中的 session| ANA[Analyses]
-  ANA -->|修改建议另存| WF
+  RUNS -->|graded run| CMP[Compare]
+  RUNS -->|run session| SES[Sessions]
+  LIVE[Live] -->|interactive session| SES
+  SES -->|selected sessions| ANA[Analyses]
+  ANA -->|suggested changes saved| WF
   WF -->|variant| LIVE
 ```
 
-### Sessions：离线分析
+### Sessions: offline analysis
 
-- 列出本机配置（`~/.claude/projects`、`~/.codex`）与每个 variant 配置目录下的 session，按配置、项目分三列选择，勾选后导入。导入的 session 文件变长时自动导入新增的部分。
-- session 详情：请求数（含子代理）、token、花费、时长、各 tool 的调用次数，对话与每一次模型请求（思考、回复、tool 调用与结果）。
-- 阶段划分：按主 agent 的 Skill 调用与用户输入的 slash 命令（`/lfg`、`/ic` 与阶段名）把 session 线性切块，不调用模型。阶段图的每个阶段框给出调用次数（fix-pr 为修复轮数）、请求、token、花费、耗时，点开列出这个阶段的请求。
-- 清除、删除（连同磁盘上的文件）、Codex session 的归档与恢复；在 Live 中 resume。
+- Lists the sessions in the local config (`~/.claude/projects`, `~/.codex`) and in each variant's config directory, chosen in three columns by config and project; check the ones you want and import them. When an imported session file grows, the new part is imported automatically.
+- Session details: request count (including subagents), tokens, cost, duration, call count per tool, the conversation, and every model request (thinking, reply, tool calls and results).
+- Stages: the session is split linearly by the main agent's Skill calls and the slash commands the user typed (`/lfg`, `/ic` and stage names), with no model call. Each stage box in the stage graph shows the call count (fix rounds for fix-pr), requests, tokens, cost and duration; click it to list that stage's requests.
+- Clear, delete (together with the files on disk), archive and restore Codex sessions; resume in Live.
 
-### Workflows：workflow 与 variant
+### Workflows: workflows and variants
 
-- 内置三个 workflow：`lfg`（interview、research、plan、ticketing）、`ic`（claim、readiness、implement、acceptance、open-pr、fix-pr、ready-for-review）与 `session-analysis`（分析 session 的九个方面加 synthesize）。也可以新建自己的 workflow，表单或 YAML 编辑阶段的定义，流程图随之更新。
-- variant 是一个 workflow 的一组 skill。lfg、ic 的基线从 txe-workflow 的某个 commit 导入；之后派生新 variant，在页面的编辑器中修改 `skills/` 下的文件（Markdown 预览、并排、与基线的 diff、全屏）。
-- 构建：lfg、ic 的 variant 用 `wf release build-local` 与 `wf install` 装进 variant 自己的配置目录，彼此隔离，不碰你的 `~/.claude`。其他 workflow 的 variant 由 dashboard 直接复制 skill。
-- 生成 workflow 或 variant：写一句需求，在 Live 中由 Codex 或 Claude Code 写 skill，写好后保存。
+- Three built-in workflows: `lfg` (interview, research, plan, ticketing), `ic` (claim, readiness, implement, acceptance, open-pr, fix-pr, ready-for-review) and `session-analysis` (nine aspects of a session plus synthesize). You can also create your own workflow and edit its stage definitions in a form or as YAML; the flowchart updates as you edit.
+- A variant is a set of skills for one workflow. The lfg and ic baselines are imported from a txe-workflow commit; from there you derive new variants and edit the files under `skills/` in the page's editor (Markdown preview, side by side, diff against the baseline, full screen).
+- Build: lfg and ic variants are installed with `wf release build-local` and `wf install` into the variant's own config directory, isolated from each other and from your `~/.claude`. Variants of other workflows have their skills copied directly by the dashboard.
+- Generate a workflow or variant: write one sentence describing what you want; Codex or Claude Code writes the skills in Live, and you save the result.
 
-### Tasks：task 库
+### Tasks: the task library
 
-- `/lfg` task 的输入是一个想法（例如「做一个计算器」），附模拟用户的 persona 与隐藏需求，以及按 brief、research、plan、tickets 四种产物分组的 rubric。
-- `/ic` task 是一张工单加起始仓库，评分用隐藏测试或验收标准。可以手写工单，也可以粘贴 Linear 工单地址导入：正文原样保存，验收标准由 judge 模型从正文中确定，起始仓库与 commit 默认取工单关联的已合并 PR 的 base commit，必需的 CI check 从仓库的 workflow 中算出。
+- The input of a `/lfg` task is an idea (for example "build a calculator"), with the simulated user's persona and hidden requirements, and a rubric grouped by the four outputs: brief, research, plan and tickets.
+- An `/ic` task is a ticket plus a starting repo, graded by hidden tests or acceptance criteria. You can write the ticket by hand or import it by pasting a Linear ticket URL: the body is saved unchanged, the judge model determines the acceptance criteria from the body, the starting repo and commit default to the base commit of the merged PR linked to the ticket, and the required CI checks are worked out from the repo's workflows.
 
-### Runs：发起与观察评估
+### Runs: start and watch evaluations
 
-- 勾选已构建的 variant 与 task，填重复次数、model 与 effort，发起一个 batch。run 进入全局队列（默认同时 3 个），依次经过 queued → preparing（建 GitHub 仓库，/ic 还在 Linear 建工单副本）→ running → grading → succeeded。
-- 运行详情：状态、三项花费（agent、模拟用户、评分）、外部链接（仓库、工单、PR、vault 目录），阶段进度、与模拟用户的对话、请求流与产物。
-- 运行中可以接管，由你回答 agent 的提问（run 标为有人工干预）；可以交还模拟用户、结束或取消。
-- 评分：/lfg 按四种产物逐条 rubric 打分；/ic 给出隐藏测试的通过数或验收标准逐条的得分，以及是否跑到终点。
-- 环境出错的 run 可以标为无效；失败、取消或无效的 run 可以重跑。
+- Check built variants and tasks, fill in the repeat count, model and effort, and start a batch. Runs go into a global queue (3 at a time by default) and move through queued → preparing (creating the GitHub repo; /ic also creates a ticket copy in Linear) → running → grading → succeeded.
+- Run details: status, the three costs (agent, simulated user, grading), external links (repo, ticket, PR, vault folder), stage progress, the conversation with the simulated user, the request stream and the outputs.
+- While a run is going you can take over and answer the agent's questions yourself (the run is marked as having human intervention); you can hand it back to the simulated user, end it or cancel it.
+- Grading: /lfg scores each rubric item for the four outputs; /ic gives the number of hidden tests passed or a score for each acceptance criterion, and whether the run reached the end.
+- A run that failed because of the environment can be marked invalid; failed, cancelled or invalid runs can be rerun.
 
-### Compare：对比 variant
+### Compare: compare variants
 
-- 选一个 workflow，再选要比较的 variant 与 task，按 variant 或按 variant 与模型分组。
-- 分数表（平均分与离散程度，每个点是一次 run，点开看每条 rubric 的平均得分）、产物并排、各阶段的成本对比（花费、token、耗时、tool 调用数）、两个 variant 的 skill diff。
-- 默认排除有人工干预的 run、参考了其他 run 的 run 与读取了来源工单的 run，各有开关放回；标为无效的 run 总是排除。
+- Choose a workflow, then the variants and tasks to compare, grouped by variant or by variant and model.
+- Score table (mean and spread, each dot one run; click it for the mean score of each rubric item), outputs side by side, cost per stage (cost, tokens, duration, tool call count), and the skill diff between two variants.
+- By default, runs with human intervention, runs that consulted other runs and runs that read the source ticket are excluded, each with a switch to include them; runs marked invalid are always excluded.
 
-### Live：在页面中运行
+### Live: run in the page
 
-- 在页面里的真实终端中运行一个 workflow（Claude Code 或 Codex），选 variant、环境、model 与 effort，由你或模拟用户驾驶；也可以 resume 任何一个 session。
-- 「阶段与请求」抽屉显示这个 session 的阶段条、各阶段花费与耗时、请求明细。
-- 页面全部关掉 2 分钟后，还在运行的交互进程自动结束；评估的 run 不受影响。
+- Run a workflow (Claude Code or Codex) in a real terminal inside the page: choose the variant, environment, model and effort, and drive it yourself or let the simulated user drive; you can also resume any session.
+- The stages and requests drawer shows the session's stage bar, the cost and duration of each stage, and the request details.
+- Two minutes after every page is closed, interactive processes still running end automatically; evaluation runs are not affected.
 
-### Analyses：分析 session，优化 skill
+### Analyses: analyze sessions, optimize skills
 
-- 选同一个配置下的若干 session，用 `session-analysis` 的某个 variant 分析：流程遵守、计划遵守、失败、重复的工作、token 与时间的浪费、和用户的交互、产物质量、与请求的冲突，最后综合出报告。每条发现都有 session 中的原文作证据。
-- 修改建议逐处接受或拒绝后另存为新 variant；或点「优化」，在 Live 中交给 Codex 或 Claude Code 按报告修改 skill。
+- Choose several sessions under the same config and analyze them with a variant of `session-analysis`: process adherence, plan adherence, failures, repeated work, wasted tokens and time, interaction with the user, output quality, conflicts with the request, and finally a synthesized report. Every finding is backed by the original text from the session.
+- Accept or reject each suggested change, then save the result as a new variant; or click "Optimize" to hand the report to Codex or Claude Code in Live, which changes the skills accordingly.
 
 ### Magi Agent
 
-导航顶部「Magi Dashboard」右边的小机器人。它是 dashboard 自己的 agent，在 wf-dashboard 的独立 worktree 中工作：回答用法、讨论问题、按你的要求修改 dashboard，检查通过后合并进 main 并重启服务。
+The small robot to the right of "Magi Dashboard" at the top of the navigation. It is the dashboard's own agent and works in a separate worktree of wf-dashboard: it answers questions about usage, discusses problems, and changes the dashboard on request; once the checks pass it merges into main and restarts the server. In an installed release it works in the package's sources, read-only: it answers and discusses, and deploying is refused because the installation updates from releases.
 
-## 开发
+## Development
 
 ```sh
 pnpm dev
 ```
 
-- 服务端：http://127.0.0.1:7317（只监听 127.0.0.1），健康检查 `GET /api/health`，实时事件 `GET /api/events`（SSE）。
-- 页面：http://127.0.0.1:5173，开发时 `/api` 由 Vite 代理到服务端。
+- Server: http://127.0.0.1:7317 (listens on 127.0.0.1 only), health check `GET /api/health`, live events `GET /api/events` (SSE).
+- Pages: http://127.0.0.1:5173; during development Vite proxies `/api` to the server.
 
-### 多个 worktree 并行运行
+### Running several worktrees in parallel
 
-端口默认为服务端 7317、页面 5173，由环境变量 `WFD_PORT`、`WFD_WEB_PORT` 覆盖；`pnpm dev`、`pnpm e2e` 与 Vite 的 `/api` 代理都读取这两个变量。Playwright 在端口上已有服务时直接复用它，所以同时在几个 worktree 中运行时，每个 worktree 用一组不同的端口：
+The default ports are 7317 for the server and 5173 for the pages, overridden by the `WFD_PORT` and `WFD_WEB_PORT` environment variables; `pnpm dev` and Vite's `/api` proxy both read them. Give each worktree its own pair of ports:
 
 ```sh
 export WFD_PORT=7327 WFD_WEB_PORT=5183
 pnpm dev
-pnpm e2e
 ```
 
-每个 worktree 的 `data/` 是各自独立的。
+Each worktree has its own `data/`.
 
-### 命令
+### Commands
 
-| 命令                     | 作用                                                                    |
-| ------------------------ | ----------------------------------------------------------------------- |
-| `pnpm start`             | 构建后由服务端一个端口提供页面与 API                                    |
-| `pnpm dev`               | 同时启动服务端（tsx watch）与页面（Vite）                               |
-| `pnpm build`             | 编译服务端到 `server/dist/`，构建页面到 `web/dist/`                     |
-| `pnpm check`             | 依次运行 typecheck、lint、test 与 e2e，全机同一时间只运行一份           |
-| `pnpm test`              | 基础档的 Vitest                                                         |
-| `pnpm test:real [文件…]` | 真实档的 Vitest                                                         |
-| `pnpm test:slow [文件…]` | 慢档的 Vitest                                                           |
-| `pnpm test:external`     | 在 Linear 建工单的外部系统测试                                          |
-| `pnpm e2e [文件…]`       | 基础档的 Playwright，截图写到 `.work/screenshots/`                      |
-| `pnpm e2e:real [文件…]`  | 真实档的 Playwright                                                     |
-| `pnpm e2e:guide`         | 使用手册的截图（种子数据，不发起 run），写到 `.work/guide/screenshots/` |
-| `pnpm typecheck`         | 全部 TypeScript 项目的类型检查                                          |
-| `pnpm lint`              | ESLint 与 Prettier 检查                                                 |
-| `pnpm format`            | Prettier 格式化                                                         |
+| Command          | What it does                                                                           |
+| ---------------- | -------------------------------------------------------------------------------------- |
+| `pnpm start`     | Builds, then one server port serves the pages and the API                              |
+| `pnpm dev`       | Starts the server (tsx watch) and the pages (Vite) together                            |
+| `pnpm build`     | Compiles the server to `server/dist/` and builds the pages to `web/dist/`              |
+| `pnpm check`     | Runs typecheck, lint and test at the same time; only one runs on the machine at a time |
+| `pnpm test`      | Vitest                                                                                 |
+| `pnpm typecheck` | Type checks every TypeScript project                                                   |
+| `pnpm lint`      | ESLint and Prettier checks                                                             |
+| `pnpm format`    | Formats with Prettier                                                                  |
 
-修改 `server/src/db/schema.ts` 后，在 `server/` 下执行 `pnpm db:generate --name <迁移名>` 生成新的迁移文件。
+`pnpm check` is the verdict before merging: it runs typecheck, lint and Vitest as three processes at once and prints
+each step's time, the total and the load, so the whole check takes as long as its slowest step. Vitest covers the
+numbers a page cannot show to be wrong: stage splitting, the Linear stats, session import (tokens, cost, subagents)
+and cost refresh. These are pure computation tests: they start no server and use no network.
+
+After changing `server/src/db/schema.ts`, run `pnpm db:generate --name <migration-name>` in `server/` to generate a new migration file.
+
+### Releasing
+
+The version is in the root `package.json`. `pnpm release` builds the release package into `.work/release/`:
+`wf-dashboard-<version>-darwin-arm64.tar.gz` (the built server and pages, production `node_modules`, this machine's
+Node 22 binary, `tasks/`, the server sources with the built-in workflows and skills, `agent/MAGI.md`) and `install.sh`.
+It checks with the bundled Node that every native module loads. Run it with Node 22 on Apple Silicon.
+`pnpm release --publish --commit <sha>` also creates the GitHub Release `v<version>` on txehq/wf-dashboard at that
+commit (the snapshot commit on GitHub) and uploads both files; installed dashboards pick it up within 6 hours.
+
+To try a package without touching an existing install, give the installer another directory, label and port, and the
+local tarball:
+
+```sh
+cat .work/release/install.sh | WFD_INSTALL_ROOT="$PWD/.work/try" WFD_INSTALL_LABEL=dev.engapp.wf-dashboard-try \
+  WFD_INSTALL_PORT=7377 WFD_INSTALL_TARBALL="$PWD/.work/release/wf-dashboard-0.1.0-darwin-arm64.tar.gz" bash
+"$PWD/.work/try/current/uninstall.sh"
+```

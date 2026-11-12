@@ -1,4 +1,4 @@
-/* react-diff-view 的表格按 GitHub 的样式显示，颜色见 colors.css */
+/* react-diff-view tables styled like GitHub; colours in colors.css */
 .wfd-diff {
   --diff-font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
   --diff-gutter-insert-background-color: var(--wfd-diff-add-gutter);
@@ -11,7 +11,7 @@
   font-size: 12px;
 }
 
-/* 并排时另一侧没有对应行的空格子 */
+/* Empty cells in side-by-side view where the other side has no matching line */
 .wfd-diff .diff-gutter-omit,
 .wfd-diff .diff-code-omit {
   background: var(--wfd-diff-empty);
@@ -22,7 +22,7 @@
   cursor: default;
 }
 
-/* 新增与删除的行号在红绿的行号栏上，用正文的颜色（GitHub 相同） */
+/* Line numbers of added and removed lines sit on the red and green gutter in the text colour (as on GitHub) */
 .wfd-diff .diff-gutter-insert,
 .wfd-diff .diff-gutter-delete {
   color: var(--wfd-diff-change-gutter-text);
@@ -32,7 +32,7 @@
   width: 6ch;
 }
 
-/* 行首的标记：新增 +，删除 -；折行后的文字不占标记的位置 */
+/* Line markers: + for added, - for removed; wrapped text does not take the marker's place */
 .wfd-diff .diff-code {
   position: relative;
   padding-left: 2.5ch;
@@ -63,7 +63,7 @@
   color: var(--wfd-diff-gap-text);
 }
 
-/* hunk 的位置（@@ -1,6 +1,27 @@）：次要的文字 */
+/* Hunk position (@@ -1,6 +1,27 @@): secondary text */
 .wfd-diff .wfd-diff-gap-title {
   color: var(--wfd-diff-gutter-text);
 }
@@ -76,7 +76,7 @@
   font-family: inherit;
 }
 
-/* hunk 上方的一行中标了 data-dimmed 时，这个 hunk 变淡（例如被拒绝的修改） */
+/* A hunk whose header row carries data-dimmed is faded (for example a rejected change) */
 .wfd-diff .diff-decoration:has([data-dimmed='true']) + .diff-hunk {
   opacity: 0.45;
 }

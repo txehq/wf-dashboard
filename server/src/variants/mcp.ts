@@ -3,7 +3,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { HttpError } from './errors.js';
 
-// variant 的 src/mcp.json（Contracts 28.1）：Claude Code 的 .mcp.json 格式 { "mcpServers": { … } }
+// The variant's src/mcp.json (Contracts 28.1): Claude Code's .mcp.json format { "mcpServers": { ... } }
 const StdioServer = z.looseObject({
   type: z.literal('stdio').optional(),
   command: z.string().min(1),
@@ -23,7 +23,7 @@ const McpFile = z.object({
 
 export const MCP_FILE = 'mcp.json';
 
-// src/mcp.json 中的服务器；没有这个文件时为空
+// Servers in src/mcp.json; empty when the file does not exist
 export function readMcpServers(src: string): Record<string, McpServer> {
   const file = path.join(src, MCP_FILE);
   if (!fs.existsSync(file)) return {};
@@ -31,14 +31,14 @@ export function readMcpServers(src: string): Record<string, McpServer> {
   if (!parsed.success) {
     throw new HttpError(
       400,
-      `${file} 不符合 .mcp.json 的格式 { "mcpServers": { … } }：\n${z.prettifyError(parsed.error)}`,
+      `${file} does not match the .mcp.json format { "mcpServers": { ... } }:\n${z.prettifyError(parsed.error)}`,
     );
   }
   return parsed.data.mcpServers;
 }
 
-// 写进 Codex 的 config.toml 的 mcp_servers：stdio 为 command、args、env，http 为 url 与 http_headers；
-// Codex 不支持 sse 传输
+// mcp_servers for Codex's config.toml: command, args, env for stdio; url and http_headers for http;
+// Codex does not support the sse transport
 export function codexMcpServers(servers: Record<string, McpServer>): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(servers).map(([name, server]): [string, unknown] => {
@@ -55,7 +55,7 @@ export function codexMcpServers(servers: Record<string, McpServer>): Record<stri
       if (server.type === 'sse') {
         throw new HttpError(
           400,
-          `src/mcp.json 中的 ${name} 是 sse 传输，Codex 不支持；改用 http（streamable HTTP）或 stdio`,
+          `${name} in src/mcp.json uses the sse transport, which Codex does not support; use http (streamable HTTP) or stdio`,
         );
       }
       return [

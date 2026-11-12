@@ -6,7 +6,7 @@ import type { Db } from '../db/index.js';
 import { requests, sessions, userMessages } from '../db/schema.js';
 import { UserRecord } from './records.js';
 
-// Contracts 第 11 节：从 session 的主 agent 记录整理出对话
+// Contracts section 11: build the conversation from the session's main agent records
 
 export const AskQuestion = z.looseObject({
   question: z.string(),
@@ -18,7 +18,7 @@ export type AskQuestion = z.infer<typeof AskQuestion>;
 
 const AskInput = z.looseObject({ questions: z.array(AskQuestion) });
 
-// 回答了的 AskUserQuestion，配对的 user 记录带结构化的 toolUseResult；被拒绝时 toolUseResult 是错误文字
+// An answered AskUserQuestion: the paired user record carries a structured toolUseResult; when rejected it is the error text
 const Answered = z.looseObject({ answers: z.record(z.string(), z.string()) });
 const ToolResultRecord = UserRecord.extend({ toolUseResult: z.unknown().optional() });
 
@@ -27,7 +27,7 @@ export const ConversationItem = z.discriminatedUnion('kind', [
     kind: z.enum(['user', 'notice']),
     text: z.string(),
     timestamp: z.iso.datetime(),
-    // 这条消息之后的第一次请求；session 最后一条消息之后没有请求时为空
+    // The first request after this message; null when no request follows the session's last message
     seq: z.number().int().nullable(),
   }),
   z.object({
@@ -40,7 +40,7 @@ export const ConversationItem = z.discriminatedUnion('kind', [
     kind: z.literal('question'),
     toolCallId: z.string(),
     questions: z.array(AskQuestion),
-    // 键为问题原文；没有回答（被拒绝或还在等待）时为空
+    // Keyed by the question text; null when unanswered (rejected or still waiting)
     answers: z.record(z.string(), z.string()).nullable(),
     timestamp: z.iso.datetime(),
     seq: z.number().int(),
@@ -48,7 +48,7 @@ export const ConversationItem = z.discriminatedUnion('kind', [
 ]);
 export type ConversationItem = z.infer<typeof ConversationItem>;
 
-// 从 jsonl 中取出这些 tool_use 的结构化回答
+// Read the structured answers to these tool_use calls from the jsonl
 function readAnswers(file: string, ids: ReadonlySet<string>): Map<string, Record<string, string>> {
   const answers = new Map<string, Record<string, string>>();
   if (ids.size === 0) return answers;
@@ -128,7 +128,7 @@ export function sessionConversation(db: Db, sessionId: string): ConversationItem
       },
     });
   }
-  // 一轮：两条用户消息之间的请求；取其中最后一段回复文字
+  // A turn: the requests between two user messages; take the last reply text among them
   const turnEnds = messages
     .filter((m) => m.kind === 'user')
     .map((m) => m.timestamp.getTime())

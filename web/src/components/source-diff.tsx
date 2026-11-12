@@ -7,7 +7,7 @@ import {
   useDiffViewType,
 } from '@/components/diff';
 
-// 两份 src/ 之间逐文件的改动（服务端给出每个文件的原文与统一 diff），用共用的 diff 显示（Contracts 21.3）
+// Per-file changes between two src/ trees (the server sends each file's original content and unified diff), shown with the shared diff (Contracts 21.3)
 export interface SourceFileDiff {
   path: string;
   oldContent: string;
@@ -23,12 +23,12 @@ function useSourceDiff(files: SourceFileDiff[] | undefined) {
   return { parsed, sources, total: countChanges(parsed.flatMap((f) => f.hunks)) };
 }
 
-// 文件数与增删行数，放在标题行中
+// File count and added/removed lines, shown in the header row
 export function SourceDiffSummary({ files }: { files: SourceFileDiff[] }) {
   const { parsed, total } = useSourceDiff(files);
   return (
     <span className="text-xs text-muted-foreground" data-testid="source-diff-summary">
-      {parsed.length} 个文件 <DiffCounts {...total} />
+      {parsed.length} {parsed.length === 1 ? 'file' : 'files'} <DiffCounts {...total} />
     </span>
   );
 }

@@ -1,5 +1,6 @@
--- 阶段改为按 Skill 调用与 slash 命令线性切块：旧的判定结果全部删除，读取或导入时重新划分
+-- Stages are now cut linearly by Skill calls and slash commands: all old results are deleted and partitioned again on
+-- read or import
 DELETE FROM `stage_spans`;--> statement-breakpoint
 DELETE FROM `stage_cycles`;--> statement-breakpoint
--- 阶段判定模型的设置已取消
+-- The stage-check model setting is gone
 UPDATE `settings` SET `value` = json_remove(`value`, '$.models.stageCheck');

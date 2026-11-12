@@ -10,19 +10,21 @@ type ServerMessage =
 
 type Connection = 'connecting' | 'open' | 'closed' | 'exited';
 
-// 切换到备用屏幕与切换回来的 DEC 私有模式（DECSET、DECRST）
+// DEC private modes that switch to the alternate screen and back (DECSET, DECRST)
 const alternateModes = [47, 1047, 1049];
 
 const connectionLabel: Record<Connection, string> = {
-  connecting: '正在连接终端…',
-  open: '已连接',
-  closed: '连接已断开，刷新页面重新连接',
-  exited: '进程已退出',
+  connecting: 'Connecting to terminal…',
+  open: 'Connected',
+  closed: 'Disconnected. Refresh the page to reconnect',
+  exited: 'Process exited',
 };
 
-// 一个交互 session 的终端（Contracts 14.3）：连接时先收到服务端保留的输出，之后实时转发；
-// 键盘输入与尺寸变化发给服务端。关掉页面只关闭连接，进程继续运行。
-// 终端占满父元素（父元素的高度是定值）；全屏时同一个终端随之铺满窗口（Contracts 20.3）
+// Terminal of an interaction session (Contracts 14.3): on connect it first receives the output the
+// server kept, then live output; keyboard input and size changes go to the server. Closing the page
+// only closes the connection; the process keeps running.
+// The terminal fills its parent (whose height is fixed); in full screen the same terminal fills the
+// window (Contracts 20.3)
 export function LiveTerminal({ liveId }: { liveId: string }) {
   const container = useRef<HTMLDivElement>(null);
   const handle = useRef<{ term: Terminal; fit: FitAddon } | null>(null);
@@ -43,20 +45,24 @@ export function LiveTerminal({ liveId }: { liveId: string }) {
     term.loadAddon(fit);
     const serializer = new SerializeAddon();
     term.loadAddon(serializer);
-    // 整屏重画的程序（Claude Code 的 tui: fullscreen、Codex）在备用屏幕中画全部内容，退出时离开备用屏幕，
-    // 回到主屏幕，主屏幕上只有开始行与之后打印的几行。离开备用屏幕时记下主屏幕与备用屏幕当时的内容；
-    // 进程退出后如果主屏幕在这之后新增不到一屏，就把那一屏接在主屏幕的内容后面：结束时看到的输出留在终端中
-    // （Contracts 14.3），放在主屏幕中，窗口变化时照常折行、可以向上滚动
+    // Full-screen redrawing programs (Claude Code's tui: fullscreen, Codex) draw everything on the
+    // alternate screen and leave it on exit, returning to the main screen, which holds only the first
+    // line and a few lines printed afterwards. When leaving the alternate screen, record the contents of
+    // both screens; after the process exits, if the main screen has gained less than a screen since,
+    // append that screen after the main screen's contents: the output seen at the end stays in the
+    // terminal (Contracts 14.3), on the main screen, wrapping on resize and scrollable
     let lastFullScreen: { normal: string; screen: string; row: number } | null = null;
     const switchesAlternate = (params: (number | number[])[]) =>
       params.some((p) => typeof p === 'number' && alternateModes.includes(p));
     const leaving = term.parser.registerCsiHandler({ prefix: '?', final: 'l' }, (params) => {
       if (term.buffer.active.type === 'alternate' && switchesAlternate(params)) {
-        // serialize 在备用屏幕时输出主屏幕的内容、进入备用屏幕的序列与备用屏幕的内容
+        // On the alternate screen, serialize outputs the main screen, the sequence entering the
+        // alternate screen, and the alternate screen's contents
         const normal = serializer.serialize({ excludeModes: true, excludeAltBuffer: true });
         const both = serializer.serialize({ excludeModes: true });
         const enter = `${normal}\x1b[?1049h\x1b[H`;
-        if (!both.startsWith(enter)) throw new Error('serialize 的输出不是主屏幕加备用屏幕');
+        if (!both.startsWith(enter))
+          throw new Error('serialize output is not main screen plus alternate screen');
         lastFullScreen = {
           normal,
           screen: both.slice(enter.length),
@@ -92,8 +98,9 @@ export function LiveTerminal({ liveId }: { liveId: string }) {
       setConnection('open');
       sendSize();
     });
-    // 连接后的第一条消息是这一项保留的输出（含之前进程的）：xterm.js 处理它时会回答其中的查询（设备属性、焦点），
-    // 这些回答不是人的输入，不发给现在的进程
+    // The first message after connecting is the item's kept output (earlier processes included): while
+    // processing it xterm.js answers the queries inside (device attributes, focus); those answers are not
+    // human input and are not sent to the current process
     let replaying = true;
     socket.addEventListener('message', (event: MessageEvent<string>) => {
       const message = JSON.parse(event.data) as ServerMessage;
@@ -107,7 +114,7 @@ export function LiveTerminal({ liveId }: { liveId: string }) {
       } else if (message.type === 'error') setError(message.message);
       else {
         setConnection('exited');
-        // 之前收到的输出处理完之后
+        // After the output received so far has been processed
         term.write('', showFinalScreen);
       }
     });
@@ -118,7 +125,8 @@ export function LiveTerminal({ liveId }: { liveId: string }) {
       if (!replaying) send({ type: 'input', data });
     });
     const resizing = term.onResize(sendSize);
-    // 容器的尺寸只随窗口与布局变化（进入与退出全屏、打开抽屉）；放到下一帧，避免在同一次布局中反复触发
+    // The container's size changes only with the window and layout (entering/leaving full screen,
+    // opening a drawer); defer to the next frame to avoid repeated triggers in one layout pass
     let frame = 0;
     const observer = new ResizeObserver(() => {
       cancelAnimationFrame(frame);
@@ -140,7 +148,8 @@ export function LiveTerminal({ liveId }: { liveId: string }) {
     };
   }, [liveId]);
 
-  // 进入与退出全屏后的下一帧：重新计算行列（变化时发给 PTY），终端获得焦点
+  // The frame after entering or leaving full screen: recompute rows and columns (sent to the PTY when
+  // changed) and focus the terminal
   useFullscreenLayout(() => {
     if (handle.current === null) return;
     handle.current.fit.fit();
@@ -149,9 +158,10 @@ export function LiveTerminal({ liveId }: { liveId: string }) {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-1">
-      {/* 高度由外层的定值决定（占满父元素）：xterm.js 按容器大小算行数，容器随内容长高会让行数不断增加。
-          边距放在外面一层：FitAddon 把容器的 height（含 padding）都当作可用的高度，容器自己有 padding 时多算一行，
-          最后一行被裁掉 */}
+      {/* Height comes from the fixed outer size (fills the parent): xterm.js computes rows from the
+          container size, and a container that grows with content keeps adding rows.
+          Padding sits on the outer layer: FitAddon treats the container's whole height (padding
+          included) as usable, so padding on the container itself adds a row and clips the last line */}
       <div className="flex min-h-0 flex-1 flex-col rounded-md bg-[#0b0d10] p-2">
         <div
           ref={container}

@@ -9,7 +9,7 @@ import { DeleteBody, DeletionPlan } from '../deletion/views.js';
 
 const IdParams = z.object({ id: z.string().min(1) });
 
-// Contracts 第 24 节：删除 variant 与 workflow。delete-plan 是确认对话框的内容；DELETE 拒绝时 409，原文列出阻止删除的项
+// Contracts section 24: deleting variants and workflows. delete-plan is the confirm dialog content; a refused DELETE is 409, listing what blocks the deletion
 export const deletionRoutes: FastifyPluginCallbackZod<{ deletion: Deletion }> = (
   app,
   { deletion },

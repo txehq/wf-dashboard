@@ -6,8 +6,8 @@ import {
 } from '@/lib/analyses-api';
 import type { DiskSession, ImportConfig, SessionEngine } from '@/lib/sessions-api';
 
-// 新建分析中的选择（Contracts 25.4、27）：一次分析的全部 session 属于同一个配置、同一种引擎。
-// 从磁盘选的带着文件、所在的配置与引擎、标题与项目（范围读到之前就能显示与灰显）；带着选择进入的只有 id
+// Picks in a new analysis (Contracts 25.4, 27): all sessions of one analysis share one config and one engine.
+// Picks from disk carry the file, config, engine, title and project (shown and dimmed before the scope loads); preselected ones carry only the id
 export interface Picked {
   id: string;
   disk: {
@@ -19,10 +19,10 @@ export interface Picked {
   } | null;
 }
 
-export const SAME_CONFIG_REASON = '一次分析只能选同一个配置的 session，先清空已选';
-export const DESIGN_REASON = '设计与优化的 session 不能分析';
+export const SAME_CONFIG_REASON =
+  'One analysis can only include sessions from one config. Clear the selection first';
 
-// 已选的所在的配置与引擎：第一个已选的（带着选择进入的按读到的范围）；还没有选或还没有读到时为 null
+// Config and engine of the picks: those of the first pick (preselected ones use the loaded scope); null when nothing is picked or loaded yet
 export interface PickLock {
   engine: SessionEngine;
   config: string | null;
@@ -39,18 +39,17 @@ export function pickLock(
   return s === undefined ? null : { engine: s.engine, config: s.config?.id ?? null };
 }
 
-// 第一列中不能点选的配置：设计与优化始终不能；已选了之后其他配置不能
+// Configs in the first column that cannot be picked: once something is picked, other configs cannot
 export function configBlock(c: ImportConfig, lock: PickLock | null): string | null {
-  if (c.id === 'design') return DESIGN_REASON;
   if (lock?.config == null || lock.config === c.id) return null;
   return SAME_CONFIG_REASON;
 }
 
-// 顶部的引擎切换：已选了之后另一种引擎不能
+// Engine switch at the top: once something is picked, the other engine cannot
 export const engineBlock = (engine: SessionEngine, lock: PickLock | null): string | null =>
   lock === null || lock.engine === engine ? null : SAME_CONFIG_REASON;
 
-// 第三列勾选或取消（本页全选时为本页全部）：加入的接在后面，已选的不重复
+// Check or uncheck in the third column (the whole page for select all): new picks go at the end, no duplicates
 export function toggledPicks(
   picked: readonly Picked[],
   list: readonly DiskSession[],
@@ -68,7 +67,7 @@ export function toggledPicks(
   return [...picked, ...added];
 }
 
-// 范围的请求：带着选择进入的按 id，从磁盘选的按文件
+// Scope request: preselected sessions by id, disk picks by file
 export function pickedScope(picked: readonly Picked[]): {
   sessions: string[];
   disk: DiskPick | undefined;
@@ -84,8 +83,8 @@ export function pickedScope(picked: readonly Picked[]): {
   };
 }
 
-// 从 Sessions、Runs、session 详情带着选择进入（?batch=、?picked=、?sessions=）。
-// picked 是 Sessions 表格选中的 session 在本标签页的 sessionStorage 中的键；读不到时为 'missing'
+// Arriving with a selection from Sessions, Runs or a session detail (?batch=, ?picked=, ?sessions=).
+// picked is the sessionStorage key (in this tab) of the sessions selected in the Sessions table; 'missing' when it cannot be read
 export function preselection(params: URLSearchParams): ScopeInput | 'missing' | null {
   const batch = params.get('batch');
   if (batch !== null && batch !== '') return { batch };

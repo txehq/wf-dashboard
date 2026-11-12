@@ -4,7 +4,7 @@ import { DropdownMenu } from 'radix-ui';
 import { Button } from '@/components/ui/button';
 import { openInFinder, type OpenTarget } from '@/lib/open-api';
 
-// 工具栏中的"在访达中打开"：一个图标按钮列出这一项的几个目录，不各占一个按钮
+// "Open in Finder" in the toolbar: one icon button lists this item's directories instead of one button each
 export function FinderMenu({ items }: { items: { label: string; target: OpenTarget }[] }) {
   const open = useMutation({ mutationFn: openInFinder });
   return (
@@ -14,8 +14,8 @@ export function FinderMenu({ items }: { items: { label: string; target: OpenTarg
           <Button
             size="sm"
             variant="outline"
-            aria-label="在访达中打开"
-            title="在访达中打开"
+            aria-label="Open in Finder"
+            title="Open in Finder"
             data-testid="finder-menu"
           >
             <FolderOpen />
@@ -28,7 +28,7 @@ export function FinderMenu({ items }: { items: { label: string; target: OpenTarg
             className="z-[60] min-w-40 rounded-md border bg-background p-1 shadow-md"
           >
             <DropdownMenu.Label className="px-2 py-1 text-xs text-muted-foreground">
-              在访达中打开
+              Open in Finder
             </DropdownMenu.Label>
             {items.map((item) => (
               <DropdownMenu.Item

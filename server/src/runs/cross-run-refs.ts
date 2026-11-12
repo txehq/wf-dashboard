@@ -4,12 +4,12 @@ import { requests, runs, subagents } from '../db/schema.js';
 import type { CrossRunRef } from '../grading/schema.js';
 import type { RequestRow } from '../stages/rows.js';
 
-// Contracts 7.11：run 的 requests（含子代理）中 ToolCall 输入里指向其他评估 run 的引用
+// Contracts 7.11: references to other eval runs in ToolCall inputs of the run's requests (subagents included)
 
 export const LINEAR_TOOL = /^mcp__.*linear.*__/i;
 const EXCERPT_CHARS = 80;
 
-// 长的在前，避免一个是另一个的前缀时匹配到短的
+// Longest first, so a literal that is a prefix of another does not win
 export function alternation(literals: string[]): string {
   return [...literals]
     .sort((a, b) => b.length - a.length)
@@ -17,7 +17,7 @@ export function alternation(literals: string[]): string {
     .join('|');
 }
 
-// input 中的全部字符串（Bash 的 command、Write 的 content、MCP 的各个参数）与它们的字段路径
+// All strings in input (Bash command, Write content, each MCP argument) with their field paths
 export function strings(value: unknown, at = '', out: { at: string; text: string }[] = []) {
   if (typeof value === 'string') out.push({ at, text: value });
   else if (Array.isArray(value)) value.forEach((v, i) => strings(v, `${at}[${String(i)}]`, out));
@@ -26,7 +26,7 @@ export function strings(value: unknown, at = '', out: { at: string; text: string
   return out;
 }
 
-// 摘录前缀为字段路径，例如 command: …、removeRelatedTo[1]: TXE-3761
+// The excerpt is prefixed with the field path, e.g. command: …, removeRelatedTo[1]: TXE-3761
 export function excerpt(at: string, text: string, start: number, end: number): string {
   const from = Math.max(0, start - EXCERPT_CHARS);
   const to = Math.min(text.length, end + EXCERPT_CHARS);
@@ -47,13 +47,13 @@ interface Hit {
   excerpt: string;
 }
 
-// 一个字段中的 run id：wfe-<id> 为 repo，Features/<id> 为 vault，其余位置为 other
+// Run ids in one field: wfe-<id> is repo, Features/<id> is vault, anything else is other
 function idHits({ at, text }: Field, ids: RegExp): Hit[] {
   const hits: Hit[] = [];
   for (const m of text.matchAll(ids)) {
     const prefix = m[1];
     const runId = m[2];
-    if (runId === undefined) throw new Error('run id 的正则没有捕获组');
+    if (runId === undefined) throw new Error('Run id regex has no capture group');
     const before = m.index === 0 ? '' : (text[m.index - 1] ?? '');
     if (prefix !== 'Features/' && WORD.test(before)) continue;
     hits.push({
@@ -65,14 +65,14 @@ function idHits({ at, text }: Field, ids: RegExp): Hit[] {
   return hits;
 }
 
-// Linear 工具输入中另一个 run 的工单 identifier
+// Ticket identifiers of another run in Linear tool inputs
 function ticketHits({ at, text }: Field, tickets: RegExp, byTicket: Map<string, string>): Hit[] {
   const hits: Hit[] = [];
   for (const m of text.matchAll(tickets)) {
     const before = m.index === 0 ? '' : (text[m.index - 1] ?? '');
     if (WORD.test(before)) continue;
     const runId = byTicket.get(m[1] ?? '');
-    if (runId === undefined) throw new Error(`匹配到未知的工单 ${m[0]}`);
+    if (runId === undefined) throw new Error(`Matched unknown ticket ${m[0]}`);
     hits.push({
       runId,
       kind: 'ticket',
@@ -82,7 +82,7 @@ function ticketHits({ at, text }: Field, tickets: RegExp, byTicket: Map<string, 
   return hits;
 }
 
-// 子代理的请求归到发起它的主 session 请求；子代理可以嵌套
+// A subagent's requests belong to the main-session request that started it; subagents can nest
 export function mainSeqResolver(db: Db, sessionId: string, rows: RequestRow[]) {
   const rowByToolCall = new Map<string, RequestRow>();
   for (const row of rows) for (const call of row.toolCalls) rowByToolCall.set(call.id, row);
@@ -97,20 +97,22 @@ export function mainSeqResolver(db: Db, sessionId: string, rows: RequestRow[]) {
   const resolve = (row: RequestRow): number => {
     if (row.agentId === null) return row.seq;
     const toolUseId = parentToolUse.get(row.agentId);
-    if (toolUseId === undefined) throw new Error(`子代理 ${row.agentId} 没有登记`);
+    if (toolUseId === undefined) throw new Error(`Subagent ${row.agentId} is not registered`);
     const parent = rowByToolCall.get(toolUseId);
     if (parent === undefined) {
-      throw new Error(`子代理 ${row.agentId} 的父调用 ${toolUseId} 不在 session ${sessionId} 中`);
+      throw new Error(
+        `Parent call ${toolUseId} of subagent ${row.agentId} is not in session ${sessionId}`,
+      );
     }
     return resolve(parent);
   };
   return resolve;
 }
 
-// 每个 (tool 调用, 被引用的 run, kind) 一条，摘录取第一次出现的位置；按主 session seq 排序
+// One entry per (tool call, referenced run, kind), excerpt at the first occurrence; sorted by main session seq
 export function scanCrossRunRefs(db: Db, runId: string): CrossRunRef[] {
   const run = db.select({ sessionId: runs.sessionId }).from(runs).where(eq(runs.id, runId)).get();
-  if (run === undefined) throw new Error(`run ${runId} 不存在`);
+  if (run === undefined) throw new Error(`Run ${runId} does not exist`);
   const others = db
     .select({ id: runs.id, ticket: runs.linearIssueIdentifier })
     .from(runs)

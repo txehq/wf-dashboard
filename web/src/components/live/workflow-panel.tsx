@@ -16,8 +16,8 @@ import { PanelSplitter } from './panel-splitter';
 import { SideDrawer } from './side-drawer';
 import { FileContent, FileTree } from './skill-browser';
 
-// 设计与优化会话的 workflow 面板（Contracts 26.2–26.4）：上半部分是流程图，下半部分是 skill 浏览，两者之间的
-// 分隔可以拖动；agent 改了文件后经 SSE 在 1 秒内刷新
+// Workflow panel of design and optimize sessions (Contracts 26.2-26.4): the flowchart on top, the
+// skill browser below, with a draggable divider between them; agent file changes refresh within 1 s via SSE
 
 const FLOW_SHARE_KEY = 'wfd.workspace.flowShare';
 const FLOW_MIN = 0.15;
@@ -31,16 +31,19 @@ function storedShare(): number {
 
 const skillFile = (id: string) => `skills/${id}/SKILL.md`;
 
-// 终端、面板与"阶段与请求"抽屉的宽度（Contracts 26.1）：终端先保证 560 px（约 70 列），面板与抽屉分剩下的宽度。
-// 面板最小 340 px、默认占这一行的 40%，剩下的宽度放不下时默认收成窄边；抽屉同样最小 340 px，打开时放不下两者
-// 则面板暂时收成窄边，抽屉关上后恢复。用户在放不下时点开面板，面板与抽屉按剩余宽度给，终端仍不小于 560 px。
-// 剩下的宽度连 340 px 的抽屉都放不下时，抽屉以 380 px 覆盖在终端右侧
+// Widths of the terminal, panel and "Stages and requests" drawer (Contracts 26.1): the terminal is
+// guaranteed 560 px (about 70 columns) first, and the panel and drawer share the rest.
+// The panel is at least 340 px and defaults to 40% of the row; when the rest can't fit it, it collapses
+// to a strip by default. The drawer is also at least 340 px; when both can't fit while it is open, the
+// panel collapses to a strip temporarily and returns when the drawer closes. If the user opens the panel
+// when it doesn't fit, the panel and drawer split the remaining width and the terminal stays at least
+// 560 px. When the rest can't fit even a 340 px drawer, the drawer overlays the terminal's right side at 380 px
 export const TERMINAL_MIN = 560;
 export const PANEL_MIN = 340;
 export const DRAWER_MIN = 340;
 const OVERLAY_DRAWER_PX = 380;
 const SPLITTER_PX = 8;
-// 收起的窄边（w-7 加 ml-2）与抽屉前的间隔（ml-3）
+// The collapsed strip (w-7 plus ml-2) and the gap before the drawer (ml-3)
 const STRIP_PX = 36;
 const DRAWER_GAP_PX = 12;
 const PANEL_SHARE_KEY = 'wfd.workspace.panelShare';
@@ -51,7 +54,7 @@ function storedPanelShare(): number {
   return Number.isFinite(raw) && raw > 0 && raw < 1 ? raw : 0.4;
 }
 
-// 用户收起或展开过时记住；没有操作过时按这一行放不放得下决定
+// Remembered once the user collapses or expands; until then, decided by whether the row fits
 function storedCollapsed(): boolean | null {
   const raw = localStorage.getItem(PANEL_COLLAPSED_KEY);
   return raw === null ? null : raw === '1';
@@ -60,14 +63,15 @@ function storedCollapsed(): boolean | null {
 export interface DesignDrawer {
   title: string;
   onClose: () => void;
-  // 用户想要的宽度（拖动后改变）；并排时显示的宽度不超过剩下的宽度
+  // Width the user wants (changes after dragging); side by side, the shown width never exceeds what's left
   width: number;
   onResize: (width: number) => void;
   content: React.ReactNode;
 }
 
-// 设计与优化会话的终端与面板（Contracts 26.1）：终端在左，面板在右，中间的分隔条可以拖动，面板可以收起成窄边；
-// "阶段与请求"的抽屉在最右边。全屏时都在全屏中（这一行在全屏区域内）
+// Terminal and panel of design and optimize sessions (Contracts 26.1): terminal on the left, panel on
+// the right, a draggable divider between, and the panel collapses to a strip; the "Stages and
+// requests" drawer is far right. In full screen they are all inside it (the row is in the full-screen area)
 export function DesignWork({
   liveId,
   terminal,
@@ -81,7 +85,8 @@ export function DesignWork({
   const [width, setWidth] = useState(0);
   const [share, setShare] = useState(storedPanelShare);
   const [collapsedChoice, setCollapsedChoice] = useState(storedCollapsed);
-  // 抽屉打开着、放不下两者时用户点开了面板；抽屉关上时清除（渲染时按抽屉的开关调整，不经 effect）
+  // The user opened the panel while the drawer was open and both didn't fit; cleared when the drawer
+  // closes (adjusted during render from the drawer state, not via an effect)
   const [openWithDrawer, setOpenWithDrawer] = useState(false);
   const drawerOpen = drawer !== null;
   const [drawerWasOpen, setDrawerWasOpen] = useState(drawerOpen);
@@ -91,9 +96,9 @@ export function DesignWork({
   }
   useLayoutEffect(() => {
     const element = row.current;
-    if (element === null) throw new Error('终端这一行没有挂载');
+    if (element === null) throw new Error('The terminal row is not mounted');
     setWidth(element.clientWidth);
-    // 与终端的 fit 相同放到下一帧，避免在同一次布局中反复触发
+    // Like the terminal's fit, defer to the next frame to avoid repeated triggers in one layout pass
     let frame = 0;
     const observer = new ResizeObserver(() => {
       cancelAnimationFrame(frame);
@@ -107,19 +112,21 @@ export function DesignWork({
       observer.disconnect();
     };
   }, []);
-  // 抽屉与终端并排的条件：终端 560 px、面板收成窄边之外还放得下 340 px 的抽屉；放不下时抽屉以 380 px 覆盖在
-  // 终端右侧，终端与面板的布局照旧
+  // The drawer sits beside the terminal when a 340 px drawer fits besides the 560 px terminal and the
+  // collapsed panel strip; otherwise it overlays the terminal's right side at 380 px and the terminal
+  // and panel layout stays as is
   const beside = drawerOpen && width - TERMINAL_MIN - STRIP_PX - DRAWER_GAP_PX >= DRAWER_MIN;
   const overlay = drawerOpen && !beside;
-  // 终端之外剩下的宽度
+  // Width left after the terminal
   const spare = width - TERMINAL_MIN - (beside ? DRAWER_GAP_PX : 0);
   const panelFits = spare >= SPLITTER_PX + PANEL_MIN + (beside ? DRAWER_MIN : 0);
   const wanted = collapsedChoice === null ? panelFits : !collapsedChoice;
   const collapsed = !wanted || (beside && !panelFits && !openWithDrawer);
-  // 面板与抽屉分的宽度
+  // Width shared by the panel and drawer
   const rest = Math.max(0, spare - (collapsed ? STRIP_PX : SPLITTER_PX));
   const panelWanted = Math.max(PANEL_MIN, share * width);
-  // 抽屉最宽：面板收起时是剩下的全部，面板展开时给面板留下它想要的宽度（最多一半）
+  // Widest drawer: all of the rest when the panel is collapsed; with the panel open, leave the panel
+  // its wanted width (at most half)
   const drawerCap = collapsed ? rest : rest - Math.min(panelWanted, rest / 2);
   const drawerWidth = beside ? Math.min(drawer.width, drawerCap) : 0;
   const maxPanel = Math.max(0, rest - drawerWidth);
@@ -148,26 +155,26 @@ export function DesignWork({
         <button
           type="button"
           className="ml-2 flex w-7 shrink-0 flex-col items-center gap-2 rounded-md border py-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-          aria-label="展开 workflow 面板"
-          title="展开 workflow 面板"
+          aria-label="Expand workflow panel"
+          title="Expand workflow panel"
           data-testid="ws-expand"
           onClick={() => {
             choose(false);
           }}
         >
           <PanelRightOpen className="size-4" />
-          <span className="[writing-mode:vertical-rl]">workflow</span>
+          <span className="[writing-mode:vertical-rl]">Workflow</span>
         </button>
       ) : (
         <>
           <PanelSplitter
             orientation="vertical"
-            label="拖动调整 workflow 面板的宽度"
+            label="Drag to resize the workflow panel"
             testId="ws-panel-splitter"
             onDrag={(x) => {
               const box = row.current?.getBoundingClientRect();
               if (box === undefined || box.width === 0) return;
-              // 面板的右边缘在抽屉左边
+              // The panel's right edge is left of the drawer
               const right = box.right - (beside ? drawerWidth + DRAWER_GAP_PX : 0);
               const next = Math.min(maxPanel, Math.max(PANEL_MIN, right - x));
               setShare(next / box.width);
@@ -177,7 +184,7 @@ export function DesignWork({
             }}
           />
           <aside
-            aria-label="workflow 面板"
+            aria-label="Workflow panel"
             className="flex min-h-0 shrink-0 flex-col rounded-md border bg-background"
             style={{ width: panelWidth }}
             data-testid="ws-panel"
@@ -204,7 +211,7 @@ export function DesignWork({
             {drawer.content}
           </SideDrawer>
         ) : (
-          // 覆盖在终端右侧，不参与这一行的布局：终端不改变大小、不重排
+          // Overlays the terminal's right side outside the row layout: the terminal keeps its size and doesn't reflow
           <SideDrawer
             className="absolute inset-y-0 right-0 z-20 shadow-xl"
             title={drawer.title}
@@ -241,14 +248,15 @@ export function WorkflowPanel({ liveId, onCollapse }: { liveId: string; onCollap
     followRef.current = follow;
   });
 
-  // 上一次成功解析的流程图：workflow.yaml 解析失败时照样显示，标"已过期"（渲染时按新数据调整，不经 effect）
+  // The last successfully parsed flowchart: still shown when workflow.yaml fails to parse, marked
+  // "Outdated" (adjusted during render from new data, not via an effect)
   const [lastGood, setLastGood] = useState<GoodFlow | null>(null);
   const data = workspace.data;
   if (data !== undefined && 'definition' in data.workflow && data.workflow !== lastGood) {
     setLastGood(data.workflow);
   }
 
-  // 第一次读到时打开入口 skill
+  // Open the entry skill on first load
   if (selected === null && data !== undefined) {
     const entry = 'definition' in data.workflow ? skillFile(data.workflow.definition.id) : null;
     const first = data.files.find((f) => f.path === entry) ?? data.files[0];
@@ -257,17 +265,21 @@ export function WorkflowPanel({ liveId, onCollapse }: { liveId: string; onCollap
 
   useWorkspaceEvents(liveId, (event) => {
     if (event.type === 'closed') {
-      setEnded(event.reason === 'hidden' ? '这一项已关闭，面板不再更新。' : '这一项已删除。');
+      setEnded(
+        event.reason === 'hidden'
+          ? 'This item was closed; the panel no longer updates.'
+          : 'This item was deleted.',
+      );
       return;
     }
     if (event.type === 'failed') {
-      setEnded(`监视出错，面板不再更新：${event.message}`);
+      setEnded(`Watching failed; the panel no longer updates: ${event.message}`);
       return;
     }
     void (async () => {
       await client.invalidateQueries({ queryKey: ['workspace', liveId] });
       if (!followRef.current) return;
-      // 跟随 agent：切到这次变化中最近改的、还在工作目录中的文件
+      // Follow agent: switch to the most recently changed file in this change that is still in the working directory
       const tree = client.getQueryData<Workspace>(workspaceQuery(liveId).queryKey);
       const latest = (tree?.files ?? [])
         .filter((f) => event.paths.includes(f.path) && f.mtimeMs !== null)
@@ -284,7 +296,7 @@ export function WorkflowPanel({ liveId, onCollapse }: { liveId: string; onCollap
           workspace.isError ? 'text-destructive' : 'text-muted-foreground',
         )}
       >
-        {workspace.isError ? workspace.error.message : '加载中…'}
+        {workspace.isError ? workspace.error.message : 'Loading…'}
       </p>
     );
   }
@@ -300,12 +312,12 @@ export function WorkflowPanel({ liveId, onCollapse }: { liveId: string; onCollap
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="workflow-panel">
       <div className="flex items-center gap-2 border-b px-2 py-1 text-xs">
-        <span className="font-medium">workflow</span>
+        <span className="font-medium">Workflow</span>
         <span className="min-w-0 truncate font-mono text-muted-foreground" title={data.root}>
           {data.root}
         </span>
         <span className="text-muted-foreground" data-testid="ws-base">
-          {data.base === null ? '空白新建' : `底子 ${data.base.name}`}
+          {data.base === null ? 'Blank' : `Base ${data.base.name}`}
         </span>
         {data.analysisId !== null && (
           <Link
@@ -313,14 +325,14 @@ export function WorkflowPanel({ liveId, onCollapse }: { liveId: string; onCollap
             to={`/analyses/${data.analysisId}`}
             data-testid="ws-analysis-link"
           >
-            分析报告
+            Analysis report
           </Link>
         )}
         <button
           type="button"
           className="ml-auto rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-          aria-label="收起 workflow 面板"
-          title="收起 workflow 面板"
+          aria-label="Collapse workflow panel"
+          title="Collapse workflow panel"
           data-testid="ws-collapse"
           onClick={onCollapse}
         >
@@ -334,7 +346,7 @@ export function WorkflowPanel({ liveId, onCollapse }: { liveId: string; onCollap
       )}
       <div ref={body} className="flex min-h-0 flex-1 flex-col">
         <section
-          aria-label="流程图"
+          aria-label="Flowchart"
           className="flex min-h-0 flex-col gap-1 overflow-auto p-2"
           style={{ flexBasis: `${String(flowShare * 100)}%` }}
           data-testid="ws-flow"
@@ -350,14 +362,14 @@ export function WorkflowPanel({ liveId, onCollapse }: { liveId: string; onCollap
             </pre>
           )}
           {flow !== null && (
-            // 量这一块剩下的宽与高（原文错误之下），整张图缩放到其中可见
+            // Measure the width and height left in this block (below the raw error) and scale the whole chart to fit
             <div
               ref={flowBox}
               className={cn('relative min-h-0 flex-1', error !== null && 'opacity-60')}
             >
               {error !== null && (
                 <span className="absolute top-1 right-1 z-10 rounded bg-muted px-1.5 text-xs text-muted-foreground">
-                  已过期
+                  Outdated
                 </span>
               )}
               <StageFlow
@@ -365,7 +377,7 @@ export function WorkflowPanel({ liveId, onCollapse }: { liveId: string; onCollap
                 marks={Object.fromEntries(flow.stages.map((s) => [s.id, s.status]))}
                 selected={selectedStage}
                 compact
-                // 量出这一块的高度之前只按宽度
+                // Fit by width only until this block's height is measured
                 fitHeight={flowSize.height === 0 ? null : flowSize.height}
                 onSelect={(id) => {
                   setSelected(skillFile(id));
@@ -376,7 +388,7 @@ export function WorkflowPanel({ liveId, onCollapse }: { liveId: string; onCollap
         </section>
         <PanelSplitter
           orientation="horizontal"
-          label="拖动调整流程图的高度"
+          label="Drag to resize the flowchart"
           testId="ws-flow-splitter"
           onDrag={(y) => {
             const box = body.current?.getBoundingClientRect();
@@ -386,7 +398,7 @@ export function WorkflowPanel({ liveId, onCollapse }: { liveId: string; onCollap
             localStorage.setItem(FLOW_SHARE_KEY, String(share));
           }}
         />
-        <section aria-label="skill 浏览" className="flex min-h-0 flex-1">
+        <section aria-label="Skill browser" className="flex min-h-0 flex-1">
           <div className="flex w-36 shrink-0 flex-col border-r">
             <label className="flex items-center gap-1 border-b px-2 py-1 text-xs whitespace-nowrap text-muted-foreground">
               <input
@@ -398,7 +410,7 @@ export function WorkflowPanel({ liveId, onCollapse }: { liveId: string; onCollap
                   localStorage.setItem(ONLY_CHANGED_KEY, event.target.checked ? '1' : '0');
                 }}
               />
-              只看改动的
+              Changed only
             </label>
             <div className="min-h-0 flex-1 overflow-auto py-1">
               <FileTree files={files} selected={selected} onSelect={setSelected} />
@@ -412,7 +424,7 @@ export function WorkflowPanel({ liveId, onCollapse }: { liveId: string; onCollap
             toolbarEnd={
               <label
                 className="flex items-center gap-1 text-xs whitespace-nowrap"
-                title="打开时自动切到 agent 最近改的文件"
+                title="When on, switches to the file the agent changed most recently"
               >
                 <input
                   type="checkbox"
@@ -422,7 +434,7 @@ export function WorkflowPanel({ liveId, onCollapse }: { liveId: string; onCollap
                     setFollow(event.target.checked);
                   }}
                 />
-                跟随 agent
+                Follow agent
               </label>
             }
           />

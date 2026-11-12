@@ -25,8 +25,8 @@ type NewWorkflowPlan = Extract<SavePlan, { kind: 'new-workflow' }>;
 
 const filled = (...values: string[]) => values.every((v) => v.trim() !== '');
 
-// 保存对话框（Contracts 17.4、19.3）：左边是保存到哪里与名字、描述，右边是将要保存的 src/ 相对目标的 diff。
-// 保存不构建；保存后跳到 variant 页面，在那里构建
+// Save dialog (Contracts 17.4, 19.3): on the left, where to save plus name and description; on the right, the diff of
+// src/ against the target. Saving does not build; after saving the page goes to the variant page, where it is built
 export function CodexSaveDialog({ draft, onClose }: { draft: Draft; onClose: () => void }) {
   const plan = useQuery(savePlanQuery(draft.id));
   return (
@@ -51,11 +51,11 @@ export function CodexSaveDialog({ draft, onClose }: { draft: Draft; onClose: () 
             )
           ) : (
             <>
-              <Header title="保存草稿" onClose={onClose} />
-              {plan.isPending && <p className="text-sm text-muted-foreground">读取中…</p>}
+              <Header title="Save draft" onClose={onClose} />
+              {plan.isPending && <p className="text-sm text-muted-foreground">Loading…</p>}
               {plan.isError && (
                 <Alert variant="destructive" data-testid="codex-save-error">
-                  <AlertTitle>不能保存，草稿保留</AlertTitle>
+                  <AlertTitle>Cannot save. The draft is kept.</AlertTitle>
                   <AlertDescription className="font-mono text-xs whitespace-pre-wrap">
                     {plan.error.message}
                   </AlertDescription>
@@ -88,7 +88,7 @@ function Header({
         {children}
         <Button size="sm" variant="ghost" onClick={onClose}>
           <X />
-          取消
+          Cancel
         </Button>
       </div>
     </div>
@@ -104,9 +104,10 @@ function useSave(draft: Draft) {
       await client.invalidateQueries({ queryKey: ['drafts'] });
       await client.invalidateQueries({ queryKey: ['workflows'] });
       await client.invalidateQueries({ queryKey: ['variants'] });
-      // 面板的"对比"多了"上次保存"
+      // The panel's "Compare" gains "Last saved"
       await client.invalidateQueries({ queryKey: ['workspace', draft.liveId] });
-      if (saved.savedVariantId === null) throw new Error(`草稿 ${draft.id} 保存后没有 variant`);
+      if (saved.savedVariantId === null)
+        throw new Error(`Draft ${draft.id} has no variant after saving`);
       await navigate(variantHref({ id: saved.savedVariantId }));
     },
   });
@@ -158,7 +159,7 @@ function Field({
   );
 }
 
-// 左边的表单与右边的 diff；保存按钮在标题行中
+// The form on the left and the diff on the right; the Save button is in the header row
 function Layout({
   draft,
   title,
@@ -174,9 +175,9 @@ function Layout({
   draft: Draft;
   title: string;
   subtitle: string;
-  // 被覆盖的 variant；新建时为空，diff 相对底子
+  // The variant being overwritten; null for a new variant, in which case the diff is against the base
   against: string | null;
-  // 还没有选覆盖哪个 variant 时的提示
+  // Hint shown while no variant to overwrite is selected yet
   againstHint: string | null;
   ready: boolean;
   save: ReturnType<typeof useSave>;
@@ -194,13 +195,13 @@ function Layout({
           size="sm"
           data-testid="codex-save-confirm"
           disabled={!ready || save.isPending}
-          title="校验通过后保存为未构建的 variant，在 variant 页面构建"
+          title="Once validated, saves as an unbuilt variant; build it on the variant page"
           onClick={() => {
             save.mutate(body());
           }}
         >
           <Save />
-          {save.isPending ? '保存中…' : '保存'}
+          {save.isPending ? 'Saving…' : 'Save'}
         </Button>
       </Header>
       <div className="flex min-h-0 flex-1 gap-4">
@@ -213,10 +214,12 @@ function Layout({
           }}
         >
           {children}
-          <p className="text-xs text-muted-foreground">保存后不构建，到 variant 页面再构建。</p>
+          <p className="text-xs text-muted-foreground">
+            Saving does not build. Build on the variant page.
+          </p>
           {save.isError && (
             <Alert variant="destructive" data-testid="codex-save-error">
-              <AlertTitle>保存失败，草稿保留</AlertTitle>
+              <AlertTitle>Save failed. The draft is kept.</AlertTitle>
               <AlertDescription className="max-h-60 overflow-auto font-mono text-xs whitespace-pre-wrap">
                 {save.error.message}
               </AlertDescription>
@@ -227,12 +230,12 @@ function Layout({
           <p className="mb-2 text-xs text-muted-foreground" data-testid="codex-save-against">
             {againstHint ??
               (diff.data === undefined
-                ? '正在比较…'
+                ? 'Comparing…'
                 : diff.data.base === null
-                  ? '从空白开始，没有底子，全部是新增的文件'
+                  ? 'Starts from blank with no base; every file is added'
                   : against === null
-                    ? `相对底子 ${diff.data.base.name}`
-                    : `相对被覆盖的 ${diff.data.base.name}`)}
+                    ? `Against base ${diff.data.base.name}`
+                    : `Against ${diff.data.base.name}, which will be overwritten`)}
           </p>
           {diff.isError && (
             <pre role="alert" className="text-xs whitespace-pre-wrap text-destructive">
@@ -240,7 +243,7 @@ function Layout({
             </pre>
           )}
           {diff.isSuccess && (
-            <SourceDiff files={diff.data.files} empty="skill 与目标相同，没有改动。" />
+            <SourceDiff files={diff.data.files} empty="The skills match the target. No changes." />
           )}
         </div>
       </div>
@@ -248,7 +251,7 @@ function Layout({
   );
 }
 
-// 第一次保存为新 workflow：workflow 与第一个 variant 的名字与描述
+// First save as a new workflow: names and descriptions of the workflow and its first variant
 function NewWorkflowSave({
   draft,
   plan,
@@ -266,8 +269,8 @@ function NewWorkflowSave({
   return (
     <Layout
       draft={draft}
-      title="保存为新 workflow"
-      subtitle={`入口 /${plan.workflowId}`}
+      title="Save as new workflow"
+      subtitle={`Entry /${plan.workflowId}`}
       against={null}
       againstHint={null}
       ready={filled(workflowName, workflowDescription, name, description)}
@@ -279,15 +282,15 @@ function NewWorkflowSave({
       onClose={onClose}
     >
       <fieldset className="flex flex-col gap-2 rounded-md border p-3">
-        <legend className="px-1 text-sm font-medium">workflow</legend>
+        <legend className="px-1 text-sm font-medium">Workflow</legend>
         <Field
-          label="名字"
+          label="Name"
           value={workflowName}
           onChange={setWorkflowName}
           testId="codex-save-workflow-name"
         />
         <Field
-          label="描述"
+          label="Description"
           multiline
           value={workflowDescription}
           onChange={setWorkflowDescription}
@@ -295,13 +298,13 @@ function NewWorkflowSave({
         />
       </fieldset>
       <fieldset className="flex flex-col gap-2 rounded-md border p-3">
-        <legend className="px-1 text-sm font-medium">第一个 variant</legend>
-        <Field label="名字" value={name} onChange={setName} testId="codex-save-name" />
+        <legend className="px-1 text-sm font-medium">First variant</legend>
+        <Field label="Name" value={name} onChange={setName} testId="codex-save-name" />
         <Field
-          label="描述"
+          label="Description"
           multiline
           value={description}
-          placeholder="这一版做了什么"
+          placeholder="What this version does"
           onChange={setDescription}
           testId="codex-save-description"
         />
@@ -310,7 +313,7 @@ function NewWorkflowSave({
   );
 }
 
-// 保存到已有 workflow：新建 variant，或覆盖其中的一个（导入的与已冻结的灰显并写明原因）
+// Save to an existing workflow: a new variant, or overwrite one of them (imported and frozen ones are greyed out with the reason)
 function VariantSave({
   draft,
   plan,
@@ -345,11 +348,13 @@ function VariantSave({
   return (
     <Layout
       draft={draft}
-      title="保存草稿"
-      subtitle={`保存到 workflow ${plan.workflowName}（/${plan.workflowId}）`}
+      title="Save draft"
+      subtitle={`Save to workflow ${plan.workflowName} (/${plan.workflowId})`}
       against={overwriting ? target : null}
       againstHint={
-        overwriting && target === null ? '选一个要覆盖的 variant，这里显示它将被改成什么。' : null
+        overwriting && target === null
+          ? 'Select a variant to overwrite to see what it will become.'
+          : null
       }
       ready={filled(name, description) && (!overwriting || target !== null)}
       save={save}
@@ -360,11 +365,11 @@ function VariantSave({
       }
       onClose={onClose}
     >
-      <div className="flex gap-4 text-sm" role="radiogroup" aria-label="保存方式">
+      <div className="flex gap-4 text-sm" role="radiogroup" aria-label="Save as">
         {(
           [
-            ['new', '新建 variant'],
-            ['overwrite', '覆盖已有 variant'],
+            ['new', 'New variant'],
+            ['overwrite', 'Overwrite a variant'],
           ] as const
         ).map(([value, label]) => (
           <label key={value} className="flex items-center gap-1.5">
@@ -382,7 +387,7 @@ function VariantSave({
         ))}
       </div>
       {!overwriting && plan.parent !== null && (
-        <p className="text-xs text-muted-foreground">派生自 {plan.parent.name}</p>
+        <p className="text-xs text-muted-foreground">Derived from {plan.parent.name}</p>
       )}
       {overwriting && (
         <ul className="flex flex-col gap-1" data-testid="codex-save-targets">
@@ -419,18 +424,18 @@ function VariantSave({
           ))}
         </ul>
       )}
-      <Field label="名字" value={name} onChange={setName} testId="codex-save-name" />
+      <Field label="Name" value={name} onChange={setName} testId="codex-save-name" />
       <Field
-        label="描述"
+        label="Description"
         multiline
         value={description}
-        placeholder="这一版做了什么"
+        placeholder="What this version does"
         onChange={setDescription}
         testId="codex-save-description"
       />
       {overwriting && (
         <p className="text-xs text-muted-foreground">
-          覆盖前原来的 src 存进这个 variant 的历史，可以在 variant 页面恢复。
+          The current src is kept in this variant's history and can be restored on the variant page.
         </p>
       )}
     </Layout>

@@ -1,16 +1,18 @@
 import { Icon } from '@iconify/react';
 import claudeIcon from '@iconify-icons/logos/claude-icon';
 import openaiIcon from '@iconify-icons/logos/openai-icon';
-import { Hammer, MessagesSquare, Sparkles } from 'lucide-react';
+import { Hammer, MessagesSquare, Network, Sparkles } from 'lucide-react';
 import { Link } from 'react-router';
 import { MagiRobot } from '@/components/magi-robot';
 import type { LiveSummary } from '@/lib/live-api';
 import { type PurposeFilter, purposeFilters, purposeLabel } from '@/lib/live-purpose';
 import { cn } from '@/lib/utils';
 
-// 交互项一眼能看出用途与引擎（Contracts 14.3）：左侧色带与带图标、文字的用途标签；引擎用各自的 logo。
-// logo 取自 SVG Logos（Gil Barbara，CC0-1.0，@iconify-icons/logos 中每个图标单独一个模块）：Claude 的标志用品牌的
-// 橙色（--engine-claude，亮色下取较深的一种），OpenAI 的标志没有填充色，跟随文字颜色，明暗主题下与底色都至少 3:1
+// An interaction item's purpose and engine are visible at a glance (Contracts 14.3): a color band on
+// the left and a purpose tag with icon and text; engines use their own logos. Logos come from SVG Logos
+// (Gil Barbara, CC0-1.0, one module per icon in @iconify-icons/logos): the Claude logo uses the brand
+// orange (--engine-claude, a darker shade in light mode); the OpenAI logo has no fill and follows the
+// text color, at least 3:1 against the background in both themes
 
 type Purpose = LiveSummary['purpose'];
 
@@ -45,7 +47,8 @@ export function EngineLogo({
   );
 }
 
-// 每种用途的颜色（index.css 的 --purpose-* 与 --warning-*，明暗各一组）：色带、标签的底色与文字；交互为中性色
+// Color of each purpose (--purpose-* and --warning-* in index.css, one set per theme): band, tag
+// background and text; interaction is neutral
 const purposeStyle: Record<Purpose, { band: string; badge: string }> = {
   interaction: {
     band: 'bg-purpose-interaction',
@@ -64,6 +67,10 @@ const purposeStyle: Record<Purpose, { band: string; badge: string }> = {
     band: 'bg-purpose-agent',
     badge: 'border-purpose-agent-border bg-purpose-agent-muted text-purpose-agent-muted-foreground',
   },
+  orca: {
+    band: 'bg-purpose-orca',
+    badge: 'border-purpose-orca-border bg-purpose-orca-muted text-purpose-orca-muted-foreground',
+  },
 };
 
 export function PurposeBand({ purpose, className }: { purpose: Purpose; className?: string }) {
@@ -81,16 +88,17 @@ const purposeIcon = {
   interaction: MessagesSquare,
   design: Hammer,
   optimize: Sparkles,
+  orca: Network,
 } as const;
 
-// 只有图标的用途标志（Live 左侧列表收成窄条时，Contracts 26.1）；名字在悬停提示中
+// Icon-only purpose mark (when the Live list collapses to a strip, Contracts 26.1); the name is in the tooltip
 export function PurposeIcon({ live, className }: { live: LiveSummary; className: string }) {
   if (live.purpose === 'agent') return <MagiRobot className={className} label="Magi Agent" />;
   const IconOf = purposeIcon[live.purpose];
   return <IconOf className={className} aria-label={purposeLabel(live)} />;
 }
 
-// 用途标签：图标加文字（Magi Agent 用它的小机器人）；优化的项链接到对应的分析
+// Purpose tag: icon plus text (Magi Agent uses its little robot); optimize items link to their analysis
 export function PurposeBadge({ live }: { live: LiveSummary }) {
   const className = cn(
     'inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 text-xs font-medium',
@@ -113,7 +121,7 @@ export function PurposeBadge({ live }: { live: LiveSummary }) {
       <Link
         to={`/analyses/${live.analysisId}`}
         className={cn(className, 'hover:underline')}
-        title={`查看分析 ${live.analysisId}`}
+        title={`View analysis ${live.analysisId}`}
         data-testid="live-purpose"
         data-purpose={live.purpose}
         onClick={(event) => {
@@ -131,7 +139,8 @@ export function PurposeBadge({ live }: { live: LiveSummary }) {
   );
 }
 
-// 列表上方的用途筛选：一个下拉选择，每个选项带这种用途的项数，在 15rem 宽的列表上方占一行
+// Purpose filter above the list: one select whose options show the item count per purpose, one row
+// above the 15rem-wide list
 export function PurposeFilterBar({
   value,
   onChange,
@@ -143,15 +152,15 @@ export function PurposeFilterBar({
 }) {
   return (
     <label className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-muted-foreground">
-      筛选
+      Filter
       <select
-        aria-label="按用途筛选"
+        aria-label="Filter by purpose"
         className="h-7 min-w-0 flex-1 rounded-md border bg-background px-1.5 text-xs text-foreground"
         data-testid="live-purpose-filter"
         value={value}
         onChange={(event) => {
           const next = purposeFilters.find((f) => f.value === event.target.value);
-          if (next === undefined) throw new Error(`未知的用途筛选：${event.target.value}`);
+          if (next === undefined) throw new Error(`Unknown purpose filter: ${event.target.value}`);
           onChange(next.value);
         }}
       >

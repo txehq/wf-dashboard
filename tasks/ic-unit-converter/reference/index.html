@@ -1,20 +1,20 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>单位换算</title>
+    <title>Unit converter</title>
   </head>
   <body>
     <main>
-      <h1>单位换算</h1>
+      <h1>Unit converter</h1>
       <form id="converter" autocomplete="off">
         <div class="field">
-          <label for="category">类别</label>
+          <label for="category">Category</label>
           <select id="category"></select>
         </div>
         <div class="field">
-          <label for="value">数值</label>
+          <label for="value">Value</label>
           <input
             id="value"
             type="text"
@@ -26,20 +26,20 @@
         </div>
         <div class="units">
           <div class="field">
-            <label for="from">从</label>
+            <label for="from">From</label>
             <select id="from"></select>
           </div>
-          <button id="swap" type="button" class="swap" aria-label="交换单位" title="交换单位">
+          <button id="swap" type="button" class="swap" aria-label="Swap units" title="Swap units">
             ⇄
           </button>
           <div class="field">
-            <label for="to">换算为</label>
+            <label for="to">To</label>
             <select id="to"></select>
           </div>
         </div>
       </form>
       <p class="result">
-        <label for="result">结果</label>
+        <label for="result">Result</label>
         <output id="result" for="value from to" aria-live="polite"></output>
       </p>
     </main>

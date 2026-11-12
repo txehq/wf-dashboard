@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router';
 import { useFullscreen } from '@/components/fullscreen';
 import { VariantName } from '@/components/variant-name';
+import { OrcaSkillsSwitch } from '@/components/variant-orca';
 import { OpenInFinder } from '@/components/open-in-finder';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -30,12 +31,12 @@ import {
 } from '@/pages/variants-api';
 import { QueryError } from '@/pages/variants-error';
 
-// /variants 没有单独的页面（Contracts 16.7）：variant 从 Workflows 列表与 workflow 页面进入
+// /variants has no page of its own (Contracts 16.7): variants are reached from the Workflows list and workflow pages
 export function VariantsRedirect() {
   return <Navigate to="/workflows" replace />;
 }
 
-// 页面头部一行的操作（Contracts 20.2）：构建、派生新 variant、在访达中打开、安装到本机。出错时的原文由调用方显示
+// Header actions (Contracts 20.2): build, derive a new variant, open in Finder, install locally. The caller shows errors
 function useVariantActions(variant: Variant, onBuildStart: () => void) {
   const client = useQueryClient();
   const navigate = useNavigate();
@@ -100,26 +101,26 @@ function HeaderActions({
           }}
         >
           <Hammer />
-          {building ? '构建中…' : '构建'}
+          {building ? 'Building…' : 'Build'}
         </Button>
       )}
       <Button
         size="sm"
         variant={frozen || imported ? 'default' : 'outline'}
         disabled={derive.isPending}
-        title="从这个 variant 复制出一个新的草稿，在同一 workflow 中"
+        title="Copy this variant into a new draft in the same workflow"
         onClick={() => {
           const name = window.prompt(
-            '新 variant 名称',
-            imported ? `${variant.name}（可运行）` : `${variant.name} 副本`,
+            'New variant name',
+            imported ? `${variant.name} (runnable)` : `${variant.name} copy`,
           );
           if (name !== null && name.trim() !== '') derive.mutate(name.trim());
         }}
       >
         <GitBranchPlus />
-        {imported ? '派生为可运行的 variant' : '派生新 variant'}
+        {imported ? 'Derive runnable variant' : 'Derive new variant'}
       </Button>
-      <OpenInFinder target={{ kind: 'variant', id: variant.id }} label="在访达中打开" />
+      <OpenInFinder target={{ kind: 'variant', id: variant.id }} label="Open in Finder" />
       <VariantHistoryButton variant={variant} />
       <DeleteButton
         kind="variant"
@@ -127,7 +128,7 @@ function HeaderActions({
         name={variant.name}
         after={`/workflows/${workflow.id}`}
       />
-      {/* 安装到本机只对不用 wf 管理的 workflow（Contracts 18.6） */}
+      {/* Local install only for workflows not managed by wf (Contracts 18.6) */}
       {!workflow.wf && (
         <span className="contents" data-testid="local-install">
           {installed === null || installed === undefined ? (
@@ -137,28 +138,28 @@ function HeaderActions({
               disabled={!built || install.isPending || installed === undefined}
               title={
                 built
-                  ? '把 skill 复制进本机的 ~/.claude/skills 与 ~/.agents/skills；同一 workflow 只装一个 variant'
-                  : '按当前内容构建通过后才能安装'
+                  ? 'Copy the skills into ~/.claude/skills and ~/.agents/skills; one variant per workflow is installed at a time'
+                  : 'Build the current content before installing'
               }
               onClick={() => {
                 install.mutate();
               }}
             >
               <Download />
-              {install.isPending ? '安装中…' : '安装到本机'}
+              {install.isPending ? 'Installing…' : 'Install locally'}
             </Button>
           ) : (
             <Button
               size="sm"
               variant="outline"
               disabled={uninstall.isPending}
-              title={`装在：\n${installed.dirs.join('\n')}`}
+              title={`Installed in:\n${installed.dirs.join('\n')}`}
               onClick={() => {
                 uninstall.mutate();
               }}
             >
               <Trash2 />
-              {uninstall.isPending ? '卸载中…' : '从本机卸载'}
+              {uninstall.isPending ? 'Uninstalling…' : 'Uninstall'}
             </Button>
           )}
         </span>
@@ -167,7 +168,7 @@ function HeaderActions({
   );
 }
 
-// 状态、版本与来源，放在一行
+// Status, version and origin on one line
 function StatusLine({
   variant,
   workflow,
@@ -195,39 +196,42 @@ function StatusLine({
       </span>
       <span className="font-mono text-xs" data-testid="variant-version">
         {variant.version}
-        {variant.baseCommit !== '' && ` · 基线 ${variant.baseCommit.slice(0, 7)}`}
+        {variant.baseCommit !== '' && ` · base ${variant.baseCommit.slice(0, 7)}`}
       </span>
+      <OrcaSkillsSwitch variant={variant} locked={variant.status === 'frozen' || imported} />
       {!workflow.wf && (
         <span data-testid="local-install-status" title={installed?.dirs.join('\n')}>
           {installed === undefined
-            ? '读取安装状态…'
+            ? 'Checking install…'
             : installed === null
-              ? '没有装在本机'
-              : `已装在本机（${formatDateTime(new Date(installed.installedAt).toISOString())}）`}
+              ? 'Not installed locally'
+              : `Installed locally (${formatDateTime(new Date(installed.installedAt).toISOString())})`}
         </span>
       )}
       {variant.parentId !== null && (
         <span data-testid="variant-parent">
-          派生自{' '}
+          Derived from{' '}
           {parent.data === undefined ? (
             variant.parentId
           ) : parent.data.deletedAt !== null ? (
-            // 已删除的 parent 只显示名字，不能点进去（Contracts 24.3）
+            // A deleted parent shows only its name, with no link (Contracts 24.3)
             variantLabel(parent.data)
           ) : (
             <Link className="underline" to={variantHref(parent.data)}>
               {variantLabel(parent.data)}
             </Link>
           )}
-          {parent.data !== undefined && isImported(parent.data) && '（导入的 variant）'}
+          {parent.data !== undefined && isImported(parent.data) && ' (imported variant)'}
         </span>
       )}
       {variant.storageId !== null && (
-        <span data-testid="variant-shared">与另一个 workflow 的同名 variant 共用目录</span>
+        <span data-testid="variant-shared">
+          Shares its directory with the same-named variant of another workflow
+        </span>
       )}
       {variant.analysisId !== null && (
         <span data-testid="variant-analysis">
-          来自分析{' '}
+          From analysis{' '}
           <Link className="font-mono underline" to={`/analyses/${variant.analysisId}`}>
             {variant.analysisId}
           </Link>
@@ -235,31 +239,31 @@ function StatusLine({
       )}
       {variant.sourceSessionId !== null && (
         <span data-testid="variant-source-session">
-          按 session{' '}
+          Created from the skills of session{' '}
           <Link className="font-mono underline" to={`/sessions/${variant.sourceSessionId}`}>
             {variant.sourceSessionId.slice(0, 8)}
-          </Link>{' '}
-          的 skill 新建
+          </Link>
         </span>
       )}
       {variant.draftId !== null && <DraftSource draftId={variant.draftId} />}
-      {variant.status === 'frozen' && !imported && <span>已被运行使用，内容只读</span>}
+      {variant.status === 'frozen' && !imported && <span>Used by a run; content is read-only</span>}
     </div>
   );
 }
 
-// 保存出这个 variant 的草稿（Contracts 17.4、28.4）：按草稿的引擎写。variant 指着的草稿只随 workflow 一起删除
+// The draft this variant was saved from (Contracts 17.4, 28.4), named by its engine. A draft a variant points
+// to is deleted only together with its workflow
 function DraftSource({ draftId }: { draftId: string }) {
   const draft = useQuery(draftQuery(draftId));
   if (draft.data === undefined) return null;
   return (
     <span data-testid="variant-draft">
-      来自 {engineNames[draft.data.engine]} 草稿 <span className="font-mono">{draftId}</span>
+      From {engineNames[draft.data.engine]} draft <span className="font-mono">{draftId}</span>
     </span>
   );
 }
 
-// 描述（Contracts 18.3）：输入框与保存按钮在同一行
+// Description (Contracts 18.3): input and save button on one line
 function DescriptionLine({ variant }: { variant: Variant }) {
   const client = useQueryClient();
   const [text, setText] = useState(variant.description ?? '');
@@ -274,8 +278,8 @@ function DescriptionLine({ variant }: { variant: Variant }) {
     <div className="flex items-center gap-2 text-sm" data-testid="description-editor">
       <input
         className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2"
-        aria-label="描述"
-        placeholder="写一句这是做什么的"
+        aria-label="Description"
+        placeholder="One line on what this does"
         value={text}
         onChange={(event) => {
           setText(event.target.value);
@@ -293,11 +297,11 @@ function DescriptionLine({ variant }: { variant: Variant }) {
         }}
       >
         <Save />
-        {save.isPending ? '保存中…' : '保存描述'}
+        {save.isPending ? 'Saving…' : 'Save description'}
       </Button>
       {save.isSuccess && !changed && (
         <span className="text-xs text-muted-foreground" data-testid="description-saved">
-          已保存
+          Saved
         </span>
       )}
       {save.isError && <span className="text-destructive">{save.error.message}</span>}
@@ -322,10 +326,10 @@ function VariantBody({ variant, workflow }: { variant: Variant; workflow: Workfl
     install.error;
   return (
     <div className="flex flex-col gap-3" data-testid="variant-panel">
-      {/* 头部一行：面包屑与名字在左，操作在右 */}
+      {/* Header row: breadcrumb and name on the left, actions on the right */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <nav
-          aria-label="位置"
+          aria-label="Breadcrumb"
           className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground"
           data-testid="breadcrumb"
         >
@@ -354,22 +358,22 @@ function VariantBody({ variant, workflow }: { variant: Variant; workflow: Workfl
       <StatusLine variant={variant} workflow={workflow} installed={installed} />
       {variant.buildStatus === 'failed' && variant.buildError !== null && (
         <p className="text-sm text-destructive" data-testid="build-error">
-          构建失败：{variant.buildError}
+          Build failed: {variant.buildError}
         </p>
       )}
       {actions.install.data !== undefined && actions.install.data.replaced.length > 0 && (
         <p className="text-sm text-muted-foreground">
-          先卸载了同一 workflow 的{' '}
-          {actions.install.data.replaced.map((m) => m.variantName).join('、')}。
+          Uninstalled first from the same workflow:{' '}
+          {actions.install.data.replaced.map((m) => m.variantName).join(', ')}.
         </p>
       )}
       {error !== null && (
         <Alert variant="destructive">
-          <AlertTitle>操作没有完成</AlertTitle>
+          <AlertTitle>Action failed</AlertTitle>
           <AlertDescription className="whitespace-pre-wrap">{error.message}</AlertDescription>
         </Alert>
       )}
-      {/* VariantBody 按 variant id 重新挂载，这里的状态跟着换 */}
+      {/* VariantBody remounts per variant id, so this state resets with it */}
       <DescriptionLine variant={variant} />
       <VariantWorkspace
         variant={variant}
@@ -382,14 +386,14 @@ function VariantBody({ variant, workflow }: { variant: Variant; workflow: Workfl
   );
 }
 
-// variant 的独立页面（Contracts 18.3、20.2）
+// The variant's own page (Contracts 18.3, 20.2)
 export function VariantPage() {
   const { id } = useParams();
-  if (id === undefined) throw new Error('路由缺少 variant id');
+  if (id === undefined) throw new Error('Route is missing the variant id');
   const variant = useQuery(variantQuery(id));
   const workflows = useQuery(workflowsQuery);
   if (variant.isPending || workflows.isPending) {
-    return <p className="text-sm text-muted-foreground">加载中…</p>;
+    return <p className="text-sm text-muted-foreground">Loading…</p>;
   }
   if (variant.isError) {
     return (
@@ -403,18 +407,18 @@ export function VariantPage() {
   if (workflows.isError) {
     return <p className="text-sm text-destructive">{workflows.error.message}</p>;
   }
-  // 已删除的 variant（Contracts 24.3）：只保留名字用于显示，页面不再提供编辑与操作
+  // A deleted variant (Contracts 24.3) keeps only its name; the page offers no editing or actions
   if (variant.data.deletedAt !== null) {
     return (
       <p className="text-sm text-muted-foreground" data-testid="variant-deleted">
-        variant {variantLabel(variant.data)} 已删除。
+        Variant {variantLabel(variant.data)} was deleted.
         <Link className="ml-2 underline" to="/workflows">
-          回到 Workflows
+          Back to Workflows
         </Link>
       </p>
     );
   }
   const workflow = workflows.data.find((w) => w.id === variant.data.workflowId);
-  if (workflow === undefined) throw new Error(`没有 workflow ${variant.data.workflowId}`);
+  if (workflow === undefined) throw new Error(`No workflow ${variant.data.workflowId}`);
   return <VariantBody key={variant.data.id} variant={variant.data} workflow={workflow} />;
 }

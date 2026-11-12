@@ -2,10 +2,10 @@ import type { Element, ElementContent } from 'hast';
 import type { Root, RootContent } from 'mdast';
 import { isMap, parseDocument } from 'yaml';
 
-// 开头的 YAML frontmatter 显示为表格（GitHub 对 SKILL.md 的显示方式）：键是表头，值在下面一行；
-// 值是列表或对象时在单元格中再放一张表。窄的地方（设计与优化会话的面板，Contracts 26.3）改为纵向的「键：值」列表
-// （layout 为 list）：dl 中每个键一行，值是列表时逐项列出，是对象时再放一层列表。
-// YAML 有错或不是键值对时显示为 yaml 代码块
+// Leading YAML frontmatter shown as a table (how GitHub shows SKILL.md): keys are the header, values in the row below;
+// list or object values get a nested table in their cell. In narrow places (design and optimize session panels, Contracts 26.3) it becomes
+// a vertical "key: value" list (layout list): one dl row per key, lists itemised, objects as a nested list.
+// Invalid YAML or anything other than key-value pairs shows as a yaml code block
 export type FrontmatterLayout = 'table' | 'list';
 
 const el = (tagName: string, children: ElementContent[]): Element => ({
@@ -86,7 +86,7 @@ export function remarkFrontmatterTable(options?: { layout?: FrontmatterLayout })
     }
     const record = document.toJS() as Record<string, unknown>;
     const element = layout === 'list' ? listOf(record) : tableOf(record);
-    // mdast 中没有的节点类型：转成 hast 时按 hName、hProperties、hChildren 生成元素
+    // A node type mdast does not have: converting to hast builds the element from hName, hProperties and hChildren
     tree.children[0] = {
       type: 'frontmatterTable',
       position: first.position,

@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { and, eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import { bindLiveSession } from '../bindings/index.js';
@@ -17,19 +17,20 @@ import { ingestFile } from '../ingest/ingest.js';
 import { type SessionWatcher, watchSession } from '../ingest/watch.js';
 import { formatQuestions } from '../runs/runner.js';
 import type { SettingsStore } from '../runs/settings.js';
-import {
-  type AgentPrompt,
-  type EvalFacts,
-  type SimulatedPersona,
-  simulateUser,
-  type TranscriptEntry,
+import type {
+  EvalFacts,
+  SimulatedGoal,
+  SimulatedPersona,
+  TranscriptEntry,
 } from '../runs/simulated-user.js';
 import { AskUserQuestionInput } from '../runs/stream.js';
-import { answerMenu, pasted } from './keys.js';
-import type { LivePty } from './pty.js';
+import type { RemoteSessionSync } from '../remote/sync.js';
+import { answerMenu } from './keys.js';
+import type { LiveTerminal } from './pty.js';
+import { type HandBackReason, SimulatedDriver } from './simulated-driver.js';
 import type { LiveWaiting } from './views.js';
 
-// Claude Code hook 的 stdin（实测字段，Reports/W30 第一步）；其余字段原样记入 live_events
+// stdin of a Claude Code hook (measured fields, Reports/W30 step one); other fields are recorded in live_events as they are
 export const HookPayload = z.looseObject({
   hook_event_name: z.string(),
   session_id: z.string(),
@@ -43,18 +44,8 @@ export const HookPayload = z.looseObject({
 });
 export type HookPayload = z.infer<typeof HookPayload>;
 
-// 驾驶者变为人的原因
-export type HandBackReason = 'input' | 'done' | 'max-turns' | 'error' | 'manual';
-
-// 粘贴的文字与提交它的回车分开写入
-const SUBMIT_GAP_MS = 300;
-// PreToolUse hook 在问题菜单出现之前触发；读屏幕前至少等这么久
+// The PreToolUse hook fires before the question menu appears; wait at least this long before reading the screen
 const MENU_SETTLE_MS = 1000;
-
-// 鼠标上报（SGR 1006）与焦点事件不是按键：xterm.js 在鼠标移过终端、切换标签页时发送，不算接管
-const ESC = String.fromCharCode(27);
-const NON_KEY_INPUT = new RegExp(`^(?:${ESC}\\[<\\d+;\\d+;\\d+[Mm]|${ESC}\\[[IO])+$`, 'u');
-export const isKeyInput = (data: string) => !NON_KEY_INPUT.test(data);
 
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => {
@@ -65,46 +56,49 @@ export interface LiveControllerOptions {
   db: Db;
   settings: SettingsStore;
   liveId: string;
-  // 这次运行（live_processes 的一行）
+  // This run (a row of live_processes)
   processId: number;
-  pty: LivePty;
-  // claude 写 session 的 jsonl
+  pty: LiveTerminal;
+  // The jsonl claude writes the session to (the local copy for a remote process)
   jsonl: string;
-  // 收到第一个 SessionStart 之后的驾驶者
+  // Driver after the first SessionStart
   initialDriver: LiveDriver;
-  persona: SimulatedPersona;
+  // The person the simulated user plays, or this item's goal for the simulated user (Contracts 34.2); the goal can change, read before each answer
+  role: () => SimulatedPersona | SimulatedGoal;
   eval: EvalFacts | null;
-  // 交互所用的 variant（本机配置为空）；session 导入后绑定到它（Contracts 15.1）
+  // Variant used by the item (null for the local machine's configuration); the session is bound to it after import (Contracts 15.1)
   variantId: string | null;
-  // variant 的数据目录，绑定模块读 skill 用
+  // Data directory of the variant, for the binding module to read skills
   dataDir: string;
-  // 进程的工作目录：本机配置出现信任确认时记进 trust 事件
+  // The process's cwd: recorded in the trust event when the local machine's configuration shows the trust prompt
   cwd: string;
+  // A process on an SSH host (Contracts 31.6): syncs the remote jsonl reported by SessionStart to the local copy; null for local processes
+  remote: RemoteSessionSync | null;
+  // A remote process reconnected after a dashboard restart: SessionStart was received long ago, so neither wait for it nor answer the trust prompt
+  reattached: boolean;
 }
 
-// Claude Code 询问是否信任工作目录的一屏（Reports/W30、W39 实测）
+// The Claude Code screen asking whether to trust the cwd (measured in Reports/W30, W39)
 const TRUST_PROMPT = 'Is this a project you created or one you trust?';
 const TRUST_YES = /❯.*Yes, I trust this folder/u;
 const TRUST_POLL_MS = 200;
 
-// 一个运行中的交互 session：hook 驱动的状态、模拟用户驾驶与接管（Contracts 14.4）
+// A running Live session: hook-driven state, simulated-user driving and takeover (Contracts 14.4)
 export class LiveController {
   private readonly db: Db;
   readonly liveId: string;
   readonly engine = 'claude';
   readonly processId: number;
-  readonly pty: LivePty;
+  readonly pty: LiveTerminal;
   private jsonl: string;
   private watcher: SessionWatcher;
-  // 增量导入是否还在进行（GET /api/diagnostics）；进程退出后停止
+  // Whether incremental import is still running (GET /api/diagnostics); stops after the process exits
   watching = true;
   private started = false;
-  // 已经绑定到 variant 的 session
+  // Sessions already bound to the variant
   private readonly bound = new Set<string>();
-  waiting: LiveWaiting | null = null;
   private waitingSince = 0;
-  // 正在生成或正在写按键的模拟回答；驾驶者变为人时中止
-  private generation: { abort: AbortController; waiting: LiveWaiting } | null = null;
+  private readonly simulated: SimulatedDriver;
   readonly exited: Promise<void>;
 
   constructor(private readonly opts: LiveControllerOptions) {
@@ -113,6 +107,28 @@ export class LiveController {
     this.processId = opts.processId;
     this.pty = opts.pty;
     this.jsonl = opts.jsonl;
+    this.simulated = new SimulatedDriver({
+      db: opts.db,
+      settings: opts.settings,
+      liveId: opts.liveId,
+      processId: opts.processId,
+      pty: opts.pty,
+      role: opts.role,
+      eval: opts.eval,
+      transcript: (waiting) => this.transcript(waiting),
+      starting: () => !this.started,
+      answerQuestions: async (waiting, selections, signal) => {
+        const wait = this.waitingSince + MENU_SETTLE_MS - Date.now();
+        if (wait > 0) await sleep(wait);
+        await answerMenu(this.pty, waiting.questions, selections, signal);
+      },
+      onError: (error) => {
+        this.recordError(error);
+      },
+      event: (kind, payload) => {
+        this.event(kind, payload);
+      },
+    });
     this.watcher = watchSession(this.db, this.jsonl, (error) => {
       this.recordError(error);
     });
@@ -120,20 +136,33 @@ export class LiveController {
     const stopBinding = events.subscribe((event) => {
       if (event.type === 'session.updated') this.bindImported();
     });
-    const stopTrust = opts.variantId === null ? this.answerTrust() : () => undefined;
+    this.started = opts.reattached;
+    const stopTrust =
+      opts.variantId === null && !opts.reattached ? this.answerTrust() : () => undefined;
+    const stopConnection = this.pty.onConnection((connected) => {
+      void this.onConnection(connected);
+    });
     this.exited = this.pty.exited.then(async (exit) => {
       stopBinding();
       stopTrust();
-      this.generation?.abort.abort(new Error('进程已退出'));
+      stopConnection();
+      this.simulated.abort(new Error('Process exited'));
+      await this.opts.remote?.close(true);
       await this.watcher.close();
       this.watching = false;
       if (fs.existsSync(this.jsonl)) ingestFile(this.db, this.jsonl);
-      // 进程很快结束时，session 第一次导入发生在上面这次：同样绑定到这次所用的 variant
+      this.opts.remote?.mark();
+      // If the process ends quickly, the session's first import happens just above: bind it to this run's variant too
       this.bindImported();
       const endedAt = new Date();
       this.db
         .update(liveProcesses)
-        .set({ status: 'exited', exitCode: exit.exitCode, endedAt })
+        .set({
+          status: 'exited',
+          exitCode: exit.exitCode,
+          endedAt,
+          ...(exit.error === null ? {} : { error: exit.error }),
+        })
         .where(eq(liveProcesses.id, this.processId))
         .run();
       this.db
@@ -141,16 +170,51 @@ export class LiveController {
         .set({ updatedAt: endedAt })
         .where(eq(liveSessions.id, this.liveId))
         .run();
-      this.event('exit', { exitCode: exit.exitCode, signal: exit.signal });
+      this.event('exit', { exitCode: exit.exitCode, signal: exit.signal, error: exit.error });
     });
+  }
+
+  get waiting(): LiveWaiting | null {
+    return this.simulated.waiting;
+  }
+
+  // Remote disconnect and reconnect (Contracts 31.4): on disconnect the simulated user stops driving and the driver becomes human; on
+  // reconnect the session is synced back first, then "waiting for input" and unanswered AskUserQuestion are restored from it
+  private async onConnection(connected: boolean) {
+    if (!connected) {
+      if (!this.pty.alive) return;
+      this.event('disconnect', {});
+      if (this.driver === 'simulated') this.setDriver('human', 'disconnected');
+      return;
+    }
+    this.event('reconnect', {});
+    if (!this.started) return;
+    await this.opts.remote?.syncNow();
+    this.restoreWaiting();
+  }
+
+  // Hooks lost while disconnected: judge from the last conversation item whether Claude Code is waiting for input
+  private restoreWaiting() {
+    if (fs.existsSync(this.jsonl)) ingestFile(this.db, this.jsonl);
+    const items = sessionConversation(this.db, this.sessionId()) ?? [];
+    const last = items.findLast((item) => item.kind !== 'notice');
+    if (last?.kind === 'agent') {
+      this.setWaiting({ kind: 'text', text: last.text });
+    } else if (last?.kind === 'question' && last.answers === null) {
+      const { questions } = AskUserQuestionInput.parse({ questions: last.questions });
+      this.setWaiting({ kind: 'questions', toolUseId: last.toolCallId, questions });
+    } else {
+      this.setWaiting(null);
+    }
   }
 
   get starting(): boolean {
     return !this.started;
   }
 
-  // "本机配置"的信任确认（Contracts 14.2）：不改用户的 ~/.claude.json；第一个 SessionStart 之前，屏幕副本上出现
-  // 信任确认时把光标移到"Yes, I trust this folder"并回车，之后由 Claude Code 自己记录信任。返回停止监视的函数
+  // Trust prompt for the local machine's configuration (Contracts 14.2): the user's ~/.claude.json is untouched; before the first
+  // SessionStart, when the screen copy shows the prompt, move the cursor to "Yes, I trust this folder" and press Enter, then Claude Code
+  // records the trust itself. Returns a function that stops watching
   private answerTrust(): () => void {
     let checking = false;
     let answered = false;
@@ -163,11 +227,11 @@ export class LiveController {
       if (lines.some((l) => TRUST_YES.test(l))) {
         answered = true;
         this.pty.write('\r');
-        // 回答时屏幕副本上的确认一并记下
+        // Record the prompt on the screen copy at the time of answering
         this.event('trust', { cwd: this.opts.cwd, screen: lines.filter((l) => l.trim() !== '') });
         return;
       }
-      // 光标在别的选项上（默认是"No, exit"）：下移一行，下一次检查时再看
+      // Cursor on another option (default "No, exit"): move down one line and look again on the next check
       this.pty.write('\u001b[B');
     };
     const timer = setInterval(() => {
@@ -182,7 +246,8 @@ export class LiveController {
     };
   }
 
-  // 交互的 session 第一次导入后绑定到交互所用的 variant；本机配置不绑定。/clear 换了 session 时新的 session 同样绑定
+  // After its first import, the Live session is bound to the item's variant; not for the local machine's configuration. A new session
+  // after /clear is bound the same way
   private bindImported() {
     const variantId = this.opts.variantId;
     if (variantId === null) return;
@@ -199,14 +264,7 @@ export class LiveController {
   }
 
   get driver(): LiveDriver {
-    const row = this.db
-      .select({ driver: liveProcesses.driver })
-      .from(liveProcesses)
-      .where(eq(liveProcesses.id, this.processId))
-      .get();
-    if (row === undefined)
-      throw new Error(`交互 ${this.liveId} 的进程 ${String(this.processId)} 不存在`);
-    return row.driver;
+    return this.simulated.driver;
   }
 
   private event(kind: LiveEventKind, payload: Record<string, unknown>) {
@@ -217,7 +275,7 @@ export class LiveController {
     events.publish({ type: 'live.updated', liveId: this.liveId });
   }
 
-  // 模拟用户与导入的错误：写进这个进程的 error，交给人，进程照常运行
+  // Simulated-user and import errors: written to this process's error and handed to the human; the process keeps running
   private recordError(error: Error) {
     this.db
       .update(liveProcesses)
@@ -229,24 +287,17 @@ export class LiveController {
   }
 
   setDriver(driver: LiveDriver, reason: HandBackReason | 'start' | 'release') {
-    if (driver === 'human') {
-      this.generation?.abort.abort(new Error('驾驶者变为人'));
-      this.generation = null;
-    }
-    this.db.update(liveProcesses).set({ driver }).where(eq(liveProcesses.id, this.processId)).run();
-    this.event('driver', { driver, reason });
-    if (driver === 'simulated') this.respond();
+    this.simulated.setDriver(driver, reason);
   }
 
-  // "交还"：驾驶者变为模拟用户；Claude Code 在等输入时立即回答
+  // "Hand back": the driver becomes the simulated user, which answers at once if Claude Code is waiting for input
   release() {
-    if (this.starting) throw new Error('启动中，收到 SessionStart 之前驾驶者固定为人');
     const waiting = this.waiting;
-    // 人已经在终端里回答了的 AskUserQuestion 不再等待
+    // Do not wait on an AskUserQuestion the human already answered in the terminal
     if (waiting?.kind === 'questions' && this.questionAnswered(waiting.toolUseId)) {
-      this.waiting = null;
+      this.simulated.waiting = null;
     }
-    this.setDriver('simulated', 'release');
+    this.simulated.release();
   }
 
   private questionAnswered(toolUseId: string): boolean {
@@ -267,15 +318,15 @@ export class LiveController {
       .from(liveSessions)
       .where(eq(liveSessions.id, this.liveId))
       .get();
-    if (row === undefined) throw new Error(`交互 ${this.liveId} 不存在`);
-    // Claude Code 的项建出时就有 session id；只有 Codex 草稿的项会暂时为空
-    if (row.id === null) throw new Error(`交互 ${this.liveId} 没有 session id`);
+    if (row === undefined) throw new Error(`Live item ${this.liveId} does not exist`);
+    // A Claude Code item has a session id from creation; only a Codex draft item can be temporarily null
+    if (row.id === null) throw new Error(`Live item ${this.liveId} has no session id`);
     return row.id;
   }
 
-  // 客户端的输入：按键使模拟用户驾驶变为人，正在生成的回答被取消；这次按键照常写入
+  // Client input: a key press turns simulated driving into human and cancels the answer being generated; the key is still written
   input(data: string) {
-    if (this.driver === 'simulated' && isKeyInput(data)) this.setDriver('human', 'input');
+    this.simulated.onInput(data);
     this.pty.write(data);
   }
 
@@ -296,7 +347,7 @@ export class LiveController {
         break;
       }
       case 'Stop': {
-        // 后台任务还在运行时 Claude Code 会自己开始下一轮，不等用户（Spikes/Claude CLI 第 8 节）
+        // With background tasks still running, Claude Code starts the next turn itself without waiting for the user (Spikes/Claude CLI section 8)
         const background = payload.background_tasks ?? [];
         this.setWaiting(
           background.length > 0
@@ -308,11 +359,11 @@ export class LiveController {
       default:
         break;
     }
-    this.respond();
+    this.simulated.respond();
   }
 
   private onSessionStart(payload: HookPayload) {
-    // /clear 等操作换了 session：之后导入新的 jsonl
+    // /clear and similar changed the session: import the new jsonl from now on
     if (payload.session_id !== this.sessionId()) {
       this.db
         .update(liveSessions)
@@ -320,9 +371,11 @@ export class LiveController {
         .where(eq(liveSessions.id, this.liveId))
         .run();
     }
-    // jsonl 以 Claude Code 报告的位置为准：本机配置不设 CLAUDE_CONFIG_DIR，Claude Code 不理会
-    // CLAUDE_CODE_PROJECT_DIR_NAME，session 写在 cwd 对应的项目目录中
-    const transcript = z.string().parse(payload.transcript_path);
+    // The jsonl location reported by Claude Code wins: the local machine's configuration sets no CLAUDE_CONFIG_DIR, so Claude Code ignores
+    // CLAUDE_CODE_PROJECT_DIR_NAME and writes the session in the project directory for the cwd. A remote process reports a remote path,
+    // which is synced to a local copy and the copy imported (Contracts 31.6)
+    const reported = z.string().parse(payload.transcript_path);
+    const transcript = this.opts.remote === null ? reported : this.opts.remote.follow(reported);
     if (transcript !== this.jsonl) {
       void this.watcher.close();
       this.jsonl = transcript;
@@ -330,13 +383,36 @@ export class LiveController {
         this.recordError(error);
       });
     }
-    // resume 的 session 启动后停在输入框，等用户接着上一轮回答
+    // A resumed session stops at the input box after starting, waiting for the user to reply to the last turn
     if (payload.source === 'resume') this.setWaiting(this.lastAgentTurn());
     if (!this.started) {
       this.started = true;
       if (this.opts.initialDriver === 'simulated') this.setDriver('simulated', 'start');
       else events.publish({ type: 'live.updated', liveId: this.liveId });
     }
+  }
+
+  // Orca-hosted terminals have no hooks (Contracts 35.4): import starts here once the topology sync finds the agent's session; also
+  // called when /clear changes the session later
+  followTranscript(transcript: string) {
+    if (transcript === this.jsonl) return;
+    void this.watcher.close();
+    this.jsonl = transcript;
+    this.watcher = watchSession(this.db, this.jsonl, (error) => {
+      this.recordError(error);
+    });
+    this.bindImported();
+  }
+
+  // When Orca reports the agent stopped (idle or awaiting an answer), judge from the conversation what it waits for and answer as usual
+  // under simulated driving; when it reports working, stop waiting. Called only on state changes
+  observeAgent(state: 'working' | 'stopped') {
+    if (state === 'working') {
+      if (this.waiting !== null) this.setWaiting(null);
+      return;
+    }
+    this.restoreWaiting();
+    this.simulated.respond();
   }
 
   private lastAgentTurn(): LiveWaiting | null {
@@ -347,15 +423,12 @@ export class LiveController {
   }
 
   private setWaiting(waiting: LiveWaiting | null) {
-    this.waiting = waiting;
+    this.simulated.setWaiting(waiting);
     this.waitingSince = Date.now();
-    // 之前的提问已经过去，正在生成的回答作废
-    this.generation?.abort.abort(new Error('Claude Code 已不在等这次回答'));
-    this.generation = null;
     events.publish({ type: 'live.updated', liveId: this.liveId });
   }
 
-  // 对话记录（Contracts 第 11 节）：最新一轮的文字或这次提问由 prompt 单独给出
+  // Transcript (Contracts section 11): the latest turn's text or the current question is given separately in the prompt
   private transcript(waiting: LiveWaiting): TranscriptEntry[] {
     if (fs.existsSync(this.jsonl)) ingestFile(this.db, this.jsonl);
     const items = sessionConversation(this.db, this.sessionId()) ?? [];
@@ -380,106 +453,18 @@ export class LiveController {
     return out;
   }
 
-  private answeredCount(): number {
-    return (
-      this.db
-        .select({ n: sql<number>`count(*)` })
-        .from(liveEvents)
-        .where(
-          and(
-            eq(liveEvents.liveId, this.liveId),
-            eq(liveEvents.kind, 'simulated_reply'),
-            sql`json_extract(${liveEvents.payload}, '$.written') = 1`,
-          ),
-        )
-        .get()?.n ?? 0
-    );
-  }
-
-  private respond() {
-    const waiting = this.waiting;
-    if (
-      !this.started ||
-      waiting === null ||
-      this.generation !== null ||
-      !this.pty.alive ||
-      this.driver !== 'simulated'
-    ) {
-      return;
-    }
-    const max = this.opts.settings.get().maxUserTurns;
-    if (this.answeredCount() >= max) {
-      this.setDriver('human', 'max-turns');
-      return;
-    }
-    const abort = new AbortController();
-    this.generation = { abort, waiting };
-    void this.simulate(waiting, abort).then(
-      () => {
-        if (this.generation?.abort === abort) this.generation = null;
-      },
-      (error: unknown) => {
-        if (this.generation?.abort === abort) this.generation = null;
-        // 驾驶者变为人或 Claude Code 不再等待时中止，回答作废
-        if (abort.signal.aborted) {
-          const reason: unknown = abort.signal.reason;
-          this.event('simulated_reply', {
-            written: false,
-            discarded: reason instanceof Error ? reason.message : String(reason),
-          });
-          return;
-        }
-        this.recordError(error instanceof Error ? error : new Error(String(error)));
-      },
-    );
-  }
-
-  private async simulate(waiting: LiveWaiting, abort: AbortController) {
-    const prompt: AgentPrompt =
-      waiting.kind === 'text'
-        ? { kind: 'text', text: waiting.text }
-        : { kind: 'questions', questions: waiting.questions };
-    const reply = await simulateUser(
-      { task: this.opts.persona, eval: this.opts.eval, signal: abort.signal },
-      this.transcript(waiting),
-      prompt,
-    );
-    abort.signal.throwIfAborted();
-    const record = {
-      prompt: waiting.kind,
-      ...(waiting.kind === 'questions' ? { questions: waiting.questions } : {}),
-      reply: reply.reply,
-      answers: reply.answers ?? null,
-      done: reply.done,
-      costUsd: reply.costUsd,
-      model: reply.model,
-    };
-    if (reply.done) {
-      this.event('simulated_reply', { ...record, written: false });
-      this.setDriver('human', 'done');
-      return;
-    }
-    if (waiting.kind === 'text') {
-      this.pty.write(pasted(reply.reply));
-      await sleep(SUBMIT_GAP_MS);
-      abort.signal.throwIfAborted();
-      this.pty.write('\r');
-    } else {
-      const wait = this.waitingSince + MENU_SETTLE_MS - Date.now();
-      if (wait > 0) await sleep(wait);
-      const selections = reply.selections;
-      if (selections === undefined)
-        throw new Error('模拟用户回答 AskUserQuestion 没有给出选项编号');
-      await answerMenu(this.pty, waiting.questions, selections, abort.signal);
-    }
-    if (this.waiting === waiting) this.waiting = null;
-    this.event('simulated_reply', { ...record, written: true });
-  }
-
-  // 服务关闭：结束进程并等它退出
+  // Server shutdown: a local process is ended and awaited; a remote process keeps running in tmux, only sync and import stop and the local
+  // connection is closed
   async shutdown() {
-    this.generation?.abort.abort(new Error('服务关闭'));
-    this.pty.kill('SIGHUP');
-    await this.exited;
+    this.simulated.abort(new Error('Server shutting down'));
+    if (!this.pty.remote) {
+      await this.pty.close();
+      await this.exited;
+      return;
+    }
+    await this.opts.remote?.close(false);
+    await this.watcher.close();
+    this.watching = false;
+    await this.pty.close();
   }
 }

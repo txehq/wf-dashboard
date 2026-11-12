@@ -8,7 +8,7 @@ import {
 } from '@wf-dashboard/server/tasks/schema';
 import { parseDocument, stringify } from 'yaml';
 
-// lfg 评测类型的 rubric 分组（Contracts 16.2）
+// lfg rubric groups (Contracts 16.2)
 const lfgRubricArtifacts = ['brief', 'research', 'plan', 'tickets'];
 
 const artifactNames: Record<string, string> = {
@@ -18,11 +18,11 @@ const artifactNames: Record<string, string> = {
   tickets: 'Tickets',
 };
 
-// rubric 分组的显示名：lfg 的四组用固定名字，其他分组显示 id
+// Rubric group display names: the four lfg groups have fixed names, others show their id
 export const artifactLabel = (artifact: string) => artifactNames[artifact] ?? artifact;
 
-// 表单状态：按 task 的 kind 分两种字段组（有 rubric 的 lfg 与有工单、仓库的 ic）；
-// ic 的清单以 YAML 文本编辑，保存时再解析；关闭隐藏测试时表单中保留填过的内容，保存时不写入
+// Form state: two field sets by task kind (lfg with a rubric, ic with a ticket and repo);
+// the ic manifest is edited as YAML and parsed on save; with hidden tests off, filled-in values stay in the form but are not saved
 export type LfgForm = TaskDefinition & { kind: 'lfg'; input: string; rubric: ArtifactRubric[] };
 export type HiddenTestsForm = Omit<HiddenTests, 'manifest'> & { manifestYaml: string };
 export type IcForm = Omit<TaskDefinition, 'hiddenTests'> & {
@@ -49,16 +49,16 @@ export function blankHiddenTests(): HiddenTestsForm {
 function icFields(task: TaskDefinition) {
   const { ticket, repo, requiredChecks } = task;
   if (ticket === undefined || repo === undefined || requiredChecks === undefined) {
-    throw new Error(`task ${task.id} 没有工单、仓库或 requiredChecks`);
+    throw new Error(`task ${task.id} has no ticket, repo or requiredChecks`);
   }
   return { ticket, repo, requiredChecks };
 }
 
-// 从 Linear 导入的预览：没有验收标准与正文时留空，由用户填写
+// Preview imported from Linear: acceptance criteria and body stay empty when missing, for the user to fill in
 export function icFormFromDraft(draft: TaskDraft): IcForm {
   const { repo, requiredChecks } = draft;
   if (repo === undefined || requiredChecks === undefined) {
-    throw new Error(`导入的 task ${draft.id} 没有仓库或 requiredChecks`);
+    throw new Error(`imported task ${draft.id} has no repo or requiredChecks`);
   }
   return {
     ...draft,
@@ -73,7 +73,7 @@ export function icFormFromDraft(draft: TaskDraft): IcForm {
 export function toForm(task: TaskDefinition): TaskForm {
   if (task.kind === 'lfg') {
     if (task.input === undefined || task.rubric === undefined) {
-      throw new Error(`task ${task.id} 没有 input 或 rubric`);
+      throw new Error(`task ${task.id} has no input or rubric`);
     }
     return { ...task, kind: 'lfg', input: task.input, rubric: task.rubric };
   }
@@ -99,10 +99,10 @@ export function fromForm(form: TaskForm): FormResult {
       candidate = rest;
     } else {
       const { manifestYaml, ...hiddenTests } = hiddenForm;
-      // parseDocument 把语法错误放进 errors，输入中途的 YAML 不会抛出
+      // parseDocument puts syntax errors in errors, so half-typed YAML does not throw
       const doc = parseDocument(manifestYaml);
       if (doc.errors.length > 0) {
-        return { ok: false, issues: doc.errors.map((e) => `测试清单：${e.message}`) };
+        return { ok: false, issues: doc.errors.map((e) => `Test manifest: ${e.message}`) };
       }
       candidate = { ...rest, hiddenTests: { ...hiddenTests, manifest: doc.toJS() as unknown } };
     }
@@ -113,7 +113,7 @@ export function fromForm(form: TaskForm): FormResult {
   if (result.success) return { ok: true, task: result.data };
   return {
     ok: false,
-    issues: result.error.issues.map((i) => `${i.path.join('.') || '（整体）'}：${i.message}`),
+    issues: result.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`),
   };
 }
 

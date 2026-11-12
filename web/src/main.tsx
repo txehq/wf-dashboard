@@ -5,11 +5,11 @@ import { RouterProvider } from 'react-router/dom';
 import { router } from '@/app/router';
 import './index.css';
 
-// 不自动重试：失败立即显示错误原文，由页面上的操作重新请求
+// No automatic retries: a failure shows its error text at once, and actions on the page request again
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
 const root = document.getElementById('root');
-if (root === null) throw new Error('index.html 缺少 #root');
+if (root === null) throw new Error('index.html has no #root');
 
 createRoot(root).render(
   <StrictMode>

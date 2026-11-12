@@ -4,7 +4,7 @@ import path from 'node:path';
 import { parse, stringify } from '@decimalturn/toml-patch';
 import { z } from 'zod';
 
-// ~/.codex/config.toml 中写进 CODEX_HOME 的键（Contracts 7.10）；其余键不复制
+// Keys of ~/.codex/config.toml written into CODEX_HOME (Contracts 7.10); other keys are not copied
 const CODEX_CONFIG_KEYS = [
   'model',
   'model_provider',
@@ -20,7 +20,7 @@ const CodexConfig = z.looseObject({
   model_providers: z.record(z.string(), z.looseObject({})).optional(),
 });
 
-// 先写临时文件再 rename，权限 600
+// Write a temporary file, then rename it; mode 600
 function writeAtomic(file: string, content: string | Buffer) {
   const tmp = `${file}.${randomUUID()}.tmp`;
   fs.writeFileSync(tmp, content, { mode: 0o600 });
@@ -29,15 +29,15 @@ function writeAtomic(file: string, content: string | Buffer) {
 }
 
 export interface CodexSources {
-  // 登录凭据，原样复制
+  // Login credentials, copied as is
   authPath: string;
-  // 模型与 provider 配置（例如经 gateway 调用）
+  // Model and provider configuration (for example calls through a gateway)
   configPath: string;
 }
 
-// 把 Codex 的认证与模型配置写进一个独立的 CODEX_HOME：复制 auth.json；从 config.toml 只取模型相关的键，
-// model_catalog_json 指向的文件复制进 CODEX_HOME 并改写为副本的路径。extra 是调用方另加的顶层键
-// （Codex 草稿会话的信任与更新提示，Contracts 17.3）。返回写入的 model 与 model_reasoning_effort
+// Writes Codex auth and model configuration into a separate CODEX_HOME: copies auth.json; takes only model keys
+// from config.toml; copies the model_catalog_json file into CODEX_HOME and points to the copy. extra holds the
+// caller's additional top-level keys (Codex draft session trust and update prompts, Contracts 17.3). Returns model and model_reasoning_effort
 export function writeCodexHome(
   codexHome: string,
   { authPath, configPath }: CodexSources,

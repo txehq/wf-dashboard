@@ -1,14 +1,14 @@
-# 证据规则
+# Evidence rules
 
-dashboard 对每条证据做两项检查，任何一条不满足，这个阶段整体失败：
+The dashboard checks two things for every evidence item; if any item fails, the whole stage fails:
 
-- `sessionId` 是 `input/case.json` 中的一个 session；`seq` 是该 session 中**主 agent** 某一行的 `seq`。证据在子代理的请求中时，写那条子代理请求的 `parentSeq`。
-- `quote` 是那一行（或 `parentSeq` 指向它的子代理行）某一个字符串字段的值中**原样复制**的连续片段：不超过 200 个字符，不加省略号，不改空白、标点与大小写，不跨字段拼接，不翻译。JSON 中转义的字符（`\n`、`\"`）在 quote 中写成它代表的字符。
+- `sessionId` is a session in `input/case.json`; `seq` is the `seq` of a **main agent** line in that session. When the evidence is in a subagent request, write the `parentSeq` of that subagent request.
+- `quote` is a contiguous fragment **copied verbatim** from the value of one string field of that line (or of a subagent line whose `parentSeq` points to it): at most 200 characters, no ellipsis, no changes to whitespace, punctuation or case, not joined across fields, not translated. Characters escaped in JSON (`\n`, `\"`) are written in the quote as the characters they stand for.
 
-最可靠的取法：用 `jq -r` 取出那个字段的原文，从输出中复制一段不含换行的片段。
+The most reliable way: take the field's original text with `jq -r` and copy a fragment without line breaks from the output.
 
-其余规则：
+Other rules:
 
-- 每条发现至少一条证据。没有证据的结论不写成发现。
-- 数字（次数、token、花费、秒数）只来自记录或你运行的命令；在 detail 中写明算法（例如"seq 12–40 的 `costUsd` 之和"）。
-- 用户的话只取 `userMessagesBefore` 中 `kind` 为 `user` 的消息与 `conversation.json`；hook 输出、系统事件与 tool 结果不是用户的话。子代理的记录中，"user" 是派出它的主 agent。
+- Every finding has at least one evidence item. A conclusion without evidence is not written as a finding.
+- Numbers (counts, tokens, cost, seconds) come only from the records or from commands you ran; state the method in detail (for example "sum of `costUsd` over seq 12–40").
+- The user's words come only from messages in `userMessagesBefore` whose `kind` is `user` and from `conversation.json`; hook output, system events and tool results are not the user's words. In a subagent's records, "user" is the main agent that dispatched it.

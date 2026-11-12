@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
-// 删除 variant 与 workflow 的 API 形状（Contracts 第 24 节）；web 直接引用
+// API shapes for deleting variants and workflows (Contracts section 24); web imports them directly
 
-// 关联的 session（24.2）：一起删除，或改绑到另一个 variant（null 为本机配置，不绑定）
+// Associated sessions (24.2): delete together, or rebind to another variant (null means local config, unbound)
 export const SessionsChoice = z.union([
   z.literal('delete'),
   z.strictObject({ rebindTo: z.string().min(1).nullable() }),
@@ -12,7 +12,7 @@ export type SessionsChoice = z.infer<typeof SessionsChoice>;
 export const DeleteBody = z.strictObject({ sessions: SessionsChoice });
 export type DeleteBody = z.infer<typeof DeleteBody>;
 
-// 阻止删除的一项（24.1）：内置 workflow、最后一个 variant、运行中的使用者、被改过的本机安装
+// One thing blocking deletion (24.1): built-in workflow, last variant, running users, modified local installs
 export const DeletionBlocker = z.object({
   kind: z.enum(['builtin', 'last-variant', 'run', 'live', 'analysis', 'draft', 'install']),
   id: z.string(),
@@ -20,7 +20,7 @@ export const DeletionBlocker = z.object({
 });
 export type DeletionBlocker = z.infer<typeof DeletionBlocker>;
 
-// 删除对话框的内容（24.6）
+// Delete dialog content (24.6)
 export const DeletionPlan = z.object({
   target: z.object({
     kind: z.enum(['variant', 'workflow']),
@@ -30,20 +30,20 @@ export const DeletionPlan = z.object({
   }),
   variants: z.array(z.object({ id: z.string(), name: z.string() })),
   blockers: z.array(DeletionBlocker),
-  // 要删除的目录（variant 的目录与覆盖前的存档、草稿目录或分析目录中优化用的部分）
+  // Directories to delete (variant directories and their pre-overwrite archives, draft directories, or the optimisation part of analysis directories)
   dirs: z.array(z.string()),
-  // 装在本机、删除前先按清单卸载的
+  // Installed on this machine; uninstalled by manifest before deletion
   installs: z.array(z.object({ variantId: z.string(), dirs: z.array(z.string()) })),
-  // 关联的 session（run 的 session 不算，随 run 保留）：选一起删除时还删除这些文件与 Live 项。
-  // agent：其中属于本机配置的 Magi Agent 的 session 数（Contracts 23.6），它们与它们的 Live 项都不删除，选一起删除时改为
-  // 本机配置。用这些 variant 配置的 Magi Agent 的 Live 项算在 liveItems 中
+  // Associated sessions (run sessions excluded, kept with their runs): delete together also deletes these files and Live items.
+  // agent: how many are local-config Magi Agent sessions (Contracts 23.6); they and their Live items are not deleted and switch
+  // to local config on delete together. Live items of Magi Agents configured with these variants count in liveItems
   sessions: z.object({
     count: z.number(),
     files: z.array(z.string()),
     liveItems: z.array(z.object({ id: z.string(), title: z.string() })),
     agent: z.number(),
   }),
-  // 保留的记录，显示"<名字>（已删除）"
+  // Retained records, shown as "<name> (deleted)"
   retained: z.object({
     runs: z.number(),
     runSessions: z.number(),
@@ -52,7 +52,7 @@ export const DeletionPlan = z.object({
     children: z.array(z.object({ id: z.string(), name: z.string() })),
     drafts: z.number(),
   }),
-  // 删除 workflow 时一并删除的草稿（24.5）
+  // Drafts deleted along with a workflow (24.5)
   drafts: z.array(z.object({ id: z.string(), liveId: z.string().nullable() })),
 });
 export type DeletionPlan = z.infer<typeof DeletionPlan>;

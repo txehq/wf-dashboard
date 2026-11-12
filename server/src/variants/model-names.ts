@@ -1,4 +1,4 @@
-// 运行时可选的模型别名与 effort（Contracts 16.5）；不依赖其他模块，web 经 live/views 等共用的 schema 引用
+// Model aliases and efforts selectable at run time (Contracts 16.5); no module dependencies, web uses them via shared schemas such as live/views
 export const modelAliases = ['opus', 'sonnet', 'haiku', 'fable'] as const;
 export type ModelAlias = (typeof modelAliases)[number];
 

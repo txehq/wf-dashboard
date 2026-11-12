@@ -2,28 +2,36 @@ import { z } from 'zod';
 import { draftModes, draftStatuses, liveEngines } from '../db/schema.js';
 import { WorkflowDefinition } from '../workflows/schema.js';
 
-// 生成 workflow、生成 variant 与分析优化的 API 形状（Contracts 第 17 节、19.3、22）；web 直接引用
+// API shapes for generating a workflow, generating a variant and optimising from an analysis (Contracts section 17, 19.3, 22); used directly by web
 
-const Slug = z.string().regex(/^[a-z][a-z0-9-]*$/, '只能包含小写字母、数字与连字符，以字母开头');
+const Slug = z
+  .string()
+  .regex(/^[a-z][a-z0-9-]*$/, 'Only lowercase letters, digits and hyphens, starting with a letter');
 
-// 会话的引擎（Contracts 22.1）：Codex 或 Claude Code
+// The session's engine (Contracts 22.1): Codex or Claude Code
 export const DraftEngine = z.enum(liveEngines);
 export type DraftEngine = z.infer<typeof DraftEngine>;
 
+// The workflow-design (generate workflow, generate variant) or workflow-optimize (optimise) variant the session uses (Contracts 33.2);
+// the baseline when omitted
+const DesignVariantId = z.string().min(1).optional();
+
 export const CreateDraftBody = z.discriminatedUnion('mode', [
-  // Workflows 列表的"生成 workflow"：新 workflow 的 id、名字、描述与需求，草稿从空白骨架开始（18.5）
+  // "Generate workflow" in the Workflows list: id, name, description and requirement of the new workflow; the draft starts from a blank skeleton (18.5)
   z.strictObject({
     mode: z.literal('workflow'),
     engine: DraftEngine,
+    designVariantId: DesignVariantId,
     workflowId: Slug,
     name: z.string().trim().min(1).max(100),
     description: z.string().max(2000),
     requirement: z.string().trim().min(1),
   }),
-  // Workflow 页面的"生成 variant"：只改 skill 内容，不改入口与小阶段
+  // "Generate variant" in the Workflow page: changes only skill content, not the entry or sub-stages
   z.strictObject({
     mode: z.literal('variant'),
     engine: DraftEngine,
+    designVariantId: DesignVariantId,
     workflowId: z.string().min(1),
     requirement: z.string().trim().min(1),
     baseVariantId: z.string().min(1),
@@ -31,17 +39,25 @@ export const CreateDraftBody = z.discriminatedUnion('mode', [
 ]);
 export type CreateDraftBody = z.infer<typeof CreateDraftBody>;
 
-// 分析报告的"优化"（Contracts 19.3、22.1）
-export const OptimizeBody = z.strictObject({ engine: DraftEngine });
-
-export const DraftSkillView = z.object({
-  name: z.string(),
-  source: z.string(),
-  computedHash: z.string(),
-  commit: z.string(),
+// "Optimize" in an analysis report (Contracts 19.3, 22.1, 33.2)
+export const OptimizeBody = z.strictObject({
+  engine: DraftEngine,
+  designVariantId: DesignVariantId,
 });
+export type OptimizeBody = z.infer<typeof OptimizeBody>;
 
-// 草稿准备的一步（Contracts 17.1）
+// Variants selectable in the start dialog (Contracts 33.2): built from their current content, by creation time; defaultId is the baseline, null before it exists
+const SessionVariantChoice = z.object({
+  defaultId: z.string().nullable(),
+  variants: z.array(z.object({ id: z.string(), name: z.string() })),
+});
+export const SessionVariantsView = z.object({
+  design: SessionVariantChoice,
+  optimize: SessionVariantChoice,
+});
+export type SessionVariantsView = z.infer<typeof SessionVariantsView>;
+
+// One draft preparation step (Contracts 17.1)
 export const DraftStepView = z.object({
   id: z.string(),
   label: z.string(),
@@ -57,34 +73,35 @@ export const DraftView = z.object({
   mode: z.enum(draftModes),
   engine: DraftEngine,
   workflowId: z.string(),
-  // mode 为 workflow 时新 workflow 的名字与描述
+  // Name and description of the new workflow, for mode workflow
   name: z.string().nullable(),
   description: z.string().nullable(),
-  // mode 为 variant 时的底子 variant；mode 为 optimize 时是被分析的 variant；mode 为 workflow 时为空
+  // Base variant for mode variant; the analysed variant for mode optimize; null for mode workflow
   baseVariantId: z.string().nullable(),
-  // mode 为 optimize 时被优化的分析（Contracts 19.3）
+  // The analysis being optimised, for mode optimize (Contracts 19.3)
   analysisId: z.string().nullable(),
   requirement: z.string(),
   liveId: z.string().nullable(),
-  // preparing 时后台在准备草稿目录；failed 时 error 为失败那一步的原文，可以重试
+  // While preparing, the draft dir is being prepared in the background; when failed, error is the failed step's original text and can be retried
   status: z.enum(draftStatuses),
   error: z.string().nullable(),
   steps: z.array(DraftStepView),
   savedWorkflowId: z.string().nullable(),
   savedVariantId: z.string().nullable(),
-  // 每次保存出的 variant，按保存的先后
+  // Variants produced by each save, in save order
   savedVariants: z.array(
     z.object({ id: z.string(), name: z.string(), workflowId: z.string(), deleted: z.boolean() }),
   ),
-  skills: z.array(DraftSkillView),
+  // The workflow-design or workflow-optimize variant the session uses (Contracts 33.2)
+  designVariant: z.object({ id: z.string(), name: z.string(), deleted: z.boolean() }).nullable(),
   dir: z.string(),
   createdAt: z.number(),
 });
 export type DraftView = z.infer<typeof DraftView>;
 
-// 保存前的改动预览（Contracts 21.3）：草稿的 src/ 相对底子 variant 逐文件的差异
+// Preview of changes before saving (Contracts 21.3): per-file differences of the draft's src/ against the base variant
 export const DraftDiffView = z.object({
-  // 从空白开始的草稿没有底子，文件都是新增
+  // A blank-start draft has no base; all files are added
   base: z.object({ id: z.string(), name: z.string() }).nullable(),
   files: z.array(
     z.object({
@@ -92,15 +109,15 @@ export const DraftDiffView = z.object({
       status: z.enum(['added', 'removed', 'modified']),
       oldContent: z.string(),
       newContent: z.string(),
-      // 统一 diff 文本
+      // Unified diff text
       patch: z.string(),
     }),
   ),
 });
 export type DraftDiffView = z.infer<typeof DraftDiffView>;
 
-// 保存（Contracts 17.4）：新建 variant，或覆盖同一 workflow 中的某个 variant，名字与描述都必填；
-// 第一次保存为新 workflow 时另带 workflow 的名字与描述。必填与长度由服务端校验，以原文 400
+// Save (Contracts 17.4): create a variant, or overwrite a variant of the same workflow; name and description are both required;
+// the first save as a new workflow also carries the workflow name and description. Required fields and lengths are checked by the server, a 400 with the original text
 export const SaveTarget = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('new'), name: z.string(), description: z.string() }),
   z.strictObject({
@@ -118,7 +135,7 @@ export const SaveDraftBody = z.strictObject({
 });
 export type SaveDraftBody = z.infer<typeof SaveDraftBody>;
 
-// 保存对话框的内容：第一次保存为新 workflow，或保存到已有 workflow（列出它的 variant，不能覆盖的写明原因）
+// Contents of the save dialog: first save as a new workflow, or save to an existing workflow (listing its variants, with the reason for those that cannot be overwritten)
 export const SavePlanView = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('new-workflow'),
@@ -131,14 +148,14 @@ export const SavePlanView = z.discriminatedUnion('kind', [
     kind: z.literal('variant'),
     workflowId: z.string(),
     workflowName: z.string(),
-    // 新建时的 parent，diff 的参照
+    // Parent when creating, and the diff reference
     parent: z.object({ id: z.string(), name: z.string() }).nullable(),
     variants: z.array(
       z.object({
         id: z.string(),
         name: z.string(),
         description: z.string().nullable(),
-        // 不能覆盖的原因（导入的、已冻结的、正在构建的）；可以覆盖时为 null
+        // Why it cannot be overwritten (imported, frozen, building); null when it can
         reason: z.string().nullable(),
       }),
     ),
@@ -146,7 +163,7 @@ export const SavePlanView = z.discriminatedUnion('kind', [
 ]);
 export type SavePlanView = z.infer<typeof SavePlanView>;
 
-// 设计与优化会话的 workflow 面板（Contracts 26.4）：工作目录中的 src/skills 相对底子的标记
+// Workflow panel of design and optimize sessions (Contracts 26.4): marks of the working dir's src/skills against the base
 export const WorkspaceFileStatus = z.enum(['added', 'modified', 'removed', 'unchanged']);
 export type WorkspaceFileStatus = z.infer<typeof WorkspaceFileStatus>;
 export const WorkspaceStageStatus = z.enum(['added', 'modified', 'unchanged', 'missing']);
@@ -156,7 +173,7 @@ export const WorkspaceView = z.object({
   draftId: z.string(),
   mode: z.enum(draftModes),
   analysisId: z.string().nullable(),
-  // 相对工作目录，显示用
+  // Relative to the working dir, for display
   root: z.string(),
   base: z.object({ id: z.string(), name: z.string() }).nullable(),
   workflow: z.union([
@@ -168,11 +185,11 @@ export const WorkspaceView = z.object({
     }),
     z.object({ error: z.string() }),
   ]),
-  // 路径相对 src/（skills/<skill>/...）；只在底子中的为 removed，mtimeMs 为 null
+  // Paths relative to src/ (skills/<skill>/...); files only in the base are removed, with mtimeMs null
   files: z.array(
     z.object({ path: z.string(), status: WorkspaceFileStatus, mtimeMs: z.number().nullable() }),
   ),
-  // "对比"可以选的对象（28.4）：上次保存与上一版，at 为保存与记下快照的毫秒时间；没有时为 null
+  // What Compare can choose (28.4): last saved and previous version, at being the ms time of the save or snapshot; null when absent
   against: z.object({
     saved: z.object({ at: z.number() }).nullable(),
     previous: z.object({ at: z.number() }).nullable(),
@@ -185,9 +202,9 @@ export type WorkspaceAgainst = z.infer<typeof WorkspaceAgainst>;
 
 export const WorkspaceFileView = z.object({
   path: z.string(),
-  // 工作目录与底子中都没有时为 null
+  // Null when in neither the working dir nor the base
   status: WorkspaceFileStatus.nullable(),
-  // 工作目录中不存在或是二进制文件时为 null
+  // Null when missing from the working dir or binary
   content: z.string().nullable(),
   binary: z.boolean(),
 });
@@ -203,9 +220,9 @@ export const WorkspaceDiffView = z.object({
 });
 export type WorkspaceDiffView = z.infer<typeof WorkspaceDiffView>;
 
-// GET /api/live/:id/workspace/events 推送的事件
+// Events pushed by GET /api/live/:id/workspace/events
 export type WorkspaceEvent =
   | { type: 'changed'; paths: string[]; workflow: boolean }
   | { type: 'closed'; reason: 'hidden' | 'deleted' }
-  // 监视出错（例如读目录失败）：原文，之后连接结束。不叫 error：EventSource 的 error 是连接出错
+  // Watching failed (e.g. reading a dir failed): the original text, then the connection ends. Not named error: EventSource's error is a connection error
   | { type: 'failed'; message: string };

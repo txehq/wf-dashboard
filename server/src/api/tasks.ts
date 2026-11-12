@@ -18,8 +18,8 @@ import {
   TaskRecord,
 } from '../tasks/schema.js';
 
-const TaskNotFound = createError<[string]>('TASK_NOT_FOUND', '没有 task %s', 404);
-const TaskExists = createError<[string]>('TASK_EXISTS', 'task %s 已存在', 409);
+const TaskNotFound = createError<[string]>('TASK_NOT_FOUND', 'No task %s', 404);
+const TaskExists = createError<[string]>('TASK_EXISTS', 'Task %s already exists', 409);
 const BadTaskRequest = createError<[string]>('BAD_TASK_REQUEST', '%s', 400);
 
 const IdParams = z.object({ id: z.string() });
@@ -32,7 +32,7 @@ export function taskRoutes({ db, tasksDir }: { db: Db; tasksDir: string }) {
   };
   const checkTaskRequest = (definition: TaskDefinition) => {
     const issues = taskFieldIssues(definition);
-    if (issues.length > 0) throw new BadTaskRequest(issues.join('；'));
+    if (issues.length > 0) throw new BadTaskRequest(issues.join('; '));
   };
 
   return (fastify: FastifyInstance, _options: unknown, done: () => void) => {
@@ -55,9 +55,9 @@ export function taskRoutes({ db, tasksDir }: { db: Db; tasksDir: string }) {
       { schema: { body: TaskDefinition, response: { 201: TaskRecord } } },
       async (request, reply) => {
         if (getTaskRecord(db, request.body.id)) throw new TaskExists(request.body.id);
-        // 字段按评测类型的积木校验（Contracts 16.3），不符合时以原文 400
+        // Fields are validated by the blocks of the task kind (Contracts 16.3), 400 with the message otherwise
         checkTaskRequest(request.body);
-        // 从 Linear 导入的 task：先在 repo.commit 处生成起始仓库 bundle（Contracts 第 13 节）
+        // Task imported from Linear: first build the starting repo bundle at repo.commit (Contracts section 13)
         await ensureImportedBundle(request.body, tasksDir);
         void reply.code(201);
         return saveTask(db, tasksDir, request.body);
@@ -70,11 +70,11 @@ export function taskRoutes({ db, tasksDir }: { db: Db; tasksDir: string }) {
       async (request) => {
         const { id } = request.params;
         if (request.body.id !== id) {
-          throw new BadTaskRequest(`body 的 id ${request.body.id} 与路径 ${id} 不一致`);
+          throw new BadTaskRequest(`Body id ${request.body.id} does not match path ${id}`);
         }
         const existing = requireTask(id).task;
         if (existing.kind !== request.body.kind) {
-          throw new BadTaskRequest(`task ${id} 的评测类型不能改变`);
+          throw new BadTaskRequest(`The kind of task ${id} cannot change`);
         }
         checkTaskRequest(request.body);
         await ensureImportedBundle(request.body, tasksDir);

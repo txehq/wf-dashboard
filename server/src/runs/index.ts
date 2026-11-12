@@ -32,8 +32,9 @@ import type { BatchDetail, BatchSummary, RunDetail, RunMode, RunSummary } from '
 
 const ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
-// r-<yyyymmdd>-<6 位小写字母数字>：本身是 slug，vault 目录、Linear 与 GitHub 名称都用它；交互为 l-，Codex 草稿为 d-
-export function newId(prefix: 'r' | 'b' | 'l' | 'd', now = new Date()): string {
+// r-<yyyymmdd>-<6 lowercase letters or digits>: a slug in itself, used for the vault directory and Linear and GitHub
+// names; Live items use l-, Codex drafts d-
+export function newId(prefix: 'r' | 'b' | 'l' | 'd' | 'h', now = new Date()): string {
   const day = now.toISOString().slice(0, 10).replaceAll('-', '');
   const suffix = Array.from({ length: 6 }, () => ID_ALPHABET[randomInt(ID_ALPHABET.length)]).join(
     '',
@@ -45,7 +46,8 @@ export const RUN_ID = /^r-\d{8}-[a-z0-9]{6}$/;
 
 const terminalStatuses = new Set<RunStatus>(terminalRunStatuses);
 
-// 对话由谁回答：最后一次接管或交还的系统事件；run 结束或服务重启后同样适用（runner 切换模式时写这两条事件）
+// Who answers the conversation: the last take-over or hand-back system event; also after the run ends or the service
+// restarts (the runner writes these two events when switching modes)
 function modeOf(messages: ReturnType<typeof listMessages>): RunMode {
   const last = messages.findLast(
     (m) =>
@@ -71,17 +73,18 @@ export function createRuns(deps: RunnerDeps) {
   const drivers = new Map<string, RunDriver>();
   let stopped = false;
 
-  // 上次服务退出时仍在进行的 run 不会再继续；修正后的状态推送给已连接的页面
+  // Runs still in progress when the service last exited do not continue; the corrected status is pushed to connected
+  // pages
   const interrupted = db
     .update(runs)
-    .set({ status: 'failed', error: '服务重启中断', endedAt: new Date() })
+    .set({ status: 'failed', error: 'Interrupted by a service restart', endedAt: new Date() })
     .where(inArray(runs.status, ['preparing', 'running', 'grading']))
     .returning({ id: runs.id })
     .all();
-  // 取消后正在评分的 run 状态保持 cancelled，评分记为中断
+  // A run cancelled while grading stays cancelled, and its grading is recorded as interrupted
   const gradingInterrupted = db
     .update(runs)
-    .set({ gradingStatus: 'failed', gradingError: '服务重启中断' })
+    .set({ gradingStatus: 'failed', gradingError: 'Interrupted by a service restart' })
     .where(eq(runs.gradingStatus, 'running'))
     .returning({ id: runs.id, status: runs.status })
     .all();
@@ -111,14 +114,15 @@ export function createRuns(deps: RunnerDeps) {
     }
   }
 
-  // 并发设置修改后立即生效：调大时马上启动排队的 run，调小时不中断正在进行的 run
+  // A concurrency change takes effect at once: raising it starts queued runs immediately, lowering it does not
+  // interrupt runs in progress
   settings.onChange(() => {
     pump();
   });
 
   function runRow(id: string): RunRow {
     const row = db.select().from(runs).where(eq(runs.id, id)).get();
-    if (row === undefined) throw new HttpError(404, `run 不存在：${id}`);
+    if (row === undefined) throw new HttpError(404, `Run not found: ${id}`);
     return row;
   }
 
@@ -126,7 +130,7 @@ export function createRuns(deps: RunnerDeps) {
     const row = runRow(id);
     const driver = drivers.get(id);
     if (driver === undefined || row.status !== 'running') {
-      throw new HttpError(409, `run ${id} 的状态是 ${row.status}，不在运行中`);
+      throw new HttpError(409, `Run ${id} is ${row.status}, not running`);
     }
     return driver;
   }
@@ -134,7 +138,7 @@ export function createRuns(deps: RunnerDeps) {
   function currentStages(sessionIds: string[]) {
     const out = new Map<string, RunSummary['currentStage']>();
     if (sessionIds.length === 0) return out;
-    // 服务重启时改为 failed 的 run：最后一个阶段在这里改为 done
+    // A run set to failed by a service restart: its last stage becomes done here
     for (const id of sessionIds) publishStageChanges(id, updateStages(db, id));
     const spans = db
       .select()
@@ -187,7 +191,7 @@ export function createRuns(deps: RunnerDeps) {
       const task = taskRows.get(r.taskId);
       const variant = variantRows.get(r.variantId);
       if (task === undefined || variant === undefined) {
-        throw new Error(`run ${r.id} 的 task 或 variant 不存在`);
+        throw new Error(`The task or variant of run ${r.id} does not exist`);
       }
       return {
         id: r.id,
@@ -247,14 +251,15 @@ export function createRuns(deps: RunnerDeps) {
 
   function batchRow(id: string) {
     const batch = db.select().from(batches).where(eq(batches.id, id)).get();
-    if (batch === undefined) throw new HttpError(404, `batch 不存在：${id}`);
+    if (batch === undefined) throw new HttpError(404, `Batch not found: ${id}`);
     return batch;
   }
 
   pump();
 
   return {
-    // 冻结全部 variant 后建 batch 与全部 run（queued）；model 与 effort 作用于其中全部 run（Contracts 16.5）
+    // Freeze every variant, then create the batch and all runs (queued); model and effort apply to all of them
+    // (Contracts 16.5)
     createBatch(input: {
       variantIds: string[];
       taskIds: string[];
@@ -262,24 +267,24 @@ export function createRuns(deps: RunnerDeps) {
       model: string;
       effort: string;
     }): BatchDetail {
-      // variant 所属 workflow 的评测类型：没有评测类型的 workflow 不能评测（evalSpecOf 400 原文）
+      // The eval kind of the variant's workflow: a workflow without one cannot be evaluated (evalSpecOf's 400)
       const kindOf = new Map<string, string>();
       for (const id of input.variantIds) {
         const v = deps.variants.get(id);
         kindOf.set(id, evalSpecOf(db, v.workflowId).kind);
         if (v.buildStatus !== 'built' || v.builtHash !== v.skillsHash) {
-          throw new HttpError(400, `variant ${v.name} 还没有按当前内容构建成功`);
+          throw new HttpError(400, `Variant ${v.name} has not been built from its current content`);
         }
       }
       for (const id of input.taskIds) {
         const task = db.select().from(tasks).where(eq(tasks.id, id)).get();
-        if (task === undefined) throw new HttpError(400, `task 不存在：${id}`);
+        if (task === undefined) throw new HttpError(400, `Task not found: ${id}`);
         for (const [variantId, kind] of kindOf) {
           if (task.kind !== kind) {
             const v = deps.variants.get(variantId);
             throw new HttpError(
               400,
-              `task ${id} 的评测类型是 ${task.kind}，variant ${v.name} (${v.workflowId}) 的评测类型是 ${kind}：只能在评测类型相同的 task 上运行`,
+              `Task ${id} has eval kind ${task.kind} and variant ${v.name} (${v.workflowId}) has eval kind ${kind}: a variant runs only on tasks of the same eval kind`,
             );
           }
         }
@@ -360,7 +365,7 @@ export function createRuns(deps: RunnerDeps) {
     getRun(id: string): RunDetail {
       const row = runRow(id);
       const [summary] = summaries([row]);
-      if (summary === undefined) throw new Error(`run ${id} 没有摘要`);
+      if (summary === undefined) throw new Error(`Run ${id} has no summary`);
       const driver = drivers.get(id);
       const artifactRows = db.select().from(artifacts).where(eq(artifacts.runId, id)).all();
       const location = (kind: string) =>
@@ -389,8 +394,9 @@ export function createRuns(deps: RunnerDeps) {
         friction: artifactRows
           .filter((a) => a.kind === 'friction')
           .map((a) => {
-            // friction 产物写入时总带 issue 标题（runs/records.ts 的 upsertFriction）
-            if (a.snapshot === null) throw new Error(`friction 产物 ${a.location} 没有标题`);
+            // Friction artifacts are always written with an issue title (upsertFriction in runs/records.ts)
+            if (a.snapshot === null)
+              throw new Error(`Friction artifact ${a.location} has no title`);
             return { url: a.location, title: a.snapshot };
           }),
       };
@@ -422,7 +428,7 @@ export function createRuns(deps: RunnerDeps) {
         events.publish({ type: 'run.status', runId: id, status: 'cancelled' });
         return;
       }
-      // 正在评分（grading，或取消后按已写出的产物评分）时取消评分
+      // Cancel grading while grading (grading, or grading the artifacts written after a cancel)
       const driver = drivers.get(id);
       if (driver?.gradingCancellable === true) {
         await driver.cancel();
@@ -431,22 +437,25 @@ export function createRuns(deps: RunnerDeps) {
       await driverOf(id).cancel();
     },
 
-    // Contracts 7.12：只对终态的 run 可用；status 与评分保持原样
+    // Contracts 7.12: only for runs in a final state; status and grading stay as they are
     setInvalid(id: string, reason: string | null) {
       const row = runRow(id);
       if (!terminalStatuses.has(row.status)) {
-        throw new HttpError(409, `run ${id} 还没有结束（${row.status}），不能标记有效性`);
+        throw new HttpError(
+          409,
+          `Run ${id} has not finished (${row.status}); validity cannot be marked`,
+        );
       }
       db.update(runs).set({ invalidReason: reason }).where(eq(runs.id, id)).run();
       events.publish({ type: 'run.status', runId: id, status: row.status });
     },
 
-    // Contracts 10：同一 batch 中为同一 task × variant 新建一个 run 并进入队列，原 run 不变。
-    // variant 在建 batch 时已冻结，直接复用
+    // Contracts 10: create a new run for the same task × variant in the same batch and queue it; the original run is
+    // unchanged. The variant was frozen when the batch was created and is reused
     rerun(id: string): RunSummary {
       const row = runRow(id);
       if (!terminalStatuses.has(row.status)) {
-        throw new HttpError(409, `run ${id} 还没有结束（${row.status}），不能重跑`);
+        throw new HttpError(409, `Run ${id} has not finished (${row.status}); it cannot be rerun`);
       }
       const rerunId = newId('r');
       db.transaction((tx) => {
@@ -462,7 +471,7 @@ export function createRuns(deps: RunnerDeps) {
           )
           .get();
         if (typeof last?.repeatIndex !== 'number') {
-          throw new Error(`batch ${row.batchId} 中没有 run ${id}`);
+          throw new Error(`Batch ${row.batchId} has no run ${id}`);
         }
         tx.insert(runs)
           .values({
@@ -481,16 +490,16 @@ export function createRuns(deps: RunnerDeps) {
       events.publish({ type: 'run.status', runId: rerunId, status: 'queued' });
       pump();
       const [summary] = summaries([runRow(rerunId)]);
-      if (summary === undefined) throw new Error(`run ${rerunId} 没有摘要`);
+      if (summary === undefined) throw new Error(`Run ${rerunId} has no summary`);
       return summary;
     },
 
-    // 测试与关闭服务时等待全部进行中的 run 结束
+    // Tests and service shutdown wait for every run in progress to finish
     active(): string[] {
       return [...drivers.keys()];
     },
 
-    // 服务关闭时结束全部 claude 子进程；排队中的 run 保持 queued，下次启动继续
+    // Service shutdown stops every claude child process; queued runs stay queued and continue at the next start
     async shutdown() {
       stopped = true;
       await Promise.all([...drivers.values()].map((d) => d.shutdown()));

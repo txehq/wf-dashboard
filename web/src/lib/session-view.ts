@@ -1,8 +1,8 @@
 import { useSyncExternalStore } from 'react';
 import type { SessionEngine } from '@/lib/sessions-api';
 
-// Sessions 页面的视图"Claude Code | Codex"（Contracts 25.1）：选择记在 localStorage，默认 Claude Code；
-// Sessions 页面与"导入本机 session"选择框共用
+// The Sessions page view "Claude Code | Codex" (Contracts 25.1): the choice is kept in localStorage, Claude Code
+// by default; shared by the Sessions page and the "Import local sessions" picker
 const KEY = 'wfd.sessions.engine';
 const listeners = new Set<() => void>();
 

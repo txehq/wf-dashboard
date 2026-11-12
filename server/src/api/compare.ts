@@ -19,10 +19,10 @@ import {
 } from '../grading/schema.js';
 import type { Variants } from '../variants/index.js';
 
-const NotFound = createError<[string, string]>('COMPARE_NOT_FOUND', '没有 %s：%s', 404);
-const NotGraded = createError<[string]>('COMPARE_RUN_NOT_GRADED', 'run %s 尚未评分', 404);
+const NotFound = createError<[string, string]>('COMPARE_NOT_FOUND', 'No %s: %s', 404);
+const NotGraded = createError<[string]>('COMPARE_RUN_NOT_GRADED', 'Run %s is not graded yet', 404);
 
-// 逗号分隔的 id 列表，去重并保持顺序
+// Comma-separated id list, deduplicated in order
 const IdList = z
   .string()
   .transform((s) => [...new Set(s.split(',').map((x) => x.trim()))])
@@ -31,7 +31,7 @@ const IdList = z
 const Query = z.object({
   variants: IdList,
   tasks: IdList,
-  // Contracts 16.5：按 variant 或按 (variant, model) 分组
+  // Contracts 16.5: group by variant or by (variant, model)
   groupBy: z.enum(compareGroupings).default('variant'),
   includeIntervened: z.enum(['true', 'false']).default('false'),
   includeCrossRef: z.enum(['true', 'false']).default('false'),
@@ -82,7 +82,7 @@ export function compareRoutes({ db, variants: variantsModule }: { db: Db; varian
       },
     );
 
-    // 可对比的全部 run（含取消后评分过的），页面据此决定默认选择、空状态与产物并排的候选
+    // All comparable runs (including ones graded after cancellation); the page uses them for the default selection, empty state and side-by-side artifact candidates
     app.get('/api/compare/runs', { schema: { response: { 200: z.array(CompareRun) } } }, () =>
       db
         .select({
@@ -107,7 +107,7 @@ export function compareRoutes({ db, variants: variantsModule }: { db: Db; varian
         })),
     );
 
-    // 一个已评分 run 的产物快照与 PR，供产物并排
+    // Artifact snapshots and PR of one graded run, for side-by-side artifacts
     app.get(
       '/api/compare/runs/:id/artifacts',
       { schema: { params: z.object({ id: z.string() }), response: { 200: RunArtifacts } } },
@@ -148,7 +148,7 @@ export function compareRoutes({ db, variants: variantsModule }: { db: Db; varian
       },
     );
 
-    // 两个 variant 之间 skills/ 的逐文件 diff
+    // Per-file diff of skills/ between two variants
     app.get(
       '/api/compare/skill-diff',
       {

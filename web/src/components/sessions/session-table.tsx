@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import { OpenInLiveButton } from '@/components/live/open-in-live';
+import { ImportProblemBadge } from '@/components/sessions/import-problem';
 import { PurposeBadge, WorkflowBadges } from '@/components/sessions/workflow-badges';
+import { HostLabel } from '@/components/ssh/ssh-parts';
 import { tableBindingNote } from '@/lib/analyses-api';
 import {
   durationBetween,
@@ -15,10 +17,10 @@ import {
 import type { SessionSummary } from '@/lib/sessions-api';
 import { cn } from '@/lib/utils';
 
-// 价格表中没有这个模型时只记 token（Contracts 25.2）
-export const UNPRICED = '价格表中没有这个 session 用的模型，只记 token';
-// 本机配置的 session 不绑定 variant（Contracts 25.4）
-export const LOCAL_NO_BINDING = '本机配置的 session 不绑定 variant';
+// Models missing from the price table only count tokens (Contracts 25.2)
+export const UNPRICED = "This session's model is not in the price table; only tokens are counted";
+// Local config sessions are not bound to a variant (Contracts 25.4)
+export const LOCAL_NO_BINDING = 'Local config sessions are not bound to a variant';
 
 type ColumnKey =
   | 'select'
@@ -32,28 +34,30 @@ type ColumnKey =
   | 'variant'
   | 'live';
 
-// 表格固定宽度（Contracts 18.1）。内容宽度可以预知的列（勾选框、时间、数字、workflow 标记、variant、Live 图标）
-// 为固定宽度，标题 23%、目录 11%（合计不到 35%，标题是最宽的一列）；表格更宽时多出的宽度由浏览器按比例分给各列。
-// run 的 session 在 variant 一列的第二行显示 run（run 的 session 绑定的就是 run 所用的 variant），Live 交互的不写绑定种类
-// （28.5）；所有行都为空的列不显示
+// Fixed table layout (Contracts 18.1). Columns with predictable content width (checkbox, time, numbers,
+// workflow badges, variant, Live icon) have fixed widths; title 23%, directory 11% (under 35% together, title is
+// the widest column); a wider table spreads the extra width proportionally. A run's session shows the run on
+// the second line of the variant column (a run's session is bound to the variant the run used); Live interaction
+// sessions show no binding kind (28.5); columns empty in every row are hidden
 const columns: { key: ColumnKey; label: string; width: string; right?: boolean }[] = [
-  { key: 'select', label: '选择', width: '2.25rem' },
-  { key: 'title', label: '标题', width: '23%' },
-  { key: 'cwd', label: '目录', width: '11%' },
-  { key: 'time', label: '时间与时长', width: '5.5rem' },
-  { key: 'requests', label: '请求', right: true, width: '3.5rem' },
-  { key: 'tokens', label: 'token', right: true, width: '4rem' },
-  { key: 'cost', label: '花费', right: true, width: '4rem' },
-  { key: 'workflow', label: 'workflow', width: '4.5rem' },
-  { key: 'variant', label: 'variant', width: '7rem' },
-  { key: 'live', label: '交互区', width: '2.75rem' },
+  { key: 'select', label: 'Select', width: '2.25rem' },
+  { key: 'title', label: 'Title', width: '23%' },
+  { key: 'cwd', label: 'Directory', width: '11%' },
+  { key: 'time', label: 'Time', width: '5.5rem' },
+  { key: 'requests', label: 'Requests', right: true, width: '3.5rem' },
+  { key: 'tokens', label: 'Tokens', right: true, width: '4rem' },
+  { key: 'cost', label: 'Cost', right: true, width: '4rem' },
+  { key: 'workflow', label: 'Workflow', width: '4.5rem' },
+  { key: 'variant', label: 'Variant', width: '7rem' },
+  { key: 'live', label: 'Workspace', width: '2.75rem' },
 ];
-// 不显示列名、只给读屏的列（勾选框一列的表头是本页的勾选框）
+// Columns without a visible header, for screen readers only (the checkbox column's header is the page checkbox)
 const hiddenLabel = new Set<ColumnKey>(['live']);
 
 const emptyWorkflow = (s: SessionSummary) => s.purpose === null && s.workflows.length === 0;
 
-// 所有行都为空的列：workflow 列都没有 workflow 与用途；variant 列都是本机配置（不绑定）
+// Columns empty in every row: no workflow or purpose in the workflow column; all local config (unbound) in the
+// variant column
 function emptyColumns(sessions: SessionSummary[]): Set<ColumnKey> {
   const empty = new Set<ColumnKey>();
   if (sessions.length === 0) return empty;
@@ -68,19 +72,19 @@ function cells(
   disabled: boolean,
   onToggle: () => void,
 ): Record<ColumnKey, ReactNode> {
-  const title = session.title ?? '（没有用户消息）';
-  const duration = `至 ${formatDateTime(session.endedAt)} · ${formatDuration(
+  const title = session.title ?? '(no user message)';
+  const duration = `to ${formatDateTime(session.endedAt)} · ${formatDuration(
     durationBetween(session.startedAt, session.endedAt),
   )}`;
   const note = tableBindingNote(session);
   return {
     select: (
       <td key="select" className="py-2.5 pl-3">
-        {/* 在整行链接的覆盖层之上 */}
+        {/* Above the whole-row link overlay */}
         <input
           type="checkbox"
           className="relative z-10 size-4"
-          aria-label={`选择 session ${session.id.slice(0, 8)}`}
+          aria-label={`Select session ${session.id.slice(0, 8)}`}
           checked={selected}
           disabled={disabled}
           onChange={onToggle}
@@ -100,11 +104,12 @@ function cells(
           <span
             className="mt-0.5 inline-block rounded border px-1.5 py-0.5 text-xs text-muted-foreground"
             data-testid="session-archived"
-            title={`归档于 ${formatDateTime(session.archivedAt)}`}
+            title={`Archived ${formatDateTime(session.archivedAt)}`}
           >
-            已归档
+            Archived
           </span>
         )}
+        {session.importProblem !== null && <ImportProblemBadge problem={session.importProblem} />}
       </td>
     ),
     cwd: (
@@ -112,8 +117,10 @@ function cells(
         <p className="truncate" title={session.cwd ?? ''} data-testid="session-cwd">
           {session.cwd ?? '—'}
         </p>
-        <p className="truncate" title={session.id}>
-          {session.id.slice(0, 8)}
+        <p className="flex min-w-0 items-center gap-1.5" title={session.id}>
+          <span className="shrink-0">{session.id.slice(0, 8)}</span>
+          {/* Session from an SSH host (Contracts 31.6): the directory is remote */}
+          {session.host !== null && <HostLabel label={session.host.label} className="font-sans" />}
         </p>
       </td>
     ),
@@ -173,7 +180,7 @@ function cells(
             —
           </span>
         ) : session.variant === null ? (
-          <span className="text-muted-foreground">未绑定</span>
+          <span className="text-muted-foreground">Not bound</span>
         ) : (
           <>
             <p className="truncate font-medium" title={session.variant.name}>
@@ -205,7 +212,7 @@ function cells(
   };
 }
 
-// 表头的勾选框：选中或取消本页，部分选中时为半选（Contracts 25.1）
+// Header checkbox: selects or clears this page, indeterminate when partly selected (Contracts 25.1)
 function PageCheckbox({
   state,
   disabled,
@@ -219,7 +226,7 @@ function PageCheckbox({
     <input
       type="checkbox"
       className="size-4 align-middle"
-      aria-label="选择本页的 session"
+      aria-label="Select sessions on this page"
       data-testid="session-select-page"
       ref={(el) => {
         if (el !== null) el.indeterminate = state === 'some';
@@ -241,7 +248,7 @@ export function SessionTable({
 }: {
   sessions: SessionSummary[];
   isSelected: (id: string) => boolean;
-  // 选中全部、全部的 id 还没读到时不能改选择
+  // With all selected, the selection cannot change until all ids have loaded
   disabled: boolean;
   pageState: 'none' | 'some' | 'all';
   onToggle: (session: SessionSummary) => void;
@@ -274,7 +281,7 @@ export function SessionTable({
                 ) : hiddenLabel.has(c.key) ? (
                   <span className="sr-only">{c.label}</span>
                 ) : c.key === 'variant' && sessions.some((s) => s.runId !== null) ? (
-                  'variant 与 run'
+                  'Variant and run'
                 ) : (
                   c.label
                 )}

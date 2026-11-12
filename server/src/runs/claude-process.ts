@@ -10,14 +10,14 @@ export interface ClaudeProcessOptions {
   sessionId: string;
   cwd: string;
   env: Record<string, string>;
-  // variant 的 --model、--effort、--mcp-config
+  // The variant's --model, --effort, --mcp-config
   variantArgs: string[];
   sandboxProfile: string;
-  // events.jsonl（stdin 与 stdout 的全部消息）与 claude.stderr.log 写在这里
+  // events.jsonl (every stdin and stdout message) and claude.stderr.log are written here
   logDir: string;
   onEvent: (event: StreamEvent) => void;
   onTurn: (transition: TurnTransition) => void;
-  // stdout 无法解析等致命错误；由 run 记为失败
+  // Fatal errors such as unparsable stdout; the run records them as failed
   onError: (error: Error) => void;
 }
 
@@ -26,7 +26,7 @@ export interface Exit {
   signal: NodeJS.Signals | null;
 }
 
-// System Design 第 7 节的启动参数
+// Launch arguments from System Design section 7
 export function claudeArgs(sessionId: string, variantArgs: string[]): string[] {
   return [
     '-p',
@@ -45,7 +45,7 @@ export function claudeArgs(sessionId: string, variantArgs: string[]): string[] {
   ];
 }
 
-// 常驻的 claude -p stream-json 子进程，包在 sandbox-exec 中：stdin 写 JSON 行，stdout 逐行解析事件
+// Long-lived claude -p stream-json subprocess wrapped in sandbox-exec: JSON lines on stdin, events parsed line by line from stdout
 export class ClaudeProcess {
   readonly tracker: TurnTracker;
   readonly exited: Promise<Exit>;
@@ -61,7 +61,7 @@ export class ClaudeProcess {
     this.tracker = new TurnTracker(opts.onTurn);
     const args = claudeArgs(opts.sessionId, opts.variantArgs);
     this.record('argv', ['claude', ...args]);
-    // sandbox-exec 以 exec 方式启动 claude，子进程 pid 即 claude
+    // sandbox-exec execs claude, so the child pid is claude
     this.child = spawn('sandbox-exec', ['-p', opts.sandboxProfile, 'claude', ...args], {
       cwd: opts.cwd,
       env: opts.env,
@@ -79,7 +79,7 @@ export class ClaudeProcess {
     this.child.on('error', (error) => {
       opts.onError(error);
     });
-    // EPIPE：子进程已关闭 stdin 或正在退出，退出本身由 exited 报告；其余写入错误让 run 失败（回答没有送达）
+    // EPIPE: the child closed stdin or is exiting, and exited reports the exit; other write errors fail the run (the answer was not delivered)
     this.child.stdin.on('error', (error: NodeJS.ErrnoException) => {
       this.record('stdin-error', error.message);
       if (error.code !== 'EPIPE') opts.onError(error);
@@ -98,20 +98,20 @@ export class ClaudeProcess {
   }
 
   private onLine(line: string) {
-    // 出现过无法解析的输出之后不再处理后续行：run 已经失败，不能再回答 control_request
+    // After unparsable output, later lines are ignored: the run has failed and must not answer control_request any more
     if (this.broken || line.trim() === '') return;
     let event: StreamEvent;
     try {
       event = parseStreamEvent(JSON.parse(line));
     } catch (error) {
-      // 无法解析的输出让整个 run 失败，原始行写入错误信息
+      // Unparsable output fails the whole run, with the raw line in the error message
       this.broken = true;
       this.opts.onError(
-        new Error(`claude stdout 无法解析：${line.slice(0, 500)}`, { cause: error }),
+        new Error(`Cannot parse claude stdout: ${line.slice(0, 500)}`, { cause: error }),
       );
       return;
     }
-    // 思考进度事件数量很多，不写日志也不转发
+    // Thinking progress events are numerous; neither logged nor forwarded
     if (isType(event, 'system') && event.subtype === 'thinking_tokens') return;
     this.record('out', event);
     this.tracker.observe(event);
@@ -126,7 +126,7 @@ export class ClaudeProcess {
   }
 
   private write(message: unknown) {
-    if (this.stdinClosed) throw new Error('stdin 已关闭，不能再写入');
+    if (this.stdinClosed) throw new Error('stdin is closed, cannot write');
     this.record('in', message);
     this.child.stdin.write(`${JSON.stringify(message)}\n`);
   }
@@ -141,7 +141,7 @@ export class ClaudeProcess {
     });
   }
 
-  // 回答 control_request.can_use_tool：allow 带 updatedInput，deny 带 message
+  // Answers control_request.can_use_tool: allow carries updatedInput, deny carries message
   respond(requestId: string, response: Record<string, unknown>) {
     this.write({
       type: 'control_response',
@@ -150,7 +150,7 @@ export class ClaudeProcess {
     this.tracker.controlAnswered(requestId);
   }
 
-  // interrupt 控制消息；CLI 回 control_response 后返回
+  // interrupt control message; returns once the CLI sends control_response
   interrupt(): Promise<void> {
     const requestId = `req_${randomUUID()}`;
     const answered = new Promise<void>((resolve) => this.controlWaiters.set(requestId, resolve));

@@ -2,24 +2,35 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { BookOpen, GitBranch, Link2, SquareKanban } from 'lucide-react';
 import { Popover } from 'radix-ui';
 import { Link } from 'react-router';
+import { HostLabel } from '@/components/ssh/ssh-parts';
 import { Button } from '@/components/ui/button';
 import { openInFinder } from '@/lib/open-api';
 import { type SessionDetail, sessionLinksQuery } from '@/lib/sessions-api';
 
-// Session 详情头部的工作区、绑定的 variant 与"绑定的对象"（Contracts 18.2）
+// Working directory, bound variant and linked items in the Session detail header (Contracts 18.2)
 
-// 工作区：点击在访达中打开 session 记录的 cwd；目录不存在时显示原文
+// Working directory: click to open the session's recorded cwd in Finder; if the directory is missing, the
+// error is shown as returned
 export function WorkspaceLink({ session }: { session: SessionDetail }) {
   const open = useMutation({
     mutationFn: () => openInFinder({ kind: 'session-cwd', id: session.id }),
   });
   if (session.cwd === null) return <span>—</span>;
+  // Session from an SSH host (Contracts 31.6): the directory is remote and does not open in Finder
+  if (session.host !== null) {
+    return (
+      <span className="inline-flex flex-wrap items-center gap-2" data-testid="session-workspace">
+        <HostLabel label={session.host.label} />
+        <span className="font-mono">{session.cwd}</span>
+      </span>
+    );
+  }
   return (
     <span className="inline-flex flex-wrap items-center gap-2">
       <button
         type="button"
         className="font-mono underline-offset-2 hover:text-foreground hover:underline"
-        title="在访达中打开"
+        title="Open in Finder"
         data-testid="session-workspace"
         onClick={() => {
           open.mutate();
@@ -37,7 +48,7 @@ export function WorkspaceLink({ session }: { session: SessionDetail }) {
 }
 
 export function VariantLink({ session }: { session: SessionDetail }) {
-  if (session.variant === null) return <span>未绑定</span>;
+  if (session.variant === null) return <span>Not bound</span>;
   if (session.variant.deleted) {
     return <span data-testid="session-variant-link">{session.variant.name}</span>;
   }
@@ -52,7 +63,7 @@ export function VariantLink({ session }: { session: SessionDetail }) {
   );
 }
 
-// 没有任何绑定对象时不显示按钮
+// No button when there are no linked items
 export function SessionLinksButton({ sessionId }: { sessionId: string }) {
   const links = useQuery(sessionLinksQuery(sessionId));
   if (links.isError) {
@@ -71,7 +82,7 @@ export function SessionLinksButton({ sessionId }: { sessionId: string }) {
       <Popover.Trigger asChild>
         <Button variant="outline" size="sm" data-testid="session-links-open">
           <Link2 />
-          绑定的对象
+          Linked items
         </Button>
       </Popover.Trigger>
       <Popover.Portal>

@@ -17,26 +17,31 @@ import { DotStrip } from '@/pages/compare-dots';
 
 function cellOf(result: CompareResult, variantId: string, taskId: string): CompareCell {
   const cell = result.cells.find((c) => c.variantId === variantId && c.taskId === taskId);
-  if (cell === undefined) throw new Error(`对比结果中没有 ${variantId} × ${taskId}`);
+  if (cell === undefined) throw new Error(`Comparison result has no ${variantId} × ${taskId}`);
   return cell;
 }
 
-// 格子的主指标：有 rubric 时为总得分率，有隐藏测试时为通过率，按验收标准评分时为验收标准得分率
+// A cell's main metric: total score rate with a rubric, pass rate with hidden tests, acceptance criteria score rate when graded by criteria
 function mainOf(cell: CompareCell): Distribution {
   const q = cell.quality;
   const main = q.rubric?.total ?? q.passRate ?? q.criteriaRate;
-  if (main === null) throw new Error(`格子 ${cell.variantId} × ${cell.taskId} 没有质量指标`);
+  if (main === null)
+    throw new Error(`Cell ${cell.variantId} × ${cell.taskId} has no quality metric`);
   return main;
 }
 
-const mainLabel = { lfg: '总得分率', ic: '隐藏测试通过率', ic_criteria: '验收标准得分率' } as const;
+const mainLabel = {
+  lfg: 'Total score rate',
+  ic: 'Hidden test pass rate',
+  ic_criteria: 'Acceptance criteria score rate',
+} as const;
 
 function meanSd(d: Distribution, format: (x: number) => string): string {
   if (d.mean === null) return '—';
   return d.stdDev === null ? format(d.mean) : `${format(d.mean)} ± ${format(d.stdDev)}`;
 }
 
-// 相对基线的差值；任一边少于 2 次 run 时差值不可信，不上色
+// Difference from the baseline; with fewer than 2 runs on either side it is unreliable and not colored
 function Delta({
   base,
   current,
@@ -72,7 +77,7 @@ function Delta({
     >
       <Icon className="size-3.5" aria-hidden />
       {text}
-      {!reliable && !compact && <span>· run 少于 2 次，差值不可信</span>}
+      {!reliable && !compact && <span>· fewer than 2 runs, difference unreliable</span>}
     </span>
   );
 }
@@ -98,7 +103,7 @@ function ScoreCell({
 }) {
   const main = mainOf(cell);
   if (main.n === 0) {
-    return <p className="text-sm text-muted-foreground">没有已评分的 run</p>;
+    return <p className="text-sm text-muted-foreground">No graded runs</p>;
   }
   const label = mainLabel[qualityKind(cell.quality)];
   const reachedEnd = cell.quality.rubric === null ? cell.quality.reachedEnd : null;
@@ -110,13 +115,13 @@ function ScoreCell({
         </span>
         <span className="text-xs text-muted-foreground">
           {reachedEnd !== null && reachedEnd.ratio !== null
-            ? `到达终点 ${String(reachedEnd.values.filter((v) => v.reached).length)}/${String(main.n)} · `
+            ? `Endpoint reached ${String(reachedEnd.values.filter((v) => v.reached).length)}/${String(main.n)} · `
             : ''}
-          {main.n} 次 run
+          {main.n} {main.n === 1 ? 'run' : 'runs'}
         </span>
       </div>
       <span className="sr-only">{label}</span>
-      {!isBaseline && <Delta base={mainOf(base)} current={main} scale={100} unit=" 个百分点" />}
+      {!isBaseline && <Delta base={mainOf(base)} current={main} scale={100} unit=" pp" />}
       <DotStrip
         values={main.values.map((v) => ({
           ...v,
@@ -136,7 +141,7 @@ function ScoreCell({
 
 type RubricItem = CompareCell['rubricItems'][number];
 
-// 同一条目：rubric 修改过时，满分或说明不同的同名条目是不同的行
+// Same item: after a rubric edit, same-named items with a different max score or description are different rows
 const sameItem = (a: RubricItem, b: RubricItem) =>
   a.artifact === b.artifact &&
   a.itemId === b.itemId &&
@@ -145,7 +150,7 @@ const sameItem = (a: RubricItem, b: RubricItem) =>
 
 function LfgDetail({ cells, variants }: { cells: CompareCell[]; variants: SelectedVariant[] }) {
   const [base] = cells;
-  if (base === undefined) throw new Error('没有基线的格子');
+  if (base === undefined) throw new Error('No baseline cell');
   const items: RubricItem[] = [];
   for (const item of cells.flatMap((c) => c.rubricItems)) {
     if (!items.some((x) => sameItem(x, item))) items.push(item);
@@ -155,7 +160,7 @@ function LfgDetail({ cells, variants }: { cells: CompareCell[]; variants: Select
     <table className="w-full text-sm" data-testid="rubric-detail">
       <thead>
         <tr className="border-b text-left text-xs text-muted-foreground">
-          <th className="py-1.5 pr-3 font-medium">产物与 rubric 条目</th>
+          <th className="py-1.5 pr-3 font-medium">Output and rubric item</th>
           {variants.map((v) => (
             <th key={v.id} className="w-56 px-3 py-1.5 font-medium">
               {v.name}
@@ -168,14 +173,14 @@ function LfgDetail({ cells, variants }: { cells: CompareCell[]; variants: Select
           <Fragment key={artifact}>
             <tr className="border-b bg-muted/40">
               <th scope="row" className="py-1.5 pr-3 text-left font-medium">
-                {artifactLabel(artifact)} 得分率
+                {artifactLabel(artifact)} score rate
               </th>
               {cells.map((cell, i) => {
                 const rate = (c: CompareCell) => {
                   if (c.quality.rubric === null)
-                    throw new Error('rubric 行中出现没有 rubric 的格子');
+                    throw new Error('A cell without a rubric in a rubric row');
                   const found = c.quality.rubric.artifacts.find((a) => a.artifact === artifact);
-                  if (found === undefined) throw new Error(`格子中没有 ${artifact}`);
+                  if (found === undefined) throw new Error(`Cell has no ${artifact}`);
                   return found.rate;
                 };
                 return (
@@ -253,7 +258,7 @@ function IcDetail({ cells, variants }: { cells: CompareCell[]; variants: Selecte
       <tbody>
         <tr className="border-b">
           <th scope="row" className="py-1.5 pr-3 text-left font-medium">
-            各次 run
+            Runs
           </th>
           {cells.map((cell) => {
             const reached = new Map(
@@ -268,7 +273,7 @@ function IcDetail({ cells, variants }: { cells: CompareCell[]; variants: Selecte
                         {v.runId}
                       </Link>{' '}
                       {percent(v.value)} ·{' '}
-                      {reached.get(v.runId) === true ? '到达终点' : '未到达终点'}
+                      {reached.get(v.runId) === true ? 'Endpoint reached' : 'Endpoint not reached'}
                     </li>
                   ))}
                 </ul>
@@ -279,8 +284,8 @@ function IcDetail({ cells, variants }: { cells: CompareCell[]; variants: Selecte
         <tr>
           <th scope="row" className="py-1.5 pr-3 text-left font-medium">
             {cells[0] !== undefined && qualityKind(cells[0].quality) === 'ic_criteria'
-              ? '得分率范围'
-              : '通过率范围'}
+              ? 'Score rate range'
+              : 'Pass rate range'}
           </th>
           {cells.map((cell) => {
             const d = mainOf(cell);
@@ -291,7 +296,7 @@ function IcDetail({ cells, variants }: { cells: CompareCell[]; variants: Selecte
             );
           })}
         </tr>
-        {/* 没有隐藏测试的 ic task：每条验收标准的平均得分（满分 2） */}
+        {/* ic tasks without hidden tests: average score of each acceptance criterion (max 2) */}
         {(cells[0]?.criteriaItems ?? []).map((item) => (
           <tr
             key={`${item.itemId}\0${item.criterion}`}
@@ -341,7 +346,7 @@ function TaskRow({
   const [open, setOpen] = useState(false);
   const cells = variants.map((v) => cellOf(result, v.id, task.task.id));
   const [base] = cells;
-  if (base === undefined) throw new Error('没有选中的 variant');
+  if (base === undefined) throw new Error('No variant selected');
   const Icon = open ? ChevronDown : ChevronRight;
   return (
     <>
@@ -364,7 +369,7 @@ function TaskRow({
         </th>
         {cells.map((cell, i) => {
           const variant = variants[i];
-          if (variant === undefined) throw new Error('variant 与格子数量不一致');
+          if (variant === undefined) throw new Error('Variant and cell counts differ');
           return (
             <td key={cell.variantId} className="px-3 py-3" data-testid="score-cell">
               <ScoreCell
@@ -413,36 +418,37 @@ export function ScoreTable({
   sourceRef: Set<string>;
   cancelled: Set<string>;
 }) {
-  // 所选 task 属于同一个 workflow 的评测类型（Contracts 16.5）；按评分积木的主指标分组
+  // The selected tasks belong to one workflow's eval types (Contracts 16.5); grouped by the grading block's main metric
   const stage = `/${result.workflowId}`;
   const groups = [
     {
       kind: 'lfg',
-      title: `${stage} · 总得分率`,
+      title: `${stage} · Total score rate`,
       records: tasks.filter((t) => t.task.rubric !== undefined),
     },
     {
       kind: 'ic',
-      title: `${stage} · 隐藏测试通过率`,
+      title: `${stage} · Hidden test pass rate`,
       records: tasks.filter((t) => t.task.rubric === undefined && t.task.hiddenTests !== undefined),
     },
     {
       kind: 'ic_criteria',
-      title: `${stage} · 验收标准得分率（没有隐藏测试）`,
+      title: `${stage} · Acceptance criteria score rate (no hidden tests)`,
       records: tasks.filter((t) => t.task.rubric === undefined && t.task.hiddenTests === undefined),
     },
   ].filter((g) => g.records.length > 0);
   return (
     <div className="flex flex-col gap-2">
       <p className="text-xs text-muted-foreground">
-        均值 ± 标准差。横轴 0–100%：每个点是一次 run（空心为有人工干预，菱形为参考了其他
-        run，三角形为被取消的 run，点击打开详情），竖线为均值，横线为 ± 标准差。
+        Mean ± standard deviation. Axis 0–100%: each dot is a run (hollow: human intervened,
+        diamond: referenced other runs, triangle: cancelled; click to open it), the vertical line is
+        the mean, the horizontal line is ± standard deviation.
       </p>
       <div className="overflow-x-auto rounded-lg border">
         <table className="w-full text-sm" data-testid="score-table">
           <thead>
             <tr className="border-b bg-muted/40 text-left">
-              <th className="w-64 px-3 py-2 font-medium">task</th>
+              <th className="w-64 px-3 py-2 font-medium">Task</th>
               {variants.map((v, i) => (
                 <th key={v.id} className="min-w-56 px-3 py-2 font-medium">
                   <span className="flex items-center gap-2">
@@ -453,7 +459,7 @@ export function ScoreTable({
                     />
                     {v.name}
                     {i === 0 && (
-                      <span className="rounded border px-1.5 text-xs font-normal">基线</span>
+                      <span className="rounded border px-1.5 text-xs font-normal">Baseline</span>
                     )}
                   </span>
                 </th>

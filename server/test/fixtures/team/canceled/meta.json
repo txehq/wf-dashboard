@@ -1,0 +1,8 @@
+{
+  "scope": { "query": "okr-web shards run 7x slower on ARC runners", "state": "Canceled" },
+  "updatedAfter": "2026-10-05T17:47:54.752Z",
+  "issues": ["TXE-5635", "TXE-3243", "TXE-3512", "TXE-4646"],
+  "updatedSince": ["TXE-5635", "TXE-3243", "TXE-3512", "TXE-4646"],
+  "prs": ["https://github.com/txehq/txe/pull/3105"],
+  "recordedAt": "2026-11-04T04:55:36.027Z"
+}

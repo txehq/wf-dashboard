@@ -1,24 +1,24 @@
-# 每种行为归哪个阶段
+# Which stage each behavior belongs to
 
-每种行为只由一个阶段报告。属于别的阶段的行为，本阶段跳过；它影响到本阶段的统计时，在 detail 中写"见 <阶段名>"。
+Each behavior is reported by exactly one stage. Skip behaviors that belong to another stage; when one affects this stage's numbers, write "see <stage name>" in detail.
 
-| 行为                                                                                                                                                                 | 归属              |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| 阶段被跳过、乱序、重复进入；skill 该触发而没有触发、晚触发；调用了 skill 却没有执行它规定的步骤；skill 引用的文件没有读或只读一部分、同一 skill 文件反复读；过早结束 | process-adherence |
-| 这次任务自己的计划（工单、验收标准、Brief、plan、checklist、用户确认的设计）的步骤被跳过、乱序、悄悄改变、计划外多做；压缩或 resume 之后的偏离；忘记原目标           | plan-adherence    |
-| tool 错误、命令失败、权限拒绝、hook 失败、API 错误与限流、超时；出错后的重试、反复修改没有进展、绕路、卡住；整条失败链的时间与 token                                 | failures          |
-| 两次之间没有失败的重复读取、搜索、编辑、命令、子代理；压缩之后的重读；重新推导已经得出的结论                                                                         | repeated-work     |
-| 单次读入或输出过大、用不到的大结果、token 雪球、不必要的子代理、压缩后的缓存重建、skill description 的常驻成本                                                       | token-waste       |
-| 等待、轮询、状态检查、超时之外的长耗时、可以并行却串行、只想不做                                                                                                     | time-waste        |
-| 提问是否必要、是否简洁可点、该问没问；没有在先要求的纠正、打断、催促、不满；用户回复的用时                                                                           | user-interaction  |
-| 测试结果、没有证据的完成声明、改测试迁就代码、提交信息与改动不符、review 意见与 CI、评分失分、产物不满足 skill 的要求                                                | output-quality    |
-| 与用户在先的明确要求或指令文件相反的做法、互相矛盾的要求、越权的操作                                                                                                 | request-conflicts |
+| Behavior                                                                                                                                                                                                                                                                                               | Owner             |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------- |
+| A stage skipped, out of order or entered repeatedly; a skill that should have triggered and did not, or triggered late; a skill called without carrying out the steps it prescribes; files a skill references not read or only partly read, the same skill file read again and again; ending too early | process-adherence |
+| Steps of this task's own plan (ticket, acceptance criteria, Brief, plan, checklist, design the user confirmed) skipped, out of order, silently changed, or extra work beyond the plan; drift after compaction or resume; forgetting the original goal                                                  | plan-adherence    |
+| Tool errors, failed commands, permission denials, hook failures, API errors and rate limits, timeouts; retries after an error, repeated edits without progress, detours, getting stuck; the time and tokens of the whole failure chain                                                                 | failures          |
+| Repeated reads, searches, edits, commands and subagents with no failure in between; rereading after compaction; re-deriving conclusions already reached                                                                                                                                                | repeated-work     |
+| Single reads or outputs that are too large, large results never used, token snowballing, unnecessary subagents, cache rebuilds after compaction, the standing cost of skill descriptions                                                                                                               | token-waste       |
+| Waiting, polling, status checks, long durations other than timeouts, serial work that could run in parallel, thinking without acting                                                                                                                                                                   | time-waste        |
+| Whether questions were necessary, concise and easy to answer, questions that should have been asked and were not; corrections, interruptions, nudges and dissatisfaction not caused by an earlier request; how long the user took to reply                                                             | user-interaction  |
+| Test results, claims of completion without evidence, changing tests to fit the code, commit messages that do not match the changes, review comments and CI, grading point losses, artifacts that do not meet the skill's requirements                                                                  | output-quality    |
+| Doing the opposite of the user's earlier explicit request or of an instruction file, contradictory requests, actions beyond what was authorized                                                                                                                                                        | request-conflicts |
 
-边界上的几种：
+Cases on the boundary:
 
-- 失败后原样重试：failures（repeated-work 不再报告）。
-- 轮询与反复查状态：time-waste（repeated-work 不再报告）。
-- 失败链花掉的 token 与时间：只在 failures 中计算。
-- 最终仍然失败的测试或 check：output-quality；过程中失败又修好的：failures。
-- 用户纠正 agent：违反了用户此前明确说过的要求时归 request-conflicts，否则归 user-interaction。
-- 跳过的是 skill 规定的通用步骤：process-adherence；跳过的是这次任务计划中的一步：plan-adherence。
+- Retrying unchanged after a failure: failures (repeated-work does not report it).
+- Polling and repeatedly checking status: time-waste (repeated-work does not report it).
+- Tokens and time spent by a failure chain: counted only in failures.
+- Tests or checks that still fail at the end: output-quality; those that failed along the way and were fixed: failures.
+- The user correcting the agent: request-conflicts when the agent broke a request the user had stated explicitly before, otherwise user-interaction.
+- Skipping a general step the skill prescribes: process-adherence; skipping a step of this task's plan: plan-adherence.

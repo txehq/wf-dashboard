@@ -5,376 +5,376 @@ feature: r-20261009-i6vxt1
 updated: "2026-10-09"
 ---
 
-# 初中课堂离线网页计算器 — research
+# Junior high classroom offline web calculator — research
 
-**Status:** draft, parked at §6 step 3 (adversarial review not yet run; §8 not yet put to the decider) · **Date:** 2026-10-10 · **Author:** Claude (Opus 5.5), `/lfg` stage 2 · **Brief:** [[Brief]]（`Project Magi Eval/Features/r-20261009-i6vxt1/Brief.md`）
+**Status:** draft, parked at §6 step 3 (adversarial review not yet run; §8 not yet put to the decider) · **Date:** 2026-10-10 · **Author:** Claude (Opus 5.5), `/lfg` stage 2 · **Brief:** [[Brief]] (`Project Magi Eval/Features/r-20261009-i6vxt1/Brief.md`)
 
 ## 1. Context
 
-初一到初三的学生在机房（Windows 7，Chrome 109，经常断网）和家里用一个网页计算器算题，老师在投影上演示。结果要精确、整齐（`0.1+0.2` 显示 `0.3`，保留 10 位小数），写错时显示老师定的七种中文提示，并把出错位置标红；还要有键盘和屏幕按键输入、能保存 20 条的历史记录和投影模式。交付物是一个不依赖外部资源的 `.html` 文件，双击打开和放到学校内网网站上都能使用，2026-12-09 之前交付。仓库 `txehq/wfe-r-20261009-i6vxt1` 目前只有一行 `README.md`。
+Students in grades 7 to 9 use a web calculator to solve problems in the computer room (Windows 7, Chrome 109, often offline) and at home, and the teacher demonstrates it on a projector. Results must be precise and neat (`0.1+0.2` shows `0.3`, keeping 10 decimal places). When input is wrong, it shows the seven Chinese error messages the teacher specified and highlights the error position in red; it also has keyboard and on-screen button input, a history that saves 20 entries, and projection mode. The deliverable is a single `.html` file with no external dependencies, usable both when double-clicked and when placed on the school intranet website, delivered before 2026-12-09. The repository `txehq/wfe-r-20261009-i6vxt1` currently has only one line, `README.md`.
 
 ## 2. The tier call
 
-**标准级别。** 三个信号：
+**Standard level.** Three signals:
 
-- **有参考：** 网页计算器、十进制精确计算库、单文件打包都有成熟的做法和文档。
-- **歧义：** 剩下的都是老师可以直接回答的行为问题（§8）。
-- **影响范围：** 很小，一个离线的单文件，没有数据、金钱和线上环境。
+- **Reference available:** web calculators, decimal exact-arithmetic libraries, and single-file packaging all have mature practices and documentation.
+- **Ambiguity:** the rest are behavioural questions the teacher can answer directly (§8).
+- **Impact scope:** very small, an offline single file, with no data, money, or online environment.
 
-所有技术问题都通过定向查找和本机实测（§4.2）解决了，所以没有使用 Deep Research；§8 的产品问题交给老师在 `/decide` 投票中决定。
+All technical questions were resolved through targeted lookups and local testing (§4.2), so Deep Research was not used; the product questions in §8 are left for the teacher to decide in a `/decide` vote.
 
 ## 3. Local findings
 
 ### 3.1 Reuse
 
-- **代码：** 仓库里没有可以沿用的代码、测试、配置、CI、PR 模板或仓库说明文件。
-  - `git ls-files` → 只有 `README.md`；
-  - `gh api repos/txehq/wfe-r-20261009-i6vxt1/contents/.github` → 404；
-  - 组织没有共享的 `.github` 仓库：`gh api repos/txehq/.github/contents` → 404。
-- **GitHub 设置**（`gh api repos/txehq/wfe-r-20261009-i6vxt1`）：
-  - 已开启 Actions，允许所有 action（`.../actions/permissions` → `{"enabled":true,"allowed_actions":"all"}`）；
-  - 我们有管理员权限（`permissions.admin:true`），可以自己配置规则集和 Auto Merge。
-- **本机工具：**
-  - node v22.15.0、npm 10.9.2、pnpm 12.10.1；
-  - `codex-cli 0.162.0`，已登录；
-  - Playwright 缓存中的 Chromium 156.0.8078.4（`~/Library/Caches/ms-playwright/chromium-1248`）；
-  - 系统 Chrome 154.0.8037.98。
-- **本机已验证可用的 Chrome 109：** Playwright 1.29.2 在 macOS arm64 上可以下载并运行 Chromium 109.0.5414.46（§4.2，探针 P-1）。
+- **Code:** the repository has no reusable code, tests, configuration, CI, PR templates, or repository documentation files.
+  - `git ls-files` → only `README.md`;
+  - `gh api repos/txehq/wfe-r-20261009-i6vxt1/contents/.github` → 404;
+  - The organization has no shared `.github` repository: `gh api repos/txehq/.github/contents` → 404.
+- **GitHub settings** (`gh api repos/txehq/wfe-r-20261009-i6vxt1`):
+  - Actions is enabled, allowing all actions (`.../actions/permissions` → `{"enabled":true,"allowed_actions":"all"}`);
+  - We have admin permissions (`permissions.admin:true`), so we can configure rulesets and Auto Merge ourselves.
+- **Local tools:**
+  - node v22.15.0, npm 10.9.2, pnpm 12.10.1;
+  - `codex-cli 0.162.0`, logged in;
+  - Chromium 156.0.8078.4 in the Playwright cache (`~/Library/Caches/ms-playwright/chromium-1248`);
+  - System Chrome 154.0.8037.98.
+- **Chrome 109 verified to work on this machine:** Playwright 1.29.2 can download and run Chromium 109.0.5414.46 on macOS arm64 (§4.2, probe P-1).
 
 ### 3.2 Coverage
 
-完整的功能要覆盖下面这些地方（每条都来自 brief 的“要做的功能”和 Done means）：
+The full feature must cover the following areas (each comes from the brief's "Features to build" and Done means):
 
-- **打开方式：**
-  - `file://` 双击打开（Chrome 109，断网）；
-  - `http(s)://` 网站打开；
-  - 当前版本的 Chrome 和 Edge；
-  - 手机和平板能显示完整、按键能点。
-- **输入：**
-  - 屏幕按键；
-  - 键盘，包括数字小键盘，主键盘和小键盘的回车都出结果；
-  - 粘贴；
-  - 中文输入法打出的全角字符。输入法正在选字时（`isComposing`）按回车，只是确认选字，不能触发计算。
-- **计算路径：** 原始文字 → 字符规范化（全角转半角，`× ÷` 转成运算符）→ 切分记号，每个记号带原文中的位置 → 按课本优先级解析 → 用 decimal 计算 → 格式化显示结果，或者显示提示语并标红出错范围。
-- **界面状态：**
-  - 空输入、正在输入；
-  - 显示结果；
-  - 七种出错提示，各自带标红；
-  - 历史为空、有 1 到 20 条、超过 20 条时挤掉最早的一条；
-  - 投影模式打开和关闭。
-- **历史记录：** 只记成功的计算；点一条，式子放回输入框；「清空历史」；关掉浏览器再打开仍在。
-- **不能发生的：**
-  - 任何网络请求。通过 `http(s)` 打开时，浏览器会自动请求 `/favicon.ico`，所以页面要内联一个 `data:` 图标；
-  - 任何数据收集；
-  - 分数和根号形式的结果；
-  - 三角函数和对数。`sin` 这类输入显示「有不认识的字：s」；
-  - 打印；
-  - 中文以外的界面文字。
+- **How to open it:**
+  - `file://` double-click to open (Chrome 109, offline);
+  - Opened from an `http(s)://` website;
+  - Current versions of Chrome and Edge;
+  - Phones and tablets show the full layout, and the keys are tappable.
+- **Input:**
+  - On-screen keys;
+  - Keyboard, including the number pad, where Enter on the main keyboard and Enter on the keypad both produce a result;
+  - Paste;
+  - Full-width characters typed with a Chinese input method. Pressing Enter while the IME is still selecting characters (`isComposing`) only confirms the selection and must not trigger a calculation.
+- **Calculation path:** raw text → character normalization (full-width to half-width, `× ÷` converted to operators) → tokenize, each token carrying its position in the original text → parse by textbook operator precedence → compute with decimal → format and show the result, or show the message and highlight the error range in red.
+- **UI states:**
+  - Empty input, typing in progress;
+  - Showing a result;
+  - Seven error messages, each with red highlighting;
+  - History empty, 1 to 20 entries, and over 20 entries, where the oldest one is pushed out;
+  - Projection mode on and off.
+- **History:** only successful calculations are recorded; clicking an entry puts the expression back in the input box; "Clear history"; entries persist after closing and reopening the browser.
+- **Things that must not happen:**
+  - Any network requests. When opened via `http(s)`, the browser automatically requests `/favicon.ico`, so the page must inline a `data:` icon;
+  - Any data collection;
+  - Results in fraction or square-root form;
+  - Trigonometric functions and logarithms. Input like `sin` shows "Unrecognized character: s";
+  - Printing;
+  - UI text in languages other than Chinese.
 
 ### 3.3 Gaps
 
-- **没有构建、测试和 CI：** 包管理器、构建工具、Chrome 109 目标、测试运行器、输出文件名都要在第一部分建立。
-- **自动合并的设置还没打开：** `allow_auto_merge:false`，`rulesets` → `[]`，`branches/main/protection` → 404，所以 `main` 没有任何必需检查。brief 的权限范围要求“代码检查和 CI 通过后经 Auto Merge 合并”，这需要：
-  - 打开 Auto Merge；
-  - 建一个规则集，要求通过 PR 合并、必需的状态检查全部通过、评审讨论全部解决。
-- **没有发布的地方：** `releases` → `[]`，没有 Pages。
-- **没有统计网络请求、测试持久化和截图的测试工具：** 都要在第一部分建立。
-- **测不了 Windows 7：** brief 把真机测试列为不做。Linux 和 macOS 上的 Chromium 109 用的是同一套 Blink/V8，Windows 特有的字体和输入法行为无法验证（风险 R1）。
+- **No build, test, or CI:** the package manager, build tool, Chrome 109 target, test runner, and output file names must all be set up in part one.
+- **Auto merge is not turned on yet:** `allow_auto_merge:false`, `rulesets` → `[]`, `branches/main/protection` → 404, so `main` has no required checks. The brief's permission scope requires "merge via Auto Merge after code checks and CI pass," which needs:
+  - Turn on Auto Merge;
+  - Create a ruleset that requires merging through a PR, all required status checks to pass, and all review conversations to be resolved.
+- **Nothing published:** `releases` → `[]`, no Pages.
+- **No test tools for network request counting, test persistence, and screenshots:** all must be set up in part one.
+- **Cannot test on Windows 7:** the brief rules out testing on real devices. Chromium 109 on Linux and macOS uses the same Blink/V8, so Windows-specific font and input method behavior cannot be verified (risk R1).
 
 ### 3.4 Machine history, corpus and Linear
 
-- **corpus：** `Project Magi Eval/` 下只有 `Features/`，没有 `Decisions/` 和 `Specs/`，没有约束这个功能的已定决定。
-- **Linear：** 没有这个功能编号的工单（2026-10-10 搜索 `r-20261009-i6vxt1`、`计算器`）。
-  - 同一个项目 Workflow Eval 下，有一个针对另一个仓库（`txehq/wfe-r-20261009-dqva52`）的计算器总工单 TXE-3776 及其子工单，状态都是 Todo。
-  - 它和这个功能属于不同的仓库和需求，两边的工单不需要关联。
-- **本机历史（`/history`）：** 没有在这个仓库里做过尝试的记录。
+- **corpus:** `Project Magi Eval/` only has `Features/`, with no `Decisions/` or `Specs/`, so there are no settled decisions constraining this feature.
+- **Linear:** no tickets for this feature ID (searched `r-20261009-i6vxt1` and `calculator` on 2026-10-10).
+  - Under the same project, Workflow Eval, there is a calculator umbrella ticket TXE-3776 for another repository (`txehq/wfe-r-20261009-dqva52`) and its sub-tickets, all in Todo status.
+  - It belongs to a different repository and requirement from this feature, so the tickets on the two sides don't need to be linked.
+- **Local history (`/history`):** No attempts recorded in this repository.
 
 ## 4. Web findings
 
-### 4.1 Targeted lookups（2026-10-10 查阅）
+### 4.1 Targeted lookups (looked up 2026-10-10)
 
-| # | 问题 | 结论 | 来源 |
+| # | Question | Conclusion | Source |
 |---|---|---|---|
-| W1 | 哪个 Playwright 版本自带 Chromium 109 | v1.29.0 自带 “Chromium 109.0.5414.46”；npm 上最新的 1.29 补丁版本是 1.29.2（`npm view @playwright/test@1.29.2 version`） | https://github.com/microsoft/playwright/releases/tag/v1.29.0 |
-| W2 | 有没有对应的官方 Docker 镜像 | `mcr.microsoft.com/playwright:v1.29.2-jammy`、`v1.29.2-focal` 都存在（manifest 请求返回 200） | `curl https://mcr.microsoft.com/v2/playwright/manifests/v1.29.2-jammy` |
-| W3 | 单文件打包 | vite-plugin-singlefile 2.3.3 把 JS 和 CSS 全部内联进 `index.html`，并自动设置合适的构建选项；在 `file://` 下 `localStorage` 可用；它的 peer 依赖支持 Vite 8 | https://github.com/richardtallent/vite-plugin-singlefile；`npm view vite-plugin-singlefile version peerDependencies` |
-| W4 | 构建工具版本 | Vite 8.3.4，Vitest 5.0.3 | `npm view vite version`、`npm view vitest version` |
-| W5 | 十进制计算库 | decimal.js 10.6.0：`Decimal.set({precision, rounding})`，默认的舍入方式是 `ROUND_HALF_UP`（四舍五入）；有 `sqrt()`、`pow()`（整数和非整数指数都支持，非整数指数用 `exp(y*ln(x))` 计算）、`toDecimalPlaces()`、`toSignificantDigits()`；指数超过 `maxE` 时结果变成 `Infinity` | https://mikemcl.github.io/decimal.js/ |
-| W6 | `file:` 网址下的 `localStorage` | MDN：行为“没有标准规定，各浏览器可能不同”，“当前浏览器似乎为每个 `file:` 网址各自提供一块存储”。这和 Chrome 109 上的实测结果不一致（P-1），本计划以实测为准 | https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage |
-| W7 | 现成的表达式库是否符合课本规则 | math.js 文档：`100 + 3%` 的结果是 `103`，`8 % 3` 是求余数，还支持一元加号（所以 `3++4` 能算出结果）。这三点都和老师定的规则冲突（`200+10%=200.1`；`%` 只表示百分号；`3++4` 显示「符号连在一起了」）。math.js 也不认识 `√` 这个字符 | https://mathjs.org/docs/expressions/syntax.html |
-| W8 | GitHub Release 能否使用中文文件名 | 文档：“GitHub renames asset filenames that have special characters, non-alphanumeric characters…”。实测上传 `计算器.html` 后，文件名变成了 `default.html`（P-3） | https://docs.github.com/en/rest/releases/assets?apiVersion=2022-11-28 |
+| W1 | Which Playwright version bundles Chromium 109 | v1.29.0 bundles "Chromium 109.0.5414.46"; the latest 1.29 patch version on npm is 1.29.2 (`npm view @playwright/test@1.29.2 version`) | https://github.com/microsoft/playwright/releases/tag/v1.29.0 |
+| W2 | Is there a matching official Docker image | `mcr.microsoft.com/playwright:v1.29.2-jammy` and `v1.29.2-focal` both exist (manifest request returns 200) | `curl https://mcr.microsoft.com/v2/playwright/manifests/v1.29.2-jammy` |
+| W3 | Single-file bundling | vite-plugin-singlefile 2.3.3 inlines all JS and CSS into `index.html` and automatically sets suitable build options; `localStorage` works under `file://`; its peer dependencies support Vite 8 | https://github.com/richardtallent/vite-plugin-singlefile; `npm view vite-plugin-singlefile version peerDependencies` |
+| W4 | Build tool versions | Vite 8.3.4, Vitest 5.0.3 | `npm view vite version`, `npm view vitest version` |
+| W5 | Decimal arithmetic library | decimal.js 10.6.0: `Decimal.set({precision, rounding})`; the default rounding mode is `ROUND_HALF_UP` (round half up); it has `sqrt()`, `pow()` (supports both integer and non-integer exponents; non-integer exponents are computed with `exp(y*ln(x))`), `toDecimalPlaces()`, `toSignificantDigits()`; when the exponent exceeds `maxE`, the result becomes `Infinity` | https://mikemcl.github.io/decimal.js/ |
+| W6 | `localStorage` under `file:` URLs | MDN: the behavior is "not specified by any standard and may differ between browsers", and "current browsers seem to provide a separate storage area for each `file:` URL". This disagrees with the measured result in Chrome 109 (P-1); this plan follows the measurement | https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage |
+| W7 | Do existing expression libraries follow the textbook rules | math.js docs: `100 + 3%` gives `103`, `8 % 3` is the remainder, and it supports unary plus (so `3++4` evaluates). All three conflict with the teacher's rules (`200+10%=200.1`; `%` means only percent; `3++4` shows "signs are run together"). math.js also does not recognize the `√` character | https://mathjs.org/docs/expressions/syntax.html |
+| W8 | Can GitHub Release use Chinese filenames | Docs: "GitHub renames asset filenames that have special characters, non-alphanumeric characters...". Measured: after uploading `calculator.html`, the filename became `default.html` (P-3) | https://docs.github.com/en/rest/releases/assets?apiVersion=2022-11-28 |
 
-### 4.2 Probes run on this machine（`.research/probe/`，2026-10-10）
+### 4.2 Probes run on this machine (`.research/probe/`, 2026-10-10)
 
-| # | 探针 | 结果 |
+| # | Probe | Result |
 |---|---|---|
-| P-1 | `persist.mjs`：Playwright 1.29.2 下载的 Chromium 109.0.5414.46，使用持久的浏览器配置目录（`launchPersistentContext`）。打开 `a/write.html` 写入，关闭浏览器，再打开；然后打开另一个目录里的 `b/read.html` | 第二次打开时读到 `before=written-by-a`，说明关闭浏览器后数据仍然保留；`b/read.html` 读到 `written-by-a`，`location.origin` 是 `file://`，说明**所有本地文件共用同一块 `localStorage`**。另外，页面本身的 `file://` 地址也会出现在 `request` 事件里 |
-| P-2 | `singlefile.mjs`：用 Vite 8.3.4、vite-plugin-singlefile 2.3.3、decimal.js 10.6.0 和 `build.target: 'chrome109'` 构建一个页面，在 Chromium 109 上断网（`offline: true`）后用 `file://` 打开 | 输出 33.24 kB，只有一个内联的 `<script type="module">`，文件里没有任何 `http` 字样；运行结果：`0.1+0.2` → `0.3`、`1/3` → `0.3333333333`、`√2` → `1.4142135624`、`2^50` → `1.1258999068e+15`；`localStorage` 可用；除页面本身之外的请求数为 0，没有报错 |
-| P-3 | 在本仓库建一个草稿 Release，上传 `计算器.html`，读出文件名后删除 | 文件名被改成 `default.html`；草稿已删除，`releases` 数量是 0 |
+| P-1 | `persist.mjs`: Chromium 109.0.5414.46 downloaded by Playwright 1.29.2, using a persistent browser profile directory (`launchPersistentContext`). Open `a/write.html` and write, close the browser, then open again; then open `b/read.html` in another directory | On the second open it read `before=written-by-a`, showing data persisted after the browser was closed; `b/read.html` read `written-by-a`, and `location.origin` is `file://`, showing **all local files share the same `localStorage`**. In addition, the page's own `file://` address also appears in `request` events |
+| P-2 | `singlefile.mjs`: Built a page with Vite 8.3.4, vite-plugin-singlefile 2.3.3, decimal.js 10.6.0 and `build.target: 'chrome109'`, then opened it via `file://` on Chromium 109 with the network offline (`offline: true`) | Output 33.24 kB, with only one inlined `<script type="module">`, and no `http` string anywhere in the file; run results: `0.1+0.2` → `0.3`, `1/3` → `0.3333333333`, `√2` → `1.4142135624`, `2^50` → `1.1258999068e+15`; `localStorage` works; requests other than the page itself: 0; no errors |
+| P-3 | Create a draft Release in this repository, upload `calculator.html`, read back the filename, then delete it | Filename was changed to `default.html`; the draft was deleted, and the `releases` count is 0 |
 
 ## 5. Recommendations
 
-1. **使用的技术：** TypeScript，Vite 8.3.4，再加 vite-plugin-singlefile 2.3.3，`build.target: 'chrome109'`。不使用任何界面框架，直接写原生 DOM。
-   - **为什么：** 构建出的单个 HTML 已在 Chromium 109 的 `file://` 下断网运行成功，网络请求为 0（P-2）。页面只有一个输入框、一组按键、结果行、提示行和历史列表，原生 DOM 就能完成，打出来的文件也小。
-   - **限制：** 源码中不能使用 Chrome 109 不支持的 CSS，例如 CSS 嵌套（Chrome 112 开始支持）和 `color-mix()`（111）。因为 CSS 不会被转译，测试要在 Chromium 109 上截图检查。
-2. **精确计算：** decimal.js 10.6.0（W5，P-2）。
-   - 设置 `precision: 40`、`rounding: ROUND_HALF_UP`；
-   - 显示前用 `toDecimalPlaces(10)` 四舍五入。
-3. **算式解析：** 在 `src/core/` 中写一个记号切分器，加一个按优先级解析的递归下降解析器。
-   - 每个记号和语法节点都带原文中的起止位置，标红就用这个位置。
-   - 七种出错提示是一个固定的错误类型表，每种类型带出错范围。
-   - **为什么单独写：** 现成的表达式库在百分号、一元加号和 `√` 上都和老师的规则冲突（W7）。这里解析的是一套专门为课堂定的算式写法，不属于已有标准的文件格式。
-   - **运算优先级**（从低到高）：
-     1. `+ -`（二元，从左往右）；
-     2. `× ÷`，以及省略乘号（从左往右，具体写法见 §8 D4）；
-     3. 一元负号；
-     4. `^`（从右往左；指数里也允许负号：`2^-1`，见 §8 D1）；
-     5. 后缀 `%`；
-     6. `√`（作用于紧跟着的一个数、一个括号或另一个 `√`，见 §8 D2）。
+1. **Technology used:** TypeScript, Vite 8.3.4, plus vite-plugin-singlefile 2.3.3, `build.target: 'chrome109'`. No UI framework is used; native DOM is written directly.
+   - **Why:** The single built HTML has run successfully offline under `file://` in Chromium 109, with 0 network requests (P-2). The page has only one input box, a set of keys, a result line, a hint line and a history list, which native DOM can handle, and the output file is also small.
+   - **Constraint:** The source must not use CSS unsupported by Chrome 109, such as CSS nesting (supported starting from Chrome 112) and `color-mix()` (111). Because CSS is not transpiled, tests must be checked with screenshots in Chromium 109.
+2. **Exact arithmetic:** decimal.js 10.6.0 (W5, P-2).
+   - Set `precision: 40`, `rounding: ROUND_HALF_UP`;
+   - Round for display with `toDecimalPlaces(10)`.
+3. **Expression parsing:** In `src/core/`, write a tokenizer and add a recursive descent parser that parses by precedence.
+   - Every token and syntax node carries its start and end position in the source text; red highlighting uses this position.
+   - The seven error messages are a fixed table of error types; each type carries its error range.
+   - **Why write it separately:** Existing expression libraries conflict with the teacher's rules on percent, unary plus and `√` (W7). What is parsed here is an expression syntax defined specifically for the classroom, not a file format that belongs to an existing standard.
+   - **Operator precedence** (low to high):
+     1. `+ -` (binary, left to right);
+     2. `× ÷`, and implicit multiplication (left to right; see §8 D4 for the exact syntax);
+     3. Unary minus;
+     4. `^` (right to left; a minus sign is also allowed in the exponent: `2^-1`, see §8 D1);
+     5. Postfix `%`;
+     6. `√` (applies to the immediately following number, parenthesis, or another `√`; see §8 D2).
 
-     按这个顺序，`-2^2` = `-(2^2)` = `-4`。
-4. **防止页面卡住：** 计算乘方之前，先用 `|指数 × log10|底数||` 估算结果的位数。估算超过界限时，直接报「数太大，算不出来」，不做计算，所以 `2^99999999` 这样的式子也不会让页面卡住。
-5. **历史记录：** 存在 `localStorage` 里，键名是 `txehq.wfe-calculator.history.v1`，值是 JSON 数组。
-   - 因为所有本地文件共用一块存储（P-1），键名要带专门的前缀。
-   - 读出来时用 zod 4 检查格式。格式不对时直接抛出错误，存储格式改变时换一个新的键名。
-6. **测试：**
-   - **计算核心：** 在 Node 里用 Vitest 测试，覆盖 10 道验收题、课本规则、七种提示和它们的标红范围。
-   - **页面：** 用 Playwright 做端到端测试，同一套测试文件在两组浏览器上运行：
-     - **Chromium 109：** `@playwright/test@1.29.2`，CI 中运行在 `mcr.microsoft.com/playwright:v1.29.2-jammy` 容器里（W1，W2）；
-     - **当前版本的 Chrome 和 Edge：** 当前版本的 `@playwright/test`，使用 `channel: 'chrome'` 和 `channel: 'msedge'`。
-   - **两个版本的 Playwright 放在一个仓库里：** 用 npm 别名安装（例如 `"playwright-current": "npm:@playwright/test@^1.64"`）。测试文件从一个共用的 fixture 文件里取得 `test` 和 `expect`，这个文件根据环境变量，从与当前测试运行器相同的包里导入。
-7. **网络请求为 0：** 端到端测试记录页面的所有 `request` 事件，排除页面本身的地址后，数量必须为 0。`file://` 和 `http://`（本地静态服务器）两种打开方式都要测。
-8. **CI：** GitHub Actions。
-   - 计算核心测试、Chromium 109 端到端测试、当前版本浏览器的端到端测试、构建，这四项分别是独立的必需检查，同时运行。
-   - 创建 CI 之前先读 `/ci-optimise`。
-9. **合并规则：**
-   - 打开 `allow_auto_merge` 和 `delete_branch_on_merge`，只允许 squash 合并；
-   - 给 `main` 建一个规则集：必须通过 PR 合并，必需的状态检查全部通过（要求分支是最新的），评审讨论全部解决，禁止强制推送和删除。
-10. **发布：** 每次合并到 `main` 后，工作流构建出 `calculator.html`，发布成一个 GitHub Release，标签是 `v0.<run_number>`，并标成 latest。
-    - 文件名用英文，因为 GitHub 会把中文文件名改掉（W8，P-3）。
-    - 页面的 `<title>` 是“计算器”。
-    - 发给老师的那一份，由我们这边负责交付的人改名为 `计算器.html`。发送前先问用户（brief 的权限范围）。
-11. **字体：** 只用系统字体：`"Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif`。不加载任何网络字体。
-12. **按键说明：** 建议由我们自己决定，记为可以改的默认值。
-    - 键盘输入 `r` 插入 `√`，屏幕按键上写出这个快捷键；
-    - `Esc` 清空输入；
-    - `Backspace` 删除光标前的一个字；
-    - 小键盘的 `* / + - .` 照常输入。
+     In this order, `-2^2` = `-(2^2)` = `-4`.
+4. **Prevent the page from freezing:** Before computing a power, estimate the number of digits in the result with `|exponent × log10|base||`. When the estimate exceeds the limit, report "Number too big, cannot compute" directly without calculating, so expressions like `2^99999999` also will not freeze the page.
+5. **History:** Stored in `localStorage`, with key `txehq.wfe-calculator.history.v1` and a JSON array as the value.
+   - Because all local files share one storage area (P-1), the key name needs a dedicated prefix.
+   - When reading, check the format with zod 4. If the format is wrong, throw an error directly; when the storage format changes, switch to a new key name.
+6. **Testing:**
+   - **Calculation core:** Test with Vitest in Node, covering the 10 acceptance questions, the textbook rules, the seven messages and their red highlight ranges.
+   - **Page:** Use Playwright for end-to-end tests; the same test files run on two browser groups:
+     - **Chromium 109:** `@playwright/test@1.29.2`, runs in the `mcr.microsoft.com/playwright:v1.29.2-jammy` container in CI (W1, W2);
+     - **Current Chrome and Edge:** current `@playwright/test`, using `channel: 'chrome'` and `channel: 'msedge'`.
+   - **Two Playwright versions in one repo:** install via npm aliases (for example `"playwright-current": "npm:@playwright/test@^1.64"`). Test files get `test` and `expect` from a shared fixture file, which imports them from the same package as the current test runner, based on an environment variable.
+7. **Zero network requests:** End-to-end tests record all `request` events on the page; after excluding the page's own address, the count must be 0. Test both `file://` and `http://` (local static server) ways of opening the page.
+8. **CI:** GitHub Actions.
+   - Core calculation tests, Chromium 109 end-to-end tests, current-browser end-to-end tests, and build are four separate required checks, run at the same time.
+   - Read `/ci-optimise` before creating CI.
+9. **Merge rules:**
+   - Enable `allow_auto_merge` and `delete_branch_on_merge`, allow only squash merges;
+   - Create a ruleset for `main`: changes must go through a PR merge, all required status checks must pass (branch must be up to date), all review discussions must be resolved, force pushes and deletions are blocked.
+10. **Release:** After each merge to `main`, the workflow builds `calculator.html` and publishes it as a GitHub Release, tagged `v0.<run_number>` and marked as latest.
+    - Use English file names, because GitHub changes Chinese file names (W8, P-3).
+    - The page's `<title>` is "calculator".
+    - The copy sent to the teacher is renamed to `calculator.html` by whoever on our side handles delivery. Ask the user before sending (per the brief's permission scope).
+11. **Fonts:** Use system fonts only: `"Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif`. Do not load any web fonts.
+12. **Key notes:** This is a suggestion that we decide ourselves; recorded as default values that can be changed.
+    - Keyboard input `r` inserts `√`, and the on-screen key shows this shortcut;
+    - `Esc` clears the input;
+    - `Backspace` deletes the character before the cursor;
+    - Numpad keys `* / + - .` type as usual.
 
 ## 6. Spec
 
 ### 6.1 Story and goals
 
-作为初中学生，我在断网的机房电脑上双击 `计算器.html`，用屏幕按键或键盘输入带括号、百分号、乘方和开平方的式子，按回车或「=」，看到按课本规则算出、四舍五入到 10 位小数的结果；写错时看到老师定的中文提示，出错的字标成红色，改好后再算。算过的题保留在旁边，关掉浏览器再打开还在。老师上课时点「投影模式」，全班都能看清。
+As a junior high student, on an offline lab computer I double-click `calculator.html`, enter expressions with parentheses, percent signs, powers and square roots using the on-screen keys or keyboard, press Enter or "=", and see the result computed by textbook rules and rounded to 10 decimal places; when I type something wrong, I see the teacher's Chinese prompt, the wrong characters turn red, and I fix them and calculate again. Problems I've already solved stay alongside, and remain after I close and reopen the browser. When the teacher teaches, they click "Projection mode", so the whole class can see clearly.
 
-- **功能目标：** brief “要做的功能”第 1 到 9 条，全部有自动测试或带截图的证明。
-- **非功能目标：**
-  - **离线：** 网络请求数为 0。
-  - **单文件：** 一个文件，不依赖外部资源。
-  - **兼容：** Chrome 109 上全部功能可用，同时支持当前版本的 Chrome 和 Edge。
-  - **速度：** 任何输入都在 100 ms 内给出结果或提示。
-  - **界面文字：** 全部是中文，提示语与 brief 一字不差。
+- **Feature goal:** items 1 to 9 of the brief's "Features to build" section all have automated tests or screenshot evidence.
+- **Non-functional goals:**
+  - **Offline:** Network request count is 0.
+  - **Single file:** One file, no dependence on external resources.
+  - **Compatibility:** All features work on Chrome 109, and current Chrome and Edge are also supported.
+  - **Speed:** Any input gives a result or prompt within 100 ms.
+  - **UI text:** All in Chinese; prompts match the brief word for word.
 
 ### 6.2 Parts
 
-| Part | 一个可观察的结果 | 复用 / 依据 |
+| Part | An observable result | Reuse / basis |
 |---|---|---|
-| **P1 页面外壳、构建、测试和合并规则** | 一个 PR 构建出 `dist/calculator.html`（标题“计算器”，页面上显示“计算器”）；四项必需检查都通过后，PR 由 Auto Merge 合并；合并后 Release `v0.N` 里有 `calculator.html` | §5 第 1、6、7、8、9、10 条；P-2 的构建配置 |
-| **P2a 结果格式化** | `formatResult(Decimal)` 按显示规则返回字符串，或者返回「数太大，算不出来」 | §5 第 2 条；W5 |
-| **P2b 算式解析和计算** | `calculate(text)` 返回结果字符串，或者返回七种提示之一和出错范围；10 道验收题和全部课本规则都通过 | §5 第 2、3、4 条；P2a |
-| **P3 计算器页面和输入** | 在 Chromium 109 上用屏幕按键、键盘、小键盘、粘贴和全角字符算出结果；出错时提示语和出错位置都是红色 | P1 的页面外壳和端到端测试；P2b |
-| **P4 历史记录** | 最近 20 条成功的计算显示在列表里，点一条放回输入框，「清空历史」后列表为空，关闭浏览器再打开仍在 | §5 第 5 条；P-1；P3 |
-| **P5 投影模式** | 点「投影模式」后，字和按键放大到 1.6 倍，在 1024×768 下没有滚动条；再点一下恢复 | P3 |
+| **P1 Page shell, build, tests and merge rules** | A PR builds `dist/calculator.html` (title "calculator", page shows "calculator"); after all four required checks pass, the PR is merged by Auto Merge; after merging, Release `v0.N` contains `calculator.html` | §5 items 1, 6, 7, 8, 9, 10; P-2 build config |
+| **P2a Result formatting** | `formatResult(Decimal)` returns a string per the display rules, or returns "Number too large, cannot compute" | §5 item 2; W5 |
+| **P2b Expression parsing and calculation** | `calculate(text)` returns a result string, or returns one of seven prompts and the error range; the 10 acceptance problems and all textbook rules pass | §5 items 2, 3, 4; P2a |
+| **P3 Calculator page and input** | On Chromium 109, results are computed using on-screen keys, keyboard, numpad, paste and full-width characters; on error, the prompt and error position are both red | P1 page shell and end-to-end tests; P2b |
+| **P4 History** | The latest 20 successful calculations show in the list; clicking one puts it back in the input box; after "Clear history" the list is empty; still there after closing and reopening the browser | §5 item 5; P-1; P3 |
+| **P5 Projection mode** | After clicking "Projection mode", text and keys are enlarged to 1.6 times, with no scrollbars at 1024×768; click again to restore | P3 |
 
-**显示规则（P2a）：** 下面是推荐值，最终数值由 §8 D5 决定。
+**Display rules (P2a):** The following are recommended values; final numbers are decided by §8 D5.
 
-- 结果为 0 时显示 `0`，不显示 `-0`。
-- 当 `1e-6 ≤ |x| < 1e15` 时，四舍五入到 10 位小数，去掉末尾的 0 和多余的小数点。
-- 其他非零结果用科学记数法，写成 `a×10^n`：
-  - `a` 四舍五入到 10 位小数，去掉末尾的 0；
-  - 四舍五入以后，如果 `a` 进位成了 10，就改成 `1`，同时 `n` 加 1。
-  - 例：`2^50` → `1.1258999068×10^15`。
-- 当 `|x| ≥ 1e100` 时，显示「数太大，算不出来」。
+- When the result is 0, show `0`, not `-0`.
+- When `1e-6 ≤ |x| < 1e15`, round to 10 decimal places and remove trailing 0s and any unnecessary decimal point.
+- Other non-zero results use scientific notation, written as `a×10^n`:
+  - `a` rounded to 10 decimal places, trailing 0s removed;
+  - After rounding, if `a` carries to 10, change it to `1`, and add 1 to `n`.
+  - Example: `2^50` → `1.1258999068×10^15`.
+- When `|x| ≥ 1e100`, show "Number too large, cannot compute."
 
-**七种提示的判定（P2b）：** 一个式子同时有几处错误时，按下面的顺序只报第一种；同一种错误报最左边的一处。
+**Judgment of the seven hint types (P2b):** When an expression has several errors at once, report only the first type in the order below; for the same type of error, report the leftmost one.
 
-1. **有不认识的字：** 规范化以后，仍然不属于数字、`. + - × ÷ ^ % √ ( )` 和空格的字符，显示「有不认识的字：X」，X 是原文中的那个字，标红这个字。
-2. **括号不配对：** 多出来的 `)`，或者没有关上的 `(`，标红这个括号。
-3. **符号连在一起了：** 两个二元运算符相邻，例如 `3++4`、`5×÷2`、`3%%`。允许的写法见 §8 D1、D3。标红第二个符号。
-4. **式子没写完：**
-   - 末尾是运算符或 `√`，例如 `3+`、`√`；
-   - 开头是二元运算符（`-` 除外）；
-   - 有空括号 `()`；
-   - 一个数里有两个小数点，例如 `1.2.3`。
+1. **Unrecognized character:** After normalization, any character that is not a digit, `. + - × ÷ ^ % √ ( )`, or a space, shows "Unrecognized character: X", where X is that character in the original text. Highlight that character in red.
+2. **Unbalanced parentheses:** An extra `)`, or an unclosed `(`. Highlight that parenthesis in red.
+3. **Consecutive operators:** Two binary operators are adjacent, for example `3++4`, `5×÷2`, `3%%`. Allowed forms are in §8 D1 and D3. Highlight the second operator in red.
+4. **Incomplete expression:**
+   - Ends with an operator or `√`, for example `3+`, `√`;
+   - Starts with a binary operator (except `-`);
+   - Contains empty parentheses `()`;
+   - A number contains two decimal points, for example `1.2.3`.
 
-   标红缺少内容的位置：末尾的运算符本身，或者那对空括号。
-5. **计算阶段**，从左往右第一处出错的运算：
-   - 除数是 0 → 「不能除以 0」，标红 `÷` 和除数；
-   - 对负数开平方 → 「负数不能开平方」，标红 `√` 和它作用的部分；
-   - 负数的非整数次方，例如 `(-8)^0.5` → 「负数不能开平方」，标红这个乘方；
-   - 结果的绝对值 ≥ 1e100，或者估算的位数超过界限 → 「数太大，算不出来」，标红整个式子；
-   - `0` 的负数次方，按除以 0 处理 → 「不能除以 0」。
+   Highlight where content is missing: the trailing operator itself, or that empty pair of parentheses.
+5. **Calculation stage**, the first operation from left to right that fails:
+   - Divisor is 0 → "Cannot divide by 0"; highlight `÷` and the divisor;
+   - Square root of a negative number → "Cannot take the square root of a negative number"; highlight `√` and the part it applies to;
+   - Non-integer power of a negative number, for example `(-8)^0.5` → "Cannot take the square root of a negative number"; highlight this power operation;
+   - Absolute value of the result ≥ 1e100, or the estimated number of digits exceeds the limit → "Number too large, cannot compute"; highlight the entire expression;
+   - A negative power of `0`, treated as division by 0 → "Cannot divide by 0".
 
-空输入时按回车或「=」，什么也不做。
+With empty input, pressing Enter or "=" does nothing.
 
-**字符规范化（P2b）：**
+**Character normalization (P2b):**
 
-| 原文中的字符 | 规范化为 |
+| Character in original text | Normalized to |
 |---|---|
-| 全角数字 `０`–`９` | `0`–`9` |
-| `（` `）` | `(` `)` |
-| `＋` | `+` |
-| `－` `−` `—` | `-` |
-| `＊` `×` `x` `X` | `×` |
-| `／` `÷` `、` | `÷` |
-| `＾` `……` | `^` |
-| `％` | `%` |
-| `．` `。` | `.` |
-| 全角空格 | 半角空格 |
+| Full-width digits `0`–`9` | `0`–`9` |
+| Full-width `(` `)` | `(` `)` |
+| Full-width `+` | `+` |
+| Full-width `-`, minus sign `−`, em dash `—` | `-` |
+| Full-width `*`, `×`, `x`, `X` | `×` |
+| `/` `÷` `,` | `÷` |
+| `^` `...` | `^` |
+| Full-width `%` | `%` |
+| `.` `.` | `.` |
+| Full-width space | Half-width space |
 
-规范化前后保持每个字符在原文中的位置对应关系，标红按原文的位置。`x`/`X` 的处理由 §8 D6 决定。
+Keep each character's position mapping between before and after normalization; highlighting uses positions in the original text. The handling of `x`/`X` is decided by §8 D6.
 
 ## 7. Plan
 
 ```mermaid
 flowchart LR
-  P1["P1 页面外壳、构建、测试和合并规则"] --> P3["P3 计算器页面和输入"]
-  P2a["P2a 结果格式化"] --> P2b["P2b 算式解析和计算"]
+  P1["P1 page shell, build, test and merge rules"] --> P3["P3 calculator page and input"]
+  P2a["P2a Result formatting"] --> P2b["P2b Expression parsing and calculation"]
   P2b --> P3
-  P3 --> P4["P4 历史记录"]
-  P3 --> P5["P5 投影模式"]
+  P3 --> P4["P4 History"]
+  P3 --> P5["P5 Projection mode"]
 ```
 
-P1 和 P2a 同时开始，P2a 完成后开始 P2b，P3 需要 P1 和 P2b 都完成；P4 和 P5 在 P3 之后同时进行。
+P1 and P2a start together; after P2a finishes, P2b starts; P3 needs both P1 and P2b to finish; P4 and P5 run in parallel after P3.
 
-### P1 页面外壳、构建、测试和合并规则
+### P1 Page shell, build, test and merge rules
 
-**Test plan：**
+**Test plan:**
 
-- 构建；
-- Vitest 冒烟测试；
-- Playwright 端到端冒烟测试：在 Chromium 109 和当前版本的 Chrome、Edge 上，分别用 `file://` 和 `http://` 打开构建出的文件；
-- 统计网络请求；
-- 在 PR 上实际运行一次 CI；
-- 用 `gh api` 读出规则集和仓库设置；
-- 合并后检查 Release。
+- Build;
+- Vitest smoke test;
+- Playwright end-to-end smoke test: on Chromium 109 and the current Chrome and Edge, open the built file via `file://` and `http://` respectively;
+- Count network requests;
+- Actually run CI once on the PR;
+- Read out the rulesets and repository settings with `gh api`;
+- Check the Release after merging.
 
-**Acceptance criteria：**
+**Acceptance criteria:**
 
-1. `npm run build` 生成 `dist/calculator.html`，`dist/` 下没有其他文件；文件中不含 `http://`、`https://` 和 `//` 开头的外部引用。（测试：构建后的检查脚本）
-2. 在 Chromium 109.0.5414.46 上，断网用 `file://` 打开，页面标题是“计算器”，显示“计算器”，没有控制台错误，除页面本身之外的请求数为 0。（测试：Playwright 1.29.2）
-3. 用本地静态服务器通过 `http://` 打开，第 2 条同样成立，包括没有 `/favicon.ico` 请求。（测试：Playwright 1.29.2 和当前版本）
-4. 第 2、3 条在当前版本的 Chrome 和 Edge（`channel: 'chrome'`、`'msedge'`）上同样成立。（测试：当前版本的 Playwright）
-5. CI 有四项独立的检查：计算核心测试、Chromium 109 端到端测试、当前版本浏览器的端到端测试、构建。四项同时开始运行，在一个只改了外壳的 PR 上全部通过。（测量：CI 运行记录）
-6. `allow_auto_merge` 为 `true`，`delete_branch_on_merge` 为 `true`，只允许 squash 合并；`main` 的规则集要求：通过 PR 合并、四项检查全部通过且分支是最新的、评审讨论全部解决，禁止强制推送和删除。（测试：`gh api` 读出的设置和第 5 条的检查名称一致）
-7. 合并到 `main` 后，工作流创建 Release `v0.<run_number>`，标成 latest，里面有 `calculator.html`，内容与 `npm run build` 的输出一致。（测量：`gh release view` 和文件的 sha256）
-8. 仓库有 PR 模板和 `AGENTS.md`（`CLAUDE.md` 引用它），写明如何安装、构建、测试，以及 Chrome 109 的语法限制。（检查：文件存在，里面的命令在干净的克隆上实际运行通过）
+1. `npm run build` generates `dist/calculator.html`, with no other files under `dist/`; the file contains no external references starting with `http://`, `https://` or `//`. (Test: post-build check script)
+2. On Chromium 109.0.5414.46, with the network offline, open via `file://`; the page title is "calculator", it shows "calculator", there are no console errors, and the number of requests other than the page itself is 0. (Test: Playwright 1.29.2)
+3. Open via `http://` from a local static server; item 2 holds equally, including no `/favicon.ico` request. (Test: Playwright 1.29.2 and current version)
+4. Items 2 and 3 also hold on the current Chrome and Edge (`channel: 'chrome'`, `'msedge'`). (Test: current version of Playwright)
+5. CI has four independent checks: core calculation tests, Chromium 109 end-to-end tests, end-to-end tests on current-version browsers, and the build. All four start running at the same time, and all pass on a PR that changes only the shell. (Measurement: CI run records)
+6. `allow_auto_merge` is `true`, `delete_branch_on_merge` is `true`, and only squash merges are allowed; the rule set for `main` requires: merging through a PR, all four checks passing with the branch up to date, all review discussions resolved, and it blocks force pushes and deletion. (Test: the settings read out by `gh api` match the check names in item 5)
+7. After merging to `main`, the workflow creates Release `v0.<run_number>`, marks it as latest, and it contains `calculator.html`, whose content matches the output of `npm run build`. (Measurement: `gh release view` and the file's sha256)
+8. The repository has a PR template and `AGENTS.md` (`CLAUDE.md` references it), stating how to install, build, and test, as well as the syntax restrictions for Chrome 109. (Check: the files exist, and the commands in them actually run successfully on a clean clone)
 
-### P2a 结果格式化
+### P2a Result formatting
 
-**Test plan：** 对 `formatResult` 做 Vitest 表格测试，覆盖每一个界限的两侧。
+**Test plan:** Vitest table tests for `formatResult`, covering both sides of every boundary.
 
-**Acceptance criteria：**（全部是测试，Vitest）
+**Acceptance criteria:** (all are tests, Vitest)
 
-1. `0.3` → `0.3`；`1/3` 的 Decimal → `0.3333333333`；`2/3` → `0.6666666667`；`1024` → `1024`；`-2` → `-2`；`2.50` → `2.5`；`5.0000000000001` → `5`。
-2. 0 和负 0 都显示 `0`；`-0.00000000001` 在推荐的界限下显示 `-1×10^-11`。
-3. `2^50` → `1.1258999068×10^15`；`999999999999999` → `999999999999999`；`1e15` → `1×10^15`；`9.99999999999×10^15` 四舍五入后进位的情况显示 `1×10^16`。
-4. `0.000001` → `0.000001`；`0.0000001` → `1×10^-7`。
-5. `|x| ≥ 1e100` 返回「数太大，算不出来」。
+1. `0.3` → `0.3`; the Decimal of `1/3` → `0.3333333333`; `2/3` → `0.6666666667`; `1024` → `1024`; `-2` → `-2`; `2.50` → `2.5`; `5.0000000000001` → `5`.
+2. 0 and negative 0 both display `0`; `-0.00000000001` displays `-1×10^-11` at the recommended boundary.
+3. `2^50` → `1.1258999068×10^15`; `999999999999999` → `999999999999999`; `1e15` → `1×10^15`; the case of `9.99999999999×10^15` carrying over after rounding displays `1×10^16`.
+4. `0.000001` → `0.000001`; `0.0000001` → `1×10^-7`.
+5. `|x| ≥ 1e100` returns "Number too large to calculate".
 
-### P2b 算式解析和计算
+### P2b Expression parsing and calculation
 
-**Test plan：** 对 `calculate` 做 Vitest 表格测试。每条测试写明输入、期望的结果或提示，以及期望的标红范围（起止位置）。另外测试规范化表的每一行，以及最坏输入的耗时。
+**Test plan:** Vitest table tests for `calculate`. Each test states the input, the expected result or message, and the expected highlight range (start and end positions). Additionally, test every row of the normalization table, and the time taken for worst-case input.
 
-**Acceptance criteria：**（全部是测试，Vitest）
+**Acceptance criteria:** (all are tests, Vitest)
 
-1. 老师的 10 道验收题全部得到期望的结果或提示。
-2. 课本规则：`-2^2` → `-4`，`200+10%` → `200.1`，`50%*200` → `100`，`2^3^2` → `512`，`2(3+4)` → `14`，`√16` → `4`，`√2` → `1.4142135624`。
-3. 七种提示，每种至少两个例子，提示语与 brief 一字不差，标红范围正确：
-   - `5/0`；
-   - `(1+2`、`1+2)`；
-   - `√-4`、`√(1-5)`；
-   - `3++4`、`5×÷2`；
-   - `3+`、`√`、`()`；
-   - `a`、`2sin3`（提示「有不认识的字：s」）；
-   - `10^100`、`2^99999999`。
-4. 同时有几处错误时，按 §6.2 的顺序只报第一种，例如 `(a+` → 「有不认识的字：a」。
-5. 规范化表每一行都有测试，例如 `（１＋２）×３` → `9`，`8、2` → `4`，`2……3` → `8`；标红的位置对应原文中的字符。
-6. `2^99999999`、`9^9^9`，以及 2000 个字符长的式子，都在 100 ms 内返回。
-7. §8 投票决定的每一种写法都有测试。
+1. All 10 of the teacher's acceptance questions produce the expected result or message.
+2. Textbook rules: `-2^2` → `-4`, `200+10%` → `200.1`, `50%*200` → `100`, `2^3^2` → `512`, `2(3+4)` → `14`, `√16` → `4`, `√2` → `1.4142135624`.
+3. Seven kinds of message, each with at least two examples; the message text matches the brief word for word, and the highlight range is correct:
+   - `5/0`;
+   - `(1+2`, `1+2)`;
+   - `√-4`, `√(1-5)`;
+   - `3++4`, `5×÷2`;
+   - `3+`, `√`, `()`;
+   - `a`, `2sin3` (message "Unknown character: s");
+   - `10^100`, `2^99999999`.
+4. When there are several errors at once, only the first kind is reported, in the order of §6.2; for example, `(a+` → "Unknown character: a".
+5. Every row of the normalization table has a test, for example `(1+2)×3` → `9`, `8, 2` → `4`, `2...3` → `8`; the positions marked in red correspond to characters in the original text.
+6. `2^99999999`, `9^9^9`, and expressions 2000 characters long all return within 100 ms.
+7. Every notation chosen by the §8 vote has a test.
 
-### P3 计算器页面和输入
+### P3 calculator page and input
 
-**Test plan：** Playwright 端到端测试，在 Chromium 109 和当前版本的浏览器上运行：
+**Test plan:** Playwright end-to-end tests, run on Chromium 109 and current-version browsers:
 
-- 点击屏幕按键；
-- `keyboard.type` 和 `keyboard.press`，包括小键盘的 `NumpadEnter` 等按键；
-- 粘贴；
-- 输入全角字符；
-- 模拟输入法组合（`compositionstart`/`compositionend` 事件，回车时 `isComposing` 为 true）；
-- 截图对比。
+- Click on-screen keys;
+- `keyboard.type` and `keyboard.press`, including keypad keys such as `NumpadEnter`;
+- Paste;
+- Typing full-width characters;
+- Simulating IME composition (`compositionstart`/`compositionend` events, `isComposing` is true on Enter);
+- Screenshot comparison.
 
-**Acceptance criteria：**
+**Acceptance criteria:**
 
-1. 只用屏幕按键依次输入 10 道验收题，每题按「=」后都显示期望的结果或提示。（测试：Playwright 1.29.2 和当前版本）
-2. 用键盘输入同样的 10 道题，按主键盘回车和小键盘回车都能出结果。（测试）
-3. 粘贴 `（１＋２）×３` 后按回车，显示 `9`。（测试）
-4. 输入法正在选字时按回车，不触发计算；选字完成后按回车，正常计算。（测试：模拟组合事件）
-5. 出错时提示语的颜色是红色，出错范围用红色标出，结果行为空；修改式子后，提示和标红自动消失。（测试：计算样式；截图：Chromium 109）
-6. 按 `Esc` 清空输入，按 `Backspace` 删除光标前的一个字，按 `r` 插入 `√`。（测试）
-7. 在 375×667 的窗口里，所有按键都能看到、能点，页面没有横向滚动条。（测试：Playwright，加截图）
-8. 页面上所有可见的文字和 `aria-label` 都是中文。（测试：检查页面文字）
+1. Use only on-screen keys to enter the 10 acceptance problems in order; after pressing "=" for each, the expected result or message is shown. (Test: Playwright 1.29.2 and current version)
+2. Enter the same 10 problems with the keyboard; pressing both the main Enter key and the keypad Enter key produces the result. (Test)
+3. Paste `(1+2)×3` and press Enter; `9` is shown. (Test)
+4. Pressing Enter while the IME is still choosing a candidate does not trigger a calculation; after the selection is complete, pressing Enter calculates normally. (Test: simulated composition events)
+5. When there is an error, the message is shown in red, the error range is marked in red, and the result line is empty; after the expression is edited, the message and red marking disappear automatically. (Test: calculator styles; screenshot: Chromium 109)
+6. Press `Esc` to clear the input, press `Backspace` to delete the character before the cursor, and press `r` to insert `√`. (Test)
+7. In a 375×667 window, all keys are visible and clickable, and the page has no horizontal scrollbar. (Test: Playwright, with screenshot)
+8. All visible text on the page and all `aria-label` values are in Chinese. (Test: check page text)
 
-### P4 历史记录
+### P4 History
 
-**Test plan：** Playwright 端到端测试，使用持久的浏览器配置目录（`launchPersistentContext`），在 `file://` 和 `http://` 两种打开方式下分别关闭、重新打开浏览器。另外对存储模块做 Vitest 测试。
+**Test plan:** Playwright end-to-end tests, using a persistent browser profile directory (`launchPersistentContext`), close and reopen the browser under both `file://` and `http://` opening methods. In addition, run Vitest tests on the storage module.
 
-**Acceptance criteria：**
+**Acceptance criteria:**
 
-1. 成功算一道题后，列表最上面出现这道题的式子和结果；写错的式子不进入列表。（测试）
-2. 连续算 21 道题，列表只保留最近的 20 道，最早的一道被挤掉。（测试）
-3. 点列表中的一道题，式子放回输入框，光标在末尾，可以修改后重新算。（测试）
-4. 点「清空历史」后列表为空，关闭浏览器再打开仍为空。（测试）
-5. 算几道题后关闭浏览器，再打开，列表和关闭前一样。`file://` 和 `http://` 都要测，在 Chromium 109 上运行。（测试：`launchPersistentContext`）
-6. 存储用的键名是 `txehq.wfe-calculator.history.v1`，其他本地页面写的键不影响列表。（测试：先写入一个别的键，再检查列表）
+1. After a problem is calculated successfully, its expression and result appear at the top of the list; an expression that was entered incorrectly does not enter the list. (Test)
+2. Calculate 21 problems in a row; the list keeps only the most recent 20, and the earliest one is pushed out. (Test)
+3. Click a problem in the list; its expression is put back in the input box with the cursor at the end, so it can be edited and calculated again. (Test)
+4. After clicking "Clear history", the list is empty; after closing and reopening the browser, it is still empty. (Test)
+5. Calculate a few problems, close the browser, and reopen it; the list is the same as before closing. Both `file://` and `http://` must be tested, running on Chromium 109. (Test: `launchPersistentContext`)
+6. The storage key name is `txehq.wfe-calculator.history.v1`; keys written by other local pages do not affect the list. (Test: first write another key, then check the list)
 
-### P5 投影模式
+### P5 Projection mode
 
-**Test plan：** Playwright 端到端测试，测量元素的字号和按键尺寸；在 1024×768 下截图，放大前后各一张。
+**Test plan:** Playwright end-to-end tests, measuring element font sizes and key sizes; take screenshots at 1024×768, one before and one after zooming.
 
-**Acceptance criteria：**
+**Acceptance criteria:**
 
-1. 点「投影模式」后，输入框、结果、提示、按键和历史的字号，以及按键的尺寸，都是原来的 1.6 倍（误差在 ±1 px 以内）；再点一下，恢复原来的大小。（测量：Playwright 读取计算后的样式）
-2. 在 1024×768 的窗口里，投影模式打开时页面没有滚动条，所有按键都能看到。（测试，加截图）
-3. 放大前后的截图各一张，放进验收报告。（视觉对比）
-4. 刷新页面后，投影模式回到关闭状态。（测试）
+1. After clicking "Projection mode", the font sizes of the input box, result, messages, keys and history, as well as the key sizes, are all 1.6 times the original (within ±1 px); click again to restore the original size. (Measurement: Playwright reads the computed styles)
+2. In a 1024×768 window, with projection mode on, the page has no scrollbar and all keys are visible. (Test, with screenshot)
+3. Put one screenshot each from before and after zooming into the acceptance report. (Visual comparison)
+4. After refreshing the page, projection mode returns to the off state. (Test)
 
-### 交付（不属于任何部分）
+### Delivery (not part of any section)
 
-全部部分合并以后，取最新 Release 里的 `calculator.html`，改名为 `计算器.html`，发到老师的邮箱。邮箱地址由老师提供，发送前先问用户。
+After all sections are merged, take `calculator.html` from the latest Release, rename it to `calculator.html`, and send it to the teacher's email. The teacher will provide the email address; ask the user before sending.
 
 ## 8. Open decisions
 
-这些问题由老师在 `/decide` 投票中决定，每题都列出了推荐。
+The teacher decides these questions in a `/decide` vote; each question lists a recommendation.
 
-| # | 问题 | 选项 | 推荐 |
+| # | Issue | Options | Recommendation |
 |---|---|---|---|
-| D1 | 负号跟在运算符后面：`3×-2`、`2^-1`、`5+-3` | A. 允许，算出 `-6`、`0.5`、`2`；B. 提示「符号连在一起了」 | A：负号是一个数的一部分，学生作业里常见 |
-| D2 | `√` 作用到哪里：`√9+7` | A. 只作用于紧跟着的数或括号：`√9+7=10`，`√(9+7)=4`；B. 作用到后面整个式子：`√9+7=4` | A：和课本上根号下写什么就开什么一致，要开整个式子就加括号 |
-| D3 | 百分号和别的写法一起用：`(1+2)%`、`50%^2`、`10%%` | A. `(1+2)%=0.03`，`50%^2=0.25`，`10%%` 提示「符号连在一起了」；B. 百分号只能跟在数后面，`(1+2)%` 提示「符号连在一起了」 | A |
-| D4 | 省略乘号和除号一起用：`6÷2(1+2)` | A. 和写出乘号一样，从左往右算：`9`；B. 省略乘号的先算：`1` | A：和老师要求学生写清乘号时的算法一致 |
-| D5 | 什么时候改用科学记数法，什么时候提示「数太大」 | A. 小于 `0.000001` 或者不小于 `10^15` 时用科学记数法，不小于 `10^100` 时提示「数太大，算不出来」；B. 只有不小于 `10^15` 时用科学记数法，很小的数一律四舍五入到 10 位小数（`0.00000000001` 显示 `0`）；`10^100` 的界限不变 | A：很小的数不会显示成 `0` |
-| D6 | 字母 `x` 当作乘号 | A. 当作乘号：`3x4=12`；B. 提示「有不认识的字：x」 | A：有些学生习惯用 `x` 当乘号 |
+| D1 | Minus sign right after an operator: `3×-2`, `2^-1`, `5+-3` | A. Allowed, computing `-6`, `0.5`, `2`; B. Show message "Symbols run together" | A: a minus sign is part of a number; common in students' homework |
+| D2 | Where `√` applies: `√9+7` | A. Applies only to the number or parentheses right after it: `√9+7=10`, `√(9+7)=4`; B. Applies to the whole expression after it: `√9+7=4` | A: consistent with the textbook, where what is under the root is what gets rooted; to root a whole expression, add parentheses |
+| D3 | Percent sign combined with other notation: `(1+2)%`, `50%^2`, `10%%` | A. `(1+2)%=0.03`, `50%^2=0.25`, `10%%` shows "Symbols run together"; B. The percent sign can only follow a number; `(1+2)%` shows "Symbols run together" | A |
+| D4 | Implicit multiplication used together with division: `6÷2(1+2)` | A. Same as writing the multiplication sign, calculated left to right: `9`; B. Implicit multiplication is calculated first: `1` | A: consistent with the method the teacher requires when students write the multiplication sign |
+| D5 | When to switch to scientific notation, and when to show "Number too big" | A. Use scientific notation when less than `0.000001` or not less than `10^15`; show "Number too big, cannot compute" when not less than `10^100`; B. Use scientific notation only when not less than `10^15`; very small numbers are always rounded to 10 decimal places (`0.00000000001` shows `0`); the `10^100` limit stays the same | A: very small numbers will not show as `0` |
+| D6 | Letter `x` treated as multiplication | A. Treated as multiplication: `3x4=12`; B. Show "Unknown character: x" | A: some students are used to using `x` as the multiplication sign |
 
 ## 9. Risks
 
-| # | 风险 | 怎样检验 |
+| # | Risk | How to verify |
 |---|---|---|
-| R1 | Windows 7 上的字体（`√`、`×`、`÷` 的字形）、输入法和小键盘行为与 Linux、macOS 不同，而我们不能在真机上测试 | 只使用系统字体，按 §5 第 11 条设置；在 Chromium 109 上截图检查字形；老师交付后会自己试用 |
-| R2 | 两个版本的 Playwright 放在一个仓库里，测试文件和测试运行器的版本对不上（报错 “did not expect test() to be called here”） | P1 第 2 到 5 条的 CI 运行就是检验；这也是 P1 最先要做通的部分 |
-| R3 | 所有本地文件共用一块 `localStorage`（P-1），别的本地页面可能读写同一个键 | 键名带前缀和版本号；P4 第 6 条 |
-| R4 | 很大的乘方让页面卡住 | §5 第 4 条的估算；P2b 第 6 条的计时测试 |
-| R5 | CSS 中使用了 Chrome 109 不支持的写法，打包时不会报错 | P3 第 5 条、P5 第 2 条在 Chromium 109 上截图；`AGENTS.md` 写明这条限制 |
-| R6 | 规则集和必需检查的名称不一致，Auto Merge 永远等不到检查结果，或者不等检查就合并 | P1 第 6 条读出设置，和检查名称对照 |
-| R7 | 机房的还原系统在重启后清掉历史记录 | 老师已接受；不需要检验 |
-| R8 | 交付日期 2026-12-09 | 计划共有六个部分，最长的依赖链是 P2a → P2b → P3 → P4/P5，每个部分完成后都在 `main` 上可用 |
+| R1 | Fonts on Windows 7 (glyphs for `√`, `×`, `÷`), IME and keypad behavior differ from Linux and macOS, and we cannot test on real machines | Use only system fonts, set per §5 item 11; check glyphs with screenshots on Chromium 109; the teacher will try it themselves after delivery |
+| R2 | Two versions of Playwright are in one repository, and the test files and test runner versions do not match (error "did not expect test() to be called here") | The CI runs of P1 items 2 to 5 are the check; this is also the first part of P1 that must be made to work |
+| R3 | All local files share one `localStorage` (P-1), and other local pages may read or write the same key | Key names carry a prefix and version number; P4 item 6 |
+| R4 | Very large exponentiation makes the page hang | §5 item 4 estimate; P2b item 6 timing test |
+| R5 | CSS uses syntax that Chrome 109 does not support, and the build does not report an error | P3 item 5, P5 item 2 screenshots on Chromium 109; `AGENTS.md` documents this restriction |
+| R6 | Ruleset and required check names do not match, so Auto Merge waits forever for a check result, or merges without waiting for checks | P1 item 6 reads the settings and compares them with the check names |
+| R7 | The lab's restore system clears history records after a reboot | Teacher has accepted; no verification needed |
+| R8 | Delivery date 2026-12-09 | The plan has six parts. The longest dependency chain is P2a → P2b → P3 → P4/P5, and each part is usable on `main` once completed |

@@ -18,7 +18,6 @@ import {
   userMessages,
 } from '../db/schema.js';
 import { readPrSnapshot } from '../external/github.js';
-import { isLocalRepo } from '../external/run-repos.js';
 import { readRunGrades } from '../grading/index.js';
 import { StoredPrSnapshot } from '../grading/pr-snapshot.js';
 import { sessionConversation } from '../ingest/conversation.js';
@@ -31,7 +30,7 @@ import { sessionTitles } from '../api/session-titles.js';
 import type { WorkflowDefinition } from '../workflows/schema.js';
 import { codexDetails, type ExportedInstructions } from './codex-export.js';
 
-// Contracts 15.2：分析目录 input/ 的内容。sessions/<id>.jsonl 每行一次请求（主 agent 与子代理），不截断
+// Contracts 15.2: contents of the analysis dir input/. sessions/<id>.jsonl has one request per line (main agent and subagents), untruncated
 
 export interface ExportedToolCall {
   id: string;
@@ -39,7 +38,7 @@ export interface ExportedToolCall {
   input: unknown;
   result: string | null;
   isError: boolean;
-  // 结果溢出到 tool-results/ 的文件时，文件的完整内容
+  // Full content of the file when the result spilled to tool-results/
   spilledOutput: string | null;
   subagentId: string | null;
 }
@@ -52,7 +51,7 @@ export interface ExportedThinking {
 export interface ExportedRow {
   seq: number;
   agent: string | null;
-  // 主 agent 为自己的 seq；子代理为启动它的那条主 agent 请求的 seq
+  // The main agent's own seq; for a subagent, the seq of the main-agent request that started it
   parentSeq: number;
   stage: string | null;
   timestamp: string;
@@ -63,13 +62,13 @@ export interface ExportedRow {
   attributionSkill: string | null;
   userMessagesBefore: { kind: 'user' | 'notice'; text: string }[];
   skillLoads: { name: string; args: string }[];
-  // 只有类型与估算的 token 数，不含思考的文字与 signature；没有 thinking 块时为 null
+  // Only the type and estimated tokens, without thinking text or signature; null when there are no thinking blocks
   thinking: ExportedThinking[] | null;
   text: string | null;
   toolCalls: ExportedToolCall[];
 }
 
-// 被截断的 tool 结果从 jsonl 读回原文
+// Read the original text of truncated tool results back from the jsonl
 function fullResults(files: string[], ids: Set<string>): Map<string, string> {
   const out = new Map<string, string>();
   if (ids.size === 0) return out;
@@ -89,7 +88,9 @@ function fullResults(files: string[], ids: Set<string>): Map<string, string> {
   }
   const missing = [...ids].filter((id) => !out.has(id));
   if (missing.length > 0)
-    throw new Error(`jsonl 中找不到这些 tool 结果的原文：${missing.join(', ')}`);
+    throw new Error(
+      `Original text of these tool results not found in the jsonl: ${missing.join(', ')}`,
+    );
   return out;
 }
 
@@ -104,7 +105,7 @@ const ThinkingRecord = z.looseObject({
   }),
 });
 
-// 一个 agent 的 jsonl 中这些 message 的 thinking 块类型，按出现顺序；不读取块中的文字
+// Thinking block types of these messages in one agent's jsonl, in order; the block text is not read
 function thinkingTypes(file: string, messageIds: Set<string>): Map<string, ThinkingType[]> {
   const out = new Map<string, ThinkingType[]>();
   for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
@@ -124,8 +125,8 @@ function thinkingTypes(file: string, messageIds: Set<string>): Map<string, Think
   return out;
 }
 
-// thinking 块的 token 数：一次请求的输出 token 减去回复文字与 tool 调用输入的估算 token 数，由这次请求的各个块均分。
-// Claude Code 记录的思考文字是摘要或空串（只有 signature），按输出 token 推算才接近实际消耗
+// Thinking block tokens: a request's output tokens minus the estimated tokens of reply text and tool call inputs, split evenly across its blocks.
+// Claude Code records thinking text as a summary or empty string (signature only), so inferring from output tokens is closer to actual use
 function estimateThinking(
   tokenizer: ReturnType<typeof getTokenizer>,
   row: { outputTokens: number; text: string | null; toolCalls: ToolCall[] },
@@ -162,12 +163,12 @@ function stageLabels(report: StageReport): (seq: number) => string | null {
 
 export interface SessionExport {
   rows: ExportedRow[];
-  // 本机配置的 session 不划分阶段（Contracts 25.4）：为空，stage 都是 null
+  // Local-machine sessions are not split into stages (Contracts 25.4): null, and every stage is null
   report: StageReport | null;
   instructions: ExportedInstructions[];
 }
 
-// Claude Code 的 session：截断的结果、thinking 块与指令文件从 jsonl 读回；thinking 的 token 数按输出估算
+// Claude Code sessions: truncated results, thinking blocks and instruction files are read back from the jsonl; thinking tokens are estimated from output
 function claudeDetails(
   session: { filePath: string },
   subs: { agentId: string; filePath: string }[],
@@ -175,7 +176,7 @@ function claudeDetails(
   truncated: Set<string>,
 ) {
   const results = fullResults([session.filePath, ...subs.map((s) => s.filePath)], truncated);
-  // 每个 agent 只在自己的 jsonl 中找：fork 子代理的 jsonl 开头是父代理对话的副本
+  // Search each agent only in its own jsonl: a forked subagent's jsonl starts with a copy of the parent's conversation
   const idsOf = (agent: string | null) =>
     new Set(rows.filter((r) => r.agentId === agent).map((r) => r.messageId));
   const types = new Map<string | null, Map<string, ThinkingType[]>>([
@@ -198,9 +199,9 @@ function claudeDetails(
 
 export function exportSessionRows(db: Db, sessionId: string, withStages = true): SessionExport {
   const session = db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
-  if (session === undefined) throw new Error(`session ${sessionId} 不存在`);
+  if (session === undefined) throw new Error(`Session ${sessionId} not found`);
   const report = withStages ? readReport(db, sessionId) : null;
-  if (withStages && report === null) throw new Error(`session ${sessionId} 没有阶段划分`);
+  if (withStages && report === null) throw new Error(`Session ${sessionId} has no stage split`);
   const stageOf = report === null ? () => null : stageLabels(report);
   const subs = db.select().from(subagents).where(eq(subagents.sessionId, sessionId)).all();
   const rows = db
@@ -229,7 +230,7 @@ export function exportSessionRows(db: Db, sessionId: string, withStages = true):
         .map((c) => c.id),
     ),
   );
-  // Codex 的 session（Contracts 25.2）没有子代理，从 rollout 读回，格式相同
+  // Codex sessions (Contracts 25.2) have no subagents; read back from the rollout in the same format
   const details =
     session.engine === 'codex'
       ? (() => {
@@ -244,24 +245,24 @@ export function exportSessionRows(db: Db, sessionId: string, withStages = true):
       : claudeDetails(session, subs, rows, truncated);
   const full = details.results;
 
-  // tool_use.id → 主 agent 的 seq：主 agent 的调用即其所在行；子代理中的调用沿启动链回到主 agent
+  // tool_use.id -> main-agent seq: a main-agent call is its own row; a subagent call follows the start chain back to the main agent
   const callSeq = new Map<string, number>();
   for (const r of rows)
     if (r.agentId === null) for (const c of r.toolCalls) callSeq.set(c.id, r.seq);
   const parentOfAgent = new Map(subs.map((s) => [s.agentId, s.parentToolUseId]));
   const agentRoot = (agentId: string, depth = 0): number => {
     const toolUseId = parentOfAgent.get(agentId);
-    if (toolUseId === undefined) throw new Error(`子代理 ${agentId} 没有登记`);
+    if (toolUseId === undefined) throw new Error(`Subagent ${agentId} is not registered`);
     const direct = callSeq.get(toolUseId);
     if (direct !== undefined) return direct;
     const owner = rows.find((r) => r.toolCalls.some((c) => c.id === toolUseId));
     if (owner?.agentId == null || depth > 20) {
-      throw new Error(`子代理 ${agentId} 的启动调用 ${toolUseId} 不在 session 中`);
+      throw new Error(`Start call ${toolUseId} of subagent ${agentId} is not in the session`);
     }
     return agentRoot(owner.agentId, depth + 1);
   };
 
-  // 每个 agent 各自按时间分配上一条请求之后的用户消息与 skill 加载
+  // Each agent gets the user messages and skill loads since its previous request, by time
   const lastAt = new Map<string | null, number>();
   const exported = rows.map((r): ExportedRow => {
     const at = r.timestamp.getTime();
@@ -306,18 +307,18 @@ export function exportSessionRows(db: Db, sessionId: string, withStages = true):
   return { rows: exported, report, instructions: details.instructions };
 }
 
-// 仓库是否存在：不存在时返回 gh 的原文；其他错误（认证、网络）以原文抛出
+// Whether the repo exists: returns gh's text when it does not; other errors (auth, network) are thrown as-is
 async function repoMissing(repo: string): Promise<string | null> {
   const result = await execa('gh', ['api', `repos/${repo}`, '--silent'], { reject: false });
   if (result.exitCode === 0) return null;
   if (result.exitCode === 1 && result.stderr.includes('HTTP 404')) return result.stderr.trim();
-  throw new Error(`gh api repos/${repo} 退出码 ${String(result.exitCode)}：${result.stderr}`);
+  throw new Error(`gh api repos/${repo} exit code ${String(result.exitCode)}: ${result.stderr}`);
 }
 
-// run 的 session：task（不含隐藏需求、rubric 与隐藏测试）、评分与理由、产物、对话、PR 的 review 与 CI
+// A run's session: task (without hidden requirements, rubric and hidden tests), grades and reasons, artifacts, conversation, PR review and CI
 export async function exportRun(db: Db, runId: string): Promise<unknown> {
   const run = db.select().from(runs).where(eq(runs.id, runId)).get();
-  if (run === undefined) throw new Error(`run ${runId} 不存在`);
+  if (run === undefined) throw new Error(`Run ${runId} not found`);
   const task = loadTask(db, run.taskId);
   const taskView = {
     id: task.id,
@@ -337,13 +338,10 @@ export async function exportRun(db: Db, runId: string): Promise<unknown> {
   const stored = rows.find((a) => a.kind === 'pr_snapshot');
   let pr: unknown;
   if (stored !== undefined) {
-    if (stored.snapshot === null) throw new Error(`run ${runId} 的 PR 快照没有内容`);
+    if (stored.snapshot === null) throw new Error(`PR snapshot of run ${runId} is empty`);
     pr = { source: 'snapshot', ...StoredPrSnapshot.parse(JSON.parse(stored.snapshot)) };
   } else if (run.githubRepo === null) {
     pr = null;
-  } else if (isLocalRepo(run.githubRepo)) {
-    // 本地仓库模式的仓库（Contracts 7.2）没有 PR
-    pr = { source: 'local', pr: null };
   } else {
     const missing = await repoMissing(run.githubRepo);
     pr =
@@ -385,7 +383,7 @@ export async function exportRun(db: Db, runId: string): Promise<unknown> {
 
 export const CaseFile = z.object({
   analysisId: z.string(),
-  // 本机配置的 session 的分析为 null（Contracts 25.4）
+  // Null for analyses of local-machine sessions (Contracts 25.4)
   variant: z.object({ id: z.string(), name: z.string() }).nullable(),
   sessions: z.array(
     z.object({
@@ -402,8 +400,8 @@ export type CaseFile = z.infer<typeof CaseFile>;
 
 export interface ExportInput {
   analysisId: string;
-  // 被分析的 variant、它的 src/skills 与所属 workflow 的定义（写成 input/workflow.yaml，Contracts 19.2）；
-  // 本机配置的 session 为 null：不写 skills/、workflow.yaml 与 stages.json（Contracts 25.4）
+  // The analysed variant, its src/skills and its workflow's definition (written as input/workflow.yaml, Contracts 19.2);
+  // null for local-machine sessions: no skills/, workflow.yaml or stages.json (Contracts 25.4)
   variant: {
     id: string;
     name: string;
@@ -423,7 +421,7 @@ const InstructionsRecord = z.looseObject({
   }),
 });
 
-// session 记录中加载的指令文件（attachment.type 为 instructions：CLAUDE.md 等的路径与原文），按出现顺序
+// Instruction files loaded in a session record (attachment.type instructions: paths and text of CLAUDE.md etc.), in order
 export function sessionInstructions(file: string): z.infer<typeof InstructionsRecord>[] {
   const out: z.infer<typeof InstructionsRecord>[] = [];
   for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
@@ -437,7 +435,7 @@ export function sessionInstructions(file: string): z.infer<typeof InstructionsRe
   return out;
 }
 
-// 写出 input/；返回每个 session 的导出行，供证据校验使用
+// Write input/; returns each session's exported rows for evidence validation
 export async function writeInput(db: Db, input: ExportInput): Promise<Map<string, ExportedRow[]>> {
   const out = new Map<string, ExportedRow[]>();
   const sessionsDir = path.join(input.inputDir, 'sessions');
@@ -456,7 +454,7 @@ export async function writeInput(db: Db, input: ExportInput): Promise<Map<string
   const caseSessions: CaseFile['sessions'] = [];
   for (const id of input.sessionIds) {
     const m = meta.find((s) => s.id === id);
-    if (m === undefined) throw new Error(`session ${id} 不存在`);
+    if (m === undefined) throw new Error(`Session ${id} not found`);
     const { rows, report, instructions } = exportSessionRows(db, id, input.variant !== null);
     out.set(id, rows);
     fs.writeFileSync(

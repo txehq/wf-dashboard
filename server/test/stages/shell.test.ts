@@ -1,9 +1,10 @@
 import { describe, expect, test } from 'vitest';
-import { commandsOf } from '../../src/stages/shell.js';
+import { catSkill, catSkills, injectedSkill } from '../../src/ingest/codex-skill.js';
+import { commandsOf, sequenceOf } from '../../src/stages/shell.js';
 
-// 命令都取自真实 session 中的 Bash 调用，其中的用户目录写为 /Users/tester
-describe('commandsOf 按 tree-sitter-bash 语法树取 argv', () => {
-  test('参数展开 ${o:+-c $o} 保持原文（wfd-w42 的 session f3488cd1，原来导入时 500：Bad substitution）', () => {
+// All commands come from Bash calls in real sessions, with the user directory written as /Users/tester
+describe('commandsOf takes argv from the tree-sitter-bash syntax tree', () => {
+  test('parameter expansion ${o:+-c $o} stays as written (wfd-w42 session f3488cd1, whose import used to fail with 500: Bad substitution)', () => {
     const cmd =
       'E=/Users/tester/orca/workspaces/wf-dashboard/wfd-w42/.work/w42/exp; mkdir -p $E/home2; cd $E/proj; for o in "" "skills.bundled.enabled=false" "skills.bundled=false" "skills.include_system=false"; do echo "== $o"; HOME=$E/home2 npm_config_cache=$HOME/.npm CODEX_HOME=$E/codex-home codex debug prompt-input ${o:+-c $o} hi > $E/pi.json 2>$E/pi.err; echo "exit $?"; head -c 300 $E/pi.err; grep -o \'(file: r[0-9]/[^)]*)\' $E/pi.json | sort | uniq | tr \'\\n\' \' \'; echo; done';
     expect(commandsOf(cmd)).toEqual([
@@ -21,7 +22,7 @@ describe('commandsOf 按 tree-sitter-bash 语法树取 argv', () => {
     ]);
   });
 
-  test('双引号中的 ${x:-y}', () => {
+  test('${x:-y} inside double quotes', () => {
     const cmd =
       'jq -r \'.vaults[].path\' "$HOME/Library/Application Support/obsidian/obsidian.json"; echo "MAGI_VAULT=${MAGI_VAULT:-<unset>}"; grep -n MAGI_VAULT ~/.zshrc';
     expect(commandsOf(cmd)).toEqual([
@@ -31,7 +32,7 @@ describe('commandsOf 按 tree-sitter-bash 语法树取 argv', () => {
     ]);
   });
 
-  test('$(...) 不是字面量，不计入；其中的命令各自是一条；命令前的变量赋值与重定向不在 argv 中', () => {
+  test('$(...) is not a literal and is skipped; each command inside it is its own command; assignments and redirections before a command are not in argv', () => {
     const cmd =
       'W=/Users/tester/orca/workspaces/wf-dashboard/wfd-w4/data/runs/r-20261009-dqva52/workspace; codex exec -s read-only -C $W --skip-git-repo-check -o $W/.research/codex-review-1.md "$(cat $W/.research/codex-review-prompt.md)" > $W/.research/codex-review-1.log 2>&1; echo exit=$?; wc -l $W/.research/codex-review-1.md';
     expect(commandsOf(cmd)).toEqual([
@@ -52,18 +53,24 @@ describe('commandsOf 按 tree-sitter-bash 语法树取 argv', () => {
     ]);
     expect(
       commandsOf(
-        'cd /Users/tester/orca/workspaces/wf-dashboard/wfd-w4/data/runs/r-20261009-dqva52/workspace && ARTIFACT_VIA=decide wf publish-artifact .decide/ballot.html --title "计算器：请老师做的 4 个决定" 2>&1',
+        'cd /Users/tester/orca/workspaces/wf-dashboard/wfd-w4/data/runs/r-20261009-dqva52/workspace && ARTIFACT_VIA=decide wf publish-artifact .decide/ballot.html --title "Calculator: 4 decisions for you to make" 2>&1',
       ),
     ).toEqual([
       [
         'cd',
         '/Users/tester/orca/workspaces/wf-dashboard/wfd-w4/data/runs/r-20261009-dqva52/workspace',
       ],
-      ['wf', 'publish-artifact', '.decide/ballot.html', '--title', '计算器：请老师做的 4 个决定'],
+      [
+        'wf',
+        'publish-artifact',
+        '.decide/ballot.html',
+        '--title',
+        'Calculator: 4 decisions for you to make',
+      ],
     ]);
   });
 
-  test('算术展开不是字面量，不计入', () => {
+  test('arithmetic expansion is not a literal and is skipped', () => {
     const cmd =
       'cd "/Users/tester/Documents/Obsidian Vault/Project Magi/Dashboard" && n=$(grep -n \'^## 16\\.\' Contracts.md | cut -d: -f1); echo $n; sed -n "$n,$((n+57))p" Contracts.md';
     expect(commandsOf(cmd)).toEqual([
@@ -75,17 +82,17 @@ describe('commandsOf 按 tree-sitter-bash 语法树取 argv', () => {
     ]);
   });
 
-  test("引号与转义：双引号中的换行与末尾的 $、$'…' 的字节、续行", () => {
+  test("quotes and escapes: newline and trailing $ inside double quotes, bytes in $'…', line continuation", () => {
     expect(
       commandsOf(
-        'grep -n -E "Research：|验收标准|评审处理完|PR ready|假设|保留的 idea|数据划分|派发：|def lane|lane\\($|feedback=" build.py',
+        'grep -n -E "Research:|acceptance criteria|review handled|PR ready|assumption|kept idea|data split|dispatch:|def lane|lane\\($|feedback=" build.py',
       ),
     ).toEqual([
       [
         'grep',
         '-n',
         '-E',
-        'Research：|验收标准|评审处理完|PR ready|假设|保留的 idea|数据划分|派发：|def lane|lane\\($|feedback=',
+        'Research:|acceptance criteria|review handled|PR ready|assumption|kept idea|data split|dispatch:|def lane|lane\\($|feedback=',
         'build.py',
       ],
     ]);
@@ -139,11 +146,87 @@ describe('commandsOf 按 tree-sitter-bash 语法树取 argv', () => {
     ]);
   });
 
-  test('不是合法 bash 的命令（wfd-w42 的 session 7fbe92b6）不抛出', () => {
+  test('a command that is not valid bash (wfd-w42 session 7fbe92b6) does not throw', () => {
     expect(() =>
       commandsOf(
         'grep -n "session ${String(bound.length)}\\|for (const s of bound) events" src/deletion/index.ts',
       ),
     ).not.toThrow();
+  });
+});
+
+// Commands come from real codex-cli 0.163.0 rollouts of 2026-10-25 and 2026-10-29
+describe('skills Codex reads with cat (Contracts 25.2)', () => {
+  test('sequenceOf: simple commands joined only by ;, && or || give their argv; pipelines, redirections, subshells and command substitution give null', () => {
+    expect(sequenceOf('cat a/SKILL.md; cat PLATFORM.md && pwd || true')).toEqual([
+      ['cat', 'a/SKILL.md'],
+      ['cat', 'PLATFORM.md'],
+      ['pwd'],
+      ['true'],
+    ]);
+    for (const cmd of [
+      'cat a/SKILL.md | head -20',
+      'cat a/SKILL.md > b.md',
+      '(cat a/SKILL.md)',
+      'cat "$(echo a/SKILL.md)"',
+      'for f in a b; do cat $f/SKILL.md; done',
+    ])
+      expect(sequenceOf(cmd), cmd).toBeNull();
+  });
+
+  test('every SKILL.md in a chain of cats is one read (commands run in the 2026-10-29 exec script)', () => {
+    expect(
+      catSkills(
+        'cat .agents/skills/workflow-design/SKILL.md; cat PLATFORM.md; cat .agents/skills/writing-for-agents/SKILL.md; cat .agents/skills/skill-creator/SKILL.md',
+      ),
+    ).toEqual([
+      { name: 'workflow-design', path: '.agents/skills/workflow-design/SKILL.md' },
+      { name: 'writing-for-agents', path: '.agents/skills/writing-for-agents/SKILL.md' },
+      { name: 'skill-creator', path: '.agents/skills/skill-creator/SKILL.md' },
+    ]);
+    // One cat with several files (2026-10-25)
+    expect(
+      catSkills(
+        'cat .agents/skills/writing-for-agents/SKILL.md .agents/skills/skill-creator/SKILL.md',
+      ).map((s) => s.name),
+    ).toEqual(['writing-for-agents', 'skill-creator']);
+    // Reading a part, cat with a pipe or options, and other commands are not loads
+    for (const cmd of [
+      'sed -n 1,40p .agents/skills/workflow-design/SKILL.md',
+      'cat .agents/skills/workflow-design/SKILL.md | head',
+      'cat -n .agents/skills/workflow-design/SKILL.md',
+      'git diff -- src/skills/hello-flow/SKILL.md',
+      'rg --files -g SKILL.md .',
+    ])
+      expect(catSkills(cmd), cmd).toEqual([]);
+  });
+
+  test('catSkill: the output is the full SKILL.md only when the whole command is a cat of one SKILL.md', () => {
+    expect(catSkill('cat .agents/skills/workflow-design/SKILL.md')).toEqual({
+      name: 'workflow-design',
+      path: '.agents/skills/workflow-design/SKILL.md',
+    });
+    expect(catSkill('cat .agents/skills/workflow-design/SKILL.md; cat PLATFORM.md')).toBeNull();
+    expect(catSkill('cat a/SKILL.md b/SKILL.md')).toBeNull();
+  });
+
+  test('injectedSkill: the name, SKILL.md path and full text of a <skill> injection; other user messages are not', () => {
+    expect(
+      injectedSkill(
+        '<skill>\n<name>workflow-design</name>\n<path>/d/.agents/skills/workflow-design/SKILL.md</path>\n---\nname: workflow-design\n---\n\n# /workflow-design\n\n</skill>',
+      ),
+    ).toEqual({
+      name: 'workflow-design',
+      path: '/d/.agents/skills/workflow-design/SKILL.md',
+      body: '---\nname: workflow-design\n---\n\n# /workflow-design\n',
+    });
+    expect(
+      injectedSkill(
+        '$workflow-design Append a line ok to the end of src/skills/hello-flow/SKILL.md',
+      ),
+    ).toBeNull();
+    expect(
+      injectedSkill('<environment_context>\n  <cwd>/d</cwd>\n</environment_context>'),
+    ).toBeNull();
   });
 });

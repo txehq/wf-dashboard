@@ -18,8 +18,10 @@ import {
   type WorkspaceFileStatus,
 } from '@/lib/workspace-api';
 
-// skill 浏览（Contracts 26.3）：左侧是工作目录 src/skills 的文件树，标出相对底子新增、修改、删除的文件；右侧是选中
-// 文件的内容（.md 渲染或源码，其他文件语法高亮），"对比"显示相对底子、上次保存或上一版的 diff（28.4）。只读：编辑由 agent 做
+// Skill browser (Contracts 26.3): on the left, the file tree of src/skills in the working directory,
+// marking files added, modified or removed relative to the base; on the right, the selected file's
+// content (.md rendered or as source, other files syntax-highlighted), and "Compare" shows the diff
+// against the base, the last save or the previous version (28.4). Read-only: the agent does the editing
 
 const markLetter: Record<WorkspaceFileStatus, string | null> = {
   added: 'A',
@@ -28,10 +30,10 @@ const markLetter: Record<WorkspaceFileStatus, string | null> = {
   unchanged: null,
 };
 const markTitle: Record<WorkspaceFileStatus, string> = {
-  added: '新增',
-  modified: '修改',
-  removed: '删除',
-  unchanged: '未变',
+  added: 'Added',
+  modified: 'Modified',
+  removed: 'Removed',
+  unchanged: 'Unchanged',
 };
 
 interface TreeDir {
@@ -41,7 +43,7 @@ interface TreeDir {
   files: { name: string; path: string; status: WorkspaceFileStatus }[];
 }
 
-// 路径形如 skills/<skill>/...；树从 skills/ 之下开始
+// Paths look like skills/<skill>/...; the tree starts below skills/
 function buildTree(files: Workspace['files']): TreeDir {
   const root: TreeDir = { name: '', path: 'skills', dirs: [], files: [] };
   for (const file of files) {
@@ -157,7 +159,7 @@ export function FileTree({
 }) {
   const tree = useMemo(() => buildTree(files), [files]);
   if (files.length === 0) {
-    return <p className="p-2 text-xs text-muted-foreground">没有文件。</p>;
+    return <p className="p-2 text-xs text-muted-foreground">No files.</p>;
   }
   return (
     <ul className="text-xs" data-testid="ws-tree">
@@ -166,7 +168,7 @@ export function FileTree({
   );
 }
 
-// 1 起的闭区间：新内容中相对上一份新增或改动的行
+// 1-based inclusive ranges: lines in the new content added or changed relative to the previous one
 function changedLines(before: string, after: string): [number, number][] {
   const ranges: [number, number][] = [];
   let line = 1;
@@ -179,10 +181,10 @@ function changedLines(before: string, after: string): [number, number][] {
   return ranges;
 }
 
-// 改动处高亮的时长
+// How long changes stay highlighted
 const FLASH_MS = 3_000;
 
-// 当前文件被 agent 改了：内容原地更新，改动的行短暂高亮
+// When the agent changes the current file: content updates in place and changed lines briefly highlight
 function useFlash(path: string, content: string | null) {
   const previous = useRef<{ path: string; content: string | null } | null>(null);
   const [flash, setFlash] = useState<[number, number][]>([]);
@@ -213,7 +215,7 @@ function languageOf(path: string): string {
   return hljs.getLanguage(ext) === undefined ? 'plaintext' : ext;
 }
 
-// 其他文件与 .md 的源码：highlight.js 高亮；改动的行在下面垫一层底色
+// Source of other files and .md: highlighted by highlight.js; changed lines get a background layer beneath
 function CodeView({
   path,
   content,
@@ -247,7 +249,7 @@ function CodeView({
         className="relative m-0 font-mono text-xs"
         style={{ padding: CODE_PAD_PX, lineHeight: `${String(LINE_PX)}px` }}
       >
-        {/* highlight.js 的输出已转义 */}
+        {/* highlight.js output is already escaped */}
         <code className="hljs" dangerouslySetInnerHTML={{ __html: html }} />
       </pre>
     </div>
@@ -259,11 +261,11 @@ const MD_VIEW_KEY = 'wfd.workspace.mdView';
 const COMPARE_KEY = 'wfd.workspace.compare';
 const AGAINST_KEY = 'wfd.workspace.against';
 const sameAs: Record<WorkspaceAgainst, string> = {
-  base: '与底子相同。',
-  saved: '与上次保存相同。',
-  previous: '与上一版相同。',
+  base: 'Same as the base.',
+  saved: 'Same as the last save.',
+  previous: 'Same as the previous version.',
 };
-// 内容区比这窄时 frontmatter 显示为纵向的「键：值」列表，表格的每一列都放不下
+// Below this content width, frontmatter shows as a vertical "key: value" list because table columns don't fit
 const FRONTMATTER_TABLE_MIN = 520;
 
 function useStored<T extends string>(key: string, values: readonly T[], initial: T) {
@@ -307,7 +309,8 @@ function Toggle({
   );
 }
 
-// 右侧：选中文件的内容或相对所选对象（底子、上次保存、上一版）的 diff
+// Right side: the selected file's content, or its diff against the chosen target (base, last save,
+// previous version)
 export function FileContent({
   liveId,
   path,
@@ -318,9 +321,9 @@ export function FileContent({
   liveId: string;
   path: string | null;
   status: WorkspaceFileStatus | null;
-  // "对比"可以选的对象（againstOptions）
+  // Targets "Compare" can choose (againstOptions)
   against: readonly AgainstOption[];
-  // 工具栏最右边（跟随 agent 的开关）
+  // Far right of the toolbar (the follow-agent switch)
   toolbarEnd: React.ReactNode;
 }) {
   const [mdView, setMdView] = useStored<MdView>(MD_VIEW_KEY, ['rendered', 'source'], 'rendered');
@@ -336,7 +339,7 @@ export function FileContent({
     ...workspaceDiffQuery(liveId, path ?? '', target ?? 'base'),
     enabled: path !== null && compare === 'on' && target !== null,
   });
-  // 刷新期间保留上一份内容，不闪成"加载中"
+  // Keep the previous content while refreshing instead of flashing "Loading"
   const content = file.data?.path === path ? file.data.content : null;
   const flash = useFlash(path ?? '', content);
   const isMd = path?.endsWith('.md') === true;
@@ -344,16 +347,20 @@ export function FileContent({
 
   let body;
   if (path === null) {
-    body = <p className="p-3 text-sm text-muted-foreground">在左侧或流程图中选一个文件。</p>;
+    body = (
+      <p className="p-3 text-sm text-muted-foreground">
+        Select a file on the left or in the flowchart.
+      </p>
+    );
   } else if (compare === 'on') {
     body =
       target === null ? (
         <p className="p-3 text-sm text-muted-foreground" data-testid="ws-diff-none">
-          还没有可以对比的版本。
+          No version to compare with yet.
         </p>
       ) : diff.data === undefined ? (
         <p className="p-3 text-sm text-muted-foreground">
-          {diff.isError ? diff.error.message : '加载中…'}
+          {diff.isError ? diff.error.message : 'Loading…'}
         </p>
       ) : (
         <div className="p-2" data-testid="ws-diff" data-against={diff.data.against}>
@@ -370,18 +377,20 @@ export function FileContent({
       </p>
     );
   } else if (file.data?.path !== path) {
-    body = <p className="p-3 text-sm text-muted-foreground">加载中…</p>;
+    body = <p className="p-3 text-sm text-muted-foreground">Loading…</p>;
   } else if (file.data.binary) {
-    body = <p className="p-3 text-sm text-muted-foreground">二进制文件，不显示内容。</p>;
+    body = <p className="p-3 text-sm text-muted-foreground">Binary file; content not shown.</p>;
   } else if (content === null) {
     body = (
       <p className="p-3 text-sm text-muted-foreground" data-testid="ws-file-deleted">
-        已删除{status === 'removed' ? '（底子中有，打开"对比"查看删除的内容）' : ''}。
+        {status === 'removed'
+          ? 'Removed (it exists in the base; turn on "Compare" to see the removed content).'
+          : 'Removed.'}
       </p>
     );
   } else if (isMd && mdView === 'rendered') {
     body = (
-      // 容器查询：更窄时 frontmatter 的键与值分两行（markdown.css）
+      // Container query: when narrower, frontmatter keys and values go on two lines (markdown.css)
       <div className="p-4 [container-type:inline-size]">
         <Markdown
           content={content}
@@ -410,7 +419,7 @@ export function FileContent({
           {path ?? ''}
         </span>
         {isMd && compare === 'off' && (
-          <div role="group" aria-label="显示方式" className="inline-flex gap-1">
+          <div role="group" aria-label="View" className="inline-flex gap-1">
             <Toggle
               pressed={mdView === 'rendered'}
               testId="ws-md-rendered"
@@ -418,7 +427,7 @@ export function FileContent({
                 setMdView('rendered');
               }}
             >
-              渲染
+              Rendered
             </Toggle>
             <Toggle
               pressed={mdView === 'source'}
@@ -427,7 +436,7 @@ export function FileContent({
                 setMdView('source');
               }}
             >
-              源码
+              Source
             </Toggle>
           </div>
         )}
@@ -435,22 +444,23 @@ export function FileContent({
         <Toggle
           pressed={compare === 'on'}
           testId="ws-compare"
-          title="显示这个文件的改动"
+          title="Show this file's changes"
           onToggle={() => {
             setCompare(compare === 'on' ? 'off' : 'on');
           }}
         >
-          对比
+          Compare
         </Toggle>
         {compare === 'on' && target !== null && (
           <select
-            aria-label="对比的对象"
+            aria-label="Compare with"
             className="h-6 rounded-md border bg-background px-1 text-xs"
             data-testid="ws-against"
             value={target}
             onChange={(event) => {
               const next = against.find((o) => o.value === event.target.value);
-              if (next === undefined) throw new Error(`未知的对比对象：${event.target.value}`);
+              if (next === undefined)
+                throw new Error(`Unknown compare target: ${event.target.value}`);
               setStoredAgainst(next.value);
             }}
           >

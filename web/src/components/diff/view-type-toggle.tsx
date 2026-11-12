@@ -3,8 +3,8 @@ import { cn } from '@/lib/utils';
 import { useDiffViewType } from './view-type';
 
 const labels: [ViewType, string][] = [
-  ['unified', '统一'],
-  ['split', '并排'],
+  ['unified', 'Unified'],
+  ['split', 'Side by side'],
 ];
 
 export function DiffViewTypeToggle({ className }: { className?: string }) {
@@ -12,7 +12,7 @@ export function DiffViewTypeToggle({ className }: { className?: string }) {
   return (
     <div
       role="group"
-      aria-label="diff 的排列"
+      aria-label="Diff layout"
       className={cn('inline-flex overflow-hidden rounded-md border text-xs', className)}
       data-testid="diff-view-type"
       data-view={viewType}

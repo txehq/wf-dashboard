@@ -4,51 +4,54 @@ import { isFiller } from '../llm/filler.js';
 import type { TokenUsage } from '../llm/pricing.js';
 import type { ArtifactRubric, Task } from '../tasks/schema.js';
 import type { EvalSpec, RubricArtifactSpec } from '../workflows/schema.js';
-import { chineseCount } from '../workflows/text.js';
 import type { GradeItem } from './schema.js';
 
-// judge 看到的评测配置：入口命令（workflow id）与 rubric 积木列出的产物（Contracts 16.2）
+// Eval config the judge sees: the entry command (workflow id) and the artifacts the rubric block lists (Contracts 16.2)
 export interface JudgeStage {
   stage: Pick<EvalSpec, 'id'>;
   artifacts: RubricArtifactSpec[];
 }
 
 function systemPrompt({ stage, artifacts }: JudgeStage) {
-  return `你是一个 AI 编码 workflow 评估系统的评分员。被评估的是 Magi workflow 的 /${stage.id} 流程：agent 拿到用户的一句想法，与用户对话后依次产出 ${artifacts.map((a) => a.id).join('、')} ${chineseCount(artifacts.length)}个产物。你每次只评一个产物。
+  return `You are a grader in an evaluation system for AI coding workflows. Under evaluation is the /${stage.id} flow of the Magi workflow: the agent receives a one-sentence idea from the user, talks with the user, and then produces ${String(artifacts.length)} artifacts in order: ${artifacts.map((a) => a.id).join(', ')}. You grade one artifact at a time.
 
-评分规则：
-- 严格按 rubric 逐条评分：每一条都要评，只评列出的条目，条目之间互不影响，不给整体印象分。
-- 只依据产物文本中实际写出的内容判定。task 的想法与隐藏需求只用于理解条目在问什么；产物没有写出的内容一律视为没有，不替 agent 推测意图，不因写得长或格式好加分。
-- score 为 0 到该条 maxScore 之间的整数：完全满足给满分，完全没有给 0，部分满足按满足的程度给中间分。
-- reasoning 用中文写一到三句：指出产物中支持该分数的具体内容（可以短引原文），或指出缺少的内容。
-- 按条目编号作答：respond 的参数中 item_1 是条目 1 的评分，item_2 是条目 2 的评分，依此类推，每个条目都有 reasoning 与 score。`;
+Grading rules:
+- Grade strictly item by item against the rubric: grade every item, grade only the listed items, keep the items independent of each other, and give no overall-impression score.
+- Judge only by what the artifact text actually says. The task's idea and hidden requirements only help you understand what an item asks; anything the artifact does not write down counts as absent; do not guess the agent's intent, and give no extra points for length or nice formatting.
+- score is an integer from 0 to the item's maxScore: full marks when fully met, 0 when entirely absent, and a score in between according to how much is met when partly met.
+- Write reasoning in English, one to three sentences: point to the specific content in the artifact that supports the score (short quotes are fine), or point out what is missing.
+- Answer by item number: in the arguments of respond, item_1 is the grade for item 1, item_2 the grade for item 2, and so on; every item has reasoning and score.`;
 }
 
-// 按编号作答（与模拟用户相同，见 Reports/W21、W23）：gateway 不执行 strict tool 的约束，
-// 需要模型抄写的字段会出错，itemId 由代码按编号对应回 rubric
+// Answer by number (as the simulated user does, see Reports/W21, W23): the gateway does not enforce strict tool constraints,
+// so fields the model must copy go wrong; code maps itemId back to the rubric by number
 export const itemKey = (index: number) => `item_${String(index + 1)}`;
 
 function userPrompt(task: Task, judging: JudgeStage, group: ArtifactRubric, content: string) {
   const spec = judging.artifacts.find((a) => a.id === group.artifact);
   if (spec === undefined) {
-    throw new Error(`workflow ${judging.stage.id} 的 rubric 积木没有产物 ${group.artifact}`);
+    throw new Error(
+      `Rubric block of workflow ${judging.stage.id} has no artifact ${group.artifact}`,
+    );
   }
   const items = group.items
-    .map((i, n) => `- 条目 ${String(n + 1)}（maxScore ${String(i.maxScore)}）：${i.criterion}`)
+    .map((i, n) => `- Item ${String(n + 1)} (maxScore ${String(i.maxScore)}): ${i.criterion}`)
     .join('\n');
   const input =
-    task.input === undefined ? '' : `用户交给 /${judging.stage.id} 的原话：\n${task.input}\n\n`;
-  return `task：${task.title}
+    task.input === undefined
+      ? ''
+      : `The user's exact words to /${judging.stage.id}:\n${task.input}\n\n`;
+  return `Task: ${task.title}
 
-${input}隐藏需求（模拟用户只在被问到时透露）：
+${input}Hidden requirements (the simulated user reveals them only when asked):
 ${task.hiddenRequirements}
 
-被评分的产物：${spec.description}
+Artifact being graded: ${spec.description}
 
-rubric（${String(group.items.length)} 条）：
+Rubric (${String(group.items.length)} items):
 ${items}
 
-产物全文如下，位于 <artifact> 标签之间：
+The full artifact follows, between <artifact> tags:
 <artifact>
 ${content}
 </artifact>`;
@@ -69,11 +72,11 @@ export function judgeSchema(group: ArtifactRubric) {
 
 type Judgment = Record<string, z.infer<typeof JudgedItem>>;
 
-// reasoning 是一到三句完整的话，以句末标点结束（其后可以是引号、括号）。sonnet 有时只写出半句
-// （"每张工单只有一句话的"），其余条目填占位内容（Reports/W23）
-const SENTENCE_END = /[。！？.!?…][」』"”'’）)】\]]*\s*$/u;
+// reasoning is one to three complete sentences ending in sentence-final punctuation (optionally followed by quotes or brackets). Sonnet sometimes writes
+// only half a sentence and fills the other items with placeholders (Reports/W23)
+const SENTENCE_END = /[.!?…]["”'’)\]]*\s*$/u;
 
-// judge 的请求：judgeArtifact 与 .work/w23 的统计脚本共用
+// The judge request: shared by judgeArtifact and the .work/w23 statistics script
 export function judgeRequest(
   task: Task,
   judging: JudgeStage,
@@ -90,25 +93,27 @@ export function judgeRequest(
   };
 }
 
-// reasoning 是占位内容或没有写完时抛错；验收标准 judge（ic-criteria.ts）共用
+// Throw when reasoning is a placeholder or unfinished; shared with the acceptance criteria judge (ic-criteria.ts)
 export function checkReasoning(itemId: string, reasoning: string) {
   if (isFiller(reasoning)) {
-    throw new Error(`judge 给 ${itemId} 的 reasoning 是占位内容：${JSON.stringify(reasoning)}`);
+    throw new Error(
+      `Judge's reasoning for ${itemId} is a placeholder: ${JSON.stringify(reasoning)}`,
+    );
   }
   if (!SENTENCE_END.test(reasoning)) {
-    throw new Error(`judge 给 ${itemId} 的 reasoning 没有写完：${JSON.stringify(reasoning)}`);
+    throw new Error(`Judge's reasoning for ${itemId} is unfinished: ${JSON.stringify(reasoning)}`);
   }
 }
 
-// 按编号把 judge 的回答对应回 rubric 条目；缺少条目、reasoning 是占位内容或没有写完、分数越界时抛错
+// Map the judge's answers back to rubric items by number; throw on a missing item, placeholder or unfinished reasoning, or an out-of-range score
 export function readJudgment(group: ArtifactRubric, judgment: Judgment): GradeItem[] {
   return group.items.map((rubricItem, i): GradeItem => {
     const judged = judgment[itemKey(i)];
-    if (judged === undefined) throw new Error(`judge 没有返回条目 ${rubricItem.id}`);
+    if (judged === undefined) throw new Error(`Judge returned no item ${rubricItem.id}`);
     checkReasoning(rubricItem.id, judged.reasoning);
     if (judged.score < 0 || judged.score > rubricItem.maxScore) {
       throw new Error(
-        `judge 给 ${rubricItem.id} 的分数 ${String(judged.score)} 超出 0..${String(rubricItem.maxScore)}`,
+        `Judge gave ${rubricItem.id} score ${String(judged.score)}, outside 0..${String(rubricItem.maxScore)}`,
       );
     }
     return {
@@ -121,7 +126,7 @@ export function readJudgment(group: ArtifactRubric, judgment: Judgment): GradeIt
   });
 }
 
-// 一个产物一次 judge 调用
+// One judge call per artifact
 export async function judgeArtifact(
   task: Task,
   judging: JudgeStage,
@@ -137,13 +142,13 @@ export async function judgeArtifact(
   return { items, model: result.model, usage: result.usage, costUsd: result.costUsd };
 }
 
-// 产物不存在：每条记 0 分，不调用 judge
+// Artifact missing: every item scores 0 and no judge is called
 export function missingArtifactItems(group: ArtifactRubric): GradeItem[] {
   return group.items.map((i) => ({
     itemId: i.id,
     criterion: i.criterion,
     score: 0,
     maxScore: i.maxScore,
-    reasoning: `产物 ${group.artifact} 不存在，该条记 0 分。`,
+    reasoning: `Artifact ${group.artifact} does not exist, so this item scores 0.`,
   }));
 }

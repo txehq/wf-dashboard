@@ -23,8 +23,8 @@ export interface IcGrade {
 export const gradingCheckout = (runId: string) =>
   path.join(config.runsDir, runId, 'grading/checkout');
 
-// 仓库中最新的 PR：隐藏测试跑在 PR 分支的 head 上，终点判定读同一个 head；没有 PR 时测试记 0 / 声明数；
-// agent 的代码造成的失败（例如超时、npm ci 失败）记在 detail.error，测试记 0 / 声明数；signal 取消时在下一步之前抛出 signal.reason
+// Latest PR in the repo: hidden tests run on the PR branch head and the endpoint check reads the same head; without a PR tests score 0 / declared;
+// failures caused by the agent's code (e.g. timeout, npm ci failure) go to detail.error and score 0 / declared; on signal abort, throw signal.reason before the next step
 export async function gradeIc(
   task: TestsTask,
   runId: string,
@@ -60,13 +60,13 @@ export function noPrIcGrade(task: TestsTask): IcGrade {
 }
 
 export interface PrSource {
-  // 把 PR 的 head 取到 dest
+  // Fetch the PR head into dest
   checkout: (dest: string) => Promise<{ head: string }>;
-  // 隐藏测试之后读的终点判定
+  // Endpoint check read after the hidden tests
   endpoint: () => Promise<IcEndpoint>;
 }
 
-// 已读到的 PR：checkout 到 data/runs/<runId>/grading/checkout 跑隐藏测试，再判定终点
+// A PR already read: check out to data/runs/<runId>/grading/checkout, run hidden tests, then check the endpoint
 export async function gradeIcPr(
   task: TestsTask,
   runId: string,
@@ -81,10 +81,10 @@ export async function gradeIcPr(
   const endpoint = await source.endpoint();
   signal.throwIfAborted();
   if (endpoint.head !== head) {
-    throw new Error(`${pr.url} 的 head 在评分期间变化：${head} → ${endpoint.head}`);
+    throw new Error(`Head of ${pr.url} changed during grading: ${head} → ${endpoint.head}`);
   }
-  // 评分写出后删除 checkout（含 node_modules）与评分用的 HOME；JUnit、日志与测试配置留在 grading/ 下。
-  // 评分出错时保留，供排查
+  // After the grade is written, delete the checkout (with node_modules) and the grading HOME; JUnit, logs and test config stay under grading/.
+  // Kept when grading errored, for debugging
   if (tests.error === null) {
     const gradingDir = path.dirname(checkout);
     fs.rmSync(checkout, { recursive: true });

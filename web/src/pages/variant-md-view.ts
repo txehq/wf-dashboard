@@ -1,9 +1,9 @@
 import { useSyncExternalStore } from 'react';
 
-// variant 编辑区的显示（Contracts 21.2）：.md 文件为编辑、预览、并排、对比，其他文件为编辑、对比。
-// 默认预览，选择记在 localStorage
+// Variant editor views (Contracts 21.2): .md files have edit, preview, side by side and diff; other
+// files have edit and diff. Defaults to preview; the choice is kept in localStorage
 export type WorkspaceView = 'edit' | 'preview' | 'split' | 'diff';
-// 编辑器一侧的显示：.md 文件的编辑、预览、并排
+// Views on the editor side: edit, preview and side by side for .md files
 export type MdView = Exclude<WorkspaceView, 'diff'>;
 
 const KEY = 'wfd.variant.view';
@@ -37,17 +37,17 @@ export function useWorkspaceView(): [WorkspaceView, (next: WorkspaceView) => voi
 
 export const isMarkdown = (path: string) => path.toLowerCase().endsWith('.md');
 
-// 当前文件下实际的显示：预览与并排只对 .md 文件
+// The view actually shown for the current file: preview and side by side are .md only
 export function effectiveView(stored: WorkspaceView, path: string | null): WorkspaceView {
   if (stored === 'diff') return 'diff';
   return path !== null && isMarkdown(path) ? stored : 'edit';
 }
 
 export const viewLabels: Record<WorkspaceView, string> = {
-  edit: '编辑',
-  preview: '预览',
-  split: '并排',
-  diff: '对比',
+  edit: 'Edit',
+  preview: 'Preview',
+  split: 'Side by side',
+  diff: 'Diff',
 };
 
 export function viewsOf(path: string | null): WorkspaceView[] {

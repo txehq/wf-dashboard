@@ -56,14 +56,14 @@ export interface RunnerDeps {
   vaultDir: string;
   product: string;
   runsDir: string;
-  // run 的仓库建在 GitHub 或本地仓库模式的目录中（Contracts 7.2）
+  // The run's repo on GitHub (Contracts 7.2)
   repos: RunRepos;
 }
 
-// 取消与结束时等待 CLI 收尾的时间；超时后发 SIGTERM（Spikes/Claude CLI 第 7 节）
+// Time to wait for the CLI to wrap up on cancel and finish; SIGTERM after it (Spikes/Claude CLI section 7)
 const SETTLE_TIMEOUT_MS = 60_000;
 const PR_POLL_MS = 60_000;
-const DENY_MESSAGE = '评估环境不允许这个操作，请换一种方式继续。';
+const DENY_MESSAGE = 'The eval environment does not allow this operation; continue in another way.';
 
 type RunRow = typeof runs.$inferSelect;
 
@@ -79,8 +79,8 @@ export function formatQuestions(questions: AskQuestion[]): string {
   return questions
     .map((q) =>
       [
-        `${q.header ? `[${q.header}] ` : ''}${q.question}${q.multiSelect ? '（可多选）' : ''}`,
-        ...q.options.map((o) => `- ${o.label}${o.description ? `：${o.description}` : ''}`),
+        `${q.header ? `[${q.header}] ` : ''}${q.question}${q.multiSelect ? ' (multiple choice)' : ''}`,
+        ...q.options.map((o) => `- ${o.label}${o.description ? `: ${o.description}` : ''}`),
       ].join('\n'),
     )
     .join('\n\n');
@@ -91,7 +91,7 @@ const formatAnswers = (answers: Record<string, string>) =>
     .map(([q, a]) => `${q} → ${a}`)
     .join('\n');
 
-// 一个 run 的完整生命周期：准备、驱动 claude 子进程与模拟用户、接管、结束与评分
+// The full lifecycle of a run: prepare, drive the claude subprocess and simulated user, takeover, finish and grading
 export class RunDriver {
   mode: RunMode = 'simulated';
   pending: Pending | null = null;
@@ -99,7 +99,7 @@ export class RunDriver {
 
   private readonly db: Db;
   private task!: Task;
-  // run 所用 variant 的 workflow 的评测配置：准备、初始消息、结束条件与评分按它的积木执行（Contracts 16.2）
+  // Eval config of the workflow of the run's variant: prepare, initial message, done condition and grading follow its building blocks (Contracts 16.2)
   private stage!: EvalSpec;
   private proc: ClaudeProcess | null = null;
   private rubricArtifacts: RubricArtifacts | null = null;
@@ -108,17 +108,17 @@ export class RunDriver {
   private prTimer: NodeJS.Timeout | null = null;
   private prPolling = false;
   private jsonl: string | null = null;
-  // 上一次回答之后主 session 的全部回复文字：提问可能出现在 tool 调用或后台任务之前
+  // All reply text of the main session since the last answer: a question may appear before tool calls or background tasks
   private turnText: string[] = [];
-  // pending 对应的 agent 消息 seq；模拟用户的对话记录截止到它之前
+  // Agent message seq of pending; the simulated user's transcript stops before it
   private pendingSeq = -1;
   private readonly questionInputs = new Map<string, Record<string, unknown>>();
   private simulating = false;
   private ending: 'finish' | 'cancel' | null = null;
   private shuttingDown = false;
-  // 取消评分与服务关闭时中止 gradeRun：结束评分的子进程（npm ci、隐藏测试）与 judge 请求
+  // Aborts gradeRun on grading cancel and server shutdown: ends grading subprocesses (npm ci, hidden tests) and judge requests
   private readonly gradingAbort = new AbortController();
-  // 服务关闭时中止准备阶段的等待（等默认分支、等起始代码的 CI）
+  // Aborts the prepare-stage waits on server shutdown (default branch, starting code CI)
   private readonly stopping = new AbortController();
   private failure: ((error: Error) => void) | null = null;
   private readonly failed: Promise<never>;
@@ -131,7 +131,7 @@ export class RunDriver {
     this.failed = new Promise<never>((_, reject) => {
       this.failure = reject;
     });
-    // drive 中途若没有 await failed，拒绝也不能成为未处理的 Promise
+    // Even if drive never awaits failed, the rejection must not become an unhandled Promise
     this.failed.catch(() => undefined);
     this.done = this.drive().then(
       () => {
@@ -139,7 +139,7 @@ export class RunDriver {
       },
       async (error: unknown) => {
         const err = error instanceof Error ? error : new Error(String(error));
-        console.error(`[run ${runId}] 失败`, err);
+        console.error(`[run ${runId}] failed`, err);
         await this.abort();
         this.setStatus('failed', { error: err.message, endedAt: new Date() });
         this.cleanup();
@@ -147,7 +147,7 @@ export class RunDriver {
     );
   }
 
-  // 回调中的错误（stdout 解析、模拟用户）都让 run 失败
+  // Errors in callbacks (stdout parsing, simulated user) all fail the run
   fail = (error: Error) => {
     this.failure?.(error);
   };
@@ -160,7 +160,7 @@ export class RunDriver {
 
   private row(): RunRow {
     const row = this.db.select().from(runs).where(eq(runs.id, this.runId)).get();
-    if (row === undefined) throw new Error(`run ${this.runId} 不存在`);
+    if (row === undefined) throw new Error(`Run ${this.runId} does not exist`);
     return row;
   }
 
@@ -171,7 +171,7 @@ export class RunDriver {
   private setStatus(status: RunStatus, values: Partial<RunRow> = {}) {
     this.update({ ...values, status });
     events.publish({ type: 'run.status', runId: this.runId, status });
-    // 终态的 run 的 session 中最后一个阶段为 done（Contracts 第 5 节）
+    // The last stage of a terminal run's session is done (Contracts section 5)
     if (terminalRunStatuses.includes(status)) {
       const { sessionId } = this.row();
       const changes = updateStages(this.db, sessionId);
@@ -203,17 +203,17 @@ export class RunDriver {
     this.stage = evalSpecOf(this.db, workflowOfVariant(this.db, run.variantId));
     this.setStatus('preparing', { startedAt: new Date() });
     const initial = await this.prepare(run);
-    // prepare 写入了仓库
+    // prepare wrote the repo
     this.start(this.row(), initial);
     const proc = this.proc;
-    if (proc === null) throw new Error('claude 进程没有启动');
+    if (proc === null) throw new Error('Claude process did not start');
     const exit = await Promise.race([proc.exited, this.failed]);
-    if (this.shuttingDown) throw new Error('服务关闭，运行中断');
+    if (this.shuttingDown) throw new Error('Server shut down, run interrupted');
     await this.teardown();
     if (this.ending === 'cancel') {
       this.setStatus('cancelled', { endedAt: new Date() });
-      // 取消的 run 照常评分已写出的产物，status 保持 cancelled（Contracts 7.5）；
-      // 评分出错时 grading 记为 failed 与原文，status 仍是 cancelled
+      // A cancelled run still grades the artifacts already written and stays cancelled (Contracts 7.5);
+      // on a grading error, grading is recorded as failed with the raw text and status stays cancelled
       await this.grade().then(
         () => undefined,
         () => undefined,
@@ -223,11 +223,11 @@ export class RunDriver {
     }
     if (this.ending !== 'finish') {
       throw new Error(
-        `claude 进程意外退出（code=${String(exit.code)}，signal=${String(exit.signal)}）`,
+        `Claude process exited unexpectedly (code=${String(exit.code)}, signal=${String(exit.signal)})`,
       );
     }
     this.setStatus('grading');
-    // 评分中被页面取消：评分记为 failed 与原因，status 为 cancelled；服务关闭时照常让 run 失败
+    // Grading cancelled from the page: grading is failed with the reason, status cancelled; on server shutdown the run fails as usual
     const cancelled = await this.grade().then(
       () => false,
       (error: unknown) => {
@@ -262,7 +262,7 @@ export class RunDriver {
     events.publish({ type: 'run.status', runId: this.runId, status: this.row().status });
   }
 
-  // Contracts 7.2、16.2：外部对象、workspace 与 vault；返回按模板生成的初始消息
+  // Contracts 7.2, 16.2: external objects, workspace and vault; returns the initial message built from the template
   private async prepare(run: RunRow): Promise<string> {
     fs.mkdirSync(this.runDir(), { recursive: true });
     return prepareRun({
@@ -295,7 +295,7 @@ export class RunDriver {
   }
 
   private start(run: RunRow, initial: string) {
-    if (this.shuttingDown) throw new Error('服务关闭，运行中断');
+    if (this.shuttingDown) throw new Error('Server shut down, run interrupted');
     this.deps.variants.refreshAuthEnv(run.variantId);
     const runtime = this.deps.variants.runtimeEnv(run.variantId);
     const { env, variantArgs } = launchSpec(runtime, run, this.stage, this.deps);
@@ -318,14 +318,14 @@ export class RunDriver {
       );
       this.rubricArtifacts.record();
     }
-    // 有副本仓库的评测类型：轮询 PR，记录验收报告
+    // Eval kinds with a repo copy: poll the PR and record the acceptance report
     const tracksPr = this.stage.prepare.includes('repo-copy');
     if (tracksPr) {
       this.prTimer = setInterval(() => {
         this.guard(this.pollPr());
       }, PR_POLL_MS);
     }
-    // 阶段在导入 session 时划分（stages/report 的 updateStages），这里只转发为 run.stage
+    // Stages are split when the session is imported (updateStages in stages/report); here they are only forwarded as run.stage
     const stopSession = events.subscribe((event) => {
       if (event.type === 'session.updated' && event.sessionId === run.sessionId) {
         this.rubricArtifacts?.record();
@@ -353,7 +353,6 @@ export class RunDriver {
         run.variantId,
         this.runId,
         this.deps.runsDir,
-        this.deps.repos.localDir === null ? null : run.githubRepo,
       ),
       logDir: this.runDir(),
       onEvent: (event) => {
@@ -410,10 +409,11 @@ export class RunDriver {
 
   private onControlRequest(event: ControlRequestEvent) {
     const proc = this.proc;
-    if (proc === null) throw new Error('claude 进程尚未启动就收到 control_request');
+    if (proc === null)
+      throw new Error('Received control_request before the claude process started');
     const { request } = event;
     if (request.subtype !== 'can_use_tool') {
-      this.fail(new Error(`无法处理的 control_request：${JSON.stringify(request)}`));
+      this.fail(new Error(`Unhandled control_request: ${JSON.stringify(request)}`));
       return;
     }
     if (request.tool_name === 'AskUserQuestion' && this.ending === null) {
@@ -435,12 +435,12 @@ export class RunDriver {
       this.respondIfSimulated();
       return;
     }
-    // 其余权限请求（只会是关键路径删除这类安全检查）一律拒绝并记录
+    // All other permission requests (only safety checks such as deleting critical paths) are denied and recorded
     proc.respond(event.request_id, { behavior: 'deny', message: DENY_MESSAGE });
-    const toolName = request.tool_name ?? '(未知)';
+    const toolName = request.tool_name ?? '(unknown)';
     addMessage(this.db, this.runId, {
       role: 'system',
-      content: `拒绝了 ${toolName} 的权限请求${request.decision_reason ? `：${request.decision_reason}` : ''}`,
+      content: `Denied the permission request for ${toolName}${request.decision_reason ? `: ${request.decision_reason}` : ''}`,
       payload: {
         kind: 'denied',
         toolName,
@@ -474,7 +474,9 @@ export class RunDriver {
       (m) => m.role === 'simulated_user',
     ).length;
     if (answered >= max) {
-      throw new Error(`模拟用户回答次数达到上限 ${String(max)}，对话没有结束`);
+      throw new Error(
+        `Simulated user reached the answer limit of ${String(max)} and the conversation has not ended`,
+      );
     }
     this.simulating = true;
     const prompt: AgentPrompt =
@@ -487,10 +489,10 @@ export class RunDriver {
     ]);
     this.simulating = false;
     if (this.pending !== pending || this.mode !== 'simulated' || this.ending !== null) {
-      // 生成期间被接管或结束：回答作废，花费照常记入
+      // Taken over or ending during generation: the answer is discarded, its cost still counts
       addMessage(this.db, this.runId, {
         role: 'system',
-        content: `模拟用户的回答未发送（${this.ending === null ? '已被接管' : '运行正在结束'}）：${reply.reply}`,
+        content: `Simulated user answer not sent (${this.ending === null ? 'taken over' : 'run is ending'}): ${reply.reply}`,
         costUsd: reply.costUsd,
         payload: { kind: 'event', event: 'simulated-reply-discarded' },
       });
@@ -507,7 +509,7 @@ export class RunDriver {
     role: 'simulated_user' | 'human',
   ) {
     const proc = this.proc;
-    if (proc === null) throw new Error('claude 进程尚未启动');
+    if (proc === null) throw new Error('Claude process has not started');
     if (pending.kind === 'text') {
       addMessage(this.db, this.runId, {
         role,
@@ -521,9 +523,9 @@ export class RunDriver {
       return;
     }
     const answers = reply.answers;
-    if (answers === undefined) throw new Error('回答 AskUserQuestion 需要 answers');
+    if (answers === undefined) throw new Error('Answering AskUserQuestion requires answers');
     const input = this.questionInputs.get(pending.requestId);
-    if (input === undefined) throw new Error(`没有 control_request ${pending.requestId} 的 input`);
+    if (input === undefined) throw new Error(`No input for control_request ${pending.requestId}`);
     this.questionInputs.delete(pending.requestId);
     proc.respond(pending.requestId, { behavior: 'allow', updatedInput: { ...input, answers } });
     addMessage(this.db, this.runId, {
@@ -540,16 +542,16 @@ export class RunDriver {
     this.setPending(null);
   }
 
-  // 未回答的 AskUserQuestion 在结束与取消时拒绝，让 CLI 收尾
+  // An unanswered AskUserQuestion is denied on finish and cancel so the CLI can wrap up
   private denyPendingQuestion() {
     const pending = this.pending;
     if (pending?.kind !== 'questions' || this.proc === null) return;
     this.questionInputs.delete(pending.requestId);
-    this.proc.respond(pending.requestId, { behavior: 'deny', message: '运行已结束。' });
+    this.proc.respond(pending.requestId, { behavior: 'deny', message: 'The run has ended.' });
     this.setPending(null);
   }
 
-  // 关闭 stdin：CLI 处理完当前一轮与后台任务后退出，随后进入 grading
+  // Close stdin: the CLI exits after finishing the current turn and background tasks, then grading starts
   private finishProcess() {
     this.ending = 'finish';
     this.denyPendingQuestion();
@@ -566,19 +568,19 @@ export class RunDriver {
 
   private requireRunning() {
     if (this.status !== 'running' || this.proc === null) {
-      throw new HttpError(409, `run ${this.runId} 不在运行中`);
+      throw new HttpError(409, `Run ${this.runId} is not running`);
     }
-    if (this.ending !== null) throw new HttpError(409, `run ${this.runId} 正在结束`);
+    if (this.ending !== null) throw new HttpError(409, `Run ${this.runId} is ending`);
   }
 
   takeover() {
     this.requireRunning();
-    if (this.mode === 'human') throw new HttpError(409, `run ${this.runId} 已经被接管`);
+    if (this.mode === 'human') throw new HttpError(409, `Run ${this.runId} is already taken over`);
     this.mode = 'human';
     this.update({ humanIntervened: true });
     addMessage(this.db, this.runId, {
       role: 'system',
-      content: '页面接管了对话',
+      content: 'The page took over the conversation',
       payload: { kind: 'event', event: 'takeover' },
     });
     events.publish({ type: 'run.pending', runId: this.runId, pending: this.pending });
@@ -586,11 +588,11 @@ export class RunDriver {
 
   release() {
     this.requireRunning();
-    if (this.mode !== 'human') throw new HttpError(409, `run ${this.runId} 没有被接管`);
+    if (this.mode !== 'human') throw new HttpError(409, `Run ${this.runId} is not taken over`);
     this.mode = 'simulated';
     addMessage(this.db, this.runId, {
       role: 'system',
-      content: '对话交还给模拟用户',
+      content: 'Conversation handed back to the simulated user',
       payload: { kind: 'event', event: 'release' },
     });
     this.respondIfSimulated();
@@ -598,23 +600,28 @@ export class RunDriver {
 
   private requireHuman() {
     this.requireRunning();
-    if (this.mode !== 'human') throw new HttpError(409, `run ${this.runId} 没有被接管`);
+    if (this.mode !== 'human') throw new HttpError(409, `Run ${this.runId} is not taken over`);
   }
 
   reply(text: string) {
     this.requireHuman();
     const pending = this.pending;
-    if (pending?.kind !== 'text') throw new HttpError(409, '当前没有待回答的文字提问');
+    if (pending?.kind !== 'text')
+      throw new HttpError(409, 'No text question is waiting for an answer');
     this.deliver(pending, { reply: text, done: false, costUsd: 0 }, 'human');
   }
 
   answer(answers: Record<string, string>) {
     this.requireHuman();
     const pending = this.pending;
-    if (pending?.kind !== 'questions') throw new HttpError(409, '当前没有待回答的 AskUserQuestion');
+    if (pending?.kind !== 'questions')
+      throw new HttpError(409, 'No AskUserQuestion is waiting for an answer');
     const expected = pending.questions.map((q) => q.question).sort();
     if (JSON.stringify(Object.keys(answers).sort()) !== JSON.stringify(expected)) {
-      throw new HttpError(400, `answers 的键必须是全部问题：${JSON.stringify(expected)}`);
+      throw new HttpError(
+        400,
+        `The keys of answers must be all the questions: ${JSON.stringify(expected)}`,
+      );
     }
     this.deliver(pending, { reply: '', answers, done: false, costUsd: 0 }, 'human');
   }
@@ -623,13 +630,13 @@ export class RunDriver {
     this.requireHuman();
     addMessage(this.db, this.runId, {
       role: 'system',
-      content: '页面结束了运行',
+      content: 'The page finished the run',
       payload: { kind: 'event', event: 'finish' },
     });
     this.finishProcess();
   }
 
-  // 正在评分（grading，或取消后按已写出的产物评分）：中止评分，结束评分的子进程
+  // Grading in progress (grading, or grading written artifacts after cancel): abort grading and end its subprocesses
   get gradingCancellable(): boolean {
     const row = this.row();
     return (
@@ -642,14 +649,14 @@ export class RunDriver {
   private async cancelGrading() {
     addMessage(this.db, this.runId, {
       role: 'system',
-      content: '页面取消了评分',
+      content: 'The page cancelled grading',
       payload: { kind: 'event', event: 'cancel-grading' },
     });
-    this.gradingAbort.abort(new Error('评分被页面取消'));
+    this.gradingAbort.abort(new Error('Grading cancelled from the page'));
     await this.done;
   }
 
-  // interrupt 控制消息 → 等 result → 关闭 stdin；超时则 SIGTERM。评分中取消时中止评分
+  // interrupt control message → wait for result → close stdin; SIGTERM on timeout. Cancelling during grading aborts grading
   async cancel() {
     if (this.gradingCancellable) {
       await this.cancelGrading();
@@ -657,11 +664,11 @@ export class RunDriver {
     }
     this.requireRunning();
     const proc = this.proc;
-    if (proc === null) throw new Error('claude 进程尚未启动');
+    if (proc === null) throw new Error('Claude process has not started');
     this.ending = 'cancel';
     addMessage(this.db, this.runId, {
       role: 'system',
-      content: '页面取消了运行',
+      content: 'The page cancelled the run',
       payload: { kind: 'event', event: 'cancel' },
     });
     this.denyPendingQuestion();
@@ -703,11 +710,11 @@ export class RunDriver {
     refreshRunCost(this.db, this.runId);
   }
 
-  // 进程退出后：最后一次读入 jsonl 与产物，停止监听
+  // After the process exits: read the jsonl and artifacts one last time, stop watching
   private async teardown() {
     if (this.prTimer !== null) clearInterval(this.prTimer);
     this.prTimer = null;
-    // 最后一次导入的阶段变化仍经监听转发为 run.stage
+    // Stage changes from the last import are still forwarded as run.stage by the listener
     if (this.jsonl !== null && fs.existsSync(this.jsonl)) ingestFile(this.db, this.jsonl);
     this.rubricArtifacts?.record();
     this.unsubscribe?.();
@@ -726,7 +733,7 @@ export class RunDriver {
     this.updateCost();
   }
 
-  // 失败时结束子进程与监听
+  // On failure: end the subprocess and the watchers
   private async abort() {
     if (this.prTimer !== null) clearInterval(this.prTimer);
     this.unsubscribe?.();
@@ -744,12 +751,12 @@ export class RunDriver {
     this.setPending(null);
   }
 
-  // 服务关闭：结束 claude 子进程与评分的子进程，run 记为失败；准备阶段的 run 在当前一步（建仓库、clone）
-  // 结束后停止，不再启动 claude。等 drive 完全结束，不留下子进程
+  // Server shutdown: end the claude subprocess and grading subprocesses, the run fails; a run in prepare stops after its
+  // current step (create repo, clone) and never starts claude. Waits for drive to end fully, leaving no subprocess
   async shutdown() {
     this.shuttingDown = true;
-    this.stopping.abort(new Error('服务关闭，运行中断'));
-    this.gradingAbort.abort(new Error('服务关闭，评分中断'));
+    this.stopping.abort(new Error('Server shut down, run interrupted'));
+    this.gradingAbort.abort(new Error('Server shut down, grading interrupted'));
     this.proc?.terminate();
     await this.done;
   }

@@ -1,7 +1,7 @@
 import { RotateCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-// 请求失败时显示服务端返回的错误原文；不自动重复请求，由用户点「重试」
+// Shows the server's error text when a request fails; no automatic retry, the user clicks Retry
 export function QueryError({
   error,
   retrying,
@@ -20,7 +20,7 @@ export function QueryError({
       </p>
       <Button size="xs" variant="outline" disabled={retrying} onClick={onRetry}>
         <RotateCw className={retrying ? 'animate-spin' : ''} />
-        {retrying ? '重试中…' : '重试'}
+        {retrying ? 'Retrying…' : 'Retry'}
       </Button>
     </div>
   );

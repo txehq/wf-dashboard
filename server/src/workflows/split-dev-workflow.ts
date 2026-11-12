@@ -16,38 +16,42 @@ import { loadSessionRows } from '../stages/rows.js';
 import { builtinDefinition } from './index.js';
 import { WorkflowDefinition } from './schema.js';
 
-// W36 的内置 workflow；迁移 0012 删除了它在 workflows 表中的一行，它的 variant 在这里拆开
+// The built-in workflow of W36; migration 0012 deleted its row in the workflows table, and its variants are split here
 const DEV_WORKFLOW = 'dev-workflow';
 
-// session 中先出现的 lfg 或 ic 标记（入口命令或小阶段的 Skill 调用）属于哪一个；都没有时为 lfg（Contracts 16.4）
+// Which of lfg or ic owns the first such marker in the session (entry command or a stage's Skill call); lfg when there
+// is none (Contracts 16.4)
 function firstMarkerWorkflow(db: Db, sessionId: string): 'lfg' | 'ic' {
   const partition = [builtinDefinition('lfg'), builtinDefinition('ic')];
   const rows = loadSessionRows(db, sessionId);
-  const first = stageItems(partition, rows.main, rows.userMessages).find(
+  const first = stageItems(partition, rows.main, rows.userMessages, rows.injectedSkills).find(
     (item) => item.markers.length > 0,
   )?.markers[0];
   if (first === undefined) return 'lfg';
   const owner = partition.find(
     (w) => w.id === first.name || w.stages.some((s) => s.id === first.name),
   );
-  if (owner === undefined) throw new Error(`标记 ${first.name} 不属于 lfg 或 ic`);
+  if (owner === undefined) throw new Error(`Marker ${first.name} belongs to neither lfg nor ic`);
   return owner.id === 'ic' ? 'ic' : 'lfg';
 }
 
-// 迁移 0012 之后、服务使用数据库之前调用（openDatabase）：每个 dev-workflow 的 variant 拆成两个同名 variant，
-// 原来的一个（id 不变）属于 lfg，新建的一个属于 ic 并与它共用目录（storage_id，不重新构建）；run 按 task 的 kind、
-// 交互进程与 session 的绑定按 session 中先出现的标记对应。没有 dev-workflow 的 variant 时什么都不做
+// Called after migration 0012 and before the service uses the database (openDatabase): each dev-workflow variant is
+// split into two variants with the same name; the original (same id) belongs to lfg, and the new one belongs to ic and
+// shares its directory (storage_id, no rebuild). Runs follow their task's kind; interactive processes and session
+// bindings follow the first marker in the session. Does nothing when there are no dev-workflow variants
 export function splitDevWorkflow(db: Db) {
-  // 其他 workflow 的定义也必须是新的结构：W36 的大阶段结构无法自动对应到一个 workflow
+  // Other workflows' definitions must also have the new structure: W36's top-level stage structure cannot be mapped to
+  // one workflow automatically
   for (const r of db.select().from(workflowTable).all()) {
     const parsed = WorkflowDefinition.safeParse(r.definition);
     if (!parsed.success) {
       throw new Error(
-        `workflow ${r.id} 的定义不是 Contracts 16.1 的结构（W36 的大阶段结构不能自动迁移）：${parsed.error.message}`,
+        `The definition of workflow ${r.id} does not have the Contracts 16.1 structure (W36's top-level stage structure cannot be migrated automatically): ${parsed.error.message}`,
       );
     }
   }
-  // 先只读 id：迁移到一半的数据库（迁移的测试）中 variants 还没有后来加的列，没有要拆的 variant 时不读整行
+  // Read only ids first: in a half-migrated database (migration tests) variants lacks later columns, so whole rows are
+  // read only when there are variants to split
   const pending = db
     .select({ id: variants.id })
     .from(variants)
@@ -61,7 +65,7 @@ export function splitDevWorkflow(db: Db) {
     .orderBy(asc(variants.createdAt), asc(variants.id))
     .all();
   db.transaction((tx) => {
-    // 原 variant id → 拆出的 ic variant id
+    // Original variant id -> split ic variant id
     const icOf = new Map<string, string>();
     for (const v of dev) {
       tx.update(variants).set({ workflowId: 'lfg' }).where(eq(variants.id, v.id)).run();
@@ -71,7 +75,7 @@ export function splitDevWorkflow(db: Db) {
         .values({ ...v, id, workflowId: 'ic', storageId: v.storageId ?? v.id, parentId: null })
         .run();
     }
-    // ic 的 parent 是 parent 拆出的 ic variant
+    // The ic variant's parent is the ic variant split from the parent
     for (const v of dev) {
       const ic = icOf.get(v.id);
       if (ic === undefined || v.parentId === null) continue;
@@ -82,11 +86,11 @@ export function splitDevWorkflow(db: Db) {
     }
     const icVariant = (id: string) => {
       const ic = icOf.get(id);
-      if (ic === undefined) throw new Error(`variant ${id} 没有拆出的 ic variant`);
+      if (ic === undefined) throw new Error(`Variant ${id} has no split ic variant`);
       return ic;
     };
     const devIds = [...icOf.keys()];
-    // run：task 的 kind 为 ic 时对应到 ic 的那个
+    // Runs: those whose task kind is ic go to the ic variant
     const devRuns = tx
       .select({ id: runs.id, variantId: runs.variantId, batchId: runs.batchId, kind: tasks.kind })
       .from(runs)
@@ -101,7 +105,7 @@ export function splitDevWorkflow(db: Db) {
           .run();
       }
     }
-    // batch 的 variant 清单按其中 run 实际所用的 variant 重写
+    // Rewrite each batch's variant list from the variants its runs actually use
     for (const batchId of new Set(devRuns.map((r) => r.batchId))) {
       const used = tx
         .selectDistinct({ variantId: runs.variantId })
@@ -113,7 +117,7 @@ export function splitDevWorkflow(db: Db) {
         tx.insert(batchVariants).values({ batchId, variantId: u.variantId }).run();
       }
     }
-    // session 的绑定：run 的 session 跟随 run，其余按 session 中先出现的标记
+    // Session bindings: a run's session follows the run, others follow the first marker in the session
     const runVariant = new Map(
       tx
         .select({ sessionId: runs.sessionId, variantId: runs.variantId })
@@ -134,7 +138,7 @@ export function splitDevWorkflow(db: Db) {
             : s.variantId;
       tx.update(sessions).set({ variantId }).where(eq(sessions.id, s.id)).run();
     }
-    // 交互进程：按这一项的 session 中先出现的标记；session 还没有导入时为 lfg
+    // Interactive processes: by the first marker in the item's session; lfg when the session is not imported yet
     for (const p of tx
       .select({
         id: liveProcesses.id,
@@ -145,9 +149,9 @@ export function splitDevWorkflow(db: Db) {
       .innerJoin(liveSessions, eq(liveSessions.id, liveProcesses.liveId))
       .where(inArray(liveProcesses.variantId, devIds))
       .all()) {
-      // 有 variant 的进程都是 Claude Code 的项，建出时就有 session id
+      // Processes with a variant all belong to Claude Code items, which have a session id from creation
       if (p.claudeSessionId === null)
-        throw new Error(`交互进程 ${String(p.id)} 的项没有 session id`);
+        throw new Error(`The item of interactive process ${String(p.id)} has no session id`);
       const imported = tx
         .select({ id: sessions.id })
         .from(sessions)

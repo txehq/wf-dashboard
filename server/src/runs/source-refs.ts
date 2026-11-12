@@ -6,15 +6,16 @@ import { commandsOf } from '../stages/shell.js';
 import { loadTask } from '../tasks/loader.js';
 import { alternation, excerpt, LINEAR_TOOL, mainSeqResolver, strings } from './cross-run-refs.js';
 
-// Contracts 第 13 节"读取来源的记录"：只记访问来源的动作，引用正文不算
-//   ticket：Linear 工具的输入中出现来源工单编号；
-//   pr：gh、git、curl、wget 命令的参数或 WebFetch 的 url 中出现来源仓库与 source.github.prs 中的 PR 编号
-//       （gh pr <子命令> N --repo owner/name、owner/name/pull/N、owner/name/pulls/N）；
-//   repo：同样范围内出现来源仓库 owner/name，且这次调用没有记 pr
+// Contracts section 13 "records of reading the sources": only actions that access a source count, quoting text does not
+//   ticket: a source ticket id appears in a Linear tool's input;
+//   pr: the source repo and a PR number from source.github.prs appear in the arguments of a gh, git, curl or wget
+//       command or in a WebFetch url (gh pr <subcommand> N --repo owner/name, owner/name/pull/N, owner/name/pulls/N);
+//   repo: the source repo owner/name appears in the same places and this call recorded no pr
 
-// 访问 GitHub 的命令
+// Commands that access GitHub
 const FETCHERS = new Set(['gh', 'git', 'curl', 'wget']);
-// 值是自由文本的选项（PR 正文、标题、提交信息、请求体）：其中引用的仓库名不是访问
+// Options whose value is free text (PR body, title, commit message, request body): repo names quoted there are not
+// accesses
 const TEXT_FLAGS = new Set([
   '--body',
   '-b',
@@ -32,20 +33,20 @@ const TEXT_FLAGS = new Set([
   '--data-binary',
 ]);
 
-// 仓库名前后不能是字母、数字、-、_ 或 .
+// A repo name may not be preceded or followed by a letter, digit, -, _ or .
 const REPO_EDGE = '[A-Za-z0-9_.-]';
 
 interface Target {
-  // 摘录的字段路径与全文（command 或 url）
+  // The excerpt's field path and full text (command or url)
   at: string;
   text: string;
-  // 参与匹配的参数
+  // The arguments that are matched
   args: string[];
-  // gh pr <子命令>：其后的数字参数是 PR 编号
+  // gh pr <subcommand>: the numeric argument after it is a PR number
   ghPr: boolean;
 }
 
-// 命令参数中去掉自由文本选项的值（--body x 与 --body=x 两种写法）
+// Drop the values of free-text options from command arguments (both --body x and --body=x)
 function accessArgs(argv: string[]): string[] {
   const out: string[] = [];
   for (let i = 1; i < argv.length; i++) {
@@ -88,7 +89,7 @@ interface Hit {
   excerpt: string;
 }
 
-// 摘录定位到参数在全文中的位置
+// Locate the excerpt at the argument's position in the full text
 function hitAt(kind: SourceRef['kind'], t: Target, needle: string): Hit {
   const start = Math.max(0, t.text.indexOf(needle));
   return { kind, excerpt: excerpt(t.at, t.text, start, start + needle.length) };
@@ -111,14 +112,15 @@ function accessHits(t: Target, repo: RegExp, prPath: RegExp, prs: number[]): Hit
   return [hitAt('repo', t, first.match(repo)?.[0] ?? first)];
 }
 
-// 每个 (tool 调用, kind) 一条，摘录取第一次出现的位置；按主 session seq 排序。不是从 Linear 导入的 task 为空数组
+// One per (tool call, kind), the excerpt at the first occurrence, sorted by main session seq. Empty for tasks not
+// imported from Linear
 export function scanSourceRefs(db: Db, runId: string): SourceRef[] {
   const run = db
     .select({ sessionId: runs.sessionId, taskId: runs.taskId })
     .from(runs)
     .where(eq(runs.id, runId))
     .get();
-  if (run === undefined) throw new Error(`run ${runId} 不存在`);
+  if (run === undefined) throw new Error(`Run not found: ${runId}`);
   const task = loadTask(db, run.taskId);
   if (task.source === undefined) return [];
   const rows = db
@@ -157,7 +159,7 @@ export function scanSourceRefs(db: Db, runId: string): SourceRef[] {
       for (const t of targets(call.name, call.input)) {
         hits.push(...accessHits(t, repo, prPath, prs));
       }
-      // 同一调用中既有 pr 又有 repo 时只记 pr
+      // When one call has both pr and repo, only pr is recorded
       const kinds = new Set(hits.map((h) => h.kind));
       for (const hit of hits) {
         if (hit.kind === 'repo' && kinds.has('pr')) continue;

@@ -19,28 +19,28 @@ import { formatUsd } from '@/lib/format';
 import type { IcForm } from '@/lib/task-form';
 import { previewImport } from '@/lib/tasks';
 
-// 副本中没有 runner、永远不会运行的 job
+// Jobs with no runner in the copy, which never run
 const cannotRun: WorkflowJobStatus[] = ['runner-unavailable', 'retired', 'blocked'];
 
 const statusLabel: Record<WorkflowJobStatus, string> = {
-  required: '计入终点',
-  'runner-unavailable': '副本中没有这个 runner',
-  retired: '已停用的 runner',
-  blocked: '依赖无法运行的 job',
-  'not-on-pr': '不由 PR 触发',
-  'path-filtered': '只在特定路径改动时运行',
-  unresolved: '无法静态确定',
-  invalid: 'workflow 不合法',
+  required: 'Counts toward endpoint',
+  'runner-unavailable': 'Runner not available in the copy',
+  retired: 'Retired runner',
+  blocked: 'Depends on a job that cannot run',
+  'not-on-pr': 'Not triggered by PRs',
+  'path-filtered': 'Runs only on changes to certain paths',
+  unresolved: 'Cannot be determined statically',
+  invalid: 'Invalid workflow',
 };
 
 function commitSourceText(source: CommitSource) {
   switch (source.kind) {
     case 'merged-pr':
-      return `工单关联的 PR #${String(source.pr.number)}（已合并）的 base commit`;
+      return `base commit of PR #${String(source.pr.number)} (merged) linked to the ticket`;
     case 'default-branch':
-      return `工单没有关联已合并的 PR，取默认分支 ${source.branch} 的最新 commit`;
+      return `the ticket has no linked merged PR, so the latest commit on the default branch ${source.branch}`;
     case 'given':
-      return '手动指定';
+      return 'set by hand';
   }
 }
 
@@ -51,8 +51,8 @@ function JobTable({ jobs, testId }: { jobs: WorkflowJob[]; testId: string }) {
         <tr className="border-b text-left text-xs text-muted-foreground">
           <th className="w-1/4 py-1.5 pr-3 font-medium">job</th>
           <th className="w-1/6 px-3 py-1.5 font-medium">runs-on</th>
-          <th className="w-1/6 px-3 py-1.5 font-medium">情况</th>
-          <th className="py-1.5 pl-3 font-medium">原因</th>
+          <th className="w-1/6 px-3 py-1.5 font-medium">Status</th>
+          <th className="py-1.5 pl-3 font-medium">Reason</th>
         </tr>
       </thead>
       <tbody>
@@ -77,7 +77,7 @@ function JobTable({ jobs, testId }: { jobs: WorkflowJob[]; testId: string }) {
   );
 }
 
-// 按情况与 runs-on 归并计数，例如"56 个 job：自托管 runner arc-linux-dind"
+// Count by status and runs-on, e.g. "56 jobs: Runner not available in the copy arc-linux-dind"
 function summarize(jobs: WorkflowJob[]) {
   const groups = new Map<
     string,
@@ -93,7 +93,7 @@ function summarize(jobs: WorkflowJob[]) {
   return [...groups.values()];
 }
 
-// workflow 的分析结果：requiredChecks 的默认值、副本中无法运行的 job、其余不计入终点的 job
+// Workflow analysis: default requiredChecks, jobs that cannot run in the copy, and other jobs that do not count toward the endpoint
 export function WorkflowChecks({ analysis }: { analysis: WorkflowAnalysis }) {
   const blocked = analysis.jobs.filter((j) => cannotRun.includes(j.status));
   const others = analysis.jobs.filter(
@@ -103,10 +103,12 @@ export function WorkflowChecks({ analysis }: { analysis: WorkflowAnalysis }) {
     <div className="flex flex-col gap-3" data-testid="workflow-checks">
       <div className="flex flex-col gap-1">
         <h3 className="text-sm font-medium">
-          能在副本 PR 上运行的 check（requiredChecks 的默认值）
+          Checks that can run on copy PRs (default requiredChecks)
         </h3>
         {analysis.requiredChecks.length === 0 ? (
-          <p className="text-sm text-muted-foreground">没有。终点只要求 PR 不是草稿。</p>
+          <p className="text-sm text-muted-foreground">
+            None. The endpoint only requires the PR to not be a draft.
+          </p>
         ) : (
           <div className="flex flex-wrap gap-1">
             {analysis.requiredChecks.map((c) => (
@@ -120,18 +122,18 @@ export function WorkflowChecks({ analysis }: { analysis: WorkflowAnalysis }) {
       {blocked.length > 0 && (
         <div className="flex flex-col gap-1">
           <h3 className="text-sm font-medium">
-            无法在副本中运行的 job（{blocked.length}）：不计入终点
+            Jobs that cannot run in the copy ({blocked.length}): not counted toward the endpoint
           </h3>
           <ul className="list-disc pl-5 text-sm" data-testid="jobs-cannot-run-summary">
             {summarize(blocked).map((g) => (
               <li key={g.key}>
-                {g.count} 个 job：{statusLabel[g.status]}
+                {g.count} {g.count === 1 ? 'job' : 'jobs'}: {statusLabel[g.status]}
                 {g.runsOn === null ? '' : ` ${g.runsOn}`}
               </li>
             ))}
           </ul>
           <details className="text-sm">
-            <summary className="cursor-pointer text-muted-foreground">逐个列出</summary>
+            <summary className="cursor-pointer text-muted-foreground">List each job</summary>
             <div className="mt-2">
               <JobTable jobs={blocked} testId="jobs-cannot-run" />
             </div>
@@ -141,7 +143,7 @@ export function WorkflowChecks({ analysis }: { analysis: WorkflowAnalysis }) {
       {others.length > 0 && (
         <details className="text-sm">
           <summary className="cursor-pointer font-medium">
-            其他不计入终点的 job（{others.length}）
+            Other jobs not counted toward the endpoint ({others.length})
           </summary>
           <div className="mt-2">
             <JobTable jobs={others} testId="jobs-not-counted" />
@@ -182,7 +184,7 @@ function TextInput({
 function ImportPreviewView({ preview }: { preview: ImportPreview }) {
   const { issue } = preview;
   const drafted = preview.criteria;
-  if (drafted === null) throw new Error('预览中没有确定验收标准');
+  if (drafted === null) throw new Error('The preview has no acceptance criteria');
   return (
     <div className="flex flex-col gap-5" data-testid="import-preview">
       <div className="flex flex-col gap-1">
@@ -197,27 +199,30 @@ function ImportPreviewView({ preview }: { preview: ImportPreview }) {
         </a>
         <h3 className="text-lg font-semibold">{issue.title}</h3>
         <p className="text-sm text-muted-foreground">
-          {issue.status} · {issue.project ?? '没有 project'} · 正文 {issue.description.length} 字符
+          {issue.status} · {issue.project ?? 'No project'} · body {issue.description.length}{' '}
+          {issue.description.length === 1 ? 'character' : 'characters'}
         </p>
       </div>
       <div className="flex flex-col gap-2">
-        <h3 className="text-sm font-medium">正文（完整导入）</h3>
+        <h3 className="text-sm font-medium">Body (imported in full)</h3>
         {issue.description.trim() === '' ? (
-          <p className="text-sm text-muted-foreground">工单没有正文，使用前在表单中填写。</p>
+          <p className="text-sm text-muted-foreground">
+            The ticket has no body. Fill it in on the form before use.
+          </p>
         ) : (
           <MarkdownDoc content={issue.description} className="max-h-96" />
         )}
       </div>
       <div className="flex flex-col gap-2">
-        <h3 className="text-sm font-medium">验收标准（用于评分）</h3>
+        <h3 className="text-sm font-medium">Acceptance criteria (used for grading)</h3>
         <p className="text-xs text-muted-foreground" data-testid="criteria-cost">
-          由 {drafted.model} 读工单全文确定 · 输入 {drafted.inputTokens} 输出 {drafted.outputTokens}{' '}
-          token · {formatUsd(drafted.costUsd)}
-          。使用后可在表单中增删改。
+          Determined by {drafted.model} from the full ticket · {drafted.inputTokens} input,{' '}
+          {drafted.outputTokens} output tokens · {formatUsd(drafted.costUsd)}. You can add, remove
+          and edit them on the form after use.
         </p>
         {drafted.criteria.length === 0 ? (
           <p className="text-sm text-muted-foreground" data-testid="no-criteria">
-            工单没有正文，使用前在表单中填写。
+            The ticket has no body. Fill it in on the form before use.
           </p>
         ) : (
           <ol
@@ -228,7 +233,7 @@ function ImportPreviewView({ preview }: { preview: ImportPreview }) {
               <li key={c.text}>
                 <span className="whitespace-pre-wrap">{c.text}</span>
                 <blockquote className="mt-0.5 border-l-2 pl-2 text-xs text-muted-foreground">
-                  正文原文：{c.quote}
+                  Quoted from body: {c.quote}
                 </blockquote>
               </li>
             ))}
@@ -236,14 +241,14 @@ function ImportPreviewView({ preview }: { preview: ImportPreview }) {
         )}
       </div>
       <div className="flex flex-col gap-1 text-sm" data-testid="import-repo">
-        <h3 className="font-medium">起始仓库</h3>
+        <h3 className="font-medium">Starting repo</h3>
         <p>
           <span className="font-mono">{preview.repo}</span> @{' '}
           <span className="font-mono">{preview.commit.slice(0, 12)}</span> · {preview.commitTitle}{' '}
           <span className="text-muted-foreground">({preview.commitDate.slice(0, 10)})</span>
         </p>
         <p className="text-muted-foreground">
-          commit 来源：{commitSourceText(preview.commitSource)}
+          Commit source: {commitSourceText(preview.commitSource)}
         </p>
       </div>
       <WorkflowChecks analysis={preview.workflows} />
@@ -251,7 +256,7 @@ function ImportPreviewView({ preview }: { preview: ImportPreview }) {
   );
 }
 
-// 新建 ic task 时粘贴工单地址或编号导入；仓库与 commit 省略时按默认值
+// For a new ic task, paste a ticket URL or ID to import; repo and commit use defaults when omitted
 export function LinearImportPanel({ onAdopt }: { onAdopt: (preview: ImportPreview) => void }) {
   const [issue, setIssue] = useState('');
   const [repo, setRepo] = useState('');
@@ -267,29 +272,30 @@ export function LinearImportPanel({ onAdopt }: { onAdopt: (preview: ImportPrevie
   return (
     <Card data-testid="linear-import">
       <CardHeader>
-        <CardTitle>从 Linear 导入</CardTitle>
+        <CardTitle>Import from Linear</CardTitle>
         <p className="text-sm text-muted-foreground">
-          只读取原工单与源仓库。每次 run 照常建工单副本与仓库副本。
+          Only reads the original ticket and source repo. Each run still creates its own ticket copy
+          and repo copy.
         </p>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <TextInput
-          label="工单地址或编号"
+          label="Ticket URL or ID"
           value={issue}
-          placeholder="https://linear.app/capso/issue/TXE-3546/… 或 TXE-3546"
+          placeholder="https://linear.app/capso/issue/TXE-3546/… or TXE-3546"
           onChange={setIssue}
         />
         <div className="grid grid-cols-2 gap-4">
           <TextInput
-            label="GitHub 仓库（owner/name）"
+            label="GitHub repo (owner/name)"
             value={repo}
-            placeholder="默认取工单关联的已合并 PR 的仓库"
+            placeholder="Defaults to the repo of the ticket's merged PR"
             onChange={setRepo}
           />
           <TextInput
             label="commit"
             value={commit}
-            placeholder="默认取该 PR 的 base commit"
+            placeholder="Defaults to that PR's base commit"
             onChange={setCommit}
           />
         </div>
@@ -301,7 +307,7 @@ export function LinearImportPanel({ onAdopt }: { onAdopt: (preview: ImportPrevie
             }}
           >
             <Download />
-            {reading.isPending ? '读取中…' : '读取工单'}
+            {reading.isPending ? 'Reading…' : 'Read ticket'}
           </Button>
           {reading.data !== undefined && (
             <Button
@@ -310,13 +316,13 @@ export function LinearImportPanel({ onAdopt }: { onAdopt: (preview: ImportPrevie
                 onAdopt(reading.data);
               }}
             >
-              使用这些内容
+              Use this content
             </Button>
           )}
         </div>
         {reading.isError && (
           <Alert variant="destructive">
-            <AlertTitle>读取失败</AlertTitle>
+            <AlertTitle>Could not read</AlertTitle>
             <AlertDescription>{reading.error.message}</AlertDescription>
           </Alert>
         )}
@@ -326,7 +332,7 @@ export function LinearImportPanel({ onAdopt }: { onAdopt: (preview: ImportPrevie
   );
 }
 
-// 从 Linear 导入的 task：源仓库与 commit 可改，按它们重新读取 workflow 并把 requiredChecks 换成默认值
+// Task imported from Linear: source repo and commit are editable; re-reading the workflows resets requiredChecks to the defaults
 export function SourceRepoFields({
   form,
   analysis,
@@ -340,7 +346,7 @@ export function SourceRepoFields({
 }) {
   const { source } = form;
   const rereading = useMutation({
-    // 只重新读取 workflow，不再确定验收标准
+    // Re-reads only the workflows; acceptance criteria are not determined again
     mutationFn: () =>
       previewImport({
         issue: source.linear.identifier,
@@ -356,13 +362,13 @@ export function SourceRepoFields({
   return (
     <Card data-testid="source-repo">
       <CardHeader>
-        <CardTitle>起始仓库与 checks</CardTitle>
+        <CardTitle>Starting repo and checks</CardTitle>
         <p className="text-sm text-muted-foreground">
-          来源工单{' '}
+          Source ticket{' '}
           <a href={source.linear.url} target="_blank" rel="noreferrer" className="underline">
             {source.linear.identifier}
           </a>
-          。保存时在这个 commit 生成 repo.bundle，不向源仓库写任何东西。
+          . Saving creates repo.bundle at this commit and writes nothing to the source repo.
         </p>
         <CardAction>
           <Button
@@ -373,17 +379,17 @@ export function SourceRepoFields({
             }}
           >
             <RefreshCw />
-            {rereading.isPending ? '读取中…' : '按此 commit 重新读取 workflow'}
+            {rereading.isPending ? 'Reading…' : 'Re-read workflows at this commit'}
           </Button>
         </CardAction>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="grid grid-cols-2 gap-4">
           <TextInput
-            label="GitHub 仓库"
+            label="GitHub repo"
             value={source.github.repo}
             onChange={(repo) => {
-              // 换了仓库：原工单关联的 PR 属于原来的仓库，不再匹配
+              // Repo changed: the ticket's linked PRs belong to the old repo and no longer match
               onChange({
                 ...form,
                 source: {
@@ -394,7 +400,7 @@ export function SourceRepoFields({
             }}
           />
           <TextInput
-            label="固定 commit"
+            label="Pinned commit"
             value={form.repo.commit}
             onChange={(commit) => {
               onChange({ ...form, repo: { ...form.repo, commit } });
@@ -403,7 +409,7 @@ export function SourceRepoFields({
         </div>
         {rereading.isError && (
           <Alert variant="destructive">
-            <AlertTitle>读取失败</AlertTitle>
+            <AlertTitle>Could not read</AlertTitle>
             <AlertDescription>{rereading.error.message}</AlertDescription>
           </Alert>
         )}

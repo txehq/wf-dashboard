@@ -1,25 +1,44 @@
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, gt, isNull } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
-import { requests, sessions, userMessages } from '../db/schema.js';
+import { requests, sessions, sessionSkills, userMessages } from '../db/schema.js';
 
 export type RequestRow = typeof requests.$inferSelect;
 export type UserMessageRow = typeof userMessages.$inferSelect;
 
-// ingest 写入的一个 session
+// A session written by ingest
 export interface SessionRows {
   sessionId: string;
   cwd: string | null;
-  // 主 session 的请求，按 seq 升序
+  // Main session requests, by seq ascending
   main: RequestRow[];
-  // 子代理的请求
+  // Subagent requests
   subagent: RequestRow[];
-  // 主 session 的用户消息，按时间升序
+  // Main session user messages, by time ascending
   userMessages: UserMessageRow[];
+  // Skills Codex injected in the main session, by time ascending
+  injectedSkills: { timestamp: Date; name: string }[];
+}
+
+// Skills Codex injected in the main session (Contracts 16.6); with after, only those after it
+export function injectedSkillsOf(db: Db, sessionId: string, after: Date | null = null) {
+  return db
+    .select({ timestamp: sessionSkills.timestamp, name: sessionSkills.name })
+    .from(sessionSkills)
+    .where(
+      and(
+        eq(sessionSkills.sessionId, sessionId),
+        isNull(sessionSkills.agentId),
+        eq(sessionSkills.injected, true),
+        after === null ? undefined : gt(sessionSkills.timestamp, after),
+      ),
+    )
+    .orderBy(asc(sessionSkills.timestamp))
+    .all();
 }
 
 export function loadSessionRows(db: Db, sessionId: string): SessionRows {
   const session = db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
-  if (!session) throw new Error(`session ${sessionId} 不存在`);
+  if (!session) throw new Error(`Session ${sessionId} does not exist`);
   const rows = db
     .select()
     .from(requests)
@@ -37,10 +56,11 @@ export function loadSessionRows(db: Db, sessionId: string): SessionRows {
       .where(and(eq(userMessages.sessionId, sessionId), isNull(userMessages.agentId)))
       .orderBy(asc(userMessages.timestamp))
       .all(),
+    injectedSkills: injectedSkillsOf(db, sessionId),
   };
 }
 
-// tool 调用的 input 是 jsonl 原样，按字段读取
+// A tool call's input is the raw jsonl value; read it by field
 export function inputField(input: unknown, key: string): unknown {
   if (typeof input !== 'object' || input === null) return undefined;
   return (input as Record<string, unknown>)[key];

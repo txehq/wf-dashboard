@@ -1,8 +1,0 @@
-# 一个最小的 workflow：入口 /hello-flow，三个小阶段（Contracts 17.2）
-id: hello-flow
-name: 你好流程
-stages:
-  - id: gather
-  - id: draft
-  - id: review
-    repeatable: true

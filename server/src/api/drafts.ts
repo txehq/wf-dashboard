@@ -12,12 +12,13 @@ import {
   OptimizeBody,
   SaveDraftBody,
   SavePlanView,
+  SessionVariantsView,
 } from '../drafts/views.js';
 import { LiveDetail } from '../live/views.js';
 
 const IdParams = z.object({ id: z.string().min(1) });
 
-// Contracts 第 17 节：用 Codex 生成 workflow 或 variant
+// Contracts section 17: generate a workflow or variant with Codex
 export const draftRoutes: FastifyPluginCallbackZod<{ drafts: Drafts }> = (
   app,
   { drafts },
@@ -26,7 +27,7 @@ export const draftRoutes: FastifyPluginCallbackZod<{ drafts: Drafts }> = (
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
-  // 发起：立即建草稿与 Live 项并返回；草稿目录的准备（复制 src、说明与例子、安装 skill）与启动 Codex 在后台进行
+  // Start: create the draft and Live item and return at once; preparing the draft directory (copy src, instructions and examples, install skills) and starting Codex happen in the background
   app.post(
     '/api/workflow-drafts',
     {
@@ -48,8 +49,8 @@ export const draftRoutes: FastifyPluginCallbackZod<{ drafts: Drafts }> = (
     (request) => drafts.get(request.params.id),
   );
 
-  // 保存前的改动预览（Contracts 17.4、21.3）：草稿的 src/ 相对目标的 diff（against 为被覆盖的 variant，
-  // 不传时相对底子）；还在准备时 409
+  // Change preview before saving (Contracts 17.4, 21.3): diff of the draft's src/ against the target (against is the
+  // overwritten variant, the base when omitted); 409 while still preparing
   app.get(
     '/api/workflow-drafts/:id/diff',
     {
@@ -62,28 +63,28 @@ export const draftRoutes: FastifyPluginCallbackZod<{ drafts: Drafts }> = (
     (request) => drafts.diff(request.params.id, request.query.against),
   );
 
-  // 保存对话框的内容：新 workflow 的预填，或同一 workflow 中可以覆盖的 variant；workflow.yaml 不合法时 400 原文
+  // Save dialog contents: prefill for a new workflow, or the variants of the same workflow that can be overwritten; 400 with the message when workflow.yaml is invalid
   app.get(
     '/api/workflow-drafts/:id/save-plan',
     { schema: { params: IdParams, response: { 200: SavePlanView } } },
     (request) => drafts.savePlan(request.params.id),
   );
 
-  // 重试准备：从失败的那一步接着做；不是 failed 时 409
+  // Retry preparation from the failed step; 409 when not failed
   app.post(
     '/api/workflow-drafts/:id/retry',
     { schema: { params: IdParams, response: { 200: DraftView } } },
     (request) => drafts.retry(request.params.id),
   );
 
-  // 保存（Contracts 17.4）：新建 variant 或覆盖已有 variant，不构建；校验失败时以原文返回，草稿保留
+  // Save (Contracts 17.4): create a variant or overwrite an existing one, without building; validation failures return the message and keep the draft
   app.post(
     '/api/workflow-drafts/:id/save',
     { schema: { params: IdParams, body: SaveDraftBody, response: { 200: DraftView } } },
     (request) => drafts.save(request.params.id, request.body),
   );
 
-  // 交给 Codex 优化（Contracts 19.3）：在分析目录中建优化草稿与 Live 中的 Codex 项，准备在后台进行
+  // Hand to an agent for optimization (Contracts 19.3, 33.2): create the optimize draft in the analysis directory and its Live item; preparation runs in the background
   app.post(
     '/api/analyses/:id/optimize',
     {
@@ -94,10 +95,17 @@ export const draftRoutes: FastifyPluginCallbackZod<{ drafts: Drafts }> = (
       },
     },
     (request, reply) => {
-      const created = drafts.optimize(request.params.id, request.body.engine);
+      const created = drafts.optimize(request.params.id, request.body);
       void reply.code(201);
       return created;
     },
+  );
+
+  // Variants selectable in the three start dialogs (Contracts 33.2): the successfully built workflow-design and workflow-optimize variants, baseline by default
+  app.get(
+    '/api/workflow-drafts/session-variants',
+    { schema: { response: { 200: SessionVariantsView } } },
+    () => drafts.sessionVariants(),
   );
 
   done();

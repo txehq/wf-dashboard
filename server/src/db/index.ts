@@ -11,19 +11,21 @@ export function openDatabase(dbPath: string, migrationsDir: string) {
   mkdirSync(path.dirname(dbPath), { recursive: true });
   const sqlite = new Database(dbPath);
   sqlite.pragma('journal_mode = WAL');
-  // 迁移在关闭外键时运行（SQLite 改表结构的做法）：drizzle-kit 重建表时写的 PRAGMA foreign_keys=OFF 在迁移的事务中
-  // 不起作用，重建被引用的表会经 ON DELETE 删除或改写引用它的行（W62 的 0022 重建 analyses 时 analysis_findings 被清空）。
-  // 迁移后检查外键，有违反时以原文报错
+  // Migrations run with foreign keys off (SQLite's way to alter tables): the PRAGMA foreign_keys=OFF drizzle-kit writes when rebuilding a table
+  // has no effect inside the migration transaction, so rebuilding a referenced table deletes or rewrites referencing rows via ON DELETE (W62's 0022 emptied analysis_findings when rebuilding analyses).
+  // Check foreign keys after migrating and fail with the raw violations
   sqlite.pragma('foreign_keys = OFF');
   const db = drizzle({ client: sqlite, schema });
   migrate(db, { migrationsFolder: migrationsDir });
   const violations = sqlite.pragma('foreign_key_check') as unknown[];
   if (violations.length > 0)
-    throw new Error(`迁移后外键不一致（${dbPath}）：${JSON.stringify(violations)}`);
+    throw new Error(
+      `Foreign keys inconsistent after migration (${dbPath}): ${JSON.stringify(violations)}`,
+    );
   sqlite.pragma('foreign_keys = ON');
-  // 内置的 lfg 与 ic 以 YAML 为准（Contracts 16.1）：variant 与 run 的校验都读 workflows 表
+  // The built-in lfg and ic follow their YAML (Contracts 16.1): variant and run validation both read the workflows table
   syncBuiltinWorkflows(db);
-  // 迁移 0012 的数据步骤：W36 的 dev-workflow 的 variant 拆成 lfg 与 ic 两个（16.4）
+  // Data step of migration 0012: W36's dev-workflow variants are split into lfg and ic (16.4)
   splitDevWorkflow(db);
   return db;
 }

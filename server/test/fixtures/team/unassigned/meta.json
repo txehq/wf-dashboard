@@ -1,0 +1,17 @@
+{
+  "scope": { "parentId": "TXE-5712" },
+  "updatedAfter": "2026-11-03T17:23:03.310Z",
+  "issues": [
+    "TXE-5766",
+    "TXE-5716",
+    "TXE-5718",
+    "TXE-5719",
+    "TXE-5717",
+    "TXE-5734",
+    "TXE-5714",
+    "TXE-5713"
+  ],
+  "updatedSince": ["TXE-5766", "TXE-5716", "TXE-5718", "TXE-5719"],
+  "prs": [],
+  "recordedAt": "2026-11-04T04:09:59.775Z"
+}

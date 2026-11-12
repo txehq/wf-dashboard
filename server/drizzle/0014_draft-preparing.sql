@@ -1,8 +1,10 @@
--- Codex 草稿的交互项在草稿准备完、Codex 写出会话记录之前没有会话 id（Contracts 17.1）：claude_session_id 改为可空。
--- SQLite 不能改列的约束，重建 live_sessions。迁移在一个事务中运行（drizzle 的 migrator），其中 PRAGMA foreign_keys
--- 不起作用：改为推迟外键检查到提交时。先把旧行复制到没有约束的暂存表，删除旧表（live_processes、live_events 暂时
--- 指向不存在的行），再以最终的名字建表并写回同样的 id，引用重新满足。sessions.live_id 是 ON DELETE SET NULL，
--- 删除旧表时会被置空，先记下再写回
+-- A Codex draft's Live item has no session id until the draft is prepared and Codex writes its session record
+-- (Contracts 17.1): claude_session_id becomes nullable. SQLite cannot change a column constraint, so live_sessions is
+-- rebuilt. Migrations run in a transaction (drizzle's migrator), where PRAGMA foreign_keys has no effect: foreign key
+-- checks are deferred to commit instead. Copy the old rows into an unconstrained staging table, drop the old table
+-- (live_processes and live_events briefly point at missing rows), create the table under its final name and write the
+-- same ids back so the references hold again. sessions.live_id is ON DELETE SET NULL and is cleared when the old table
+-- is dropped, so it is saved first and written back
 PRAGMA defer_foreign_keys = ON;--> statement-breakpoint
 CREATE TABLE `__live_links` AS SELECT `id` AS `session_id`, `live_id` FROM `sessions` WHERE `live_id` IS NOT NULL;--> statement-breakpoint
 CREATE TABLE `__old_live_sessions` AS SELECT * FROM `live_sessions`;--> statement-breakpoint

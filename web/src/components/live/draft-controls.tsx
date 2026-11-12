@@ -11,9 +11,10 @@ import type { LiveDetail } from '@/lib/live-api';
 import { invalidateThrottled, useLiveEvent } from '@/lib/live-events';
 import { variantHref, variantLabel } from '@/pages/variants-api';
 
-// Live 中设计与分析优化会话比交互项多出的部分（Contracts 17.4、22、26.1），放进交互项共用的工具栏：
-// resume（接着草稿的会话）、保存，下面一行的草稿与分析，工具栏下面的准备进度、保存出的链接与出错的原文；
-// Codex 与 Claude Code 相同
+// What design and optimize sessions in Live add over interaction items (Contracts 17.4, 22, 26.1),
+// placed in the shared toolbar: resume (continue the draft's session), save, the draft and analysis
+// on the line below, and under the toolbar the preparation progress, links to saved results and raw
+// errors; same for Codex and Claude Code
 export interface DraftControls {
   draft: Draft | undefined;
   resume: ReactNode;
@@ -30,7 +31,7 @@ export function useDraftControls(
   const draftId = live.draftId;
   const draft = useQuery({ ...draftQuery(draftId ?? ''), enabled: draftId !== null });
   const resume = useMutation({ mutationFn: () => resumeDraft(live.id), onSuccess: onResumed });
-  // 保存对话框（Contracts 17.4）：保存到哪里、名字与描述、将要保存的改动
+  // Save dialog (Contracts 17.4): destination, name and description, changes to be saved
   const [saving, setSaving] = useState(false);
   const retry = useMutation({
     mutationFn: () => retryDraft(draftId ?? ''),
@@ -38,7 +39,7 @@ export function useDraftControls(
       await client.invalidateQueries({ queryKey: ['drafts'] });
     },
   });
-  // 准备的进度与状态（Contracts 17.1）
+  // Preparation progress and status (Contracts 17.1)
   useLiveEvent((type) => {
     if (type === 'draft.updated') invalidateThrottled(client, ['drafts'], 300);
   });
@@ -50,13 +51,13 @@ export function useDraftControls(
         size="sm"
         data-testid="codex-draft-save"
         disabled={!savable}
-        title="新建 variant 或覆盖已有 variant；保存后不构建"
+        title="Create a variant or overwrite an existing one; saving does not build"
         onClick={() => {
           setSaving(true);
         }}
       >
         <Save />
-        保存
+        Save
       </Button>
       {saving && d !== undefined && (
         <CodexSaveDialog
@@ -70,11 +71,11 @@ export function useDraftControls(
   );
   const meta =
     draftId === null ? (
-      <span>这个会话没有关联的草稿</span>
+      <span>No draft linked to this session</span>
     ) : (
       <>
         <span data-testid="codex-draft-id">
-          草稿 <span className="font-mono">{draftId}</span>
+          Draft <span className="font-mono">{draftId}</span>
         </span>
         {d?.analysisId != null && (
           <Link
@@ -82,7 +83,7 @@ export function useDraftControls(
             to={`/analyses/${d.analysisId}`}
             data-testid="codex-draft-analysis"
           >
-            分析 {d.analysisId}
+            Analysis {d.analysisId}
           </Link>
         )}
       </>
@@ -99,7 +100,7 @@ export function useDraftControls(
       }}
     >
       <Play />
-      <span data-toolbar-label>resume</span>
+      <span data-toolbar-label>Resume</span>
     </Button>
   );
   const below = (
@@ -115,7 +116,7 @@ export function useDraftControls(
       )}
       {d !== undefined && d.savedVariants.length > 0 && (
         <p className="flex flex-wrap items-center gap-x-2 text-sm" data-testid="codex-draft-saved">
-          已保存：
+          Saved:
           {d.mode !== 'variant' &&
             d.savedWorkflowId !== null &&
             (d.mode === 'workflow' || d.savedWorkflowId !== d.workflowId) && (
@@ -124,7 +125,7 @@ export function useDraftControls(
               </Link>
             )}
           {d.savedVariants.map((v) =>
-            // 已删除的只显示名字（服务端已加上「（已删除）」，Contracts 24.3）
+            // Deleted ones show only the name (the server adds the deleted marker, Contracts 24.3)
             v.deleted ? (
               <span key={v.id}>{variantLabel(v)}</span>
             ) : (
@@ -137,7 +138,7 @@ export function useDraftControls(
       )}
       {(resume.isError || retry.isError || draft.isError) && (
         <Alert variant="destructive" data-testid="codex-draft-error">
-          <AlertTitle>出错了</AlertTitle>
+          <AlertTitle>Something went wrong</AlertTitle>
           <AlertDescription className="max-h-80 overflow-auto font-mono text-xs whitespace-pre-wrap">
             {(resume.error ?? retry.error ?? draft.error)?.message}
           </AlertDescription>

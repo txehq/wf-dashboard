@@ -1,0 +1,10 @@
+# Built-in optimize workflow (Contracts 33.1): changes a variant, or derives a new workflow, from a session analysis
+# report; its variant drives the "Optimize" sessions of analysis reports. It has one skill: the entry itself is the only
+# stage. At startup the service writes this file into the workflows table and the definition is read-only; the baseline
+# variant's skills are in workflow-optimize/skills/ and external-skills/. description is used only on the first write
+# and edited on the page afterwards (Contracts 18.3)
+id: workflow-optimize
+name: Optimize
+description: Reads a session analysis report, decides whether to change a variant or create a new workflow, and makes the change.
+stages:
+  - id: workflow-optimize

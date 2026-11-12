@@ -36,11 +36,11 @@ function TaskEditor({ record }: { record: TaskRecord }) {
   };
 
   const status = saving.isPending
-    ? '保存中…'
+    ? 'Saving…'
     : dirty
-      ? '有未保存的修改'
+      ? 'Unsaved changes'
       : saving.isSuccess
-        ? `已保存到 tasks/${record.task.id}/task.yaml`
+        ? `Saved to tasks/${record.task.id}/task.yaml`
         : null;
 
   return (
@@ -48,7 +48,7 @@ function TaskEditor({ record }: { record: TaskRecord }) {
       <Button asChild variant="ghost" className="w-fit">
         <Link to="/tasks">
           <ArrowLeft />
-          全部 task
+          All tasks
         </Link>
       </Button>
       <div className="flex items-start justify-between gap-4">
@@ -67,14 +67,14 @@ function TaskEditor({ record }: { record: TaskRecord }) {
           )}
           <Button onClick={save} disabled={saving.isPending}>
             <Save />
-            保存
+            Save
           </Button>
         </div>
       </div>
-      {issues.length > 0 && <IssuesAlert title="还不能保存" issues={issues} />}
+      {issues.length > 0 && <IssuesAlert title="Cannot save yet" issues={issues} />}
       {saving.isError && (
         <Alert variant="destructive">
-          <AlertTitle>保存失败</AlertTitle>
+          <AlertTitle>Could not save</AlertTitle>
           <AlertDescription>{saving.error.message}</AlertDescription>
         </Alert>
       )}
@@ -92,17 +92,17 @@ function TaskEditor({ record }: { record: TaskRecord }) {
 
 export function TaskDetailPage() {
   const { id } = useParams();
-  if (id === undefined) throw new Error('路由缺少 task id');
+  if (id === undefined) throw new Error('Route is missing the task id');
   const task = useQuery(taskQuery(id));
-  if (task.isPending) return <p className="text-sm text-muted-foreground">加载中…</p>;
+  if (task.isPending) return <p className="text-sm text-muted-foreground">Loading…</p>;
   if (task.isError) {
     return (
       <Alert variant="destructive" className="max-w-xl">
-        <AlertTitle>无法读取 task {id}</AlertTitle>
+        <AlertTitle>Could not load task {id}</AlertTitle>
         <AlertDescription>{task.error.message}</AlertDescription>
       </Alert>
     );
   }
-  // 切换 task 时重建编辑器，表单从新 task 初始化
+  // Switching tasks rebuilds the editor so the form starts from the new task
   return <TaskEditor key={task.data.task.id} record={task.data} />;
 }

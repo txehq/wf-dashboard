@@ -12,8 +12,8 @@ import { COST_REFRESH_MS, onSessionUpdates, watchRunCost } from '../../src/runs/
 import { syncTasks } from '../../src/tasks/loader.js';
 import { openTestDb } from '../stages/db.js';
 
-// 真实 session 分两次导入：第一次立即刷新成本缓存，间隔内的第二次等满间隔再刷新。
-// runner 的间隔是 COST_REFRESH_MS（30 秒）；这里用同一个实现的短间隔，按推送事件的时间判定，不等满 30 秒
+// A real session imported in two parts: the first refreshes the cost cache at once, the second within the interval waits for the full interval.
+// The runner's interval is COST_REFRESH_MS (30 s); here the same implementation uses a short interval, judged by event times without waiting 30 s
 const INTERVAL_MS = 2_000;
 const sessionId = '40f6915a-cd31-4312-866c-dcb377515c42';
 const fixture = path.join(import.meta.dirname, '../fixtures/runs', `${sessionId}.jsonl`);
@@ -56,12 +56,12 @@ afterAll(() => {
 const cached = () => db.select().from(runs).where(eq(runs.id, runId)).get()?.costUsd;
 
 describe('watchRunCost', () => {
-  test('runner 用的间隔是 30 秒', () => {
+  test('the runner interval is 30 s', () => {
     expect(COST_REFRESH_MS).toBe(30_000);
   });
 
   test(
-    'session 有新请求写入时刷新 runs.cost_usd，同一 run 最多每个间隔一次，并推送 run.cost',
+    'new session requests refresh runs.cost_usd at most once per interval per run and publish run.cost',
     async () => {
       const lines = fs.readFileSync(fixture, 'utf8').split('\n');
       const file = path.join(work, `${sessionId}.jsonl`);
@@ -81,7 +81,7 @@ describe('watchRunCost', () => {
       const stop = watchRunCost(db, runId, sessionId, (error) => errors.push(error), INTERVAL_MS);
 
       ingestFile(db, file);
-      // 第一次刷新立即进行（work 在下一个微任务中调用）
+      // The first refresh happens at once (work runs in the next microtask)
       await new Promise((resolve) => setImmediate(resolve));
       const first = runCostBreakdown(db, runId).total;
       expect(first).toBeGreaterThan(0);
@@ -92,7 +92,7 @@ describe('watchRunCost', () => {
       ingestFile(db, file);
       const full = runCostBreakdown(db, runId).total;
       expect(full).toBeGreaterThan(first);
-      // 距上次刷新不足间隔：还没有刷新；满间隔时刷新并推送
+      // Within the interval since the last refresh: not refreshed yet; refreshed and published when the interval is up
       expect(cached()).toBe(first);
       await secondPublished;
       expect((published[1]?.at ?? 0) - firstAt).toBeGreaterThanOrEqual(INTERVAL_MS);
@@ -111,7 +111,7 @@ describe('watchRunCost', () => {
 
 describe('onSessionUpdates', () => {
   test(
-    '间隔从上次调用结束时算起：调用期间的写入等上次结束后满间隔再调用',
+    'the interval counts from the end of the last call: writes during a call wait a full interval after it ends',
     async () => {
       const id = randomUUID();
       const WORK_MS = 500;
@@ -133,12 +133,12 @@ describe('onSessionUpdates', () => {
         INTERVAL_MS,
       );
       events.publish({ type: 'session.updated', sessionId: id });
-      // 第一次调用进行中又有写入
+      // Another write while the first call is running
       await new Promise((resolve) => setTimeout(resolve, WORK_MS / 2));
       events.publish({ type: 'session.updated', sessionId: id });
       await twoCalls;
       const [first, second] = calls;
-      if (first === undefined || second === undefined) throw new Error('没有两次调用');
+      if (first === undefined || second === undefined) throw new Error('Expected two calls');
       expect(second.start - first.end).toBeGreaterThanOrEqual(INTERVAL_MS);
       expect(errors).toEqual([]);
       stop();

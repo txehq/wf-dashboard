@@ -19,11 +19,13 @@ import { variantLabel, variantsQuery } from '@/pages/variants-api';
 
 const engineName = { claude: 'Claude Code', codex: 'Codex' } as const;
 
-// 时间在前：同一个引擎与配置下的会话标题多半相同，窄的下拉中先看到时间
+// Time first: session titles under the same engine and config are mostly the same, so the narrow
+// select shows the time first
 const sessionLabel = (s: MagiSessionView) =>
-  `${formatDateTime(new Date(s.updatedAt).toISOString())} · ${s.title}${s.running ? ' · 运行中' : ''}`;
+  `${formatDateTime(new Date(s.updatedAt).toISOString())} · ${s.title}${s.running ? ' · Running' : ''}`;
 
-// 左侧导航最上面一行右端的小机器人按钮（Contracts 23.6）：任何页面都能点，弹出框中选引擎、配置与会话后"打开"
+// The small robot button at the right end of the top row of the left nav (Contracts 23.6): clickable
+// on every page; the popover picks engine, config and session, then "Open"
 export function MagiAgentButton() {
   const [open, setOpen] = useState(false);
   return (
@@ -48,7 +50,7 @@ export function MagiAgentButton() {
           className="z-[60] w-[22rem] rounded-lg border bg-background p-4 shadow-lg"
           data-testid="magi-popover"
         >
-          {/* 每次打开弹出框时重新读取上次的选择 */}
+          {/* Re-read the last choice each time the popover opens */}
           {open && (
             <MagiPopover
               onOpened={() => {
@@ -77,7 +79,8 @@ function MagiPopover({ onOpened }: { onOpened: () => void }) {
   const variants = useQuery(variantsQuery);
   const [choice, setChoice] = useState<MagiChoice>(readMagiChoice);
   const built = (variants.data ?? []).filter(isBuiltVariant);
-  // Codex 只有本机配置；上次选的 variant 已不能用（删除或要重新构建）时显示本机配置
+  // Codex has only local config; when the last chosen variant is no longer usable (deleted or needs a
+  // rebuild), local config is shown
   const config =
     choice.engine === 'claude' && built.some((v) => v.id === choice.config)
       ? choice.config
@@ -85,7 +88,8 @@ function MagiPopover({ onOpened }: { onOpened: () => void }) {
   const sessions = (magi.data?.sessions ?? []).filter(
     (s) => s.engine === choice.engine && s.config === config,
   );
-  // 继续：上次选的会话不在这个引擎与配置下时选最近的一个；没有会话时只有新会话
+  // Continue: when the last chosen session is not under this engine and config, pick the most recent
+  // one; with no sessions there is only a new session
   const savedId = choice.session.kind === 'continue' ? choice.session.liveId : null;
   const continued =
     choice.session.kind === 'continue'
@@ -95,7 +99,7 @@ function MagiPopover({ onOpened }: { onOpened: () => void }) {
   const opening = useMutation({
     mutationFn: openMagi,
     onSuccess: async (live) => {
-      // 记下的会话是这次打开的那一个（新会话时为新建的），下次默认继续它
+      // Remember the session opened this time (the created one for a new session) and continue it next time
       saveMagiChoice({ engine: choice.engine, config, liveId: live.id });
       onOpened();
       await navigate(`/live?item=${live.id}`);
@@ -115,11 +119,11 @@ function MagiPopover({ onOpened }: { onOpened: () => void }) {
         <div className="flex min-w-0 flex-col">
           <span className="font-semibold">Magi Agent</span>
           <span className="text-xs text-muted-foreground">
-            修改 dashboard、回答用法、讨论遇到的问题
+            Change the dashboard, answer how-to questions, talk through problems
           </span>
         </div>
       </div>
-      <Field label="引擎">
+      <Field label="Engine">
         <EngineChoice
           value={choice.engine}
           onChange={(engine) => {
@@ -127,10 +131,10 @@ function MagiPopover({ onOpened }: { onOpened: () => void }) {
           }}
         />
       </Field>
-      <Field label="配置">
+      <Field label="Config">
         <select
           className="h-8 rounded-md border bg-background px-2 disabled:opacity-70"
-          aria-label="配置"
+          aria-label="Config"
           data-testid="magi-config-select"
           value={config}
           disabled={choice.engine === 'codex'}
@@ -138,7 +142,7 @@ function MagiPopover({ onOpened }: { onOpened: () => void }) {
             setChoice({ ...choice, config: event.target.value });
           }}
         >
-          <option value="local">本机配置</option>
+          <option value="local">Local config</option>
           {choice.engine === 'claude' &&
             built.map((v) => (
               <option key={v.id} value={v.id}>
@@ -147,11 +151,13 @@ function MagiPopover({ onOpened }: { onOpened: () => void }) {
             ))}
         </select>
         {choice.engine === 'codex' && (
-          <span className="text-xs text-muted-foreground">Codex 只有本机配置（~/.codex）。</span>
+          <span className="text-xs text-muted-foreground">
+            Codex has only local config (~/.codex).
+          </span>
         )}
       </Field>
-      <Field label="会话">
-        <div className="flex flex-col gap-2" role="radiogroup" aria-label="会话">
+      <Field label="Session">
+        <div className="flex flex-col gap-2" role="radiogroup" aria-label="Session">
           {sessions.length > 0 && (
             <label className="flex min-w-0 items-center gap-2">
               <input
@@ -163,10 +169,10 @@ function MagiPopover({ onOpened }: { onOpened: () => void }) {
                   setChoice({ ...choice, session: { kind: 'continue', liveId: null } });
                 }}
               />
-              继续
+              Continue
               <select
                 className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2"
-                aria-label="继续的会话"
+                aria-label="Session to continue"
                 data-testid="magi-session-select"
                 value={continued?.id ?? sessions[0]?.id}
                 disabled={isNew}
@@ -195,7 +201,7 @@ function MagiPopover({ onOpened }: { onOpened: () => void }) {
                 setChoice({ ...choice, session: { kind: 'new' } });
               }}
             />
-            新会话
+            New session
           </label>
         </div>
       </Field>
@@ -207,10 +213,10 @@ function MagiPopover({ onOpened }: { onOpened: () => void }) {
       <div className="flex items-center gap-3 border-t pt-3">
         <span className="min-w-0 flex-1 text-xs text-muted-foreground" data-testid="magi-summary">
           {isNew
-            ? `新建一个 ${engineName[choice.engine]} 的会话`
+            ? `Start a new ${engineName[choice.engine]} session`
             : continued.running
-              ? '打开运行中的会话'
-              : '打开并 resume 这个会话'}
+              ? 'Open the running session'
+              : 'Open and resume this session'}
         </span>
         <Button
           size="sm"
@@ -218,7 +224,7 @@ function MagiPopover({ onOpened }: { onOpened: () => void }) {
           disabled={opening.isPending || magi.data === undefined}
           onClick={submit}
         >
-          打开
+          Open
         </Button>
       </div>
     </div>

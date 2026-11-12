@@ -1,125 +1,125 @@
 id: lfg-photo-sorter
 kind: lfg
-title: 按拍摄日期整理照片的命令行工具
+title: A command-line tool that organises photos by capture date
 persona: |
-  刘芳，自由摄影师，也是家里的"电脑负责人"；用 MacBook Pro（Apple Silicon），会用终端敲命令但不写代码。
-  硬盘里有十几年的照片，约 8 万张、1.2 TB，来自相机、手机和微信，散落在外接硬盘的各个文件夹里。
-  关心：绝对不能丢照片、不能覆盖原图（"我宁可不整理，也不能丢一张"）；整理后在 Finder 和 Lightroom 里能按日期找到；执行之前想先看看会怎么动。
-  说话方式：性子急，讲具体的痛点和例子（微信导出的照片名字是一串数字）；技术细节会说"你们看着办"，但涉及照片安全的问题会追问到底。
+  Liu Fang, a freelance photographer and also the family's "computer person"; she uses a MacBook Pro (Apple Silicon) and can type commands in a terminal but does not write code.
+  Her drives hold more than ten years of photos, about 80,000 files and 1.2 TB, from cameras, phones and WeChat, scattered across folders on external drives.
+  Cares about: never losing a photo and never overwriting an original ("I'd rather not organise them at all than lose a single one"); after organising she can find photos by date in Finder and Lightroom; before anything runs she wants to see what it is going to move.
+  How she talks: impatient, talks about concrete pain points and examples (photos exported from WeChat are named with a string of digits); on technical details she says "you figure it out", but on anything touching photo safety she keeps asking until she gets a clear answer.
 hiddenRequirements: |
-  平台与安装
-  - 主要在 macOS 14（Apple Silicon）上用；她的助理用 Windows 11，也要能用；不需要支持 Linux。
-  - 一条命令安装或下载单个可执行文件即可使用，不想安装 Python 之类的运行环境。
-  输入
-  - 一个或多个源目录，递归处理，可以在外接硬盘上。
-  - 文件类型：JPEG、HEIC、PNG、RAW（CR3、NEF、ARW、DNG）、视频 MOV 与 MP4；视频也按拍摄日期整理。
-  拍摄日期
-  - 来源优先级：EXIF DateTimeOriginal → 视频元数据的 creation_time → 文件名中的日期（微信 mmexport1634567890123.jpg 是毫秒时间戳；IMG_20210314_101500.jpg、Screenshot_2021-03-14-10-15-00.png 等）→ 文件修改时间。
-  - 时区按照片自带的偏移，没有偏移时按本机时区。
-  - 报告中写明每个文件的日期来自哪种来源。
-  目标结构
-  - <目标目录>/YYYY/YYYY-MM/YYYY-MM-DD_原文件名。
-  - RAW 与同名的 JPEG 放在同一个目录。
-  - 无法确定任何日期的文件放进 <目标目录>/未知日期/。
-  安全
-  - 默认复制，不移动；加 --move 才移动，并且只在复制完成、SHA-256 校验一致之后才删除源文件。
-  - 任何情况下都不覆盖已存在的文件；同名但内容不同时加 _1、_2 后缀。
-  - 内容完全相同（哈希一致）的重复文件不再复制，在报告中列出。
-  - --dry-run 只打印计划，不改动任何文件；正式执行后生成 CSV 报告（源路径、目标路径、日期来源、动作）。
-  - 可以按 Ctrl+C 中断；再次运行时从中断处继续，不重复复制。
-  性能
-  - 8 万张、1.2 TB 在 USB 3 外接硬盘上一个晚上（8 小时）内完成；显示进度与预计剩余时间。
-  不做
-  - 图形界面；人脸识别；按地点整理；编辑或压缩照片；iCloud、Google Photos 等云盘同步；找出相似但不完全相同的照片；修改照片的 EXIF。
-  授权
-  - agent 可以自己选择语言与库、新建仓库提交代码、写测试；绝不能在她的真实照片目录上运行，测试只用样本文件；发布到 Homebrew 之前要先问她。
-  验收
-  - 她会准备一个 500 个文件的样本目录（含完全重复的文件、没有 EXIF 的文件、微信导出、RAW+JPEG 配对、视频）：dry-run 的计划与实际执行结果一致；源文件数等于目标文件数加重复数；没有任何文件丢失或被覆盖。
-input: 做一个命令行工具，把我电脑里乱七八糟的照片按拍摄日期整理好
+  Platform and installation
+  - Used mainly on macOS 14 (Apple Silicon); her assistant uses Windows 11 and must be able to use it too; Linux support is not needed.
+  - Installed with one command or by downloading a single executable; she does not want to install a runtime such as Python.
+  Input
+  - One or more source directories, processed recursively, possibly on external drives.
+  - File types: JPEG, HEIC, PNG, RAW (CR3, NEF, ARW, DNG) and MOV and MP4 videos; videos are organised by capture date too.
+  Capture date
+  - Source priority: EXIF DateTimeOriginal → creation_time in the video metadata → a date in the file name (WeChat's mmexport1634567890123.jpg is a millisecond timestamp; IMG_20210314_101500.jpg, Screenshot_2021-03-14-10-15-00.png and so on) → the file modification time.
+  - Time zones follow the offset stored in the photo; without an offset, the local machine's time zone is used.
+  - The report states which source each file's date came from.
+  Target layout
+  - <target directory>/YYYY/YYYY-MM/YYYY-MM-DD_<original file name>.
+  - A RAW file and the JPEG with the same name go into the same directory.
+  - Files with no determinable date go into <target directory>/Unknown date/.
+  Safety
+  - Copies by default and does not move; only with --move does it move, and it deletes a source file only after the copy has finished and its SHA-256 matches.
+  - Never overwrites an existing file under any circumstances; a file with the same name but different content gets a _1, _2 suffix.
+  - Exact duplicates (same hash) are not copied again and are listed in the report.
+  - --dry-run only prints the plan and changes no files; a real run writes a CSV report (source path, target path, date source, action).
+  - It can be interrupted with Ctrl+C; running it again continues where it stopped without copying anything twice.
+  Performance
+  - 80,000 files and 1.2 TB on a USB 3 external drive finish within one night (8 hours); progress and estimated time remaining are shown.
+  Out of scope
+  - A graphical interface; face recognition; organising by location; editing or compressing photos; syncing with cloud drives such as iCloud or Google Photos; finding similar but not identical photos; modifying photos' EXIF.
+  Authority
+  - The agent may choose the language and libraries, create a new repository and commit code, and write tests; it must never run on her real photo directories, tests use only sample files; it must ask her before publishing to Homebrew.
+  Acceptance
+  - She will prepare a sample directory of 500 files (with exact duplicates, files without EXIF, WeChat exports, RAW+JPEG pairs and videos): the dry-run plan matches the result of the real run; the number of source files equals the number of target files plus duplicates; no file is lost or overwritten.
+input: build a command-line tool that sorts the messy photos on my computer by the date they were taken
 rubric:
   - artifact: brief
     items:
       - id: b1
-        criterion: Brief 是否写明平台（macOS 为主、也要支持 Windows 11）与不需要安装运行环境的安装方式。
+        criterion: Does the brief state the platforms (mainly macOS, Windows 11 also supported) and an installation that needs no runtime?
         maxScore: 3
       - id: b2
-        criterion: Brief 是否列出支持的文件类型，包括 HEIC、各家 RAW 与 MOV/MP4 视频。
+        criterion: Does the brief list the supported file types, including HEIC, the vendors' RAW formats and MOV/MP4 videos?
         maxScore: 3
       - id: b3
-        criterion: Brief 是否写明拍摄日期来源的优先级（EXIF → 视频元数据 → 文件名 → 修改时间）与时区处理。
+        criterion: Does the brief state the priority of capture date sources (EXIF → video metadata → file name → modification time) and the time zone handling?
         maxScore: 4
       - id: b4
-        criterion: Brief 是否写明数据安全要求：默认复制、--move 只在校验一致后删除源文件、绝不覆盖、同名不同内容加后缀。
+        criterion: Does the brief state the data safety requirements (copy by default, --move deletes source files only after verification, never overwrite, suffix for same name with different content)?
         maxScore: 5
       - id: b5
-        criterion: Brief 是否写明 dry-run、CSV 报告与中断后可以继续。
+        criterion: Does the brief state dry-run, the CSV report and continuing after an interruption?
         maxScore: 4
       - id: b6
-        criterion: Brief 是否写明目标目录结构、RAW 与同名 JPEG 放在一起、无日期文件的去处。
+        criterion: Does the brief state the target directory layout, that a RAW file sits with the JPEG of the same name, and where files without a date go?
         maxScore: 3
       - id: b7
-        criterion: Brief 是否逐项列出不做的范围：图形界面、人脸识别、按地点、编辑压缩、云盘同步、相似照片去重、修改 EXIF。
+        criterion: Does the brief list each out-of-scope item (graphical interface, face recognition, by location, editing and compression, cloud sync, deduplicating similar photos, modifying EXIF)?
         maxScore: 4
       - id: b8
-        criterion: Brief 是否写明授权上限：不在真实照片目录上运行、只用样本文件测试、发布到 Homebrew 前要询问。
+        criterion: Does the brief state the limits of authority (never run on the real photo directories, test only with sample files, ask before publishing to Homebrew)?
         maxScore: 3
   - artifact: research
     items:
       - id: r1
-        criterion: Research 是否比较了读取 EXIF、HEIC、RAW 与视频元数据的库或工具，给出选择理由并附出处。
+        criterion: Does the research compare libraries or tools for reading EXIF, HEIC, RAW and video metadata, give reasons for the choice and cite sources?
         maxScore: 5
       - id: r2
-        criterion: Research 是否说明了单个可执行文件的发布方式与 macOS、Windows 的跨平台构建，并附出处。
+        criterion: Does the research explain how to ship a single executable and build it for macOS and Windows, with sources?
         maxScore: 3
       - id: r3
-        criterion: Research 是否调研了常见的文件名日期格式（微信、安卓、iOS、截图）并给出样例。
+        criterion: Does the research survey common date formats in file names (WeChat, Android, iOS, screenshots) with examples?
         maxScore: 3
       - id: r4
-        criterion: Research 是否调研了安全复制与校验、以及中断后续跑所需状态的保存方式。
+        criterion: Does the research look into safe copying with verification and how to save the state needed to continue after an interruption?
         maxScore: 4
       - id: r5
-        criterion: Research 是否估算了 8 万张、1.2 TB 在 USB 3 硬盘上的耗时并指出瓶颈。
+        criterion: Does the research estimate the duration for 80,000 files and 1.2 TB on a USB 3 drive and point out the bottleneck?
         maxScore: 3
       - id: r6
-        criterion: Research 的 spec 是否拆成部分，每部分有测试计划与验收标准。
+        criterion: Is the spec in the research split into parts, each with a test plan and acceptance criteria?
         maxScore: 3
   - artifact: plan
     items:
       - id: p1
-        criterion: Plan 是否带有锁定状态与锁定日期。
+        criterion: Does the plan carry a locked status and a lock date?
         maxScore: 2
       - id: p2
-        criterion: Plan 的顺序是否为日期提取与计划生成（dry-run）先于真正的复制与移动。
+        criterion: Does the plan put date extraction and plan generation (dry-run) before the real copying and moving?
         maxScore: 3
       - id: p3
-        criterion: Plan 是否写明只用样本文件测试，并覆盖重复文件、无 EXIF、微信导出、RAW+JPEG 配对与视频。
+        criterion: Does the plan state that tests use only sample files and cover duplicates, files without EXIF, WeChat exports, RAW+JPEG pairs and videos?
         maxScore: 5
       - id: p4
-        criterion: Plan 是否写明验证"不丢文件"的方法（源文件数等于目标文件数加重复数、哈希比对）。
+        criterion: Does the plan state how "no file is lost" is verified (source file count equals target file count plus duplicates, hash comparison)?
         maxScore: 4
       - id: p5
-        criterion: Plan 是否写明中断后续跑的测试方法。
+        criterion: Does the plan state how continuing after an interruption is tested?
         maxScore: 3
       - id: p6
-        criterion: Plan 是否没有包含超出范围的工作（图形界面、人脸、地点、云同步等）。
+        criterion: Is the plan free of out-of-scope work (graphical interface, faces, locations, cloud sync and so on)?
         maxScore: 2
   - artifact: tickets
     items:
       - id: t1
-        criterion: Tickets.md 是否存在并列出每张工单的 Linear 编号与标题。
+        criterion: Does Tickets.md exist and list the Linear identifier and title of every ticket?
         maxScore: 2
       - id: t2
-        criterion: 依赖关系是否正确：元数据读取与计划生成的工单阻塞复制与移动的工单。
+        criterion: Are the dependencies correct, with the metadata reading and plan generation tickets blocking the copy and move tickets?
         maxScore: 3
       - id: t3
-        criterion: 不覆盖、校验一致后才删除源文件的要求是否出现在相关工单的验收标准中。
+        criterion: Do the requirements to never overwrite and to delete source files only after verification appear in the acceptance criteria of the relevant tickets?
         maxScore: 5
       - id: t4
-        criterion: 每张工单是否有可验证的验收标准，且至少一张包含 500 个样本文件的端到端验收。
+        criterion: Does every ticket have verifiable acceptance criteria, with an end-to-end acceptance on the 500 sample files in at least one ticket?
         maxScore: 4
       - id: t5
-        criterion: 每张工单是否有估算与推荐负责人，并各附一句理由。
+        criterion: Does every ticket have an estimate and a recommended assignee, each with a one-sentence reason?
         maxScore: 2
       - id: t6
-        criterion: Tickets 阶段是否停在 dispatch gate，没有派发任何 /ic。
+        criterion: Did the tickets stage stop at the dispatch gate without dispatching any /ic?
         maxScore: 3

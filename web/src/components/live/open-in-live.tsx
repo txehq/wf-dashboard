@@ -4,10 +4,11 @@ import { useNavigate } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { openInLive } from '@/lib/live-api';
 
-// Sessions 页面的"Live"按钮（Contracts 14.5）：不在交互区就导入建一项，已有一项（包括已关闭的）就用那一项并恢复显示，
-// 然后打开交互区并选中它的标签页。只导入，不启动进程。icon：Sessions 列表中只显示图标，悬停显示说明，
-// 失败时按钮变红、悬停显示原因
-const LABEL = '在 Live 中打开';
+// The "Live" button on the Sessions page (Contracts 14.5): imports a new item when the session is not
+// in the workspace, or reuses its existing item (closed ones included) and restores it, then opens the
+// workspace on its tab. Imports only, starts no process. icon: the Sessions list shows only the icon
+// with a hover description; on failure the button turns red and the hover shows the reason
+const LABEL = 'Open in Live';
 
 export function OpenInLiveButton({
   session,
@@ -39,7 +40,7 @@ export function OpenInLiveButton({
           size="icon-sm"
           data-testid="open-in-live"
           aria-label={LABEL}
-          title={opening.isError ? `${LABEL}失败：${opening.error.message}` : LABEL}
+          title={opening.isError ? `Couldn't open in Live: ${opening.error.message}` : LABEL}
           className={opening.isError ? 'border-destructive text-destructive' : undefined}
           disabled={opening.isPending}
           onClick={onClick}

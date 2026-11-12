@@ -12,8 +12,8 @@ import { runs } from '../db/schema.js';
 import { readRunGrades } from '../grading/index.js';
 import { RunGrades } from '../grading/schema.js';
 
-const RunNotFound = createError<[string]>('RUN_NOT_FOUND', '没有 run %s', 404);
-const NotGraded = createError<[string]>('RUN_NOT_GRADED', 'run %s 尚未评分', 404);
+const RunNotFound = createError<[string]>('RUN_NOT_FOUND', 'No run %s', 404);
+const NotGraded = createError<[string]>('RUN_NOT_GRADED', 'Run %s is not graded yet', 404);
 
 export function gradeRoutes({ db }: { db: Db }) {
   return (fastify: FastifyInstance, _options: unknown, done: () => void) => {

@@ -1,4 +1,4 @@
-// 共用的 diff 显示（Contracts 21.3）：分析报告的修改建议、variant 页面的对比、Codex 保存前的改动预览
+// Shared diff display (Contracts 21.3): suggested changes in analysis reports, comparisons on the variant page, the change preview before a Codex save
 export { DiffCounts, DiffFileCard, DiffHunks, DiffView } from './diff-view';
 export {
   type ChangeBlock,

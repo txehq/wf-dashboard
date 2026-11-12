@@ -1,46 +1,60 @@
 import { z } from 'zod';
 
-// workflow 的定义（Contracts 16.1）与评测类型的内部配置的结构（16.2）；本文件只依赖 zod，web 也直接引用这里的 schema
+// Structure of workflow definitions (Contracts 16.1) and of the internal eval kind configuration (16.2); this file
+// depends only on zod, and web imports these schemas directly
 
 const SLUG = /^[a-z][a-z0-9-]*$/;
-const slug = z.string().regex(SLUG, '只能包含小写字母、数字与连字符，以字母开头');
+const slug = z
+  .string()
+  .regex(SLUG, 'Only lowercase letters, digits and hyphens, starting with a letter');
 
-// 评测类型：决定准备、初始消息、结束条件、dispatch gate 与评分；task 属于其中一种（16.3）
+// Eval kinds: determine preparation, initial message, end condition, dispatch gate and grading; every task has one (16.3)
 export const evalKinds = ['lfg', 'ic'] as const;
 export type EvalKind = (typeof evalKinds)[number];
 
-// 内置的 lfg、ic：id 与评测类型同名，variant 是完整的 txe-workflow 导出，用 wf 构建（Contracts 18.6）
+// Built-in lfg and ic: the id equals the eval kind; variants are full txe-workflow exports built with wf (Contracts 18.6)
 export const WF_WORKFLOWS = evalKinds;
 export const isWfWorkflow = (id: string): id is EvalKind =>
   (WF_WORKFLOWS as readonly string[]).includes(id);
 
-// 内置的分析 workflow（Contracts 19.2）：没有评测类型，variant 由 dashboard 自己管理；最后一个小阶段综合
+// Built-in analysis workflow (Contracts 19.2): no eval kind, variants managed by the dashboard itself; the last stage
+// synthesizes
 export const ANALYSIS_WORKFLOW = 'session-analysis';
 export const SYNTHESIZE_STAGE = 'synthesize';
-// 基线 variant 中供 Codex 优化用的 skill（Contracts 19.3），不是小阶段
-export const OPTIMIZE_SKILL = 'optimize-from-report';
 
-// 服务启动时以仓库中的 yaml 为准写入的 workflow，定义只读
-export const BUILTIN_WORKFLOWS = [...WF_WORKFLOWS, ANALYSIS_WORKFLOW] as const;
+// Built-in design and optimize workflows (Contracts 33.1): no eval kind, variants managed by the dashboard itself; each
+// has one skill, whose only stage has the workflow's name. Their variants drive the sessions that generate workflows
+// and variants and the "Optimize" sessions of analyses
+export const DESIGN_WORKFLOW = 'workflow-design';
+export const OPTIMIZE_WORKFLOW = 'workflow-optimize';
+export const DRAFT_WORKFLOWS = [DESIGN_WORKFLOW, OPTIMIZE_WORKFLOW] as const;
+export type DraftWorkflow = (typeof DRAFT_WORKFLOWS)[number];
+
+// Workflows written from the repo's yaml at startup; their definitions are read-only
+export const BUILTIN_WORKFLOWS = [...WF_WORKFLOWS, ANALYSIS_WORKFLOW, ...DRAFT_WORKFLOWS] as const;
+// Built-in workflows whose variants the dashboard manages: a baseline variant is created at startup
+export const OWN_BUILTIN_WORKFLOWS = [ANALYSIS_WORKFLOW, ...DRAFT_WORKFLOWS] as const;
+export type OwnBuiltinWorkflow = (typeof OWN_BUILTIN_WORKFLOWS)[number];
 export type BuiltinWorkflow = (typeof BUILTIN_WORKFLOWS)[number];
 export const isBuiltinWorkflow = (id: string): id is BuiltinWorkflow =>
   (BUILTIN_WORKFLOWS as readonly string[]).includes(id);
 
-// 准备积木，按顺序执行
+// Preparation bricks, run in order
 export const prepareBricks = ['empty-repo', 'repo-copy', 'ticket-copy', 'vault-dir'] as const;
 export type PrepareBrick = (typeof prepareBricks)[number];
 
-// 除 rubric 以外的评分积木
+// Grading bricks other than rubric
 export const gradingBricks = ['hidden-tests', 'criteria-judge', 'pr-endpoint'] as const;
 export type GradingBrick = (typeof gradingBricks)[number];
 
-// run 的固定产物种类（db/schema 的 fixedArtifactKinds）：rubric 产物以 id 为种类，不能与它们同名
+// Fixed artifact kinds of a run (fixedArtifactKinds in db/schema): rubric artifacts use their id as kind and must not
+// share these names
 const reservedArtifactIds = ['pr', 'repo', 'ticket', 'friction', 'acceptance', 'pr_snapshot'];
 
-// rubric 产物的一个候选文件：frontmatter 的 kind 必须相符
+// One candidate file of a rubric artifact: its frontmatter kind must match
 const ArtifactFile = z.strictObject({ file: z.string().trim().min(1), kind: slug });
 
-// 简写 { id, file } 等价于 files: [{ file, kind: id }]，description 为文件名
+// The shorthand { id, file } means files: [{ file, kind: id }], with the file name as description
 const RubricArtifactInput = z.union([
   z.strictObject({
     id: slug,
@@ -76,7 +90,7 @@ const RubricGrading = z.strictObject({
 
 const Grading = z.union([z.enum(gradingBricks), RubricGrading]);
 
-// task 的字段，由评测类型的积木推出（16.3）
+// Task fields, derived from the eval kind's bricks (16.3)
 export const taskFieldNames = [
   'input',
   'persona',
@@ -95,16 +109,18 @@ function duplicates(ids: string[]): string[] {
 
 const PLACEHOLDER = /\{([A-Za-z]+)\}/g;
 
-// 初始消息模板中的占位
+// Placeholders in the initial message template
 export function placeholdersOf(message: string): string[] {
   return [...new Set([...message.matchAll(PLACEHOLDER)].map((m) => m[1] ?? ''))];
 }
 
-// 按模板生成初始消息；模板用到的占位没有值时抛错（内部配置的测试中已校验占位由积木提供）
+// Renders the initial message from the template; throws when a placeholder it uses has no value (the internal
+// configuration tests already check that bricks provide the placeholders)
 export function renderMessage(message: string, values: Record<string, string | null>): string {
   return message.replace(PLACEHOLDER, (_, name: string) => {
     const value = values[name];
-    if (value === undefined || value === null) throw new Error(`初始消息的占位 {${name}} 没有值`);
+    if (value === undefined || value === null)
+      throw new Error(`Placeholder {${name}} of the initial message has no value`);
     return value;
   });
 }
@@ -112,7 +128,7 @@ export function renderMessage(message: string, values: Record<string, string | n
 export const hasRepo = (config: Pick<EvalKindConfig, 'prepare'>) =>
   config.prepare.includes('empty-repo') || config.prepare.includes('repo-copy');
 
-// 积木提供的占位；{entry} 是 workflow 的入口命令
+// Placeholders the bricks provide; {entry} is the workflow's entry command
 export function providedPlaceholders(config: Pick<EvalKindConfig, 'prepare'>): string[] {
   return [
     'entry',
@@ -131,7 +147,7 @@ export function rubricOf(config: Pick<EvalKindConfig, 'grading'>): RubricArtifac
 export const hasGrading = (config: Pick<EvalKindConfig, 'grading'>, brick: GradingBrick) =>
   config.grading.includes(brick);
 
-// 16.3：task 的字段由积木与评分推出
+// 16.3: task fields are derived from the bricks and the grading
 export function taskFieldsOf(config: EvalKindConfig): TaskFieldName[] {
   const fields: TaskFieldName[] = [];
   if (placeholdersOf(config.message).includes('input')) fields.push('input');
@@ -143,52 +159,54 @@ export function taskFieldsOf(config: EvalKindConfig): TaskFieldName[] {
   return fields;
 }
 
-// 一种评测类型的内部配置（16.2）：由积木组成，用户不编辑
+// Internal configuration of one eval kind (16.2): made of bricks, not edited by users
 export const EvalKindConfig = z
   .strictObject({
     kind: z.enum(evalKinds),
     prepare: z.array(z.enum(prepareBricks)),
     message: z.string().trim().min(1),
-    // 写给模拟用户的结束条件
+    // End condition written for the simulated user
     done: z.string().trim().min(1),
-    // 模拟用户的 prompt 加入 dispatch gate 一节，回答不得出现 go
+    // Adds a dispatch gate section to the simulated user's prompt; its answers must not contain go
     dispatchGate: z.literal(true).optional(),
     grading: z.array(Grading),
   })
   .superRefine((config, ctx) => {
     const issue = (message: string) => {
-      ctx.addIssue({ code: 'custom', message: `评测类型 ${config.kind}：${message}` });
+      ctx.addIssue({ code: 'custom', message: `Eval kind ${config.kind}: ${message}` });
     };
-    for (const brick of duplicates(config.prepare)) issue(`准备积木重复：${brick}`);
+    for (const brick of duplicates(config.prepare)) issue(`Duplicate preparation brick: ${brick}`);
     if (config.prepare.includes('empty-repo') && config.prepare.includes('repo-copy')) {
-      issue('empty-repo 与 repo-copy 只能选一个');
+      issue('Choose only one of empty-repo and repo-copy');
     }
     const provided = providedPlaceholders(config);
     for (const name of placeholdersOf(config.message)) {
       if (!provided.includes(name)) {
         issue(
-          `message 用了积木没有提供的占位 {${name}}（可用：${provided.map((p) => `{${p}}`).join('、')}）`,
+          `message uses placeholder {${name}}, which no brick provides (available: ${provided.map((p) => `{${p}}`).join(', ')})`,
         );
       }
     }
     const named = config.grading.map((g) => (typeof g === 'string' ? g : 'rubric'));
-    for (const brick of duplicates(named)) issue(`评分积木重复：${brick}`);
+    for (const brick of duplicates(named)) issue(`Duplicate grading brick: ${brick}`);
     for (const brick of gradingBricks) {
       if (named.includes(brick) && !config.prepare.includes('repo-copy')) {
-        issue(`评分 ${brick} 要求准备积木 repo-copy`);
+        issue(`Grading ${brick} requires the preparation brick repo-copy`);
       }
     }
     if (named.includes('criteria-judge') && !config.prepare.includes('ticket-copy')) {
-      issue('评分 criteria-judge 要求准备积木 ticket-copy');
+      issue('Grading criteria-judge requires the preparation brick ticket-copy');
     }
     const rubric = rubricOf(config);
     if (rubric !== null) {
-      if (!config.prepare.includes('vault-dir')) issue('评分 rubric 要求准备积木 vault-dir');
-      for (const id of duplicates(rubric.map((a) => a.id))) issue(`rubric 产物 id 重复：${id}`);
+      if (!config.prepare.includes('vault-dir'))
+        issue('Grading rubric requires the preparation brick vault-dir');
+      for (const id of duplicates(rubric.map((a) => a.id)))
+        issue(`Duplicate rubric artifact id: ${id}`);
       for (const a of rubric) {
         if (reservedArtifactIds.includes(a.id)) {
           issue(
-            `rubric 产物 id ${a.id} 与 run 的固定产物种类同名（${reservedArtifactIds.join('、')}）`,
+            `Rubric artifact id ${a.id} has the name of a fixed run artifact kind (${reservedArtifactIds.join(', ')})`,
           );
         }
       }
@@ -196,21 +214,22 @@ export const EvalKindConfig = z
   });
 export type EvalKindConfig = z.output<typeof EvalKindConfig>;
 
-// 一个有评测类型的 workflow 运行时取用的配置：评测类型的内部配置加上 workflow 的 id（也是入口命令 /<id>）
+// The configuration a workflow with an eval kind uses at run time: the eval kind's internal configuration plus the
+// workflow's id (also the entry command /<id>)
 export type EvalSpec = EvalKindConfig & { id: string };
 
 const SmallStage = z.strictObject({
   id: slug,
-  // 再次出现只记次数（像 fix-pr）
+  // When it appears again, only count it (like fix-pr)
   repeatable: z.literal(true).optional(),
-  // 在本阶段中调用这些小阶段不算切换（像 fix-pr 中的 acceptance）
+  // Calling these stages inside this one is not a switch (like acceptance inside fix-pr)
   allowInside: z.array(slug).optional(),
 });
 export type SmallStage = z.infer<typeof SmallStage>;
 
 export const WorkflowDefinition = z
   .strictObject({
-    // 也是入口命令 /<id> 与入口 skill 的名字
+    // Also the entry command /<id> and the name of the entry skill
     id: slug,
     name: z.string().trim().min(1),
     stages: z.array(SmallStage).min(1),
@@ -220,12 +239,20 @@ export const WorkflowDefinition = z
       ctx.addIssue({ code: 'custom', message, path });
     };
     const ids = w.stages.map((s) => s.id);
-    for (const id of duplicates(ids)) issue(`小阶段 id 重复：${id}`, ['stages']);
+    for (const id of duplicates(ids)) issue(`Duplicate stage id: ${id}`, ['stages']);
     for (const [i, s] of w.stages.entries()) {
-      if (s.id === w.id) issue(`小阶段 ${s.id} 与 workflow 同名`, ['stages', i, 'id']);
+      // A single-skill workflow: its only stage has the workflow's name, and the entry itself is that stage
+      // (Contracts 16.1, 33.1)
+      if (s.id === w.id && w.stages.length > 1) {
+        issue(`Stage ${s.id} has the workflow's name: allowed only when it is the only stage`, [
+          'stages',
+          i,
+          'id',
+        ]);
+      }
       for (const inside of s.allowInside ?? []) {
         if (!ids.includes(inside)) {
-          issue(`小阶段 ${s.id} 的 allowInside 引用了不存在的小阶段 ${inside}`, [
+          issue(`allowInside of stage ${s.id} refers to stage ${inside}, which does not exist`, [
             'stages',
             i,
             'allowInside',
@@ -236,12 +263,13 @@ export const WorkflowDefinition = z
   });
 export type WorkflowDefinition = z.output<typeof WorkflowDefinition>;
 
-// workflow 要求 variant 具备的 skill：入口 skill（与 workflow id 同名）与每个小阶段的 skill（16.1）
+// Skills a workflow requires of a variant: the entry skill (named like the workflow id) and each stage's skill (16.1)
 export function requiredSkills(definition: WorkflowDefinition): string[] {
-  return [definition.id, ...definition.stages.map((s) => s.id)];
+  return [...new Set([definition.id, ...definition.stages.map((s) => s.id)])];
 }
 
-// lfg、ic 的 txe-workflow 最新版（Contracts 29.1）：最近一次检查的结果；variantId 为这个 tag 自动导入的、没有删除的 variant
+// Latest txe-workflow release for lfg and ic (Contracts 29.1): the result of the latest check; variantId is the
+// undeleted variant imported automatically for this tag
 export const ReleaseView = z.object({
   tag: z.string().nullable(),
   publishedAt: z.number().nullable(),
@@ -256,20 +284,20 @@ export const WorkflowView = z.object({
   name: z.string(),
   evalKind: z.enum(evalKinds).nullable(),
   description: z.string().nullable(),
-  // 定义只读的内置 workflow（lfg、ic、session-analysis）
+  // Built-in workflows with read-only definitions (lfg, ic, session-analysis)
   builtin: z.boolean(),
-  // variant 是 txe-workflow 导出、用 wf 构建（lfg、ic）；其余由 dashboard 自己管理
+  // Variants are txe-workflow exports built with wf (lfg, ic); the rest are managed by the dashboard itself
   wf: z.boolean(),
   definition: WorkflowDefinition,
   variants: z.number(),
-  // 只有 lfg、ic 有；还没有检查过时为空
+  // Only lfg and ic have it; null before the first check
   release: ReleaseView.nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
 export type WorkflowView = z.infer<typeof WorkflowView>;
 
-// POST /api/workflows（16.1、18.5）：从空白新建，同时建出第一个 variant"初稿"
+// POST /api/workflows (16.1, 18.5): create from blank, together with the first variant "First draft"
 export const NewWorkflowBody = z.object({
   id: z.string(),
   name: z.string(),
@@ -278,7 +306,7 @@ export const NewWorkflowBody = z.object({
 });
 export type NewWorkflowBody = z.infer<typeof NewWorkflowBody>;
 
-// PUT /api/workflows/:id：内置的 lfg、ic 只能改描述
+// PUT /api/workflows/:id: built-in lfg and ic can change only the description
 export const UpdateWorkflowBody = z.object({
   name: z.string(),
   description: z.string(),

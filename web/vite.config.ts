@@ -14,11 +14,11 @@ export default defineConfig({
     port: webPort,
     strictPort: true,
     proxy: {
-      // ws：交互区的终端经 WebSocket 连接 /api/live/:id/pty
+      // ws: the workspace terminal connects to /api/live/:id/pty over WebSocket
       '/api': { target: `http://127.0.0.1:${String(serverPort)}`, ws: true },
     },
   },
-  // e2e 的页面：vite preview 提供构建产物，端口与 /api 代理与开发服务器相同（e2e/services.ts）
+  // vite preview serves the build output with the same port and /api proxy as the dev server
   preview: {
     host: '127.0.0.1',
     port: webPort,

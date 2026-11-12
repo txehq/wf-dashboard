@@ -3,18 +3,18 @@ name: time-waste
 description: Session-analysis stage for time waste — where wall-clock went by stage, the longest requests and gaps, then the avoidable part — waiting, polling, timeouts, long single calls, independent steps run serially, thinking without acting.
 ---
 
-# 浪费时间的行为
+# Time waste
 
-先照 `session-analysis` skill 读过 `../session-analysis/references/` 的五份参考；证据、格式与归属以它们为准。输出：`output/findings-time-waste.json`。
+First read the five references in `../session-analysis/references/` as the `session-analysis` skill says; they govern evidence, format and ownership. Output: `output/findings-time-waste.json`.
 
-关键词：**idle**——墙钟在走，工作没有往前。失败链的耗时归 failures；本阶段报告等待、轮询与串行。
+Keyword: **idle** — the wall clock runs while the work does not move forward. The duration of failure chains belongs to failures; this stage reports waiting, polling and serial work.
 
-## 步骤
+## Steps
 
-1. **账目。** 用 `timestamp` 与 `durationMs` 算出：每个 session 的总时长；每个阶段（`stages.json`）的耗时与占比；最长的五个请求；相邻两条记录间隔超过十分钟的地方（只有记录能说明时才写在等什么：等用户、等子代理、等外部服务）。完成条件：`stages.json` 的每个阶段都有耗时与占比。
-2. **等待与轮询。** `sleep`、反复查状态（同一个状态命令、`gh pr checks`、`gh run view`、读同一个日志的尾部）的次数、间隔与总耗时；后台任务的等待。
-3. **长耗时的调用与超时。** 单个 tool 调用耗时很长的（从 tool_use 所在请求到下一条请求的间隔），超时与被中断的命令。
-4. **串行。** 多个互不依赖的读取、搜索或命令分在连续的多次请求中，每次只发一个调用，本可以在一次请求中并行；写出可以合并的请求与估计节省的时间（这些请求的耗时之和减去其中最长的一个）。
-5. **只想不做。** thinking 的 `tokens` 很多或回复很长之后没有行动，或连续多条请求没有 tool 调用也没有用户输入。
-6. 每条发现写出这部分花掉的时间（写算法）与 skill 中导致它的规定（例如要求轮询、要求逐个检查）。
-7. 按 `findings.md` 写出 `output/findings-time-waste.json` 并用 `jq .` 检查。
+1. **Accounts.** From `timestamp` and `durationMs`, compute: each session's total duration; each stage's (`stages.json`) duration and share; the five longest requests; gaps of more than ten minutes between adjacent records (say what it was waiting for only when the records show it: the user, a subagent, an external service). Done when: every stage in `stages.json` has a duration and a share.
+2. **Waiting and polling.** The count, interval and total duration of `sleep` and repeated status checks (the same status command, `gh pr checks`, `gh run view`, reading the tail of the same log); waiting for background tasks.
+3. **Long calls and timeouts.** Single tool calls that took very long (the gap from the request with the tool_use to the next request), and commands that timed out or were interrupted.
+4. **Serial work.** Several independent reads, searches or commands spread over consecutive requests with one call each, which could have run in parallel in one request; give the requests that could be merged and the estimated time saved (the sum of their durations minus the longest one).
+5. **Thinking without acting.** Many thinking `tokens` or a long reply followed by no action, or several consecutive requests with neither tool calls nor user input.
+6. Each finding gives the time this part took (with the method) and the skill rule that caused it (for example a required poll or a required one-by-one check).
+7. Write `output/findings-time-waste.json` as `findings.md` describes and check it with `jq .`.

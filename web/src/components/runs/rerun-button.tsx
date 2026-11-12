@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { rerunnable, rerunRun, type RunSummary } from '@/lib/runs-api';
 
-// Contracts 10：失败、取消或已标为无效的 run 可以重跑；成功后打开新 run 的详情
+// Contracts 10: a failed, cancelled or invalidated run can be rerun; on success, open the new run
 export function RerunButton({ run, className }: { run: RunSummary; className?: string }) {
   const client = useQueryClient();
   const navigate = useNavigate();
@@ -23,13 +23,13 @@ export function RerunButton({ run, className }: { run: RunSummary; className?: s
         size="sm"
         disabled={rerun.isPending}
         data-testid="rerun"
-        title="在同一个 batch 中用同一 task 与 variant 再跑一次，原 run 保持不变"
+        title="Run the same task and variant again in the same batch. The original run is kept."
         onClick={() => {
           rerun.mutate();
         }}
       >
         <RotateCcw />
-        {rerun.isPending ? '正在重跑…' : '重跑'}
+        {rerun.isPending ? 'Rerunning…' : 'Rerun'}
       </Button>
       {rerun.isError && (
         <span role="alert" className="ml-2 text-xs text-destructive">

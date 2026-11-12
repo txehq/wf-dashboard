@@ -17,7 +17,7 @@ export function ModelEffortChoice({
   return (
     <div className="flex flex-wrap gap-3">
       <label className="flex flex-col gap-1.5 text-sm">
-        <span className="font-medium">model</span>
+        <span className="font-medium">Model</span>
         <select
           className="h-9 rounded-md border bg-background px-2"
           data-testid={`${testIdPrefix}-model`}
@@ -29,13 +29,13 @@ export function ModelEffortChoice({
         >
           {options.data?.models.map((m) => (
             <option key={m.alias} value={m.alias}>
-              {m.alias}（{m.model}）
+              {m.alias} ({m.model})
             </option>
           ))}
         </select>
       </label>
       <label className="flex flex-col gap-1.5 text-sm">
-        <span className="font-medium">effort</span>
+        <span className="font-medium">Effort</span>
         <select
           className="h-9 rounded-md border bg-background px-2"
           data-testid={`${testIdPrefix}-effort`}
@@ -54,7 +54,7 @@ export function ModelEffortChoice({
       </label>
       {options.isError && (
         <span role="alert" className="text-sm text-destructive">
-          读取模型列表失败：{options.error.message}
+          Could not load the model list: {options.error.message}
         </span>
       )}
     </div>

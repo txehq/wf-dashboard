@@ -14,10 +14,10 @@ import type { Workspace } from '../drafts/workspace.js';
 
 const IdParams = z.object({ id: z.string().min(1) });
 const PathQuery = z.object({ path: z.string().min(1) });
-// 对比的对象（28.4），不传为底子
+// What to diff against (28.4), the base when omitted
 const DiffQuery = PathQuery.extend({ against: WorkspaceAgainst.default('base') });
 
-// Contracts 26.4：设计与优化会话的 workflow 面板，只读这一项工作目录中的 src/skills 与 workflow.yaml
+// Contracts 26.4: the workflow panel of design and optimize sessions, reading only src/skills and workflow.yaml in the item's working directory
 export const workspaceRoutes: FastifyPluginCallbackZod<{ workspace: Workspace }> = (
   app,
   { workspace },
@@ -46,7 +46,7 @@ export const workspaceRoutes: FastifyPluginCallbackZod<{ workspace: Workspace }>
     (request) => workspace.diff(request.params.id, request.query.path, request.query.against),
   );
 
-  // 文件变化在 1 秒内推送；项被关闭或删除时发 closed 后结束。没有草稿的项在 SSE 开始前 404
+  // File changes are pushed within 1 second; sends closed and ends when the item is closed or deleted. Items without a draft get 404 before SSE starts
   app.get(
     '/api/live/:id/workspace/events',
     { sse: 'only', schema: { params: IdParams } },

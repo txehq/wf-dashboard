@@ -1,24 +1,24 @@
 import os from 'node:os';
 import path from 'node:path';
 
-// sandbox-exec 的 SBPL 字符串字面量
+// SBPL string literal for sandbox-exec
 const literal = (value: string) => JSON.stringify(value);
 const subpath = (dir: string) => `(subpath ${literal(dir)})`;
 
 export interface AnalysisSandboxRoots {
-  // data/analyses/<id>：其中 input/ 只读、output/ 可写
+  // data/analyses/<id>: input/ read-only, output/ writable
   analysisDir: string;
-  // 引擎自己的配置目录（CLAUDE_CONFIG_DIR 或 CODEX_HOME），引擎要写会话与缓存
+  // The engine's own config dir (CLAUDE_CONFIG_DIR or CODEX_HOME), where it writes sessions and caches
   engineHome: string;
-  // dashboard 仓库与数据目录：整体不能读写，只放行分析目录
+  // Dashboard repo and data dir: no reads or writes except the analysis dir
   repoRoot: string;
   dataDir: string;
   home?: string;
 }
 
-// 分析引擎进程的 profile（Contracts 15.2）：只读 input/、只写 output/。
-// 读限制只拦 file-read-data（内容与目录列表）；用户的 ~/.claude 与 ~/.codex（其他 session、凭据）也不能读。
-// SBPL 中后出现的规则优先
+// Profile of the analysis engine process (Contracts 15.2): read-only input/, write-only output/.
+// Read limits block only file-read-data (contents and listings); the user's ~/.claude and ~/.codex (other sessions, credentials) are unreadable too.
+// Later rules in SBPL take precedence
 export function analysisSandboxProfile(roots: AnalysisSandboxRoots): string {
   const home = roots.home ?? os.homedir();
   const output = path.join(roots.analysisDir, 'output');

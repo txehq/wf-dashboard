@@ -5,6 +5,7 @@ import path from 'node:path';
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { sessionTitles } from '../api/session-titles.js';
+import { config } from '../config.js';
 import type { Db } from '../db/index.js';
 import { sessionLayoutOf, syncSessionSkills } from '../drafts/session-config.js';
 import {
@@ -30,11 +31,12 @@ import { events } from '../events.js';
 import { createRunTicket } from '../external/linear.js';
 import type { RunRepos } from '../external/run-repos.js';
 import { ingestFile } from '../ingest/ingest.js';
+import { sessionConversation } from '../ingest/conversation.js';
 import { restoreCleared } from '../ingest/imports.js';
 import { codexHomeOf } from '../ingest/codex.js';
 import { newId } from '../runs/index.js';
 import type { SettingsStore } from '../runs/settings.js';
-import type { EvalFacts, SimulatedPersona } from '../runs/simulated-user.js';
+import type { EvalFacts, SimulatedGoal, SimulatedPersona } from '../runs/simulated-user.js';
 import { ensureImportedBundle, previewLinearImport } from '../tasks/linear-import.js';
 import { loadTask, withRepo, withTicket } from '../tasks/loader.js';
 import type { Task } from '../tasks/schema.js';
@@ -54,6 +56,8 @@ import {
   codexAgentStartArgs,
   codexConfigExtra,
   codexDirsOf,
+  codexRemoteArgs,
+  codexRemoteResumeArgs,
   codexResumeArgs,
   codexStartArgs,
   newSessionId,
@@ -61,9 +65,50 @@ import {
   rolloutFiles,
   waitForSession,
 } from './codex.js';
-import { type HandBackReason, type HookPayload, LiveController } from './controller.js';
+import { type HookPayload, LiveController } from './controller.js';
+import { type HandBackReason } from './simulated-driver.js';
 import { claudeSessionDirsOf } from './claude-session.js';
 import { LivePty, unreleasedPtys } from './pty.js';
+import type { Hosts, RemoteHost } from '../remote/hosts.js';
+import {
+  applyRemoteResume,
+  remoteHooks,
+  remoteResumeAction,
+  requireRemoteDir,
+  runScript,
+  writeRemoteLive,
+} from '../remote/launch.js';
+import { listRemoteRollouts } from '../remote/rollouts.js';
+import { sshExec } from '../remote/ssh.js';
+import { execa } from 'execa';
+import { localCopyOf, RemoteSessionSync, type SyncFailure } from '../remote/sync.js';
+import { RemoteTerminal, remoteLive, remoteRoot } from '../remote/terminal.js';
+import { createRemoteVariants } from '../remote/variant.js';
+import type { OrcaPlace } from '../orca/cli.js';
+import { orcaCall, remoteOrcaUserData } from '../orca/cli.js';
+import { OrcaPaneTerminal } from '../orca/terminal.js';
+import { isPaneHandle } from '../orca/topology.js';
+import { workerRead, workerSend } from '../orca/worker.js';
+import { type AttachedPane, createOrcaSync, type OrcaPaneSpec } from './orca-sync.js';
+import type { AttachedWorker, StructuredWorkerSpec } from './orca-sync.js';
+import { watchSession } from '../ingest/watch.js';
+import {
+  bootTime,
+  orcaPaneEvent,
+  type PaneProcess,
+  paneProcessAlive,
+  reconcilePaneProcess,
+  remotePaneProcessAlive,
+  remotePids,
+  runningPaneProcesses,
+} from './orca-panes.js';
+import {
+  closeOrcaIdentity,
+  createOrcaIdentity,
+  identityEnv,
+  type OrcaIdentity,
+} from '../orca/identity.js';
+import { quote } from 'shell-quote';
 import {
   divergedName,
   lastMessage,
@@ -76,12 +121,15 @@ import {
   type LiveDetail,
   type LiveEventView,
   type LiveProcessView,
+  type LiveStopSource,
   type LiveSummary,
   type ResumeCopy,
   type ResumeDefaults,
   type ResumeLiveBody,
   type ResumePlan,
   TITLE_MAX,
+  type WorkerSendResult,
+  type WorkerTranscript,
 } from './views.js';
 
 export interface LiveDeps {
@@ -92,91 +140,106 @@ export interface LiveDeps {
   product: string;
   // data/live
   liveDir: string;
-  // variant 所在的数据目录（session 绑定 variant 时读 skill）
+  // Data directory holding the variants (skills are read from it when a session is bound to a variant)
   dataDir: string;
-  // hook 命令 POST 的地址：服务实际监听的 http://host:port
+  // URL the hook command POSTs to: the http://host:port the server actually listens on
   serverUrl: () => string;
-  // "本机配置"的 HOME（claude 读 <home>/.claude）；测试用 .work/ 下的目录
+  // HOME of the "local config" (claude reads <home>/.claude)
   localHome: string;
-  // isolated 交互的副本仓库建在 GitHub 或本地仓库模式的目录中（Contracts 7.2、14.2）
+  // Copy repos of isolated sessions live on GitHub (Contracts 7.2, 14.2)
   repos: RunRepos;
-  // Codex 会话（Contracts 17.3）：运行的命令、认证与模型配置的来源、等待会话记录出现的时限
+  // Codex sessions (Contracts 17.3): the command, the source of auth and model config, the timeout for the session record to appear
   codex: { bin: string; sources: CodexSources; sessionTimeoutMs: number };
-  // Claude Code 会话运行的命令（config.claudeBin）
+  // Command that runs Claude Code sessions (config.claudeBin)
   claudeBin: string;
-  // 设计与分析优化的 Claude Code 会话的凭据与模型配置的来源（Contracts 22.2），默认 config.claudeSettingsPath
+  // Source of credentials and model config for design and analysis-optimize Claude Code sessions (Contracts 22.2), default config.claudeSettingsPath
   claudeSettingsPath?: string | undefined;
-  // 自动结束与"结束进程"（Contracts 14.3）：没有任何页面连接持续 idleMs 时结束全部运行中的交互进程；
-  // 结束时先 SIGINT，graceMs 后仍在则 SIGTERM
+  // Auto-stop and "stop process" (Contracts 14.3): after idleMs with no page connected, stop every running session process;
+  // stopping sends SIGINT first, then SIGTERM if still alive after graceMs
   autoStop: { idleMs: number; graceMs: number };
+  // SSH hosts (Contracts 31): hosts and checks, the directory of local copies of remote sessions (data/remote), the reconnect interval
+  remote: { hosts: Hosts; dir: string; reconnectMs: number };
+  // Orca (Contracts 35): the orca command and the topology poll interval while a page is connected
+  orca: { bin: string; pollMs: number };
 }
 
 export const LIVE_ID = /^l-\d{8}-[a-z0-9]{6}$/;
 
-// 现场输入时模拟用户扮演的人（Contracts 14.4）
-const INPUT_PERSONA = '提出这个想法（或工单）的人，只依据输入回答，没写到的按常理回答。';
-// 不加命令的交互（Contracts 29.2）
-const REQUEST_PERSONA = '提出这个请求的人，只依据输入回答，没写到的按常理回答。';
-const RESUME_PERSONA =
-  '这个 session 中与 agent 对话的用户，只依据之前的对话回答，没写到的按常理回答。';
-
 const HOOK_EVENTS = ['Stop', 'Notification', 'UserPromptSubmit', 'SessionStart'] as const;
 
-// 新建的项的默认名字：输入的前 40 个字（Contracts 14.3）
+// Default name of a new item: the first 40 characters of the input (Contracts 14.3)
 const DEFAULT_TITLE_LENGTH = 40;
 
-// Magi Agent 的会话在用户提交第一条消息之前的名字；之后取这条消息的前 40 个字（用户改过名字时不再改）
-export const AGENT_UNTITLED = '新会话';
+// Name of a Magi Agent session before the user submits the first message; then the first 40 characters of it (unless the user renamed it)
+export const AGENT_UNTITLED = 'New session';
+
+// Entry command at the start of the initial message (/lfg for Claude Code, $workflow-design for Codex): stripped when prefilling the goal box
+const ENTRY_COMMAND = /^[/$][a-z][\w-]*[ \t]*/u;
 
 const defaultTitle = (text: string) =>
   Array.from((text.split('\n')[0] ?? text).trim())
     .slice(0, DEFAULT_TITLE_LENGTH)
     .join('');
 
-// 改名的名字：去掉首尾空白后非空，最多 200 字；不满足时以原文报错
+// A rename: non-empty after trimming, at most 200 characters; otherwise an error with the reason
 export function checkTitle(title: string): string {
   const trimmed = title.trim();
-  if (trimmed === '') throw new HttpError(400, '名字不能为空');
+  if (trimmed === '') throw new HttpError(400, 'Name cannot be empty');
   const length = Array.from(trimmed).length;
   if (length > TITLE_MAX) {
-    throw new HttpError(400, `名字最多 ${String(TITLE_MAX)} 个字，现在是 ${String(length)} 个字`);
+    throw new HttpError(
+      400,
+      `Name can be at most ${String(TITLE_MAX)} characters, got ${String(length)}`,
+    );
   }
   return trimmed;
 }
 
-// pty.log 中每个进程开始时的分隔行（Contracts 14.5）
+// Separator line in pty.log at the start of each process (Contracts 14.5)
 function separatorLine(at: Date, kind: LiveProcessKind, variant: string): string {
   return `\r\n\u001b[2m──── ${at.toISOString()} · ${kind} · ${variant} ────\u001b[0m\r\n`;
 }
+
+// Separator line when reconnecting to a remote process after a dashboard restart (Contracts 31.4): the same process, no new start or resume
+function reconnectLine(at: Date, host: string): string {
+  return `\r\n\u001b[2m──── ${at.toISOString()} · reconnected to ${host} after dashboard restart ────\u001b[0m\r\n`;
+}
+
+// Interval for syncing a remote session back to this machine while connected (Contracts 31.6)
+const REMOTE_SYNC_MS = 3000;
+
+// Orca-hosted terminals: read the rendered screen once per second while the tab is in front and a page is connected (Contracts 35.4)
+const SCREEN_POLL_MS = 1000;
 
 interface Launch {
   liveId: string;
   kind: LiveProcessKind;
   variantId: string | null;
-  // 新建交互与 resume 时选的模型与 effort（Contracts 16.5）；本机配置不传
+  // Model and effort chosen at create and resume (Contracts 16.5); not passed for local config
   model: string;
   effort: string;
   environment: LiveEnvironment;
   cwd: string;
   claudeSessionId: string;
-  // claude 的位置参数之前的参数：--session-id 与初始消息，或 --resume
+  // Arguments before claude's positional ones: --session-id and the initial message, or --resume
   sessionArgs: string[];
-  // <CLAUDE_CONFIG_DIR>/projects/ 下 session 所在的目录名（CLAUDE_CODE_PROJECT_DIR_NAME）
+  // Name of the session's directory under <CLAUDE_CONFIG_DIR>/projects/ (CLAUDE_CODE_PROJECT_DIR_NAME)
   projectDirName: string;
   driver: LiveDriver;
-  persona: SimulatedPersona;
+  // Who the simulated user plays; items with a task and run sessions use the task's persona and hidden requirements, other items use the goal (Contracts 34.2)
+  persona: SimulatedPersona | null;
   eval: EvalFacts | null;
   extraEnv: Record<string, string>;
   start: Record<string, unknown>;
-  // 设计与分析优化的 Claude Code 会话（Contracts 22.2）：配置目录、完整的 env 与 sandbox 由会话自己所有，
-  // 不属于任何 variant，也不是本机配置；其余的项为空
+  // Design and analysis-optimize Claude Code sessions (Contracts 22.2): the config directory, full env and sandbox are owned by the session,
+  // belonging to no variant and not local config; null for other items
   owned: OwnedClaude | null;
 }
 
 interface OwnedClaude {
   claudeDir: string;
   env: Record<string, string>;
-  // claude 要读的 hooks 设置文件由 launch 写出，sandbox 放行它
+  // launch writes the hooks settings file claude reads; the sandbox allows it
   sandboxProfile: (hooksFile: string) => string;
 }
 
@@ -186,17 +249,33 @@ type ProcessRow = typeof liveProcesses.$inferSelect;
 export function createLive(deps: LiveDeps) {
   const { db, variants, settings } = deps;
   const controllers = new Map<string, LiveController | CodexRunner>();
+  // Latest sync failure of each remote process (Contracts 31.6); in memory only, cleared on the next successful sync
+  const syncFailures = new Map<number, SyncFailure>();
+  // Variants on SSH hosts (Contracts 31.5): wf for lfg and ic is prepared at the commit in the txe-workflow repo
+  const remoteVariants = createRemoteVariants({
+    variants,
+    dataDir: deps.dataDir,
+    repo: config.txeWorkflowRepo,
+  });
 
-  // 上次服务退出时运行中的进程：PTY 进程随服务退出
+  // Processes running when the server last exited: local PTY processes exit with the server; processes on SSH hosts keep
+  // running in tmux and are reconnected after the server listens (reattachRemote, Contracts 31.4); agents in Orca keep
+  // running in Orca and are picked up by the topology sync (Contracts 35.3)
   const interrupted = db
     .update(liveProcesses)
-    .set({ status: 'exited', error: '服务重启中断', endedAt: new Date() })
-    .where(eq(liveProcesses.status, 'running'))
+    .set({ status: 'exited', error: 'Interrupted by a service restart', endedAt: new Date() })
+    .where(
+      and(
+        eq(liveProcesses.status, 'running'),
+        sql`${liveProcesses.liveId} in (select ${liveSessions.id} from ${liveSessions} where ${liveSessions.hostId} is null)`,
+        sql`not exists (${orcaPaneEvent(sql`${liveProcesses.id}`)})`,
+      ),
+    )
     .returning({ liveId: liveProcesses.liveId })
     .all();
   for (const r of interrupted) events.publish({ type: 'live.updated', liveId: r.liveId });
 
-  // 还叫"新会话"的 Codex Magi Agent 会话（例如迁移前建的）：从用户自己的 ~/.codex 中的 rollout 取第一条消息命名
+  // Codex Magi Agent sessions still named AGENT_UNTITLED (e.g. created before the migration): name them from the first message in the rollout in the user's own ~/.codex
   const unnamed = db
     .select()
     .from(liveSessions)
@@ -216,7 +295,7 @@ export function createLive(deps: LiveDeps) {
 
   function row(id: string): ItemRow {
     const found = db.select().from(liveSessions).where(eq(liveSessions.id, id)).get();
-    if (found === undefined) throw new HttpError(404, `交互不存在：${id}`);
+    if (found === undefined) throw new HttpError(404, `Live item does not exist: ${id}`);
     return found;
   }
 
@@ -229,7 +308,7 @@ export function createLive(deps: LiveDeps) {
       .all();
   }
 
-  // 最近的进程；从本机导入、还没有运行过的项为空
+  // The latest process; null for items imported from this machine that have never run
   function latestProcess(id: string): ProcessRow | null {
     return (
       db
@@ -245,16 +324,16 @@ export function createLive(deps: LiveDeps) {
     row(id);
     const controller = controllers.get(id);
     if (controller === undefined || latestProcess(id)?.status !== 'running') {
-      throw new HttpError(409, `交互 ${id} 不在运行中`);
+      throw new HttpError(409, `Live item ${id} is not running`);
     }
     return controller;
   }
 
-  // hook 与驾驶者只属于 Claude Code 的进程：Codex 会话只有人驾驶（Contracts 17.3）
+  // Hooks belong only to Claude Code processes: a Codex turn end is recorded by task_complete in the rollout (Contracts 34.2)
   function claudeControllerOf(id: string): LiveController {
     const controller = controllerOf(id);
     if (controller instanceof CodexRunner) {
-      throw new HttpError(409, `交互 ${id} 是 Codex 会话，只有人驾驶，没有 hook 与模拟用户`);
+      throw new HttpError(409, `Live item ${id} is a Codex session and has no hooks`);
     }
     return controller;
   }
@@ -263,9 +342,81 @@ export function createLive(deps: LiveDeps) {
     return path.join(deps.liveDir, id);
   }
 
-  // "结束进程"（Contracts 14.3）：先 SIGINT，graceMs 后仍在则 SIGTERM，等进程退出
+  const localOrca: OrcaPlace = {
+    kind: 'local',
+    bin: deps.orca.bin,
+  };
+
+  // A variant's Orca skills belong to the Orca version it was built with (Contracts 35.5): after an Orca update it must be rebuilt before starting
+  async function requireCurrentOrcaSkills(variantId: string) {
+    const variant = variants.get(variantId);
+    if (variant.orcaVersion === null) return;
+    const current = await variants.orcaVersion();
+    if (current === variant.orcaVersion) return;
+    throw new HttpError(
+      409,
+      `The Orca skills of variant ${variant.name} are for Orca ${variant.orcaVersion}, the current Orca is ${current ?? '(no orca command)'}: rebuild this variant before starting`,
+    );
+  }
+
+  // Record the process's Orca identity on the item (Contracts 35.2): the topology maps a Run's main agent to this item by the orca-identity event
+  function recordIdentity(liveId: string, processId: number, identity: OrcaIdentity) {
+    db.update(liveSessions)
+      .set({ orcaTerminalHandle: identity.handle })
+      .where(eq(liveSessions.id, liveId))
+      .run();
+    db.insert(liveEvents)
+      .values({
+        liveId,
+        processId,
+        at: new Date(),
+        kind: 'orca-identity',
+        payload:
+          identity.handle === null
+            ? { handle: null, reason: identity.reason }
+            : { handle: identity.handle },
+      })
+      .run();
+  }
+
+  // Identity terminals of local processes being closed; the server waits for them on shutdown
+  const closingIdentities = new Set<Promise<void>>();
+
+  // Close a process's identity terminal after it exits (remote identities are created on connect/prepare, so take the one at exit); a close failure is recorded verbatim in the process's error
+  function closeIdentityOnExit(
+    liveId: string,
+    controller: { exited: Promise<void>; processId: number },
+    place: OrcaPlace,
+    identity: () => OrcaIdentity,
+  ) {
+    const closing = controller.exited
+      .then(async () => {
+        const handle = identity().handle;
+        if (handle !== null) await closeOrcaIdentity(place, handle);
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => {
+          db.update(liveProcesses)
+            .set({
+              error: `Closing the Orca identity terminal failed: ${error instanceof Error ? error.message : String(error)}`,
+            })
+            .where(eq(liveProcesses.id, controller.processId))
+            .run();
+          events.publish({ type: 'live.updated', liveId });
+        },
+      )
+      .finally(() => {
+        closingIdentities.delete(closing);
+      });
+    // Remote processes keep running after the server shuts down, so their identity terminals stay open
+    if (place.kind === 'local') closingIdentities.add(closing);
+  }
+
+  // "Stop process" (Contracts 14.3, 31.4): SIGINT first (tmux send-keys C-c on remote), SIGTERM if still alive after graceMs
+  // (kill-session on remote), then wait for the process to exit
   async function terminate(controller: LiveController | CodexRunner) {
-    controller.pty.kill('SIGINT');
+    await controller.pty.interrupt();
     let timer: NodeJS.Timeout | undefined;
     const late = new Promise<'late'>((resolve) => {
       timer = setTimeout(() => {
@@ -274,19 +425,130 @@ export function createLive(deps: LiveDeps) {
     });
     const outcome = await Promise.race([controller.exited.then(() => 'exited' as const), late]);
     clearTimeout(timer);
-    if (outcome === 'late' && controller.pty.alive) controller.pty.kill('SIGTERM');
+    if (outcome === 'late' && controller.pty.alive) await controller.pty.forceStop();
     await controller.exited;
   }
 
-  // 自动结束（Contracts 14.3）：页面的连接（/api/events 的 SSE 与 PTY 的 WebSocket）为 0 时开始计时，
-  // idleMs 内有连接回来就取消；到时仍为 0 时结束全部运行中的交互进程，每项记一条 auto-stop。评测的 run 不在这里，不受影响
+  // A running process no controller holds, because it is an agent in an Orca pane that vanished while the dashboard
+  // was down (W116, and on an SSH host W117); null when the process is not one. A pane Orca still lists belongs to the
+  // sync, which has not attached it yet, so stopping it here would act behind the sync's back
+  async function vanishedPaneOf(
+    liveId: string,
+    processId: number,
+    host: RemoteHost | null,
+  ): Promise<PaneProcess | null> {
+    const pane = runningPaneProcesses(db, host?.id ?? null).find((p) => p.processId === processId);
+    if (pane === undefined) return null;
+    // A worker Orca runs without a pane is in no terminal list to begin with; stop ends it through its Dispatch
+    if (!isPaneHandle(pane.handle)) return null;
+    const handles = await orcaSync.paneHandles(host);
+    if (handles?.has(pane.handle) === true) {
+      throw new HttpError(
+        409,
+        `Orca still has the pane ${pane.handle} of live item ${liveId}; the dashboard has not attached it yet, try again in a moment`,
+      );
+    }
+    return pane;
+  }
+
+  // A worker Orca runs without a pane behind this item's running process (Contracts 35.4): its Dispatch and the Orca
+  // that holds it, for reading the transcript, sending input and "Stop process". Null for every other process
+  function structuredWorkerOf(
+    item: ItemRow,
+    processId: number,
+  ): { place: OrcaPlace; version: string; dispatchId: string } | null {
+    const handle = item.orcaTerminalHandle;
+    if (handle === null || isPaneHandle(handle)) return null;
+    const dispatchId = dispatchOfProcess(processId);
+    if (dispatchId === null) return null;
+    const host = item.hostId === null ? null : deps.remote.hosts.known(item.hostId);
+    const at = orcaSync.placeOf(host);
+    if (at === null) {
+      throw new HttpError(
+        409,
+        `Orca on ${host?.label ?? 'this machine'} has not been read yet; try again in a moment`,
+      );
+    }
+    return { ...at, dispatchId };
+  }
+
+  // "Stop process" on such a process: with the pid gone it is simply recorded as exited; a pid still running is
+  // signalled the way a local process is (SIGINT, then SIGTERM after graceMs) before the process is recorded
+  async function stopVanishedPane(pane: PaneProcess, host: RemoteHost | null) {
+    if (host !== null) {
+      await stopVanishedRemotePane(pane, host);
+      return;
+    }
+    const pid = pane.pid;
+    const boot = bootTime();
+    if (pid !== null && paneProcessAlive(pid, pane.startedAt, boot)) {
+      process.kill(pid, 'SIGINT');
+      if (!(await goneWithin(pid, pane.startedAt, boot, deps.autoStop.graceMs))) {
+        process.kill(pid, 'SIGTERM');
+        await goneWithin(pid, pane.startedAt, boot, deps.autoStop.graceMs);
+      }
+    }
+    reconcilePaneProcess(db, pane, paneProcessAlive(pane.pid, pane.startedAt, bootTime()));
+  }
+
+  // The same on an SSH host: the pid is read and signalled there, over the same ssh connection
+  async function stopVanishedRemotePane(pane: PaneProcess, host: RemoteHost) {
+    const pid = pane.pid;
+    const aliveNow = async () => {
+      const pids = pid === null ? [] : [pid];
+      const { boot, alive } = await remotePids(host, pids);
+      return remotePaneProcessAlive(pane, boot, alive);
+    };
+    if (pid !== null && (await aliveNow())) {
+      const signal = (name: string) =>
+        sshExec(host.target, quote(['kill', `-${name}`, String(pid)]));
+      await signal('INT');
+      if (!(await goneRemotelyWithin(aliveNow, deps.autoStop.graceMs))) {
+        await signal('TERM');
+        await goneRemotelyWithin(aliveNow, deps.autoStop.graceMs);
+      }
+    }
+    reconcilePaneProcess(db, pane, await aliveNow());
+  }
+
+  async function goneRemotelyWithin(
+    alive: () => Promise<boolean>,
+    withinMs: number,
+  ): Promise<boolean> {
+    const deadline = Date.now() + withinMs;
+    while (Date.now() < deadline) {
+      if (!(await alive())) return true;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    return !(await alive());
+  }
+
+  async function goneWithin(
+    pid: number,
+    startedAt: Date,
+    boot: Date,
+    withinMs: number,
+  ): Promise<boolean> {
+    const deadline = Date.now() + withinMs;
+    while (Date.now() < deadline) {
+      if (!paneProcessAlive(pid, startedAt, boot)) return true;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    return !paneProcessAlive(pid, startedAt, boot);
+  }
+
+  // Auto-stop (Contracts 14.3): start timing when page connections (SSE on /api/events and PTY WebSockets) drop to 0,
+  // cancel if one returns within idleMs; if still 0 then, stop every running session process and record auto-stop per item. Eval runs are not affected
   let connections = 0;
-  // 最后一个连接断开的时间；服务启动后还没有过连接时为空
+  // Time the last connection closed; null if there has been no connection since the server started
   let lastDisconnectAt: Date | null = null;
   let idleTimer: NodeJS.Timeout | null = null;
 
+  // Remote items are exempt from auto-stop (Contracts 31.4)
+  const localControllers = () => [...controllers.values()].filter((c) => !c.pty.remote);
+
   function scheduleAutoStop() {
-    if (connections > 0 || idleTimer !== null || controllers.size === 0) return;
+    if (connections > 0 || idleTimer !== null || localControllers().length === 0) return;
     idleTimer = setTimeout(() => {
       idleTimer = null;
       void autoStopAll();
@@ -301,7 +563,7 @@ export function createLive(deps: LiveDeps) {
 
   async function autoStopAll() {
     if (connections > 0) return;
-    const running = [...controllers.values()].filter((c) => c.pty.alive);
+    const running = localControllers().filter((c) => c.pty.alive);
     for (const c of running) {
       db.insert(liveEvents)
         .values({
@@ -320,7 +582,7 @@ export function createLive(deps: LiveDeps) {
     await Promise.all(running.map((c) => terminate(c)));
   }
 
-  // 一个页面连接：打开时调用，返回关闭时调用的函数（重复调用只算一次）
+  // One page connection: call on open; returns the function to call on close (repeated calls count once)
   function connect(): () => void {
     connections += 1;
     cancelAutoStop();
@@ -336,7 +598,7 @@ export function createLive(deps: LiveDeps) {
     };
   }
 
-  // 显示用的名字：已删除的 variant 为"<名字>（已删除）"（Contracts 24.3）
+  // Display name: a deleted variant shows as "<name> (deleted)" (Contracts 24.3)
   function variantName(variantId: string | null): string | null {
     if (variantId === null) return null;
     const v = db
@@ -347,10 +609,10 @@ export function createLive(deps: LiveDeps) {
     return v === undefined ? null : displayName(v);
   }
 
-  // Magi Agent 的项所用配置的名字：本机配置，或"名字 (workflow)"（Contracts 23.6）；其他用途的项为空
+  // Name of the config a Magi Agent item uses: local config, or "name (workflow)" (Contracts 23.6); null for items of other purposes
   function agentConfigName(config: string | null): string | null {
     if (config === null) return null;
-    if (config === 'local') return '本机配置';
+    if (config === 'local') return 'Local config';
     const v = db
       .select({
         name: variantsTable.name,
@@ -360,7 +622,7 @@ export function createLive(deps: LiveDeps) {
       .from(variantsTable)
       .where(eq(variantsTable.id, config))
       .get();
-    if (v === undefined) throw new Error(`Magi Agent 的配置 ${config} 不是已知的 variant`);
+    if (v === undefined) throw new Error(`Magi Agent config ${config} is not a known variant`);
     return `${displayName(v)} (${v.workflowId})`;
   }
 
@@ -382,7 +644,7 @@ export function createLive(deps: LiveDeps) {
     };
   }
 
-  // 第一个进程的 start 事件：isolated 环境建出的副本仓库与工单
+  // start event of the first process: the copy repo and ticket created by the isolated environment
   function startPayload(id: string): Record<string, unknown> {
     const start = db
       .select({ payload: liveEvents.payload })
@@ -414,12 +676,12 @@ export function createLive(deps: LiveDeps) {
       claudeSessionId: r.claudeSessionId,
       engine: r.engine,
       purpose: r.purpose,
-      // 设计的是新 workflow 还是新 variant；其余用途为空
+      // Whether the design is a new workflow or a new variant; null for other purposes
       designMode:
         r.purpose === 'design' && (draft?.mode === 'workflow' || draft?.mode === 'variant')
           ? draft.mode
           : null,
-      // 优化会话对应的分析（Contracts 19.3）
+      // The analysis an optimize session belongs to (Contracts 19.3)
       analysisId: r.purpose === 'optimize' ? (draft?.analysisId ?? null) : null,
       draftId: draft?.id ?? null,
       agentConfig: r.agentConfig,
@@ -428,10 +690,13 @@ export function createLive(deps: LiveDeps) {
       workflow: r.workflow,
       input: r.input,
       taskId: r.taskId,
+      simulatedGoal: r.simulatedGoal,
+      // Prefill of the goal box the first time the simulated user takes over (Contracts 34.2)
+      simulatedGoalDefault: initialRequest(r),
       cwd: r.cwd,
       process,
       variantId: process?.variantId ?? null,
-      // 设计与分析优化的会话没有 variant，显示引擎的名字
+      // Design and analysis-optimize sessions have no variant; show the engine's name
       variantName:
         process?.variantName ??
         (isDraftItem(r) && process !== null
@@ -442,6 +707,7 @@ export function createLive(deps: LiveDeps) {
       status: process?.status ?? 'idle',
       driver: process?.driver ?? 'human',
       error: process?.error ?? null,
+      syncFailure: last === undefined ? null : (syncFailures.get(last.id) ?? null),
       resumeCount: all.filter((p) => p.kind === 'resume').length,
       starting: process?.status === 'running' && controller?.starting === true,
       repo: typeof start.repo === 'string' ? start.repo : null,
@@ -449,7 +715,108 @@ export function createLive(deps: LiveDeps) {
       createdAt: r.createdAt.getTime(),
       updatedAt: r.updatedAt.getTime(),
       hiddenAt: r.hiddenAt === null ? null : r.hiddenAt.getTime(),
+      host: hostOf(r),
+      connected:
+        r.hostId !== null && process?.status === 'running' && controller !== undefined
+          ? controller.pty.connected
+          : null,
+      orca: orcaView(r, last, controller),
     };
+  }
+
+  // Orca state of this item in the list and topology (Contracts 35.4)
+  function orcaView(
+    r: ItemRow,
+    last: ProcessRow | undefined,
+    controller: LiveController | CodexRunner | undefined,
+  ): LiveSummary['orca'] {
+    // The latest process is an agent in an Orca terminal (not one running in the dashboard after resume)
+    const hosted =
+      last !== undefined &&
+      db.$client
+        .prepare<[number], { found: number }>(
+          `select 1 as found from live_events where process_id = ? and kind in ('start', 'resume') and json_extract(payload, '$.orca') is not null`,
+        )
+        .get(last.id) !== undefined;
+    let state: LiveSummary['orca']['state'] = null;
+    if (last?.status === 'exited') state = 'exited';
+    else if (last !== undefined && hosted) {
+      const runs = orcaSync.topology().runs;
+      state =
+        runs.flatMap((run) => run.workers).find((w) => w.liveId === r.id)?.state ??
+        runs.find((run) => run.coordinator.liveId === r.id)?.coordinator.state ??
+        null;
+    } else if (last !== undefined && controller instanceof LiveController) {
+      if (controller.waiting === null) state = 'working';
+      else state = controller.waiting.kind === 'questions' ? 'waiting' : 'idle';
+    }
+    let identityReason: string | null = null;
+    if (!hosted && last !== undefined) {
+      const identity = db
+        .select({ payload: liveEvents.payload })
+        .from(liveEvents)
+        .where(
+          and(
+            eq(liveEvents.liveId, r.id),
+            eq(liveEvents.processId, last.id),
+            eq(liveEvents.kind, 'orca-identity'),
+          ),
+        )
+        .get();
+      const reason = identity?.payload.reason;
+      identityReason = typeof reason === 'string' ? reason : null;
+    }
+    const handle = r.orcaTerminalHandle;
+    return {
+      hosted,
+      handle,
+      identityReason,
+      runId: r.orcaRunId,
+      parentLiveId: r.orcaParentLiveId,
+      state,
+      paneGone: last === undefined ? null : paneGoneOf(last),
+      // A worker Orca runs without a pane: its handle is in no terminal list, so the page reads it through its
+      // Dispatch instead of a terminal (Contracts 35.4)
+      structured: hosted && handle !== null && !isPaneHandle(handle),
+      dispatchId: last === undefined ? null : dispatchOfProcess(last.id),
+    };
+  }
+
+  // The Dispatch recorded when this process was attached to Orca; null for a main agent and for processes the
+  // dashboard runs itself
+  function dispatchOfProcess(processId: number): string | null {
+    const start = db
+      .select({ payload: liveEvents.payload })
+      .from(liveEvents)
+      .where(
+        and(eq(liveEvents.processId, processId), sql`${liveEvents.kind} in ('start', 'resume')`),
+      )
+      .orderBy(desc(liveEvents.id))
+      .get();
+    const orca = start?.payload.orca;
+    if (orca === null || typeof orca !== 'object') return null;
+    const dispatchId = (orca as Record<string, unknown>).dispatchId;
+    return typeof dispatchId === 'string' ? dispatchId : null;
+  }
+
+  // Warning of a running process whose Orca pane is gone while its own process is still alive (Contracts 35.3): it is
+  // left running, so the status line says why Orca no longer shows it. Null once the process ends
+  function paneGoneOf(last: ProcessRow): string | null {
+    if (last.status !== 'running') return null;
+    const warning = db
+      .select({ payload: liveEvents.payload })
+      .from(liveEvents)
+      .where(and(eq(liveEvents.processId, last.id), eq(liveEvents.kind, 'orca-pane-gone')))
+      .get();
+    const reason = warning?.payload.reason;
+    return typeof reason === 'string' ? reason : null;
+  }
+
+  // Host shown in the list item and toolbar (Contracts 31.3); label and target are null once the host is deleted
+  function hostOf(r: ItemRow): LiveSummary['host'] {
+    if (r.hostId === null) return null;
+    const host = deps.remote.hosts.brief(r.hostId);
+    return { id: r.hostId, label: host?.label ?? null, target: host?.target ?? null };
   }
 
   function eventViews(id: string): LiveEventView[] {
@@ -471,7 +838,7 @@ export function createLive(deps: LiveDeps) {
   function detail(id: string): LiveDetail {
     const r = row(id);
     const base = summary(r);
-    // 驾驶者的切换只看最近的进程
+    // Driver switches only count for the latest process
     const evs = eventViews(id);
     const lastDriver = evs.findLast(
       (e) => e.kind === 'driver' && e.processId !== null && e.processId === base.process?.id,
@@ -483,20 +850,24 @@ export function createLive(deps: LiveDeps) {
         reason === 'done' ||
         reason === 'max-turns' ||
         reason === 'error' ||
-        reason === 'manual')
+        reason === 'manual' ||
+        reason === 'disconnected')
         ? reason
         : null;
     const controller = controllers.get(id);
+    // The one-sentence reason the simulated user gives when it considers the work done (Contracts 34.2)
+    const doneReason = lastDriver?.payload.doneReason;
     return {
       ...base,
       waiting: base.status === 'running' && controller !== undefined ? controller.waiting : null,
       handedBack,
+      doneReason: handedBack === 'done' && typeof doneReason === 'string' ? doneReason : null,
       processes: processesOf(id).map(processView),
       events: evs,
     };
   }
 
-  // 只传 hooks，不改动 variant 或用户自己的设置文件（Contracts 14.2）
+  // Pass only hooks; never modify the variant's or the user's own settings files (Contracts 14.2)
   function writeHooks(id: string): string {
     const url = `${deps.serverUrl()}/api/live/${id}/hook`;
     const command = `curl -sS --fail-with-body -m 10 -X POST -H 'content-type: application/json' --data-binary @- '${url}' > /dev/null`;
@@ -519,18 +890,19 @@ export function createLive(deps: LiveDeps) {
       : variants.runtimeEnv(variantId).env.CLAUDE_CONFIG_DIR;
   }
 
-  // Magi Agent 的项所用的 variant；本机配置为空
+  // Variant used by a Magi Agent item; null for local config
   function agentVariantOf(item: ItemRow): string | null {
-    if (item.agentConfig === null) throw new Error(`Magi Agent 的项 ${item.id} 没有记下配置`);
+    if (item.agentConfig === null)
+      throw new Error(`Magi Agent item ${item.id} has no recorded config`);
     return item.agentConfig === 'local' ? null : item.agentConfig;
   }
 
   function insertItem(values: {
     id: string;
-    // Codex 草稿的项在 Codex 第一次启动之前为空
+    // Null for Codex draft items until Codex first starts
     claudeSessionId: string | null;
     engine?: 'claude' | 'codex';
-    // 不传时为 interaction（新建、导入、resume 的普通项）
+    // Defaults to interaction (ordinary items from create, import, resume)
     purpose?: LivePurpose;
     agentConfig?: string;
     title: string;
@@ -539,20 +911,31 @@ export function createLive(deps: LiveDeps) {
     input: string | null;
     taskId: string | null;
     cwd: string;
+    // Item on an SSH host (Contracts 31.3); defaults to this machine
+    hostId?: string | null;
+    // Goal for the simulated user (Contracts 34.2); defaults to null, written the first time the simulated user takes over
+    simulatedGoal?: string | null;
   }) {
     db.insert(liveSessions)
       .values({ ...values, updatedAt: new Date() })
       .run();
   }
 
-  // 在一项上起一个进程：第一次启动或 resume；项本身由调用方先建好
-  function launch(spec: Launch): LiveDetail {
+  // Start a process on an item: first start or resume; the caller creates the item. The process's Orca identity is created before starting (Contracts 35.2)
+  async function launch(spec: Launch): Promise<LiveDetail> {
+    launching.add(spec.liveId);
+    const identity = await (async () => {
+      if (spec.variantId !== null) await requireCurrentOrcaSkills(spec.variantId);
+      return createOrcaIdentity(localOrca, spec.liveId, spec.cwd);
+    })().finally(() => {
+      launching.delete(spec.liveId);
+    });
     const dir = liveDir(spec.liveId);
     fs.mkdirSync(dir, { recursive: true });
     const hooksFile = writeHooks(spec.liveId);
     let env: Record<string, string>;
     let variantArgs: string[];
-    // 实际传给 claude 的 --model 与 --effort；本机配置不传，为空
+    // --model and --effort actually passed to claude; null (not passed) for local config
     let model: string | null = null;
     let effort: string | null = null;
     let sandboxProfile: string | null = null;
@@ -563,22 +946,17 @@ export function createLive(deps: LiveDeps) {
       sandboxProfile = spec.owned.sandboxProfile(hooksFile);
       configDir = spec.owned.claudeDir;
     } else if (spec.variantId === null) {
-      // 本机配置：不设 CLAUDE_CONFIG_DIR，claude 用 <HOME>/.claude；isolated 环境中同样在 sandbox 中，
-      // sandbox 允许读写 <HOME>/.claude、.claude.json 与 wf 的状态目录，用户的 hook 与 wf 照常工作（Contracts 29.2）
+      // Local config: no CLAUDE_CONFIG_DIR, claude uses <HOME>/.claude; in the isolated environment it is sandboxed too,
+      // the sandbox allows <HOME>/.claude, .claude.json and wf's state directory, so the user's hooks and wf work as usual (Contracts 29.2)
       env = { ...isolatedBaseEnv(), HOME: deps.localHome };
       variantArgs = [];
       configDir = configDirOf(null);
       if (spec.environment === 'isolated') {
-        sandboxProfile = variants.localSandboxProfile(
-          spec.liveId,
-          deps.liveDir,
-          deps.repos.localDir === null ? null : (spec.eval?.repo ?? null),
-          deps.localHome,
-        );
+        sandboxProfile = variants.localSandboxProfile(spec.liveId, deps.liveDir, deps.localHome);
       }
     } else {
       variants.refreshAuthEnv(spec.variantId);
-      // 工作目录的信任确认（Contracts 14.2）：variant 的配置目录中先记为已信任
+      // Workspace trust prompt (Contracts 14.2): mark the directory trusted in the variant's config directory first
       variants.trustDirectory(spec.variantId, spec.cwd);
       const runtime = variants.runtimeEnv(spec.variantId);
       env = { ...runtime.env };
@@ -587,17 +965,13 @@ export function createLive(deps: LiveDeps) {
       effort = spec.effort;
       variantArgs = ['--model', model, '--effort', effort, ...runtime.claudeArgs];
       if (spec.environment === 'isolated') {
-        sandboxProfile = variants.sandboxProfile(
-          spec.variantId,
-          spec.liveId,
-          deps.liveDir,
-          deps.repos.localDir === null ? null : (spec.eval?.repo ?? null),
-        );
+        sandboxProfile = variants.sandboxProfile(spec.variantId, spec.liveId, deps.liveDir);
       }
     }
     env = {
       ...env,
       ...spec.extraEnv,
+      ...identityEnv(identity, null),
       CLAUDE_CODE_PROJECT_DIR_NAME: spec.projectDirName,
       COLORTERM: 'truecolor',
     };
@@ -627,11 +1001,11 @@ export function createLive(deps: LiveDeps) {
       separator: separatorLine(
         startedAt,
         spec.kind,
-        spec.owned !== null ? 'Claude Code' : (variantName(spec.variantId) ?? '本机配置'),
+        spec.owned !== null ? 'Claude Code' : (variantName(spec.variantId) ?? 'local config'),
       ),
     });
     const processId = db.$client.transaction(() => {
-      // 清除了的 session 启动新的进程时重新进入管理表格（Contracts 25.1）
+      // A cleared session returns to the management table when it starts a new process (Contracts 25.1)
       restoreCleared(db, spec.claudeSessionId);
       const inserted = db
         .insert(liveProcesses)
@@ -643,7 +1017,7 @@ export function createLive(deps: LiveDeps) {
           effort,
           pid: pty.pid,
           status: 'running',
-          // 收到第一个 SessionStart 之前驾驶者固定为人（Contracts 14.2）
+          // The driver stays human until the first SessionStart (Contracts 14.2)
           driver: 'human',
           startedAt,
         })
@@ -669,6 +1043,7 @@ export function createLive(deps: LiveDeps) {
         .set({ updatedAt: startedAt })
         .where(eq(liveSessions.id, spec.liveId))
         .run();
+      recordIdentity(spec.liveId, inserted.id, identity);
       return inserted.id;
     })();
     const controller = new LiveController({
@@ -679,47 +1054,132 @@ export function createLive(deps: LiveDeps) {
       pty,
       jsonl,
       initialDriver: spec.driver,
-      persona: spec.persona,
+      role: () => roleOf(spec.liveId, spec.persona),
       eval: spec.eval,
       variantId: spec.variantId,
       dataDir: deps.dataDir,
       cwd: spec.cwd,
+      remote: null,
+      reattached: false,
     });
     controllers.set(spec.liveId, controller);
     void controller.exited.then(() => {
       if (controllers.get(spec.liveId) === controller) controllers.delete(spec.liveId);
     });
+    closeIdentityOnExit(spec.liveId, controller, localOrca, () => identity);
     scheduleAutoStop();
     events.publish({ type: 'live.updated', liveId: spec.liveId });
     return detail(spec.liveId);
   }
 
-  // 模拟用户扮演的人；stage 为 workflow 的评测配置，没有评测类型的 workflow 为空（只按通用的结束条件判断）
+  // Who the simulated user plays; stage is the workflow's eval config, null for a workflow without an eval kind (only the generic end conditions apply)
   const taskPersona = (task: Task, stage: EvalSpec | null): SimulatedPersona => ({
     stage,
     persona: task.persona,
     hiddenRequirements: task.hiddenRequirements,
   });
 
-  function personaOf(task: Task | null, stage: EvalSpec | null): SimulatedPersona {
-    return task === null
-      ? { stage, persona: INPUT_PERSONA, hiddenRequirements: '' }
-      : taskPersona(task, stage);
+  // The item's original user request (Contracts 34.2): the input with the leading slash command ($ for Codex) removed; items
+  // started from an existing session use its first user message
+  function initialRequest(item: ItemRow): string {
+    if (item.input !== null && item.input.trim() !== '') {
+      return item.input.trim().replace(ENTRY_COMMAND, '');
+    }
+    const sessionId = item.claudeSessionId;
+    if (sessionId === null) return '';
+    const items = sessionConversation(db, sessionId) ?? [];
+    return items.flatMap((i) => (i.kind === 'user' ? [i.text] : []))[0] ?? '';
   }
 
-  // 有评测类型的 workflow 的评测配置；没有评测类型时为空
+  // The item's persona: items with a task use the task's persona and hidden requirements (Contracts 14.4); otherwise null and driven by the goal (34.2)
+  function personaOfItem(item: ItemRow): SimulatedPersona | null {
+    if (item.taskId === null) return null;
+    return taskPersona(
+      loadTask(db, item.taskId),
+      item.workflow === null ? null : stageOfWorkflow(item.workflow),
+    );
+  }
+
+  // Who the simulated user plays or the goal it pursues (Contracts 34.2): items with a null persona use their goal, which can change while running
+  function roleOf(
+    liveId: string,
+    persona: SimulatedPersona | null,
+  ): SimulatedPersona | SimulatedGoal {
+    if (persona !== null) return persona;
+    const item = row(liveId);
+    const goal = item.simulatedGoal;
+    if (goal === null) {
+      throw new HttpError(409, `Live item ${liveId} has no goal for the simulated user yet`);
+    }
+    return {
+      goal,
+      request: initialRequest(item),
+      stage: item.workflow === null ? null : stageOfWorkflow(item.workflow),
+    };
+  }
+
+  // Goal written in the toolbar or the create/resume form (Contracts 34.2): non-empty after trimming
+  function checkGoal(goal: string): string {
+    const trimmed = goal.trim();
+    if (trimmed === '') throw new HttpError(400, 'Goal cannot be empty');
+    return trimmed;
+  }
+
+  // Goal written at create or resume: required when the initial driver is the simulated user
+  function goalOf(body: { driver: LiveDriver; goal?: string | undefined }): string | null {
+    if (body.driver === 'simulated') return checkGoal(body.goal ?? '');
+    const goal = body.goal?.trim() ?? '';
+    return goal === '' ? null : goal;
+  }
+
+  // Resuming an existing item (Contracts 34.2): choosing the simulated user for an item with neither a task nor a goal requires a goal in the dialog
+  function requireGoal(
+    item: ItemRow | null,
+    body: { driver: LiveDriver; goal?: string | undefined },
+  ) {
+    if (body.driver !== 'simulated') return;
+    if (item !== null && item.taskId !== null) return;
+    if ((body.goal?.trim() ?? '') !== '') return;
+    if (item?.simulatedGoal != null) return;
+    throw new HttpError(400, 'Write a goal before handing over to the simulated user');
+  }
+
+  // Save the goal written in the dialog (keep the item's existing goal when empty)
+  function saveGoal(liveId: string, goal: string | undefined) {
+    const next = goal?.trim() ?? '';
+    if (next === '' || row(liveId).taskId !== null) return;
+    db.update(liveSessions).set({ simulatedGoal: next }).where(eq(liveSessions.id, liveId)).run();
+  }
+
+  function setGoal(id: string, goal: string): LiveDetail {
+    const item = row(id);
+    if (item.taskId !== null) {
+      throw new HttpError(
+        409,
+        `Live item ${id} has a task; the simulated user uses the task's persona, not a goal`,
+      );
+    }
+    db.update(liveSessions)
+      .set({ simulatedGoal: checkGoal(goal) })
+      .where(eq(liveSessions.id, id))
+      .run();
+    events.publish({ type: 'live.updated', liveId: id });
+    return detail(id);
+  }
+
+  // Eval config of a workflow with an eval kind; null without one
   function stageOfWorkflow(workflowId: string): EvalSpec | null {
     const workflow = workflowRow(db, workflowId);
     return workflow.evalKind === null ? null : evalSpec(workflow.evalKind, workflow.id);
   }
 
-  // 新建与 resume 时没有选的模型与 effort 取设置的默认值（Contracts 16.5）
+  // Model and effort not chosen at create or resume default to the settings (Contracts 16.5)
   function modelOf(body: { model?: string | undefined; effort?: string | undefined }) {
     const { agentModel, agentEffort } = settings.get();
     return { model: body.model ?? agentModel, effort: body.effort ?? agentEffort };
   }
 
-  // 本机配置可选的入口命令（Contracts 29.2）：未删除的 workflow 中，<HOME>/.claude/skills/<入口 skill>/SKILL.md 存在的
+  // Entry commands available to local config (Contracts 29.2): undeleted workflows whose <HOME>/.claude/skills/<entry skill>/SKILL.md exists
   function localEntries(): string[] {
     return db
       .select({ id: workflowTable.id })
@@ -733,22 +1193,29 @@ export function createLive(deps: LiveDeps) {
       );
   }
 
-  // Contracts 29.2、16.7：配置为 variant 或本机配置；初始消息为 /<入口> <输入>，不加命令时就是输入的原文
+  // Contracts 29.2, 16.7: config is a variant or local config; the initial message is /<entry> <input>, or the raw input without a command
   async function create(body: CreateLiveBody): Promise<LiveDetail> {
+    if (body.hostId !== null) return createRemote(body, body.hostId);
+    if (body.engine !== 'claude') {
+      throw new HttpError(
+        400,
+        'New local Live items use Claude Code only; Codex is available only on SSH hosts',
+      );
+    }
     if (body.variantId !== null) {
       const variant = variants.get(body.variantId);
       if (body.workflow !== null && variant.workflowId !== body.workflow) {
         throw new HttpError(
           400,
-          `variant ${variant.name} 属于 workflow ${variant.workflowId}，不是 ${body.workflow} 的 variant`,
+          `Variant ${variant.name} belongs to workflow ${variant.workflowId}, not ${body.workflow}`,
         );
       }
-      // 构建成功才有 runtimeEnv
+      // runtimeEnv exists only after a successful build
       variants.runtimeEnv(body.variantId);
     } else if (body.workflow !== null && !localEntries().includes(body.workflow)) {
       throw new HttpError(
         400,
-        `本机配置中没有 workflow ${body.workflow} 的入口 skill：${path.join(deps.localHome, '.claude', 'skills', body.workflow, 'SKILL.md')} 不存在`,
+        `Local config has no entry skill for workflow ${body.workflow}: ${path.join(deps.localHome, '.claude', 'skills', body.workflow, 'SKILL.md')} does not exist`,
       );
     }
     const stage = body.workflow === null ? null : stageOfWorkflow(body.workflow);
@@ -762,18 +1229,23 @@ export function createLive(deps: LiveDeps) {
     let extraEnv: Record<string, string> = {};
     let start: Record<string, unknown> = {};
     if (body.environment === 'isolated') {
-      if (body.cwd !== null) throw new HttpError(400, 'isolated 环境的工作目录由 dashboard 建立');
+      if (body.cwd !== null) {
+        throw new HttpError(
+          400,
+          'The dashboard creates the working directory of an isolated environment',
+        );
+      }
       fs.mkdirSync(dir, { recursive: true });
       cwd = path.join(dir, 'workspace');
       const signal = new AbortController().signal;
-      // 进程本来就在 sandbox 中，Claude Code 不再询问是否信任工作目录
+      // The process already runs in a sandbox, so Claude Code does not ask whether to trust the working directory
       extraEnv = { CLAUDE_CODE_SANDBOXED: '1', MAGI_VAULT: deps.vaultDir };
       if (stage === null) {
-        // 不加命令或没有评测类型：只建空的 workspace
+        // No command or no eval kind: just create an empty workspace
         fs.mkdirSync(cwd, { recursive: true });
       } else if (stage.kind === 'lfg') {
         const repo = await deps.repos.createEmpty(liveId, signal);
-        // wf obsidian 要求 product 目录已存在
+        // wf obsidian requires the product directory to exist
         fs.mkdirSync(path.join(deps.vaultDir, `Project ${deps.product}`), { recursive: true });
         extraEnv.MAGI_PRODUCT = deps.product;
         initial = [
@@ -786,7 +1258,7 @@ export function createLive(deps: LiveDeps) {
         evalFacts = { runId: liveId, repo: repo.repo, ticket: null, product: deps.product };
         start = { repo: repo.repo, repoUrl: repo.url };
       } else {
-        // 问题必须是 Linear 工单：按第 13 节读取工单、取起始仓库与 commit，建仓库副本与工单副本（副本不写来源）
+        // The issue must be a Linear ticket: read it per section 13, take the starting repo and commit, create the repo copy and ticket copy (copies do not record the source)
         const preview = await previewLinearImport(
           { issue: body.input, criteria: false },
           settings.get().copyRunnerLabels,
@@ -812,17 +1284,18 @@ export function createLive(deps: LiveDeps) {
         };
       }
       if (evalFacts !== null) {
-        if (evalFacts.repo === null) throw new Error(`交互 ${liveId} 没有建出仓库`);
+        if (evalFacts.repo === null) throw new Error(`Live item ${liveId} created no repo`);
         await deps.repos.clone(evalFacts.repo, cwd, signal);
       }
     } else {
-      if (body.cwd === null) throw new HttpError(400, 'real 环境需要填写工作目录');
+      if (body.cwd === null)
+        throw new HttpError(400, 'The real environment needs a working directory');
       cwd = path.resolve(body.cwd);
       if (!fs.statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) {
-        throw new HttpError(400, `工作目录不存在：${cwd}`);
+        throw new HttpError(400, `Working directory does not exist: ${cwd}`);
       }
     }
-    // 默认名字：初始消息第一行（/lfg <想法>、/ic <工单>，不加命令时为输入的第一行）的前 40 个字
+    // Default name: the first 40 characters of the initial message's first line (/lfg <idea>, /ic <ticket>, or the input's first line without a command)
     insertItem({
       id: liveId,
       claudeSessionId: sessionId,
@@ -832,6 +1305,7 @@ export function createLive(deps: LiveDeps) {
       input: body.input,
       taskId: null,
       cwd,
+      simulatedGoal: goalOf(body),
     });
     return launch({
       liveId,
@@ -844,10 +1318,7 @@ export function createLive(deps: LiveDeps) {
       sessionArgs: ['--session-id', sessionId, initial],
       projectDirName: liveId,
       driver: body.driver,
-      persona:
-        body.workflow === null
-          ? { stage: null, persona: REQUEST_PERSONA, hiddenRequirements: '' }
-          : personaOf(null, stage),
+      persona: null,
       eval: evalFacts,
       extraEnv,
       start: { ...start, initial },
@@ -855,8 +1326,689 @@ export function createLive(deps: LiveDeps) {
     });
   }
 
-  // 设计与分析优化的项（Contracts 17.1、19.3、22.1）：发起时立即建出，没有进程，也还没有会话 id；草稿准备完后由
-  // launchDraft 启动。engine 为发起时选的 Codex 或 Claude Code
+  // New Live item on an SSH host (Contracts 31.3): the environment is always a real remote directory; config is the remote machine's or a variant (Claude Code only);
+  // the host is checked before starting (no reuse), and the remote working path must exist
+  async function createRemote(body: CreateLiveBody, hostId: string): Promise<LiveDetail> {
+    if (body.environment !== 'real') {
+      throw new HttpError(
+        400,
+        'Live items on SSH hosts run in a real remote directory; there is no isolated environment',
+      );
+    }
+    if (body.cwd === null) throw new HttpError(400, 'A remote working path is required');
+    if (body.engine === 'codex' && body.variantId !== null) {
+      throw new HttpError(
+        400,
+        "Variants are for Claude Code only; Codex uses the remote machine's config",
+      );
+    }
+    if (body.engine === 'codex' && body.workflow !== null) {
+      throw new HttpError(400, 'Codex takes no command: the input is sent to Codex as is');
+    }
+    const host = await deps.remote.hosts.ready(hostId, body.engine);
+    if (body.variantId !== null) {
+      const variant = variants.get(body.variantId);
+      if (body.workflow !== null && variant.workflowId !== body.workflow) {
+        throw new HttpError(
+          400,
+          `Variant ${variant.name} belongs to workflow ${variant.workflowId}, not ${body.workflow}`,
+        );
+      }
+      variants.runtimeEnv(body.variantId);
+    } else if (body.workflow !== null && !host.check.entries.includes(body.workflow)) {
+      throw new HttpError(
+        400,
+        `The config of ${host.label} has no entry skill for workflow ${body.workflow}: ${host.home}/.claude/skills/${body.workflow}/SKILL.md does not exist`,
+      );
+    }
+    await requireRemoteDir(host, body.cwd);
+    const initial = body.workflow === null ? body.input : `${entryOf(body.workflow)} ${body.input}`;
+    const liveId = newId('l');
+    const sessionId = body.engine === 'claude' ? randomUUID() : null;
+    insertItem({
+      id: liveId,
+      claudeSessionId: sessionId,
+      engine: body.engine,
+      title: defaultTitle(initial),
+      environment: 'real',
+      workflow: body.workflow,
+      input: body.input,
+      taskId: null,
+      cwd: body.cwd,
+      hostId,
+      simulatedGoal: goalOf(body),
+    });
+    return launchRemote({
+      liveId,
+      kind: 'start',
+      host,
+      engine: body.engine,
+      variantId: body.variantId,
+      ...modelOf(body),
+      cwd: body.cwd,
+      claudeSessionId: sessionId,
+      remotePath: null,
+      args:
+        body.engine === 'claude'
+          ? ['--session-id', sessionId ?? '', initial]
+          : [...codexRemoteArgs(body.cwd), initial],
+      driver: body.driver,
+      persona: null,
+      start: { initial },
+    });
+  }
+
+  interface RemoteLaunch {
+    liveId: string;
+    kind: LiveProcessKind;
+    host: RemoteHost;
+    engine: LiveEngine;
+    variantId: string | null;
+    model: string;
+    effort: string;
+    cwd: string;
+    // A new Codex session has an id only after Codex writes the rollout
+    claudeSessionId: string | null;
+    // On resume, the remote session file (its local copy); null on create, learned from SessionStart or the rollout
+    remotePath: string | null;
+    // claude or codex arguments (without hooks and variant arguments)
+    args: string[];
+    driver: LiveDriver;
+    // Who the simulated user plays; items with a task and run sessions use the task's persona and hidden requirements, other items use the goal (Contracts 34.2)
+    persona: SimulatedPersona | null;
+    start: Record<string, unknown>;
+  }
+
+  // Start a process on an SSH host (Contracts 31.4): run.sh runs in the remote tmux session wfd-<liveId>; RemoteTerminal handles connecting,
+  // reconnecting and stopping, and RemoteSessionSync syncs the session back to this machine
+  function launchRemote(spec: RemoteLaunch): LiveDetail {
+    const { host, liveId } = spec;
+    const dir = liveDir(liveId);
+    fs.mkdirSync(dir, { recursive: true });
+    const paths = remoteLive(host, liveId);
+    const claude = spec.engine === 'claude';
+    // Variant config passes --model and --effort; the remote machine's config uses its own settings
+    const model = claude && spec.variantId !== null ? spec.model : null;
+    const effort = claude && spec.variantId !== null ? spec.effort : null;
+    const argv = claude
+      ? [
+          host.tool('claude'),
+          ...(model === null || effort === null ? [] : ['--model', model, '--effort', effort]),
+          '--permission-mode',
+          'bypassPermissions',
+          '--settings',
+          paths.hooks,
+          ...spec.args,
+        ]
+      : [host.tool('codex'), ...spec.args];
+    const variantId = spec.variantId;
+    // Remote Orca identity (Contracts 35.6): when the host check shows Orca running, create the identity terminal in the remote Orca and put it in run.sh's environment
+    let identity: OrcaIdentity = { handle: null, reason: 'Not prepared yet' };
+    const remoteOrca: OrcaPlace = { kind: 'remote', host };
+    const prepare = async (log: (line: string) => void) => {
+      // Variant config (Contracts 31.5): sync to the remote variant config directory, inject the remote credentials and the variant's variables into the process environment,
+      // and mark the working directory trusted in the config directory
+      let env: Record<string, string> = { COLORTERM: 'truecolor' };
+      if (variantId !== null) {
+        await requireCurrentOrcaSkills(variantId);
+        const prepared = await remoteVariants.prepareRemoteVariant(host, variantId, log);
+        await remoteVariants.trustRemoteDirectory(host, prepared.configDir, spec.cwd);
+        env = { ...prepared.env, ...env };
+      }
+      const orca = host.check.orca;
+      identity =
+        orca?.running === true
+          ? await createOrcaIdentity(remoteOrca, liveId, spec.cwd)
+          : {
+              handle: null,
+              reason: orca?.problem ?? `The check of ${host.label} has no Orca entry`,
+            };
+      recordIdentity(liveId, processId, identity);
+      env = { ...env, ...identityEnv(identity, remoteOrcaUserData(host)) };
+      await writeRemoteLive(host, liveId, {
+        hooks: claude ? remoteHooks(host, liveId) : null,
+        run: runScript(host, liveId, { cwd: spec.cwd, env, argv }),
+      });
+      log(`Wrote ${paths.dir}`);
+    };
+    const startedAt = new Date();
+    // Record the process first: RemoteTerminal starts prepare as soon as it is created, which records the Orca identity per process
+    const processId = recordProcess(spec, startedAt, model, effort, {
+      ...spec.start,
+      engine: spec.engine,
+      host: { id: host.id, target: host.target },
+      argv,
+      tmuxSession: paths.session,
+      initialDriver: spec.driver,
+    });
+    const terminal = new RemoteTerminal({
+      host,
+      liveId,
+      logFile: path.join(dir, 'pty.log'),
+      separator: separatorLine(
+        startedAt,
+        spec.kind,
+        `${host.label} · ${claude ? (variantName(variantId) ?? `config of ${host.label}`) : 'Codex'}`,
+      ),
+      cols: 120,
+      rows: 40,
+      dashboardPort: dashboardPort,
+      prepare,
+      reconnectMs: deps.remote.reconnectMs,
+    });
+    const controller = attachRemote({
+      host,
+      liveId,
+      processId,
+      terminal,
+      engine: spec.engine,
+      variantId,
+      cwd: spec.cwd,
+      remotePath: spec.remotePath,
+      driver: spec.driver,
+      persona: spec.persona,
+      reattached: false,
+    });
+    closeIdentityOnExit(liveId, controller, remoteOrca, () => identity);
+    return detail(liveId);
+  }
+
+  function recordProcess(
+    spec: {
+      liveId: string;
+      kind: LiveProcessKind;
+      variantId: string | null;
+      claudeSessionId: string | null;
+    },
+    startedAt: Date,
+    model: string | null,
+    effort: string | null,
+    payload: Record<string, unknown>,
+  ): number {
+    return db.$client.transaction(() => {
+      setHidden(spec.liveId, false, { reason: spec.kind });
+      if (spec.claudeSessionId !== null) restoreCleared(db, spec.claudeSessionId);
+      const inserted = db
+        .insert(liveProcesses)
+        .values({
+          liveId: spec.liveId,
+          kind: spec.kind,
+          variantId: spec.variantId,
+          model,
+          effort,
+          pid: null,
+          status: 'running',
+          driver: 'human',
+          startedAt,
+        })
+        .returning({ id: liveProcesses.id })
+        .get();
+      db.insert(liveEvents)
+        .values({
+          liveId: spec.liveId,
+          processId: inserted.id,
+          at: startedAt,
+          kind: spec.kind,
+          payload,
+        })
+        .run();
+      db.update(liveSessions)
+        .set({ updatedAt: startedAt })
+        .where(eq(liveSessions.id, spec.liveId))
+        .run();
+      return inserted.id;
+    })();
+  }
+
+  // After each sync of a remote session (Contracts 31.6): a failure records its message and time, a success clears it; notify pages on change
+  function syncResult(liveId: string, processId: number) {
+    return (failure: SyncFailure | null) => {
+      const before = syncFailures.get(processId) ?? null;
+      if (failure === null) syncFailures.delete(processId);
+      else syncFailures.set(processId, failure);
+      if (before?.message !== failure?.message || before?.at !== failure?.at) {
+        events.publish({ type: 'live.updated', liveId });
+      }
+    };
+  }
+
+  // Controller of a remote process: Claude Code's is driven by hooks (sync starts once SessionStart reports the remote jsonl), Codex's starts
+  // syncing once the rollout is found. reattached marks a process reconnected after a dashboard restart
+  function attachRemote(spec: {
+    host: RemoteHost;
+    liveId: string;
+    processId: number;
+    terminal: RemoteTerminal;
+    engine: LiveEngine;
+    variantId: string | null;
+    cwd: string;
+    remotePath: string | null;
+    driver: LiveDriver;
+    // Who the simulated user plays; items with a task and run sessions use the task's persona and hidden requirements, other items use the goal (Contracts 34.2)
+    persona: SimulatedPersona | null;
+    reattached: boolean;
+  }): LiveController | CodexRunner {
+    const { host, liveId, processId, terminal } = spec;
+    const sync = new RemoteSessionSync(
+      db,
+      host,
+      deps.remote.dir,
+      () => terminal.connected,
+      syncResult(liveId, processId),
+      REMOTE_SYNC_MS,
+    );
+    let controller: LiveController | CodexRunner;
+    if (spec.engine === 'claude') {
+      const item = row(liveId);
+      const sessionId = item.claudeSessionId;
+      if (sessionId === null)
+        throw new Error(`Remote Claude Code Live item ${liveId} has no session id`);
+      // Before SessionStart: the project directory for cwd in the remote machine's config (Claude Code's default location)
+      const guess = `${host.home}/.claude/projects/${spec.cwd.replace(/[^A-Za-z0-9]/g, '-')}/${sessionId}.jsonl`;
+      const jsonl =
+        spec.remotePath === null
+          ? localCopyOf(deps.remote.dir, host.id, guess)
+          : sync.follow(spec.remotePath);
+      controller = new LiveController({
+        db,
+        settings,
+        liveId,
+        processId,
+        pty: terminal,
+        jsonl,
+        initialDriver: spec.driver,
+        role: () => roleOf(liveId, spec.persona),
+        eval: null,
+        variantId: spec.variantId,
+        dataDir: deps.dataDir,
+        cwd: spec.cwd,
+        remote: sync,
+        reattached: spec.reattached,
+      });
+    } else {
+      const runner = new CodexRunner({
+        db,
+        settings,
+        liveId,
+        processId,
+        pty: terminal,
+        tail: spec.remotePath === null ? null : sync.follow(spec.remotePath),
+        remote: sync,
+        role: () => roleOf(liveId, spec.persona),
+        initialDriver: spec.driver,
+      });
+      controller = runner;
+      if (spec.remotePath === null) void followRemoteCodex(host, liveId, runner, sync, spec.cwd);
+    }
+    controllers.set(liveId, controller);
+    void controller.exited.then(() => {
+      if (controllers.get(liveId) === controller) controllers.delete(liveId);
+    });
+    events.publish({ type: 'live.updated', liveId });
+    return controller;
+  }
+
+  // Remote Codex writes the rollout only after the initial message is submitted: list remote rollouts every 2 s, record the id of the new session whose cwd is the working path, and sync it
+  async function followRemoteCodex(
+    host: RemoteHost,
+    liveId: string,
+    runner: CodexRunner,
+    sync: RemoteSessionSync,
+    cwd: string,
+  ) {
+    const dirs = [`${host.home}/.codex/sessions`];
+    const known = new Set((await listRemoteRollouts(host, dirs)).map((r) => r.file));
+    while (runner.pty.alive) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      if (!runner.pty.connected) continue;
+      const found = (await listRemoteRollouts(host, dirs)).find(
+        (r) => !known.has(r.file) && r.cwd === cwd,
+      );
+      if (found === undefined) continue;
+      db.update(liveSessions)
+        .set({ claudeSessionId: found.id })
+        .where(eq(liveSessions.id, liveId))
+        .run();
+      runner.follow(sync.follow(found.file));
+      events.publish({ type: 'live.updated', liveId });
+      return;
+    }
+  }
+
+  // After a dashboard restart (Contracts 31.4): running processes on SSH hosts stay running; check the tmux session: reconnect if it is there,
+  // otherwise mark exited with the exit code run.sh wrote (RemoteTerminal checks the session before connecting). The driver becomes human (disconnected during the restart)
+  function reattachRemote() {
+    const rows = db
+      .select({ process: liveProcesses, item: liveSessions })
+      .from(liveProcesses)
+      .innerJoin(liveSessions, eq(liveSessions.id, liveProcesses.liveId))
+      .where(
+        and(
+          eq(liveProcesses.status, 'running'),
+          sql`${liveSessions.hostId} is not null`,
+          // Agents in a remote Orca are picked up by the topology sync
+          sql`not exists (${orcaPaneEvent(sql`${liveProcesses.id}`)})`,
+        ),
+      )
+      .all();
+    for (const { process: p, item } of rows) {
+      const hostId = item.hostId;
+      if (hostId === null || controllers.has(item.id)) continue;
+      if (deps.remote.hosts.brief(hostId) === null) {
+        db.update(liveProcesses)
+          .set({ status: 'exited', error: 'Host deleted', endedAt: new Date() })
+          .where(eq(liveProcesses.id, p.id))
+          .run();
+        events.publish({ type: 'live.updated', liveId: item.id });
+        continue;
+      }
+      const host = deps.remote.hosts.known(hostId);
+      if (p.driver === 'simulated') {
+        db.update(liveProcesses).set({ driver: 'human' }).where(eq(liveProcesses.id, p.id)).run();
+        db.insert(liveEvents)
+          .values({
+            liveId: item.id,
+            processId: p.id,
+            at: new Date(),
+            kind: 'driver',
+            payload: { driver: 'human', reason: 'disconnected' },
+          })
+          .run();
+      }
+      const terminal = new RemoteTerminal({
+        host,
+        liveId: item.id,
+        logFile: path.join(liveDir(item.id), 'pty.log'),
+        separator: reconnectLine(new Date(), host.label),
+        cols: 120,
+        rows: 40,
+        dashboardPort,
+        prepare: null,
+        reconnectMs: deps.remote.reconnectMs,
+      });
+      const controller = attachRemote({
+        host,
+        liveId: item.id,
+        processId: p.id,
+        terminal,
+        engine: item.engine,
+        variantId: p.variantId,
+        cwd: item.cwd,
+        remotePath: remoteTranscriptOf(item),
+        driver: 'human',
+        persona: personaOfItem(item),
+        reattached: true,
+      });
+      // The Orca identity created on the remote at process start; closed when it exits
+      const handle = item.orcaTerminalHandle;
+      closeIdentityOnExit(item.id, controller, { kind: 'remote', host }, () =>
+        handle === null ? { handle: null, reason: 'No Orca identity' } : { handle },
+      );
+    }
+  }
+
+  // Session file most recently synced for a remote item: sessions.remote_path, or the transcript_path of the latest SessionStart
+  function remoteTranscriptOf(item: ItemRow): string | null {
+    if (item.claudeSessionId !== null) {
+      const s = db
+        .select({ remotePath: sessions.remotePath })
+        .from(sessions)
+        .where(eq(sessions.id, item.claudeSessionId))
+        .get();
+      if (s?.remotePath != null) return s.remotePath;
+    }
+    const hook = db
+      .select({ payload: liveEvents.payload })
+      .from(liveEvents)
+      .where(
+        and(
+          eq(liveEvents.liveId, item.id),
+          eq(liveEvents.kind, 'hook'),
+          sql`json_extract(${liveEvents.payload}, '$.hook_event_name') = 'SessionStart'`,
+        ),
+      )
+      .orderBy(desc(liveEvents.id))
+      .get();
+    const transcript = hook?.payload.transcript_path;
+    return typeof transcript === 'string' ? transcript : null;
+  }
+
+  // Attach an agent running in an Orca terminal (Contracts 35.3, 35.4): Orca's main agent and workers get a process, controller
+  // and terminal like ordinary items; the terminal is Orca's rendered screen (OrcaPaneTerminal), and the session is incrementally imported as usual (remote ones are synced back first)
+  function attachOrca(spec: OrcaPaneSpec): AttachedPane {
+    const { liveId, place, host, handle } = spec;
+    const item = row(liveId);
+    if (item.claudeSessionId !== spec.agent.sessionId) {
+      db.update(liveSessions)
+        .set({ claudeSessionId: spec.agent.sessionId })
+        .where(eq(liveSessions.id, liveId))
+        .run();
+    }
+    const dir = liveDir(liveId);
+    fs.mkdirSync(dir, { recursive: true });
+    const startedAt = new Date();
+    const kind: LiveProcessKind = processesOf(liveId).length === 0 ? 'start' : 'resume';
+    const processId =
+      spec.processId ??
+      recordProcess(
+        { liveId, kind, variantId: null, claudeSessionId: spec.agent.sessionId },
+        startedAt,
+        null,
+        null,
+        {
+          engine: spec.engine,
+          orca: { handle, dispatchId: spec.dispatchId, hostId: host?.id ?? null },
+          pid: spec.agent.pid,
+          transcript: spec.agent.transcript,
+        },
+      );
+    if (spec.processId === null) {
+      db.update(liveProcesses)
+        .set({ pid: spec.agent.pid })
+        .where(eq(liveProcesses.id, processId))
+        .run();
+    }
+    const interruptKey = () =>
+      orcaCall(place, ['terminal', 'send', '--terminal', handle, '--text=\u0003']);
+    // Kill the agent's process (SIGTERM); a process already gone counts as stopped, one that is still there and cannot be stopped fails
+    const killScript = 'kill -TERM "$1" 2>/dev/null || ! kill -0 "$1" 2>/dev/null';
+    const killAgent = async () => {
+      const pid = String(spec.agent.pid);
+      const result =
+        host === null
+          ? await execa('sh', ['-c', killScript, 'kill-agent', pid], { reject: false, input: '' })
+          : await sshExec(host.target, quote(['sh', '-c', killScript, 'kill-agent', pid]));
+      if (result.exitCode !== 0) {
+        throw new Error(
+          `Stopping process ${pid} on ${host?.label ?? 'this machine'} failed: ${result.stderr}`,
+        );
+      }
+    };
+    const terminal = new OrcaPaneTerminal({
+      place,
+      handle,
+      pid: spec.agent.pid,
+      pollMs: SCREEN_POLL_MS,
+      logFile: path.join(dir, 'pty.log'),
+      separator: separatorLine(startedAt, kind, `Orca · ${host?.label ?? 'this machine'}`),
+      // Orca stops workers (worker-stop); Orca's main agent is asked to exit like pressing Ctrl+C twice (Claude Code exits on the second);
+      // if still alive after graceMs (e.g. a worker that already sent worker_done, which worker-stop leaves alone), kill the agent's process
+      stop: {
+        interrupt: async () => {
+          const dispatchId = spec.dispatchId;
+          if (dispatchId !== null) {
+            await orcaCall(place, ['orchestration', 'worker-stop', '--dispatch', dispatchId]);
+            return;
+          }
+          await interruptKey();
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          await interruptKey();
+        },
+        forceStop: killAgent,
+      },
+      onError: (error) => {
+        db.update(liveProcesses)
+          .set({ error: error.message })
+          .where(eq(liveProcesses.id, processId))
+          .run();
+        events.publish({ type: 'live.updated', liveId });
+      },
+    });
+    const sync =
+      host === null
+        ? null
+        : new RemoteSessionSync(
+            db,
+            host,
+            deps.remote.dir,
+            () => terminal.alive,
+            syncResult(liveId, processId),
+            REMOTE_SYNC_MS,
+          );
+    const transcript = sync === null ? spec.agent.transcript : sync.follow(spec.agent.transcript);
+    // Handed to the simulated user, it answers by this item's goal (Contracts 34.2)
+    const role = () => roleOf(liveId, personaOfItem(row(liveId)));
+    const controller =
+      spec.engine === 'claude'
+        ? new LiveController({
+            db,
+            settings,
+            liveId,
+            processId,
+            pty: terminal,
+            jsonl: transcript,
+            initialDriver: 'human',
+            role,
+            eval: null,
+            variantId: null,
+            dataDir: deps.dataDir,
+            cwd: item.cwd,
+            remote: sync,
+            reattached: true,
+          })
+        : new CodexRunner({
+            db,
+            settings,
+            liveId,
+            processId,
+            pty: terminal,
+            tail: transcript,
+            remote: sync,
+            role,
+            initialDriver: 'human',
+          });
+    controllers.set(liveId, controller);
+    void controller.exited.then(() => {
+      if (controllers.get(liveId) === controller) controllers.delete(liveId);
+    });
+    events.publish({ type: 'live.updated', liveId });
+    return {
+      end: () => {
+        terminal.end({ exitCode: null, signal: null, error: null });
+      },
+      observe: (state) => {
+        if (controller instanceof LiveController) controller.observeAgent(state);
+      },
+    };
+  }
+
+  // Take over a worker Orca runs without a pane (Contracts 35.4): there is no screen to mirror and no terminal to
+  // drive, so the item gets a process recording what Orca launched and the session import every Orca item has (on
+  // an SSH host the session is synced back first). The page reads the worker's transcript and sends it input through
+  // its Dispatch (api/live.ts)
+  function attachStructuredWorker(spec: StructuredWorkerSpec): AttachedWorker {
+    const { liveId, host, worker } = spec;
+    if (row(liveId).claudeSessionId !== spec.agent.sessionId) {
+      db.update(liveSessions)
+        .set({ claudeSessionId: spec.agent.sessionId })
+        .where(eq(liveSessions.id, liveId))
+        .run();
+    }
+    const startedAt = new Date();
+    const kind: LiveProcessKind = processesOf(liveId).length === 0 ? 'start' : 'resume';
+    const processId =
+      spec.processId ??
+      recordProcess(
+        { liveId, kind, variantId: null, claudeSessionId: spec.agent.sessionId },
+        startedAt,
+        worker.model,
+        worker.effort,
+        {
+          engine: spec.engine,
+          orca: { handle: worker.handle, dispatchId: worker.dispatchId, hostId: host?.id ?? null },
+          pid: spec.agent.pid,
+          transcript: spec.agent.transcript,
+        },
+      );
+    if (spec.processId === null) {
+      db.update(liveProcesses)
+        .set({ pid: spec.agent.pid })
+        .where(eq(liveProcesses.id, processId))
+        .run();
+    }
+    let attached = true;
+    const sync =
+      host === null
+        ? null
+        : new RemoteSessionSync(
+            db,
+            host,
+            deps.remote.dir,
+            () => attached,
+            syncResult(liveId, processId),
+            REMOTE_SYNC_MS,
+          );
+    const transcript = sync === null ? spec.agent.transcript : sync.follow(spec.agent.transcript);
+    const watcher = watchSession(db, transcript, (error) => {
+      db.update(liveProcesses)
+        .set({ error: error.message })
+        .where(eq(liveProcesses.id, processId))
+        .run();
+      events.publish({ type: 'live.updated', liveId });
+    });
+    events.publish({ type: 'live.updated', liveId });
+    return {
+      end: () => {
+        attached = false;
+        const endedAt = new Date();
+        db.update(liveProcesses)
+          .set({ status: 'exited', endedAt })
+          .where(and(eq(liveProcesses.id, processId), eq(liveProcesses.status, 'running')))
+          .run();
+        db.insert(liveEvents)
+          .values({
+            liveId,
+            processId,
+            at: endedAt,
+            kind: 'exit',
+            payload: { exitCode: null, signal: null, error: null },
+          })
+          .run();
+        events.publish({ type: 'live.updated', liveId });
+        // The last of the session: synced back once more on an SSH host, then imported
+        void (sync === null ? Promise.resolve() : sync.close(true)).then(() => watcher.close());
+      },
+    };
+  }
+
+  const orcaSync = createOrcaSync({
+    db,
+    local: localOrca,
+    localHome: deps.localHome,
+    remoteHosts: () => deps.remote.hosts.withOrca(),
+    pollMs: deps.orca.pollMs,
+    hasViewers: () => connections > 0,
+    attach: attachOrca,
+    attachWorker: attachStructuredWorker,
+    running: (id) => controllers.has(id),
+  });
+
+  function dashboardPort(): number {
+    return Number(new URL(deps.serverUrl()).port);
+  }
+
+  // Design and analysis-optimize items (Contracts 17.1, 19.3, 22.1): created at once when started, with no process and
+  // no session id yet; launchDraft starts them once the draft is prepared. engine is the Codex or Claude Code chosen
   function createDraftItem(input: {
     cwd: string;
     prompt: string;
@@ -872,7 +2024,7 @@ export function createLive(deps: LiveDeps) {
       engine: input.engine,
       purpose: input.purpose,
       title: Array.from(input.title.trim()).slice(0, DEFAULT_TITLE_LENGTH).join(''),
-      // Codex 自己的沙箱与 Claude Code 外面的 sandbox 都只允许写工作目录
+      // Codex's own sandbox and the sandbox around Claude Code both allow writing only the working directory
       environment: 'isolated',
       workflow: input.workflow,
       input: input.prompt,
@@ -883,29 +2035,37 @@ export function createLive(deps: LiveDeps) {
     return detail(liveId);
   }
 
-  // 设计与分析优化的项：只有人驾驶，没有模拟用户（Contracts 17.3、22.2）
+  // Design and analysis-optimize items (Contracts 17.3, 22.2)
   const isDraftItem = (r: ItemRow) => r.purpose === 'design' || r.purpose === 'optimize';
 
-  // 正在启动、还没有登记进 controllers 的项
+  // Items being started and not yet registered in controllers
   const launching = new Set<string>();
 
-  // Sessions 页面 resume Magi Agent 的会话时调用（Magi Agent 模块在 live 之后建出，由 app.ts 设置）
-  let agentResume: ((liveId: string) => LiveDetail) | null = null;
+  // Called when the Sessions page resumes a Magi Agent session (the Magi Agent module is created after live; app.ts
+  // sets it)
+  let agentResume: ((liveId: string) => Promise<LiveDetail>) | null = null;
 
-  // 设计与分析优化会话的一个进程：项还没有会话 id 时以初始消息第一次启动，已有时 resume 接着同一个会话
+  // One process of a design or analysis-optimize session: the first start uses the initial message while the item has
+  // no session id; afterwards it resumes the same session
   async function launchDraft(liveId: string, kind: LiveProcessKind): Promise<LiveDetail> {
     const item = row(liveId);
     if (!isDraftItem(item)) {
-      throw new HttpError(400, `交互 ${item.id} 不是设计或分析优化的会话`);
+      throw new HttpError(400, `Live item ${item.id} is not a design or analysis-optimize session`);
     }
     if (launching.has(liveId) || controllers.has(liveId) || running(liveId)) {
-      throw new HttpError(409, `交互 ${item.id} 有运行中的进程`);
+      throw new HttpError(409, `Live item ${item.id} has a running process`);
     }
     if (kind === 'resume' && item.claudeSessionId === null) {
-      throw new HttpError(409, `交互 ${item.id} 还没有启动过，没有可以 resume 的会话`);
+      throw new HttpError(
+        409,
+        `Live item ${item.id} has never been started, so there is no session to resume`,
+      );
     }
     if (kind === 'start' && item.claudeSessionId !== null) {
-      throw new HttpError(409, `交互 ${item.id} 已经启动过，用 resume 接着会话`);
+      throw new HttpError(
+        409,
+        `Live item ${item.id} has already been started; resume the session instead`,
+      );
     }
     launching.add(liveId);
     const started =
@@ -917,10 +2077,12 @@ export function createLive(deps: LiveDeps) {
     });
   }
 
-  // Claude Code 的设计与分析优化会话（Contracts 22.2）：配置目录为工作目录中的 claude-config/，每次启动与 resume
-  // 前重写凭据、引导、信任与 src/mcp.json 的 MCP 服务器，src/skills 装进配置的 skills/（28.1、28.2）；进程在
-  // sandbox 中，只能写工作目录、npm 缓存与 ~/.mcp-auth；会话 id 在第一次启动时生成
-  function startDraftClaude(item: ItemRow, kind: LiveProcessKind): LiveDetail {
+  // Claude Code design and analysis-optimize sessions (Contracts 22.2): the configuration directory is claude-config/
+  // in the working directory; before every start and resume, credentials, onboarding, trust and the MCP servers of
+  // src/mcp.json are rewritten and src/skills is installed into the configuration's skills/ (28.1, 28.2). The process
+  // runs in a sandbox that may write only the working directory, the npm cache and ~/.mcp-auth; the session id is
+  // generated on the first start
+  function startDraftClaude(item: ItemRow, kind: LiveProcessKind): Promise<LiveDetail> {
     const { claudeDir } = claudeSessionDirsOf(item.cwd);
     const layout = sessionLayoutOf(item);
     writeSessionClaudeConfig(
@@ -952,7 +2114,7 @@ export function createLive(deps: LiveDeps) {
         kind === 'start' ? ['--session-id', sessionId, item.input ?? ''] : ['--resume', sessionId],
       projectDirName: item.id,
       driver: 'human',
-      persona: { stage: null, persona: INPUT_PERSONA, hiddenRequirements: '' },
+      persona: null,
       eval: null,
       extraEnv: {},
       start: { engine: 'claude', claudeDir },
@@ -961,9 +2123,9 @@ export function createLive(deps: LiveDeps) {
         env: {
           ...isolatedBaseEnv(),
           CLAUDE_CONFIG_DIR: claudeDir,
-          // 进程本来就在 sandbox 中，Claude Code 不再询问是否信任工作目录
+          // The process already runs in a sandbox, so Claude Code does not ask whether to trust the working directory
           CLAUDE_CODE_SANDBOXED: '1',
-          // npx 的缓存仍用用户自己的 ~/.npm
+          // npx keeps using the user's own ~/.npm
           npm_config_cache: path.join(os.homedir(), '.npm'),
         },
         sandboxProfile: (hooksFile) => sessionSandboxProfile(item.cwd, [hooksFile, ...program]),
@@ -982,8 +2144,9 @@ export function createLive(deps: LiveDeps) {
     const dir = liveDir(liveId);
     fs.mkdirSync(dir, { recursive: true });
     fs.mkdirSync(home, { recursive: true });
-    // 每次启动前重写：认证与模型配置可能变了；Codex 自己写进 config.toml 的键随之丢弃，下次启动时重新生成。
-    // src/mcp.json 的 MCP 服务器写进 mcp_servers，src/skills 装进 .agents/skills/（Contracts 28.1、28.2）
+    // Rewritten before every start: authentication and model settings may have changed; keys Codex wrote into
+    // config.toml itself are dropped and regenerated at the next start. The MCP servers of src/mcp.json go into
+    // mcp_servers and src/skills is installed into .agents/skills/ (Contracts 28.1, 28.2)
     const layout = sessionLayoutOf(item);
     const mcpServers = codexMcpServers(readMcpServers(layout.src));
     const { model, effort } = writeCodexHome(codexHome, deps.codex.sources, {
@@ -991,12 +2154,14 @@ export function createLive(deps: LiveDeps) {
       ...(Object.keys(mcpServers).length === 0 ? {} : { mcp_servers: mcpServers }),
     });
     syncSessionSkills(layout, 'codex');
+    const identity = await createOrcaIdentity(localOrca, liveId, cwd);
     const env = {
       ...isolatedBaseEnv(),
       HOME: home,
       CODEX_HOME: codexHome,
-      // npx 的缓存仍用用户自己的 ~/.npm
+      // npx keeps using the user's own ~/.npm
       npm_config_cache: path.join(os.homedir(), '.npm'),
+      ...identityEnv(identity, null),
       COLORTERM: 'truecolor',
     };
     const known = new Set(rolloutFiles(codexHome));
@@ -1051,20 +2216,38 @@ export function createLive(deps: LiveDeps) {
         .set({ updatedAt: startedAt })
         .where(eq(liveSessions.id, liveId))
         .run();
+      recordIdentity(liveId, inserted.id, identity);
       return inserted.id;
     })();
-    const runner = new CodexRunner(db, liveId, processId, pty);
+    const runner = new CodexRunner({
+      db,
+      settings,
+      liveId,
+      processId,
+      pty,
+      // This session's rollout: imported incrementally, and turn-end records are read from it (Contracts 34.2)
+      tail: rolloutOf(codexHome, sessionId),
+      role: () => roleOf(liveId, null),
+      initialDriver: 'human',
+    });
     controllers.set(liveId, runner);
     void runner.exited.then(() => {
       if (controllers.get(liveId) === runner) controllers.delete(liveId);
     });
+    closeIdentityOnExit(liveId, runner, localOrca, () => identity);
     scheduleAutoStop();
     events.publish({ type: 'live.updated', liveId });
     return detail(liveId);
   }
 
-  // Magi Agent 的会话（Contracts 23.1）：real 环境，cwd 为 worktree，config 为 local 或 variant id。Claude Code 的
-  // 会话 id 建项时定下；Codex 的会话 id 等用户提交第一条消息、Codex 写出 rollout 后记下
+  // A session's rollout file; empty until it is written
+  function rolloutOf(codexHome: string, sessionId: string): string | null {
+    return rolloutFiles(codexHome).find((f) => f.endsWith(`-${sessionId}.jsonl`)) ?? null;
+  }
+
+  // Magi Agent sessions (Contracts 23.1): real environment, cwd is the worktree, config is local or a variant id. A
+  // Claude Code session id is fixed when the item is created; a Codex one is recorded once the user submits the first
+  // message and Codex writes the rollout
   function createAgentItem(input: { engine: LiveEngine; config: string; cwd: string }): LiveDetail {
     const liveId = newId('l');
     insertItem({
@@ -1084,7 +2267,8 @@ export function createLive(deps: LiveDeps) {
     return detail(liveId);
   }
 
-  // Magi Agent 的会话以用户的第一条消息命名：名字还是"新会话"时才改（用户改过的名字保留）
+  // A Magi Agent session is named after the user's first message, only while its title is still "New session" (a
+  // title the user changed is kept)
   function nameAgentItem(liveId: string, message: string) {
     const item = row(liveId);
     const title = defaultTitle(message);
@@ -1093,29 +2277,32 @@ export function createLive(deps: LiveDeps) {
     events.publish({ type: 'live.updated', liveId });
   }
 
-  // 启动或 resume Magi Agent 的会话（Contracts 23.3）：本机配置或 variant 的配置，只有人驾驶，MAGI.md 的内容追加进
-  // 系统提示；还没有对话记录时（启动后没有提交过消息）以同一个会话重新启动。message 为 resume 时提交的消息（部署完成）
+  // Start or resume a Magi Agent session (Contracts 23.3): the local configuration or a variant's, with MAGI.md
+  // appended to the system prompt; with no conversation yet (nothing submitted since the start) the same session is
+  // started again. message is the message submitted on resume (deploy finished)
   function launchAgent(
     liveId: string,
     opts: { instructions: string; message: string | null },
-  ): LiveDetail {
+  ): Promise<LiveDetail> {
     const item = row(liveId);
     if (item.purpose !== 'agent') {
-      throw new HttpError(400, `交互 ${item.id} 不是 Magi Agent 的会话`);
+      throw new HttpError(400, `Live item ${item.id} is not a Magi Agent session`);
     }
     if (launching.has(liveId) || controllers.has(liveId) || running(liveId)) {
-      throw new HttpError(409, `交互 ${item.id} 有运行中的进程`);
+      throw new HttpError(409, `Live item ${item.id} has a running process`);
     }
-    // agent 调用部署接口时带上自己的 live id；dashboard 的地址是服务实际监听的地址
+    // The agent passes its own live id when calling the deploy API; the dashboard address is the one the service
+    // actually listens on
     const magiEnv = { MAGI_LIVE_ID: liveId, MAGI_DASHBOARD_URL: deps.serverUrl() };
     const message = opts.message === null ? [] : [opts.message];
     if (item.engine === 'codex') return startAgentCodex(item, opts, magiEnv);
     const sessionId = item.claudeSessionId;
-    if (sessionId === null) throw new Error(`Magi Agent 的 Claude Code 会话 ${liveId} 没有会话 id`);
+    if (sessionId === null)
+      throw new Error(`Magi Agent Claude Code session ${liveId} has no session id`);
     const variantId = agentVariantOf(item);
-    // variant 已删除或没有构建成功时在这里以原文失败
+    // A variant that was deleted or never built fails here with its error
     const kind = locate(configDirOf(variantId), sessionId) === null ? 'start' : 'resume';
-    // 从弹出框继续一个已关闭的会话时恢复显示
+    // Continuing a closed session from the popover shows it again
     setHidden(liveId, false, { reason: kind });
     return launch({
       liveId,
@@ -1131,7 +2318,7 @@ export function createLive(deps: LiveDeps) {
           : ['--resume', sessionId, '--append-system-prompt', opts.instructions, ...message],
       projectDirName: liveId,
       driver: 'human',
-      persona: { stage: null, persona: RESUME_PERSONA, hiddenRequirements: '' },
+      persona: null,
       eval: null,
       extraEnv: magiEnv,
       start: { magiAgent: true, message: opts.message },
@@ -1139,18 +2326,18 @@ export function createLive(deps: LiveDeps) {
     });
   }
 
-  function startAgentCodex(
+  async function startAgentCodex(
     item: ItemRow,
     opts: { instructions: string; message: string | null },
     magiEnv: Record<string, string>,
-  ): LiveDetail {
+  ): Promise<LiveDetail> {
     const liveId = item.id;
     const kind: LiveProcessKind = item.claudeSessionId === null ? 'start' : 'resume';
     const args =
       item.claudeSessionId === null
         ? codexAgentStartArgs(item.cwd, opts.instructions, opts.message)
         : codexAgentResumeArgs(item.cwd, opts.instructions, item.claudeSessionId, opts.message);
-    // 用户自己的 ~/.codex：不设 CODEX_HOME，不改 HOME
+    // The user's own ~/.codex: CODEX_HOME is not set and HOME is unchanged
     const env: Record<string, string> = {
       ...isolatedBaseEnv(),
       HOME: deps.localHome,
@@ -1159,7 +2346,7 @@ export function createLive(deps: LiveDeps) {
     };
     const codexHome = env.CODEX_HOME ?? path.join(deps.localHome, '.codex');
     const known = new Set(rolloutFiles(codexHome));
-    const runner = spawnCodex({
+    const runner = await spawnCodex({
       item,
       kind,
       args,
@@ -1172,26 +2359,33 @@ export function createLive(deps: LiveDeps) {
         sessionId: item.claudeSessionId,
         message: opts.message,
       },
-      tail: null,
+      tail: item.claudeSessionId === null ? null : rolloutOf(codexHome, item.claudeSessionId),
     });
     if (item.claudeSessionId === null || item.title === AGENT_UNTITLED) {
-      void followCodexSession(liveId, runner.pty, codexHome, known);
+      void followCodexSession(liveId, runner, codexHome, known);
     }
     return detail(liveId);
   }
 
-  // 在一项上起一个人驾驶的 Codex 进程（Magi Agent 与 Sessions 页面的 resume）：记下进程与事件；tail 为要增量导入的
-  // rollout（进程结束时停止）
-  function spawnCodex(spec: {
+  // Start a Codex process on an item (Magi Agent and resume from the Sessions page), recording the process and its
+  // events; tail is the rollout to import incrementally (stopped when the process ends), and turn-end records are read
+  // from it too (Contracts 34.2)
+  async function spawnCodex(spec: {
     item: ItemRow;
     kind: LiveProcessKind;
     args: string[];
     env: Record<string, string>;
     payload: Record<string, unknown>;
     tail: string | null;
-  }): CodexRunner {
-    const { item, kind, args, env } = spec;
+    driver?: LiveDriver;
+  }): Promise<CodexRunner> {
+    const { item, kind, args } = spec;
     const liveId = item.id;
+    launching.add(liveId);
+    const identity = await createOrcaIdentity(localOrca, liveId, item.cwd).finally(() => {
+      launching.delete(liveId);
+    });
+    const env = { ...spec.env, ...identityEnv(identity, null) };
     const dir = liveDir(liveId);
     fs.mkdirSync(dir, { recursive: true });
     const startedAt = new Date();
@@ -1228,27 +2422,39 @@ export function createLive(deps: LiveDeps) {
         .set({ updatedAt: startedAt })
         .where(eq(liveSessions.id, liveId))
         .run();
+      recordIdentity(liveId, inserted.id, identity);
       return inserted.id;
     })();
-    const runner = new CodexRunner(db, liveId, processId, pty, spec.tail);
+    const runner = new CodexRunner({
+      db,
+      settings,
+      liveId,
+      processId,
+      pty,
+      tail: spec.tail,
+      role: () => roleOf(liveId, personaOfItem(row(liveId))),
+      initialDriver: spec.driver ?? 'human',
+    });
     controllers.set(liveId, runner);
     void runner.exited.then(() => {
       if (controllers.get(liveId) === runner) controllers.delete(liveId);
     });
+    closeIdentityOnExit(liveId, runner, localOrca, () => identity);
     scheduleAutoStop();
     events.publish({ type: 'live.updated', liveId });
     return runner;
   }
 
-  // Sessions 页面 resume Codex 的 session（Contracts 25.2）：在它所在的 CODEX_HOME 中 codex resume <id>，HOME 为
-  // 本机的 HOME，不在启动时检查更新（与 23.3 相同）；沙箱与审批按这个 CODEX_HOME 自己的配置。设计与优化的会话在它的
-  // 项上按 17.3、22.2 resume
-  function resumeCodex(
+  // Resume a Codex session from the Sessions page (Contracts 25.2): codex resume <id> in the CODEX_HOME it lives in,
+  // with this machine's HOME and no update check at start (as in 23.3); sandbox and approvals follow that CODEX_HOME's
+  // own configuration. Design and optimize sessions resume on their own items per 17.3 and 22.2
+  async function resumeCodex(
     session: typeof sessions.$inferSelect,
     item: ItemRow | null,
     cwd: string,
     codexHome: string,
-  ): LiveDetail | Promise<LiveDetail> {
+    body: ResumeLiveBody,
+  ): Promise<LiveDetail> {
     if (item !== null && isDraftItem(item)) return launchDraft(item.id, 'resume');
     const liveId = item?.id ?? newId('l');
     db.$client.transaction(() => {
@@ -1267,8 +2473,9 @@ export function createLive(deps: LiveDeps) {
       }
       db.update(sessions).set({ liveId }).where(eq(sessions.id, session.id)).run();
     })();
+    saveGoal(liveId, body.goal);
     const args = ['resume', '--no-daemon', '-c', 'check_for_update_on_startup=false', session.id];
-    spawnCodex({
+    await spawnCodex({
       item: row(liveId),
       kind: 'resume',
       args,
@@ -1285,21 +2492,24 @@ export function createLive(deps: LiveDeps) {
         sessionId: session.id,
       },
       tail: session.filePath,
+      driver: body.driver,
     });
     return detail(liveId);
   }
 
-  // 用户提交第一条消息后 Codex 才写出 rollout：进程运行期间每秒找一次 cwd 为 worktree 的新 rollout，找到后记下会话 id；
-  // 名字还是"新会话"时再从 rollout 中取用户的第一条消息命名
+  // Codex writes the rollout only after the user submits the first message: while the process runs, look once a
+  // second for a new rollout whose cwd is the worktree, then record the session id and start importing it (turn-end
+  // records are read from it too, Contracts 34.2); while the title is still "New session", name it after the user's
+  // first message from the rollout
   async function followCodexSession(
     liveId: string,
-    pty: LivePty,
+    runner: CodexRunner,
     codexHome: string,
     known: Set<string>,
   ) {
     const cwd = row(liveId).cwd;
-    // worktree 被删除后进程的 cwd 已不在，不再找
-    while (pty.alive && fs.existsSync(cwd)) {
+    // Once the worktree is deleted the process's cwd is gone; stop looking
+    while (runner.pty.alive && fs.existsSync(cwd)) {
       const item = row(liveId);
       let sessionId = item.claudeSessionId;
       if (sessionId === null) {
@@ -1309,6 +2519,8 @@ export function createLive(deps: LiveDeps) {
             .set({ claudeSessionId: sessionId })
             .where(eq(liveSessions.id, liveId))
             .run();
+          const rollout = rolloutOf(codexHome, sessionId);
+          if (rollout !== null) runner.follow(rollout);
           events.publish({ type: 'live.updated', liveId });
         }
       }
@@ -1334,8 +2546,12 @@ export function createLive(deps: LiveDeps) {
     return null;
   }
 
-  // 被 resume 的 session 的模拟用户：run 的 session 用 run 的 task，交互的 session 用当时的 task 与 workflow
-  function resumePersona(session: typeof sessions.$inferSelect, item: ItemRow | null) {
+  // The simulated user of a resumed session: a run's session uses the run's task, an interactive session its task;
+  // a session with no task is driven by this item's goal (Contracts 34.2) with an empty persona
+  function resumePersona(
+    session: typeof sessions.$inferSelect,
+    item: ItemRow | null,
+  ): SimulatedPersona | null {
     if (session.runId !== null) {
       const run = db.select().from(runs).where(eq(runs.id, session.runId)).get();
       if (run !== undefined) {
@@ -1345,18 +2561,10 @@ export function createLive(deps: LiveDeps) {
         );
       }
     }
-    if (item?.workflow != null) {
-      const stage = stageOfWorkflow(item.workflow);
-      return personaOf(item.taskId === null ? null : loadTask(db, item.taskId), stage);
-    }
-    return {
-      stage: null,
-      persona: RESUME_PERSONA,
-      hiddenRequirements: '',
-    } satisfies SimulatedPersona;
+    return item === null ? null : personaOfItem(item);
   }
 
-  // 这个 session 所属的项（Contracts 14.5：live_sessions.claude_session_id 相同）
+  // The item this session belongs to (Contracts 14.5: same live_sessions.claude_session_id)
   function itemOfSession(sessionId: string): ItemRow | null {
     return (
       db.select().from(liveSessions).where(eq(liveSessions.claudeSessionId, sessionId)).get() ??
@@ -1368,7 +2576,7 @@ export function createLive(deps: LiveDeps) {
     return latestProcess(id)?.status === 'running';
   }
 
-  // 从已有 session 开始的项的默认名字：该 session 在 Sessions 列表中的标题
+  // Default title of an item started from an existing session: that session's title in the Sessions list
   function sessionListTitle(sessionId: string): string {
     const title = sessionTitles(db, [sessionId]).get(sessionId) ?? '';
     return title === '' ? `session ${sessionId.slice(0, 8)}` : title;
@@ -1376,10 +2584,10 @@ export function createLive(deps: LiveDeps) {
 
   function resumeDefaults(sessionId: string): ResumeDefaults {
     const session = db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
-    if (session === undefined) throw new HttpError(404, `session 不存在：${sessionId}`);
+    if (session === undefined) throw new HttpError(404, `Session not found: ${sessionId}`);
     const item = itemOfSession(sessionId);
-    // 默认为 session 绑定的 variant（Contracts 15.1）；没有绑定、或绑定的 variant 已删除（24.3）时为本机配置。
-    // Codex 的 session 在它所在的 CODEX_HOME 中 resume，没有配置可选（25.2）
+    // Defaults to the variant bound to the session (Contracts 15.1); the local configuration when unbound or the bound
+    // variant was deleted (24.3). A Codex session resumes in its own CODEX_HOME with no configuration to choose (25.2)
     const bound =
       session.variantId === null || session.engine === 'codex'
         ? undefined
@@ -1393,9 +2601,19 @@ export function createLive(deps: LiveDeps) {
       engine: session.engine,
       variantId: bound?.deletedAt === null ? session.variantId : null,
       cwd: session.cwd,
-      cwdExists: session.cwd !== null && fs.existsSync(session.cwd),
+      // A session on an SSH host: the working directory is remote and the preflight checks it over ssh
+      cwdExists: session.hostId !== null || (session.cwd !== null && fs.existsSync(session.cwd)),
       liveId: item?.id ?? null,
       running: item !== null && running(item.id),
+      hostId: session.hostId,
+      simulatedGoal: item?.simulatedGoal ?? null,
+      simulatedGoalDefault:
+        item === null
+          ? ((sessionConversation(db, sessionId) ?? []).flatMap((i) =>
+              i.kind === 'user' ? [i.text] : [],
+            )[0] ?? '')
+          : initialRequest(item),
+      hasTask: item?.taskId != null,
     };
   }
 
@@ -1410,7 +2628,7 @@ export function createLive(deps: LiveDeps) {
     };
   }
 
-  // Codex 的 rollout 的最后一条消息：取已导入的最后一条用户输入与最后一段回复中较晚的
+  // The last message of a Codex rollout: the later of the last imported user input and the last reply
   function codexCopyOf(session: typeof sessions.$inferSelect): ResumeCopy {
     const user = db
       .select({ at: userMessages.timestamp, text: userMessages.text })
@@ -1441,44 +2659,48 @@ export function createLive(deps: LiveDeps) {
     };
   }
 
-  // Codex 的 session 的 resume 预检（Contracts 25.2）：在它所在的 CODEX_HOME 中 codex resume，不复制、不选 variant
+  // Resume preflight of a Codex session (Contracts 25.2): codex resume in its own CODEX_HOME, no copy, no variant
   function codexResumePlan(
     session: typeof sessions.$inferSelect,
     variantId: string | null,
     item: ItemRow | null,
   ): ResumePlan {
     if (variantId !== null) {
-      throw new HttpError(400, 'Codex 的 session 在它所在的 CODEX_HOME 中 resume，不能选 variant');
+      throw new HttpError(
+        400,
+        'A Codex session resumes in its own CODEX_HOME; a variant cannot be chosen',
+      );
     }
     const problems: ResumePlan['problems'] = [];
     if (session.cwd === null) {
       problems.push({
         code: 'no-cwd',
-        message: '这个 session 没有记录工作目录，不知道在哪里接着运行。',
+        message:
+          'This session has no recorded working directory, so there is nowhere to continue it.',
       });
     } else if (!fs.statSync(session.cwd, { throwIfNoEntry: false })?.isDirectory()) {
       problems.push({
         code: 'cwd-missing',
-        message: `工作目录 ${session.cwd} 已经不在了。把目录放回原处后再 resume。`,
+        message: `Working directory ${session.cwd} no longer exists. Put it back, then resume.`,
       });
     }
     if (session.archivedAt !== null) {
       problems.push({
         code: 'archived',
-        message: '这个 session 已归档。先在 Sessions 页面恢复再 resume。',
+        message: 'This session is archived. Restore it on the Sessions page, then resume.',
       });
     }
     if (item !== null && (controllers.has(item.id) || running(item.id))) {
       problems.push({
         code: 'running',
-        message: `这个 session 正在交互项「${item.title}」中运行。先在那里结束进程再 resume。`,
+        message: `This session is running in Live item "${item.title}". Stop the process there, then resume.`,
       });
     }
     const exists = fs.existsSync(session.filePath);
     if (!exists) {
       problems.push({
         code: 'file-missing',
-        message: `session 文件 ${session.filePath} 已经不在了（被移走或删除），没有可以接着运行的记录。`,
+        message: `Session file ${session.filePath} no longer exists (moved or deleted); there is no record to continue from.`,
       });
     }
     return {
@@ -1497,10 +2719,24 @@ export function createLive(deps: LiveDeps) {
     };
   }
 
-  // resume 的预检（Contracts 14.5）：在哪个配置中、用哪一份 jsonl 接着运行，或为什么不能 resume
-  function resumePlan(sessionId: string, variantId: string | null): ResumePlan {
+  // Resume preflight (Contracts 14.5, 31.3): a session on an SSH host is checked over ssh
+  function resumePlan(
+    sessionId: string,
+    variantId: string | null,
+  ): ResumePlan | Promise<ResumePlan> {
     const session = db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
-    if (session === undefined) throw new HttpError(404, `session 不存在：${sessionId}`);
+    if (session === undefined) throw new HttpError(404, `Session not found: ${sessionId}`);
+    if (session.hostId !== null) {
+      return remoteResumePlan(session, session.hostId, variantId, itemOfSession(sessionId));
+    }
+    return localResumePlan(sessionId, variantId);
+  }
+
+  // Preflight of a local session (Contracts 14.5): which configuration and which jsonl it continues with, or why it
+  // cannot resume
+  function localResumePlan(sessionId: string, variantId: string | null): ResumePlan {
+    const session = db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
+    if (session === undefined) throw new HttpError(404, `Session not found: ${sessionId}`);
     const item = itemOfSession(sessionId);
     if (session.engine === 'codex') return codexResumePlan(session, variantId, item);
     const problems: ResumePlan['problems'] = [];
@@ -1508,12 +2744,13 @@ export function createLive(deps: LiveDeps) {
     if (session.cwd === null) {
       problems.push({
         code: 'no-cwd',
-        message: '这个 session 没有记录工作目录，不知道在哪里接着运行。',
+        message:
+          'This session has no recorded working directory, so there is nowhere to continue it.',
       });
     } else if (!fs.statSync(session.cwd, { throwIfNoEntry: false })?.isDirectory()) {
       problems.push({
         code: 'cwd-missing',
-        message: `工作目录 ${session.cwd} 已经不在了。把目录放回原处后再 resume。`,
+        message: `Working directory ${session.cwd} no longer exists. Put it back, then resume.`,
       });
     }
     let configDir: string;
@@ -1525,14 +2762,14 @@ export function createLive(deps: LiveDeps) {
       if (variant.buildStatus !== 'built' || variant.builtHash !== variant.skillsHash) {
         problems.push({
           code: 'variant-not-built',
-          message: `variant ${variant.name} 还没有按当前内容构建成功。先在 variant 页面构建，或改选别的配置。`,
+          message: `Variant ${variant.name} has not been built from its current content. Build it on the variant page or choose another configuration.`,
         });
       }
     }
     if (item !== null && (controllers.has(item.id) || running(item.id))) {
       problems.push({
         code: 'running',
-        message: `这个 session 正在交互项「${item.title}」中运行。先在那里结束进程再 resume。`,
+        message: `This session is running in Live item "${item.title}". Stop the process there, then resume.`,
       });
     }
     const latestExists = fs.existsSync(session.filePath);
@@ -1545,8 +2782,8 @@ export function createLive(deps: LiveDeps) {
         code: 'file-missing',
         message:
           targetFile === null
-            ? `session 文件 ${session.filePath} 已经不在了（被移走或删除），没有可以接着运行的记录。`
-            : `最新的 session 文件 ${session.filePath} 已经不在了；目标配置中有一份 ${targetFile}，但无法确认它包含全部对话，不接着运行。把文件放回原处后再 resume。`,
+            ? `Session file ${session.filePath} no longer exists (moved or deleted); there is no record to continue from.`
+            : `The latest session file ${session.filePath} no longer exists; the target configuration has a copy at ${targetFile}, but it cannot be confirmed to hold the whole conversation, so it is not continued. Put the file back, then resume.`,
       });
       action = 'blocked';
     } else if (targetFile === null) {
@@ -1556,7 +2793,7 @@ export function createLive(deps: LiveDeps) {
       action = relation === 'behind' ? 'sync' : relation === 'diverged' ? 'diverged' : 'resume';
     }
     if (problems.length > 0) action = 'blocked';
-    // 有子代理的 session：子代理的记录在与 jsonl 同名的目录中，复制与同步时一起带上
+    // A session with subagents keeps their records in the directory named like the jsonl, copied and synced with it
     const subagentCount = db
       .select({ n: sql<number>`count(*)` })
       .from(subagents)
@@ -1565,7 +2802,7 @@ export function createLive(deps: LiveDeps) {
     const sessionDir = path.join(path.dirname(session.filePath), session.id);
     if ((subagentCount ?? 0) > 0 && latestExists && !fs.existsSync(sessionDir)) {
       notes.push(
-        `子代理的记录目录 ${sessionDir} 不在：主对话照常接着运行，之前子代理的明细不会带进目标配置。`,
+        `Subagent record directory ${sessionDir} is missing: the main conversation continues, but earlier subagent details are not carried into the target configuration.`,
       );
     }
     const { agentModel, agentEffort } = settings.get();
@@ -1585,35 +2822,267 @@ export function createLive(deps: LiveDeps) {
     };
   }
 
-  // Contracts 14.5：环境固定为 real，工作目录为 session 记录的 cwd；session 已属于某一项时在这一项上接着运行，
-  // 否则为它建一项。目标配置中已有另一份时按预检同步或要求用户选择
-  function resume(body: ResumeLiveBody): LiveDetail | Promise<LiveDetail> {
-    const plan = resumePlan(body.sessionId, body.variantId);
+  // Preflight of a session on an SSH host (Contracts 31.3): it resumes only on its host; the host is checked again
+  // (no reuse), and the working directory and how the two session copies relate are checked remotely. The
+  // configuration is the remote machine's (~/.claude, ~/.codex for Codex) or a variant (Claude Code only)
+  async function remoteResumePlan(
+    session: typeof sessions.$inferSelect,
+    hostId: string,
+    variantId: string | null,
+    item: ItemRow | null,
+  ): Promise<ResumePlan> {
+    const problems: ResumePlan['problems'] = [];
+    const base = {
+      sessionId: session.id,
+      variantId,
+      liveId: item?.id ?? null,
+      cwd: session.cwd,
+      model: null,
+      effort: null,
+      notes: [],
+    };
+    const blocked = (configDir: string): ResumePlan => ({
+      ...base,
+      configDir,
+      action: 'blocked',
+      latest: null,
+      target: null,
+      problems,
+    });
+    if (session.engine === 'codex' && variantId !== null) {
+      throw new HttpError(
+        400,
+        "A Codex session resumes with the remote machine's configuration; a variant cannot be chosen",
+      );
+    }
+    if (deps.remote.hosts.brief(hostId) === null) {
+      problems.push({
+        code: 'host',
+        message: 'The SSH host of this session was deleted, so it cannot resume.',
+      });
+      return blocked('');
+    }
+    const view = await deps.remote.hosts.check(hostId);
+    const check = view.check;
+    if (check === null) throw new Error(`Host ${hostId} has no result after the check`);
+    const missing = [...check.problems];
+    if (check.connected && !check.engines.includes(session.engine)) {
+      missing.push(`No ${session.engine === 'codex' ? 'Codex' : 'Claude Code'}`);
+    }
+    if (missing.length > 0) {
+      problems.push({
+        code: 'host',
+        message: `Cannot launch on ${view.label}: ${missing.join('; ')}`,
+      });
+      return blocked('');
+    }
+    const host = deps.remote.hosts.known(hostId);
+    const configDir =
+      session.engine === 'codex'
+        ? `${host.home}/.codex`
+        : variantId === null
+          ? `${host.home}/.claude`
+          : remoteRoot(host).variant(variantId);
+    if (session.cwd === null) {
+      problems.push({
+        code: 'no-cwd',
+        message:
+          'This session has no recorded working directory, so there is nowhere to continue it.',
+      });
+    } else {
+      const cd = await sshExec(host.target, `cd -- ${quote([session.cwd])}`);
+      if (cd.exitCode !== 0) {
+        problems.push({
+          code: 'cwd-missing',
+          message: `Cannot enter working directory ${session.cwd} on ${host.label}: ${cd.stderr.trim()}`,
+        });
+      }
+    }
+    if (variantId !== null) {
+      const variant = variants.get(variantId);
+      if (variant.buildStatus !== 'built' || variant.builtHash !== variant.skillsHash) {
+        problems.push({
+          code: 'variant-not-built',
+          message: `Variant ${variant.name} has not been built from its current content. Build it on the variant page or choose another configuration.`,
+        });
+      }
+    }
+    if (item !== null && (controllers.has(item.id) || running(item.id))) {
+      problems.push({
+        code: 'running',
+        message: `This session is running in Live item "${item.title}". Stop the process there, then resume.`,
+      });
+    }
+    const remotePath = session.remotePath;
+    if (remotePath === null)
+      throw new Error(`Session ${session.id} on an SSH host has no recorded remote path`);
+    const remote = `${host.label}:${remotePath}`;
+    const latest = fs.existsSync(session.filePath)
+      ? { ...copyOf(session.filePath), path: remote }
+      : null;
+    let action: ResumePlan['action'] = 'resume';
+    let target: ResumePlan['target'] = null;
+    if (session.engine === 'claude') {
+      const relation = await remoteResumeAction(host, remotePath, configDir, session.id);
+      if (relation.action === 'missing') {
+        problems.push({
+          code: 'file-missing',
+          message: `${remote} no longer exists (moved or deleted); there is no record to continue from.`,
+        });
+      } else {
+        action = relation.action;
+        if (relation.action === 'sync' || relation.action === 'diverged') {
+          target = {
+            path: `${host.label}:${relation.target}`,
+            bytes: relation.targetBytes ?? 0,
+            lastAt: null,
+            lastRole: null,
+            lastText: null,
+          };
+        }
+      }
+    } else {
+      const exists = await sshExec(host.target, `test -f ${quote([remotePath])}`);
+      if (exists.exitCode !== 0) {
+        problems.push({
+          code: 'file-missing',
+          message: `${remote} no longer exists (moved or deleted); there is no record to continue from.`,
+        });
+      }
+    }
+    const { agentModel, agentEffort } = settings.get();
+    return {
+      ...base,
+      configDir,
+      model: variantId === null ? null : agentModel,
+      effort: variantId === null ? null : agentEffort,
+      action: problems.length > 0 ? 'blocked' : action,
+      latest,
+      target,
+      problems,
+    };
+  }
+
+  // Resume a session on an SSH host (Contracts 31.3): on its host, in its recorded working directory; when the target
+  // configuration has no copy or an older one, copy remotely first
+  async function resumeRemote(
+    body: ResumeLiveBody,
+    session: typeof sessions.$inferSelect,
+    hostId: string,
+  ): Promise<LiveDetail> {
+    const plan = await remoteResumePlan(session, hostId, body.variantId, itemOfSession(session.id));
     const problem = plan.problems[0];
     if (problem !== undefined) throw new HttpError(409, problem.message);
     if (plan.action === 'diverged' && body.onDiverged !== 'use-latest') {
       throw new HttpError(
         409,
-        '目标配置中的那份与最新的分叉了，要在对话框中选择"以最新的为准继续"',
+        'The copy in the target configuration has diverged from the latest; choose "Continue from the latest" in the dialog',
+      );
+    }
+    const host = deps.remote.hosts.known(hostId);
+    const cwd = plan.cwd;
+    const remotePath = session.remotePath;
+    if (cwd === null || remotePath === null) {
+      throw new Error(
+        `Session ${session.id} passed the preflight without a working directory or remote path`,
+      );
+    }
+    const item = itemOfSession(session.id);
+    requireGoal(item, body);
+    ingestFile(db, session.filePath);
+    let target = remotePath;
+    const start: Record<string, unknown> = { remotePath };
+    if (session.engine === 'claude' && plan.action !== 'resume') {
+      target = await applyRemoteResume(
+        host,
+        remotePath,
+        plan.configDir,
+        session.id,
+        plan.action === 'diverged',
+      );
+      start.copiedTo = target;
+    }
+    const liveId = item?.id ?? newId('l');
+    db.$client.transaction(() => {
+      if (item === null) {
+        insertItem({
+          id: liveId,
+          claudeSessionId: session.id,
+          engine: session.engine,
+          title: sessionListTitle(session.id),
+          environment: 'real',
+          workflow: null,
+          input: null,
+          taskId: null,
+          cwd,
+          hostId,
+        });
+      }
+      if (target !== remotePath) {
+        db.update(sessions)
+          .set({ filePath: localCopyOf(deps.remote.dir, hostId, target), remotePath: target })
+          .where(eq(sessions.id, session.id))
+          .run();
+      }
+      db.update(sessions).set({ liveId }).where(eq(sessions.id, session.id)).run();
+    })();
+    saveGoal(liveId, body.goal);
+    return launchRemote({
+      liveId,
+      kind: 'resume',
+      host,
+      engine: session.engine,
+      variantId: body.variantId,
+      ...modelOf(body),
+      cwd,
+      claudeSessionId: session.id,
+      remotePath: target,
+      args:
+        session.engine === 'claude'
+          ? ['--resume', session.id]
+          : codexRemoteResumeArgs(cwd, session.id),
+      driver: body.driver,
+      persona: resumePersona(session, item),
+      start,
+    });
+  }
+  // otherwise create an item for it. When the target configuration already has another copy, sync it per the preflight
+  // or ask the user to choose
+  function resume(body: ResumeLiveBody): LiveDetail | Promise<LiveDetail> {
+    const remoteSession = db.select().from(sessions).where(eq(sessions.id, body.sessionId)).get();
+    if (remoteSession?.hostId != null)
+      return resumeRemote(body, remoteSession, remoteSession.hostId);
+    const plan = localResumePlan(body.sessionId, body.variantId);
+    const problem = plan.problems[0];
+    if (problem !== undefined) throw new HttpError(409, problem.message);
+    if (plan.action === 'diverged' && body.onDiverged !== 'use-latest') {
+      throw new HttpError(
+        409,
+        'The copy in the target configuration has diverged from the latest; choose "Continue from the latest" in the dialog',
       );
     }
     const session = db.select().from(sessions).where(eq(sessions.id, body.sessionId)).get();
-    if (session === undefined) throw new HttpError(404, `session 不存在：${body.sessionId}`);
+    if (session === undefined) throw new HttpError(404, `Session not found: ${body.sessionId}`);
     const cwd = plan.cwd;
-    if (cwd === null) throw new Error(`session ${session.id} 没有工作目录却通过了预检`);
+    if (cwd === null)
+      throw new Error(`Session ${session.id} passed the preflight without a working directory`);
     const item = itemOfSession(session.id);
-    // Magi Agent 的会话按它记下的引擎与 worktree 启动，带 MAGI.md 的注入（Contracts 23.3），由 Magi Agent 模块处理
+    requireGoal(item, body);
+    // A Magi Agent session starts with its recorded engine and worktree and the MAGI.md injection (Contracts 23.3),
+    // handled by the Magi Agent module
     if (item?.purpose === 'agent') {
       if (agentResume === null)
-        throw new Error('没有设置 Magi Agent 的 resume（app.ts 在建出 Magi Agent 后设置）');
+        throw new Error('Magi Agent resume is not set (app.ts sets it after creating Magi Agent)');
       return agentResume(item.id);
     }
-    if (session.engine === 'codex') return resumeCodex(session, item, cwd, plan.configDir);
+    if (session.engine === 'codex') {
+      return resumeCodex(session, item, cwd, plan.configDir, body);
+    }
     const liveId = item?.id ?? newId('l');
-    // 先读完最新那份，复制或同步后的字节与已导入的偏移量一致
+    // Read the latest copy to the end first, so the bytes after copying or syncing match the imported offset
     ingestFile(db, session.filePath);
     let target: string;
-    // 记进这次 resume 事件：复制、覆盖或改名保留了哪一份
+    // Recorded in this resume event: which copy was copied, overwritten or kept under a new name
     const start: Record<string, unknown> = { copiedFrom: null };
     if (plan.target === null) {
       target = path.join(plan.configDir, 'projects', liveId, `${session.id}.jsonl`);
@@ -1635,7 +3104,7 @@ export function createLive(deps: LiveDeps) {
         start.overwrote = target;
       }
     }
-    // 之后导入目标配置中的那份；原文件不动
+    // From now on the copy in the target configuration is imported; the original file is untouched
     db.$client.transaction(() => {
       if (item === null) {
         insertItem({
@@ -1649,7 +3118,7 @@ export function createLive(deps: LiveDeps) {
           cwd,
         });
       }
-      // 从 Sessions 详情 resume 一个已关闭项的 session：这一项恢复显示（Contracts 14.5）
+      // Resuming the session of a closed item from Sessions details shows the item again (Contracts 14.5)
       if (item !== null) setHidden(item.id, false, { reason: 'resume' });
       if (target !== session.filePath) {
         const oldDir = path.join(path.dirname(session.filePath), session.id);
@@ -1668,6 +3137,7 @@ export function createLive(deps: LiveDeps) {
       }
       db.update(sessions).set({ liveId }).where(eq(sessions.id, session.id)).run();
     })();
+    saveGoal(liveId, body.goal);
     return launch({
       liveId,
       kind: 'resume',
@@ -1687,8 +3157,9 @@ export function createLive(deps: LiveDeps) {
     });
   }
 
-  // Contracts 14.5"导入到交互区"：为每个 session 建一项（real 环境，cwd 为 session 记录的 cwd），不启动进程；
-  // 已关闭的项恢复显示。先检查全部：有不存在的 404，有显示中的项的 409 并列出，都不改动
+  // Contracts 14.5 "Import to Live": create an item per session (real environment, cwd as the session recorded it)
+  // without starting a process; closed items are shown again. Everything is checked first: missing sessions are a 404,
+  // ones with a shown item a 409 listing them, and nothing changes
   function importSessions(sessionIds: string[]): LiveSummary[] {
     const ids = [...new Set(sessionIds)];
     const rows = ids.map((id) => ({
@@ -1697,22 +3168,27 @@ export function createLive(deps: LiveDeps) {
       item: itemOfSession(id),
     }));
     const missing = rows.filter((r) => r.session === undefined).map((r) => r.id);
-    if (missing.length > 0) throw new HttpError(404, `session 不存在：${missing.join(', ')}`);
-    // 已关闭的项不算在交互区：导入即恢复显示
+    if (missing.length > 0) throw new HttpError(404, `Session not found: ${missing.join(', ')}`);
+    // Closed items do not count as in Live: importing shows them again
     const taken = rows.flatMap(({ id, item }) =>
-      item?.hiddenAt === null ? [`${id}（${item.id}）`] : [],
+      item?.hiddenAt === null ? [`${id} (${item.id})`] : [],
     );
-    if (taken.length > 0) throw new HttpError(409, `这些 session 已在交互区：${taken.join(', ')}`);
+    if (taken.length > 0)
+      throw new HttpError(409, `These sessions are already in Live: ${taken.join(', ')}`);
     const noCwd = rows.filter((r) => r.item === null && r.session?.cwd == null).map((r) => r.id);
     if (noCwd.length > 0)
-      throw new HttpError(400, `这些 session 没有记录工作目录：${noCwd.join(', ')}`);
+      throw new HttpError(
+        400,
+        `These sessions have no recorded working directory: ${noCwd.join(', ')}`,
+      );
     const liveIds = db.$client.transaction(() =>
       rows.map(({ id, session, item }) => {
         if (item !== null) {
           setHidden(item.id, false, { reason: 'import' });
           return item.id;
         }
-        if (session?.cwd == null) throw new Error(`session ${id} 没有记录工作目录`);
+        if (session?.cwd == null)
+          throw new Error(`Session ${id} has no recorded working directory`);
         const liveId = newId('l');
         const title = sessionListTitle(id);
         insertItem({
@@ -1725,6 +3201,7 @@ export function createLive(deps: LiveDeps) {
           input: null,
           taskId: null,
           cwd: session.cwd,
+          hostId: session.hostId,
         });
         db.insert(liveEvents)
           .values({
@@ -1747,7 +3224,7 @@ export function createLive(deps: LiveDeps) {
     return liveIds.map((liveId) => summary(row(liveId)));
   }
 
-  // 关闭（"×"）与恢复显示：只改 hidden_at 并记一条事件；已经是这个状态时不记
+  // Close ("×") and show again: only hidden_at changes and one event is recorded; nothing when already in that state
   function setHidden(id: string, hidden: boolean, payload: Record<string, unknown>) {
     const item = row(id);
     if ((item.hiddenAt !== null) === hidden) return;
@@ -1761,15 +3238,15 @@ export function createLive(deps: LiveDeps) {
       .run();
   }
 
-  // 有运行中进程的项不能关闭或删除，先结束进程（Contracts 14.5）
+  // An item with a running process cannot be closed or deleted; stop the process first (Contracts 14.5)
   function requireStopped(id: string, action: string) {
     if (controllers.has(id) || running(id)) {
-      throw new HttpError(409, `交互 ${id} 有运行中的进程，先结束进程再${action}`);
+      throw new HttpError(409, `Live item ${id} has a running process; stop it before ${action}`);
     }
   }
 
   function hide(id: string): LiveDetail {
-    requireStopped(id, '关闭');
+    requireStopped(id, 'closing');
     setHidden(id, true, { reason: 'user' });
     events.publish({ type: 'live.updated', liveId: id });
     return detail(id);
@@ -1781,22 +3258,26 @@ export function createLive(deps: LiveDeps) {
     return detail(id);
   }
 
-  // 删除一项（Contracts 14.5）：交互项、它的进程与事件记录、data/live/<liveId>/。session 本身不删（jsonl 与副本、
-  // Sessions 中的记录，sessions.live_id 置空），GitHub 仓库与 Linear 工单由用户处理
+  // Delete an item (Contracts 14.5): the Live item, its processes and event records, data/live/<liveId>/. The session
+  // itself stays (jsonl and copies, its Sessions record, sessions.live_id set to null); GitHub repos and Linear
+  // tickets are left to the user
   function remove(id: string, confirmTitle: string) {
     const item = row(id);
-    requireStopped(id, '删除');
+    requireStopped(id, 'deleting');
     if (confirmTitle !== item.title) {
-      throw new HttpError(400, `输入的名字与这一项的名字不同：${JSON.stringify(confirmTitle)}`);
+      throw new HttpError(
+        400,
+        `The name entered does not match this item's name: ${JSON.stringify(confirmTitle)}`,
+      );
     }
     removeItem(id);
   }
 
-  // 删除一项与它的目录（没有运行中的进程）；session 只解除与它的关联。删除 variant 或 workflow 时连同 session
-  // 一起删除的项也走这里（Contracts 24.2、24.5）
+  // Delete an item and its directory (no running process); sessions are only unlinked. Items deleted together with
+  // their sessions when a variant or workflow is deleted go through here too (Contracts 24.2, 24.5)
   function removeItem(id: string) {
     const item = row(id);
-    requireStopped(id, '删除');
+    requireStopped(id, 'deleting');
     const counts = db.$client.transaction(() => {
       const unlinked = db
         .update(sessions)
@@ -1809,9 +3290,9 @@ export function createLive(deps: LiveDeps) {
         .delete(liveProcesses)
         .where(eq(liveProcesses.liveId, id))
         .run().changes;
-      // Codex 会话的草稿保留（Contracts 17.3）
+      // A Codex session's draft is kept (Contracts 17.3)
       db.update(workflowDrafts).set({ liveId: null }).where(eq(workflowDrafts.liveId, id)).run();
-      // Magi Agent 的会话：它发起的部署记录一起删除
+      // A Magi Agent session: the deploy records it started are deleted with it
       db.delete(magiDeploys).where(eq(magiDeploys.liveId, id)).run();
       db.delete(liveSessions).where(eq(liveSessions.id, id)).run();
       return { unlinked: unlinked.map((s) => s.id), removedEvents, removedProcesses };
@@ -1819,13 +3300,13 @@ export function createLive(deps: LiveDeps) {
     const dir = liveDir(id);
     fs.rmSync(dir, { recursive: true, force: true });
     console.info(
-      `[live] 删除交互 ${id}（${item.title}）：${String(counts.removedProcesses)} 个进程、${String(counts.removedEvents)} 条事件、${dir}；session ${counts.unlinked.join(', ')} 保留`,
+      `[live] deleted Live item ${id} (${item.title}): ${String(counts.removedProcesses)} processes, ${String(counts.removedEvents)} events, ${dir}; sessions ${counts.unlinked.join(', ')} kept`,
     );
     events.publish({ type: 'live.updated', liveId: id });
     for (const sessionId of counts.unlinked) events.publish({ type: 'session.updated', sessionId });
   }
 
-  // Contracts 14.3：改名立即反映在标签页、Sessions 列表与详情中
+  // Contracts 14.3: a rename shows at once in the tab, the Sessions list and details
   function rename(id: string, title: string): LiveDetail {
     const item = row(id);
     const next = checkTitle(title);
@@ -1855,10 +3336,11 @@ export function createLive(deps: LiveDeps) {
   }
 
   return {
-    setAgentResume(fn: (liveId: string) => LiveDetail) {
+    setAgentResume(fn: (liveId: string) => Promise<LiveDetail>) {
       agentResume = fn;
     },
-    // 有运行中进程的在前，其余按 updated_at 倒序（Contracts 14.3）；已关闭的项只在 includeHidden 时列出
+    // Items with a running process first, the rest by updated_at descending (Contracts 14.3); closed items only with
+    // includeHidden
     list(includeHidden = false): LiveSummary[] {
       return db
         .select()
@@ -1874,11 +3356,12 @@ export function createLive(deps: LiveDeps) {
     get: detail,
     create,
     localEntries,
-    // 设计与分析优化的会话（Contracts 17.1、19.3、22）：草稿模块发起时建项，准备完后启动，Codex 或 Claude Code
+    // Design and analysis-optimize sessions (Contracts 17.1, 19.3, 22): the drafts module creates the item when
+    // started and starts it once prepared, with Codex or Claude Code
     createDraftItem,
     startDraft: (id: string) => launchDraft(id, 'start'),
     resumeDraft: (id: string) => launchDraft(id, 'resume'),
-    // Magi Agent（Contracts 第 23 节）
+    // Magi Agent (Contracts section 23)
     createAgentItem,
     launchAgent,
     running,
@@ -1892,11 +3375,20 @@ export function createLive(deps: LiveDeps) {
     remove,
     removeItem,
     dirOf: liveDir,
-    // "在访达中打开"的两个目录（Contracts 14.2）：工作目录与最近一次进程的配置目录（本机配置时为 <HOME>/.claude，
-    // 设计与分析优化的会话为工作目录中的 CODEX_HOME 或 claude-config/；从 Sessions 页面 resume 的 Codex 会话为
-    // rollout 所在的 CODEX_HOME，Magi Agent 的为本机的 ~/.codex）
+    // The two directories of "Open in Finder" (Contracts 14.2): the working directory and the configuration directory
+    // of the latest process (<HOME>/.claude for the local configuration; CODEX_HOME or claude-config/ in the working
+    // directory for design and analysis-optimize sessions; the rollout's CODEX_HOME for Codex sessions resumed from
+    // the Sessions page; this machine's ~/.codex for Magi Agent)
     dirs(id: string): { cwd: string; configDir: string } {
       const r = row(id);
+      // An item on an SSH host: the page copies ssh <target> and the working path; nothing opens in Finder
+      // (Contracts 31.3)
+      if (r.hostId !== null) {
+        throw new HttpError(
+          400,
+          `Live item ${id} runs on an SSH host; its working directory is remote`,
+        );
+      }
       if (r.engine === 'codex') {
         if (isDraftItem(r)) return { cwd: r.cwd, configDir: codexDirsOf(r.cwd).codexHome };
         const s =
@@ -1929,26 +3421,128 @@ export function createLive(deps: LiveDeps) {
         nameAgentItem(id, z.string().parse(payload.prompt));
       }
     },
-    setDriver(id: string, driver: LiveDriver) {
-      if (row(id).purpose === 'agent') {
-        throw new HttpError(409, `交互 ${id} 是 Magi Agent 的会话，只有人驾驶`);
+    // The driver switch (Contracts 34.2): available for every purpose, both engines, local and SSH items; an item with
+    // no task needs a goal first
+    setDriver(id: string, driver: LiveDriver, goal?: string) {
+      const item = row(id);
+      if (driver === 'simulated' && item.taskId === null) {
+        if (goal !== undefined) setGoal(id, goal);
+        else if (item.simulatedGoal === null) {
+          throw new HttpError(409, 'Write down the goal before handing over to the simulated user');
+        }
       }
-      const controller = claudeControllerOf(id);
-      // 设计与分析优化的 Claude Code 会话只有人驾驶（Contracts 22.2）
-      if (isDraftItem(row(id))) {
-        throw new HttpError(409, `交互 ${id} 是设计或分析优化的会话，只有人驾驶，没有模拟用户`);
-      }
-      if (controller.driver === driver) throw new HttpError(409, `驾驶者已经是 ${driver}`);
+      const controller = controllerOf(id);
+      if (controller.driver === driver) throw new HttpError(409, `The driver is already ${driver}`);
       if (driver === 'simulated') controller.release();
       else controller.setDriver('human', 'manual' satisfies HandBackReason);
       return detail(id);
     },
-    async stop(id: string) {
-      await terminate(controllerOf(id));
+    // View and change the goal from the toolbar (Contracts 34.2)
+    setGoal,
+    // "Stop process" records a stop first (from the page button or the API), then stops
+    async stop(id: string, source: LiveStopSource) {
+      const item = row(id);
+      const latest = latestProcess(id);
+      if (latest?.status !== 'running') {
+        throw new HttpError(409, `Live item ${id} is not running`);
+      }
+      const controller = controllers.get(id);
+      // An agent in an Orca pane that no controller holds (W116, W117): there is no terminal to interrupt, so stop
+      // acts on the recorded pid, on this machine or on the item's SSH host
+      const host = item.hostId === null ? null : deps.remote.hosts.known(item.hostId);
+      const worker = controller === undefined ? structuredWorkerOf(item, latest.id) : null;
+      const pane =
+        controller === undefined && worker === null
+          ? await vanishedPaneOf(id, latest.id, host)
+          : null;
+      if (controller === undefined && pane === null && worker === null) {
+        throw new HttpError(409, `Live item ${id} is not running`);
+      }
+      db.insert(liveEvents)
+        .values({
+          liveId: id,
+          processId: latest.id,
+          at: new Date(),
+          kind: 'stop',
+          payload: { source },
+        })
+        .run();
+      events.publish({ type: 'live.updated', liveId: id });
+      // A worker Orca runs without a pane: Orca ends it, and the sync sees the Dispatch settle and ends the process
+      if (worker !== null) {
+        await orcaSync.whileStopping(async () => {
+          await orcaCall(worker.place, [
+            'orchestration',
+            'worker-stop',
+            '--dispatch',
+            worker.dispatchId,
+          ]);
+          await orcaSync.pollOnce();
+        });
+        return detail(id);
+      }
+      if (pane !== null) {
+        await stopVanishedPane(pane, host);
+        return detail(id);
+      }
+      if (controller === undefined) throw new Error(`Live item ${id} has no controller`);
+      // An Orca-managed item: the agent's exit is found by the topology sync, so sync while stopping whether or not a
+      // page is open
+      if (item.purpose === 'orca') await orcaSync.whileStopping(() => terminate(controller));
+      else await terminate(controller);
       return detail(id);
     },
     connect,
-    // GET /api/diagnostics（Contracts 第 5 节）：页面连接数、自动结束是否在计时、仍保留的各项 controller
+    // Once the service listens, reconnect running processes on SSH hosts (Contracts 31.4, app.ts onListen)
+    reattachRemote,
+    // Once the service listens, start syncing Orca's collaboration topology (Contracts 35.3)
+    startOrca() {
+      orcaSync.start();
+    },
+    orcaTopology: () => orcaSync.topology(),
+    // One page of a structured worker's transcript (Contracts 35.4): the page polls with the cursor it last got, so
+    // each read returns only what the worker wrote since. Orca keeps the transcript readable after the worker ends
+    async workerTranscript(id: string, cursor: string | null): Promise<WorkerTranscript> {
+      const item = row(id);
+      const latest = latestProcess(id);
+      if (latest === null) throw new HttpError(409, `Live item ${id} has not run`);
+      const worker = structuredWorkerOf(item, latest.id);
+      if (worker === null) {
+        throw new HttpError(409, `Live item ${id} is not a worker Orca runs without a pane`);
+      }
+      return workerRead(worker.place, worker.version, worker.dispatchId, cursor);
+    },
+    // Input typed in such an item: it reaches the worker as a message to its Dispatch
+    async sendToWorker(id: string, text: string): Promise<WorkerSendResult> {
+      const item = row(id);
+      const latest = latestProcess(id);
+      if (latest?.status !== 'running') throw new HttpError(409, `Live item ${id} is not running`);
+      const worker = structuredWorkerOf(item, latest.id);
+      if (worker === null) {
+        throw new HttpError(409, `Live item ${id} is not a worker Orca runs without a pane`);
+      }
+      const sent = await workerSend(
+        worker.place,
+        worker.dispatchId,
+        'Message from the dashboard',
+        text,
+      );
+      db.insert(liveEvents)
+        .values({
+          liveId: id,
+          processId: latest.id,
+          at: new Date(),
+          kind: 'orca-worker-input',
+          payload: { orca: { dispatchId: worker.dispatchId, delivery: sent.delivery }, text },
+        })
+        .run();
+      events.publish({ type: 'live.updated', liveId: id });
+      return { delivery: sent.delivery };
+    },
+    // Sync once now (tests, and when the topology drawer opens)
+    syncOrca: () => orcaSync.pollOnce(),
+    // GET /api/diagnostics (Contracts section 5): page connections, whether auto-stop is timing, controllers still
+    // kept per item
     diagnostics() {
       return {
         connections,
@@ -1965,7 +3559,7 @@ export function createLive(deps: LiveDeps) {
         ptys: unreleasedPtys(),
       };
     },
-    // WebSocket 连接用：运行中的 controller，已退出时为空（只回放 pty.log）
+    // For WebSocket connections: the running controller, empty once exited (only pty.log is replayed)
     controller(id: string): LiveController | CodexRunner | null {
       row(id);
       return controllers.get(id) ?? null;
@@ -1973,16 +3567,21 @@ export function createLive(deps: LiveDeps) {
     logFile(id: string): string {
       return path.join(liveDir(row(id).id), 'pty.log');
     },
-    // 服务关闭：结束全部 PTY 进程
+    // Service shutdown: stop local PTY processes; remote processes keep running in tmux (Contracts 31.4) and no error
+    // is recorded
     async shutdown() {
       cancelAutoStop();
+      orcaSync.stop();
       for (const controller of controllers.values()) {
+        if (controller.pty.remote) continue;
         db.update(liveProcesses)
-          .set({ error: '服务关闭，进程结束' })
+          .set({ error: 'Service shut down; process stopped' })
           .where(eq(liveProcesses.id, controller.processId))
           .run();
       }
       await Promise.all([...controllers.values()].map((c) => c.shutdown()));
+      // A local process's identity terminal closes after the process ends
+      await Promise.all([...closingIdentities]);
     },
   };
 }

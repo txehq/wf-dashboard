@@ -1,4 +1,4 @@
-// Monaco 的语言 id，按 skill 文件的扩展名
+// Monaco language id by skill file extension
 export function languageOf(path: string): string {
   if (path.endsWith('.md')) return 'markdown';
   if (path.endsWith('.sh')) return 'shell';

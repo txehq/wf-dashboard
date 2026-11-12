@@ -9,10 +9,10 @@ import { config } from '../config.js';
 import { junitCases, placeHiddenConfig, scoreAgainstManifest } from '../tasks/ic.js';
 import type { TestsTask } from '../tasks/schema.js';
 
-// 隐藏测试在 checkout 中的位置，与 Contracts 第 6 节一致
+// Location of the hidden tests in the checkout, as in Contracts section 6
 export const HIDDEN_TESTS_DEST = 'test/hidden';
 
-// Playwright 浏览器的共享目录：dashboard 在 sandbox 之外安装，评分时只读使用
+// Shared Playwright browser directory: the dashboard installs it outside the sandbox; grading only reads it
 export const playwrightBrowsersDir = config.playwrightBrowsersDir;
 
 export interface Outcome {
@@ -32,13 +32,13 @@ export interface HiddenTestsResult {
   outcomes: Outcome[];
   fileErrors: FileError[];
   head: string;
-  // 评分错误（步骤超时、依赖来源不可信）时为 null，测试全部为 not-run
+  // null on a grading error (step timeout, untrusted dependency source); all tests are then not-run
   junitPath: string | null;
   error: string | null;
 }
 
-// 分母取 task 声明的清单：无法加载的文件在 JUnit 中只剩一条 name == classname 的 testcase，
-// 按 XML 计数会让 agent 少建一个文件反而分母变小；清单中没有出现在 XML 里的测试记为 not-run
+// The denominator is the task's declared manifest: a file that fails to load leaves one testcase with name == classname in JUnit,
+// so counting the XML would shrink the denominator when the agent omits a file; manifest tests missing from the XML are not-run
 export function scoreJUnit(
   report: TestSuites | TestSuite,
   manifest: Record<string, string[]>,
@@ -47,11 +47,11 @@ export function scoreJUnit(
   return { ...scoreAgainstManifest(run, manifest), fileErrors: run.fileErrors };
 }
 
-// sandbox-exec 的 SBPL 字符串字面量
+// SBPL string literal for sandbox-exec
 const literal = (value: string) => JSON.stringify(value);
 
-// 评分 sandbox：只允许写 grading 目录；禁止读凭据、task 目录（参考实现与隐藏测试）、数据目录（其他 run、variant、
-// 数据库）与 vault。越界读写返回 EPERM。工具会从 checkout 向上逐级读取 package.json 等配置文件，仓库根目录保持可读
+// Grading sandbox: writes only to the grading directory; no reads of credentials, the task directory (reference solution and hidden tests),
+// the data directory (other runs, variants, database) or the vault. Out-of-bounds access gets EPERM. Tools read package.json etc. upward from the checkout, so the repo root stays readable
 export function gradingSandboxProfile(gradingDir: string): string {
   const home = os.homedir();
   const deniedReads = [
@@ -90,12 +90,12 @@ interface Step {
   argv: [string, ...string[]];
   cwd: string;
   env: Record<string, string>;
-  // null 时在 sandbox 之外运行，env 在 dashboard 的环境上追加（只用于 dashboard 自己的命令）
+  // null runs outside the sandbox with env added to the dashboard's environment (only for the dashboard's own commands)
   sandbox: string | null;
-  // stdout 与 stderr 追加写入的日志文件；写文件而不经过管道，强制结束后不会被残留进程挂住
+  // Log file that stdout and stderr append to; a file instead of a pipe, so leftover processes cannot hang it after a kill
   log: string;
   timeoutMs: number;
-  // 取消评分或服务关闭：结束整棵进程树，抛出 signal.reason
+  // Grading cancelled or server shutting down: kill the whole process tree and throw signal.reason
   signal: AbortSignal;
 }
 
@@ -104,7 +104,7 @@ interface StepResult {
   timedOut: boolean;
 }
 
-// 超时或取消时结束整棵进程树（vitest worker、Playwright 的 webServer 与浏览器都在其中）
+// On timeout or cancel, kill the whole process tree (vitest workers, Playwright's webServer and browsers included)
 async function runStep(step: Step): Promise<StepResult> {
   step.signal.throwIfAborted();
   const [file, ...args] =
@@ -123,7 +123,7 @@ async function runStep(step: Step): Promise<StepResult> {
   });
   const pid = child.pid;
   if (pid === undefined) {
-    throw new Error(`${step.name} 没有启动：${String((await child).originalMessage)}`);
+    throw new Error(`${step.name} did not start: ${String((await child).originalMessage)}`);
   }
   const state = { timedOut: false };
   const kill = () => {
@@ -142,7 +142,9 @@ async function runStep(step: Step): Promise<StepResult> {
   step.signal.throwIfAborted();
   if (state.timedOut) return { exitCode: -1, timedOut: true };
   if (result.exitCode === undefined) {
-    throw new Error(`${step.name} 被信号 ${String(result.signal)} 结束：${tail(step.log)}`);
+    throw new Error(
+      `${step.name} was killed by signal ${String(result.signal)}: ${tail(step.log)}`,
+    );
   }
   return { exitCode: result.exitCode, timedOut: false };
 }
@@ -150,7 +152,7 @@ async function runStep(step: Step): Promise<StepResult> {
 const tail = (log: string) => fs.readFileSync(log, 'utf8').slice(-4000);
 
 const timeoutError = (step: string, seconds: number) =>
-  `${step} 超过 ${String(seconds)} 秒没有结束，已强制结束`;
+  `${step} did not finish within ${String(seconds)} seconds and was killed`;
 
 const PackageLock = z.object({
   packages: z.record(
@@ -163,8 +165,8 @@ const PackageLock = z.object({
   ),
 });
 
-// checkout 的依赖必须全部来自 npm registry 并带完整性校验：本地目录、git 或 tarball 地址的包
-// 可以把测试运行器换成 agent 自己写的实现
+// Every checkout dependency must come from the npm registry with an integrity hash: packages from local directories, git or tarball URLs
+// could replace the test runner with the agent's own implementation
 function untrustedDependencies(checkout: string): string[] {
   const lock = PackageLock.parse(
     JSON.parse(fs.readFileSync(path.join(checkout, 'package-lock.json'), 'utf8')),
@@ -177,20 +179,20 @@ function untrustedDependencies(checkout: string): string[] {
         p.integrity === undefined ||
         p.resolved?.startsWith('https://registry.npmjs.org/') !== true,
     )
-    .map(([key, p]) => `${key}（${p.resolved ?? (p.link === true ? 'link' : '无 resolved')}）`);
+    .map(([key, p]) => `${key} (${p.resolved ?? (p.link === true ? 'link' : 'no resolved')})`);
 }
 
 const semver = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
 
-// checkout 安装了 @playwright/test 时，由 dashboard 在 sandbox 之外按同一版本安装浏览器；版本号只取自
-// package.json 的 version 字段并校验格式，安装用的是 registry 上的 playwright，不运行 checkout 中的代码
+// When the checkout installs @playwright/test, the dashboard installs browsers of the same version outside the sandbox; the version comes only from
+// package.json's version field and is format-checked, and the install uses playwright from the registry, running no checkout code
 function playwrightVersion(checkout: string): string | null {
   const file = path.join(checkout, 'node_modules/@playwright/test/package.json');
   if (!fs.existsSync(file)) return null;
   const { version } = z
     .object({ version: z.string() })
     .parse(JSON.parse(fs.readFileSync(file, 'utf8')));
-  if (!semver.test(version)) throw new Error(`@playwright/test 的版本号格式不正确：${version}`);
+  if (!semver.test(version)) throw new Error(`Invalid @playwright/test version: ${version}`);
   return version;
 }
 
@@ -209,8 +211,8 @@ function failedResult(task: TestsTask, head: string, error: string): HiddenTests
   };
 }
 
-// checkout 位于 data/runs/<runId>/grading/checkout。npm ci 与测试命令在 sandbox 中运行：只能写 grading 目录，
-// 读不到凭据与其他 run；测试配置由 task 提供并放在 checkout 之外，JUnit 写在 checkout 之外
+// The checkout is at data/runs/<runId>/grading/checkout. npm ci and the test command run in the sandbox: they write only the grading directory
+// and cannot read credentials or other runs; the test config comes from the task and lives outside the checkout, as does the JUnit file
 export async function runHiddenTests(
   checkout: string,
   task: TestsTask,
@@ -219,16 +221,16 @@ export async function runHiddenTests(
   const gradingDir = path.dirname(checkout);
   const junitPath = path.join(gradingDir, 'junit.xml');
   const dest = path.join(checkout, HIDDEN_TESTS_DEST);
-  if (fs.existsSync(junitPath)) throw new Error(`JUnit 输出已存在：${junitPath}`);
+  if (fs.existsSync(junitPath)) throw new Error(`JUnit output already exists: ${junitPath}`);
   const { stdout } = await execa('git', ['-C', checkout, 'rev-parse', 'HEAD']);
   const head = stdout.trim();
 
-  // PR 自己带的 test/hidden 不参与评分：整个目录换成 task 的隐藏测试
+  // The PR's own test/hidden is not graded: the whole directory is replaced by the task's hidden tests
   fs.rmSync(dest, { recursive: true, force: true });
   fs.cpSync(path.join(task.dir, task.hiddenTests.dir), dest, { recursive: true });
   const configPath = placeHiddenConfig(task, checkout, path.join(gradingDir, 'hidden-config'));
-  // 工具向上查找 package.json 与 tsconfig.json 时停在 grading 目录，不读到 dashboard 仓库的文件（sandbox 禁止读取）：
-  // 测试配置按 ES module 加载，checkout 没有 tsconfig.json 时用空配置
+  // Tools searching upward for package.json and tsconfig.json stop at the grading directory, never reaching the dashboard repo (the sandbox denies it):
+  // the test config loads as an ES module, and an empty config applies when the checkout has no tsconfig.json
   fs.writeFileSync(
     path.join(gradingDir, 'package.json'),
     '{ "private": true, "type": "module" }\n',
@@ -238,7 +240,7 @@ export async function runHiddenTests(
   const tmp = path.join(gradingDir, 'tmp');
   fs.mkdirSync(home);
   fs.mkdirSync(tmp);
-  if (process.env.PATH === undefined) throw new Error('dashboard 进程没有 PATH');
+  if (process.env.PATH === undefined) throw new Error('Dashboard process has no PATH');
   const env = {
     PATH: process.env.PATH,
     HOME: home,
@@ -257,7 +259,7 @@ export async function runHiddenTests(
     return failedResult(
       task,
       head,
-      `package-lock.json 中有不是来自 npm registry 的依赖，不运行隐藏测试：${untrusted.join('、')}`,
+      `package-lock.json has dependencies not from the npm registry, hidden tests not run: ${untrusted.join(', ')}`,
     );
   }
 
@@ -272,12 +274,12 @@ export async function runHiddenTests(
     signal,
   });
   if (install.timedOut) return failedResult(task, head, timeoutError('npm ci', timeoutSeconds));
-  // checkout 内的步骤失败是 agent 的结果（Contracts 7.9）：记 0 / 声明数并写明原因与原文
+  // A failing step inside the checkout is the agent's result (Contracts 7.9): score 0 / declared and record the reason and raw output
   if (install.exitCode !== 0) {
     return failedResult(
       task,
       head,
-      `npm ci 退出码 ${String(install.exitCode)}：${tail(path.join(gradingDir, 'npm-ci.log'))}`,
+      `npm ci exit code ${String(install.exitCode)}: ${tail(path.join(gradingDir, 'npm-ci.log'))}`,
     );
   }
 
@@ -295,20 +297,20 @@ export async function runHiddenTests(
       timeoutMs,
       signal,
     });
-    // 浏览器安装是 dashboard 自己的步骤：失败或超时是评分错误
+    // Installing browsers is the dashboard's own step: failure or timeout is a grading error
     if (browsers.timedOut) throw new Error(timeoutError('playwright install', timeoutSeconds));
     if (browsers.exitCode !== 0) {
-      throw new Error(`playwright install 退出码 ${String(browsers.exitCode)}：${tail(log)}`);
+      throw new Error(`playwright install exit code ${String(browsers.exitCode)}: ${tail(log)}`);
     }
   }
 
-  // 路径经环境变量传入 shell，不需要转义
+  // Paths reach the shell through environment variables, so no escaping is needed
   const command = task.hiddenTests.command
     .replaceAll('{junitPath}', '"$WF_JUNIT_PATH"')
     .replaceAll('{configPath}', '"$WF_HIDDEN_CONFIG"');
   const log = path.join(gradingDir, 'hidden-tests.log');
   const run = await runStep({
-    name: '隐藏测试命令',
+    name: 'Hidden test command',
     argv: ['sh', '-c', command],
     cwd: checkout,
     env,
@@ -317,22 +319,27 @@ export async function runHiddenTests(
     timeoutMs,
     signal,
   });
-  if (run.timedOut) return failedResult(task, head, timeoutError('隐藏测试命令', timeoutSeconds));
-  // 有失败的测试时退出码为 1，这是正常的评分结果；其他退出码、没有写出 JUnit（配置因 agent 的代码无法加载）
-  // 都是 agent 的结果
+  if (run.timedOut)
+    return failedResult(task, head, timeoutError('Hidden test command', timeoutSeconds));
+  // Exit code 1 means some tests failed, a normal grading result; any other exit code, or no JUnit written (the config failed to load because of the agent's code),
+  // is the agent's result
   if (run.exitCode !== 0 && run.exitCode !== 1) {
-    return failedResult(task, head, `隐藏测试命令退出码 ${String(run.exitCode)}：${tail(log)}`);
+    return failedResult(
+      task,
+      head,
+      `Hidden test command exit code ${String(run.exitCode)}: ${tail(log)}`,
+    );
   }
   if (!fs.existsSync(junitPath)) {
     return failedResult(
       task,
       head,
-      `隐藏测试命令没有写出 JUnit（退出码 ${String(run.exitCode)}）：${tail(log)}`,
+      `Hidden test command wrote no JUnit (exit code ${String(run.exitCode)}): ${tail(log)}`,
     );
   }
   const report = await parse(fs.readFileSync(junitPath, 'utf8'));
   if (report === undefined || report === null) {
-    return failedResult(task, head, `隐藏测试命令写出的 JUnit 为空：${tail(log)}`);
+    return failedResult(task, head, `Hidden test command wrote an empty JUnit: ${tail(log)}`);
   }
   return { ...scoreJUnit(report, task.hiddenTests.manifest), head, junitPath, error: null };
 }

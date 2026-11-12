@@ -32,7 +32,7 @@ export async function draftRubric(form: RubricDraftRequest) {
   return RubricDraft.parse(await request('POST', '/api/tasks/rubric-draft', form));
 }
 
-// 从 Linear 导入的预览，不保存（Contracts 第 13 节）
+// Preview imported from Linear, not saved (Contracts 13)
 export async function previewImport(body: ImportPreviewRequest) {
   return ImportPreview.parse(await request('POST', '/api/tasks/from-linear', body));
 }

@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { convert } from '../../src/convert';
 import { formatNumber } from '../../src/format';
 
-// 单元层面的边界情况：不打开页面，直接调用 src 中的函数
+// Unit-level edge cases: call the functions in src directly without opening the page
 
 test.describe('convert temperature', () => {
   test('°C to °F', () => {

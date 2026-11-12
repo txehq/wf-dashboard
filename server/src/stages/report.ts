@@ -28,12 +28,12 @@ import {
   StageState,
   stageItems,
 } from './partition.js';
-import { loadSessionRows, type RequestRow, type SessionRows } from './rows.js';
+import { injectedSkillsOf, loadSessionRows, type RequestRow, type SessionRows } from './rows.js';
 
 export const StageStats = z.object({
-  // 含子代理的请求
+  // Including subagent requests
   requests: z.number(),
-  // 只计主 session 的请求：各轮与 outside 的 mainRequests 之和等于主 agent 的请求总数
+  // Main session requests only: the mainRequests of all cycles plus outside equal the main agent's total requests
   mainRequests: z.number(),
   toolCalls: z.record(z.string(), z.number()),
   inputTokens: z.number(),
@@ -51,7 +51,7 @@ export const StageView = z.object({
   status: z.enum(stageStatuses),
   startSeq: z.number().nullable(),
   endSeq: z.number().nullable(),
-  // 这个阶段被调用的次数（repeatable 的小阶段为修复轮数）
+  // How many times this stage was called (repair rounds for a repeatable stage)
   entries: z.number(),
   evidence: Evidence.nullable(),
   stats: StageStats,
@@ -67,7 +67,7 @@ export const WorkflowCycle = z.object({
 });
 export type WorkflowCycle = z.infer<typeof WorkflowCycle>;
 
-// 一个 workflow 的全部轮次；session 中没有这个 workflow 时 cycles 为空
+// All cycles of one workflow; cycles is empty when the session has none of this workflow
 export const WorkflowCycles = z.object({
   workflow: z.string(),
   cycles: z.array(WorkflowCycle),
@@ -76,7 +76,7 @@ export type WorkflowCycles = z.infer<typeof WorkflowCycles>;
 
 export const StageReport = z.object({
   sessionId: z.string(),
-  // 划分所用的 workflow（Contracts 16.6），按 lfg、ic、其他的顺序
+  // The workflows used for the partition (Contracts 16.6), ordered lfg, ic, then others
   workflows: z.array(WorkflowCycles),
   outside: StageStats,
 });
@@ -97,7 +97,7 @@ function emptyStats(): StageStats {
   };
 }
 
-// 一组主 session 请求的统计：子代理的请求计入其父调用所在的请求
+// Stats of a set of main session requests: subagent requests count toward the request holding their parent call
 function statsOf(rows: SessionRows, main: RequestRow[]): StageStats {
   const stats = emptyStats();
   const agentIds = new Set(
@@ -113,8 +113,8 @@ function statsOf(rows: SessionRows, main: RequestRow[]): StageStats {
     stats.costUsd += r.costUsd;
     for (const c of r.toolCalls) stats.toolCalls[c.name] = (stats.toolCalls[c.name] ?? 0) + 1;
   }
-  // 耗时：各条主请求的 duration_ms 之和（从触发它的用户消息或 tool_result 到它的最后一条记录）。
-  // session 第一条请求之前没有触发记录时 duration_ms 为空，这一条不计入
+  // Duration: the sum of each main request's duration_ms (from the user message or tool_result that triggered it to
+  // its last record). Without a trigger record before the session's first request, duration_ms is null and not counted
   for (const r of main) stats.durationMs += r.durationMs ?? 0;
   stats.subagents = agentIds.size;
   stats.mainRequests = main.length;
@@ -125,7 +125,7 @@ function inRange(seq: number, startSeq: number | null, endSeq: number | null): b
   return startSeq !== null && endSeq !== null && seq >= startSeq && seq <= endSeq;
 }
 
-// 各轮各阶段加上统计；不在任何阶段区间内的主请求为 outside
+// Every cycle and stage with stats; main requests outside every stage range are outside
 function reportOf(rows: SessionRows, partition: Partition, cycles: Cycle[]): StageReport {
   const view = (c: Cycle): WorkflowCycle => ({
     index: c.index,
@@ -152,7 +152,7 @@ function reportOf(rows: SessionRows, partition: Partition, cycles: Cycle[]): Sta
   });
 }
 
-// 一次算出整个 session 的阶段划分（与导入时增量写入的结果相同）；finished 见 cyclesOf
+// The stage partition of a whole session in one pass (same as what import writes incrementally); see cyclesOf for finished
 export function stageReport(
   partition: Partition,
   rows: SessionRows,
@@ -162,12 +162,12 @@ export function stageReport(
   const state = foldStages(
     partition,
     initialStageState(),
-    stageItems(partition, rows.main, rows.userMessages),
+    stageItems(partition, rows.main, rows.userMessages, rows.injectedSkills),
   );
   return reportOf(rows, partition, cyclesOf(partition, state, lastSeq, finished));
 }
 
-// session 属于已到终态的 run
+// The session belongs to a run in a final state
 export function runFinished(db: Db, sessionId: string): boolean {
   const run = db
     .select({ status: runs.status })
@@ -177,15 +177,15 @@ export function runFinished(db: Db, sessionId: string): boolean {
   return run !== undefined && terminalRunStatuses.includes(run.status);
 }
 
-// session 所用的 variant：run 的 session 用 run 的 variant；交互的 session 用该项最近一次进程所用的 variant；
-// 其余为 session 绑定的 variant（可能为空）
+// The session's variant: a run's session uses the run's variant; an interactive session uses the variant of the
+// latest process of its Live item; otherwise the variant bound to the session (may be null)
 function sessionVariantId(db: Db, sessionId: string): string | null {
   const session = db
     .select({ runId: sessions.runId, liveId: sessions.liveId, variantId: sessions.variantId })
     .from(sessions)
     .where(eq(sessions.id, sessionId))
     .get();
-  if (session === undefined) throw new Error(`session ${sessionId} 不存在`);
+  if (session === undefined) throw new Error(`Session ${sessionId} does not exist`);
   const run =
     session.runId === null
       ? undefined
@@ -203,8 +203,8 @@ function sessionVariantId(db: Db, sessionId: string): string | null {
   return run?.variantId ?? live?.variantId ?? session.variantId;
 }
 
-// 划分 session 所用的定义（Contracts 16.6）：所用的 variant 属于其他 workflow 时只按那个 workflow 划分；
-// 属于内置的 lfg 或 ic，或没有 variant 时同时按 lfg 与 ic 划分
+// The definitions used to partition a session (Contracts 16.6): when its variant belongs to another workflow, only
+// that workflow; when it belongs to built-in lfg or ic, or there is no variant, lfg and ic together
 export function sessionPartition(db: Db, sessionId: string): Partition {
   const variantId = sessionVariantId(db, sessionId);
   const workflowId =
@@ -225,10 +225,14 @@ export interface StageChange {
   status: StageStatus;
 }
 
-// stage_states.state：折叠状态加上划分所用的各 workflow 与其定义的 hash
-const SavedState = StageState.extend({
-  workflows: z.array(z.object({ id: z.string(), hash: z.string() })),
-});
+// Version of the fold rules: when the rules change, previously saved state is folded again from the start
+const STAGE_RULES = 2;
+
+// stage_states.state: the folded state plus the rules version, and the partition's workflows with their definition
+// hashes. Read only the version and workflows first
+const Definitions = z.array(z.object({ id: z.string(), hash: z.string() }));
+const SavedHeader = z.looseObject({ rules: z.number().optional(), workflows: Definitions });
+const SavedState = StageState.extend({ rules: z.literal(STAGE_RULES), workflows: Definitions });
 
 const definitionsOf = (partition: Partition) =>
   partition.map((w) => ({ id: w.id, hash: definitionHash(w) }));
@@ -236,20 +240,23 @@ const definitionsOf = (partition: Partition) =>
 const spanKey = (workflow: string, cycle: number, stage: string) =>
   `${workflow}:${String(cycle)}:${stage}`;
 
-// 把 session 新增的主请求折叠进已保存的状态，重写 stage_cycles 与 stage_spans，返回状态变化的阶段。
-// 最后一条请求在一轮结束前还可能追加 content block：已保存的状态只折叠到它之前，它与之后的命令每次重新折叠。
-// 划分所用的 workflow 或其定义与保存时不同时从头折叠
+// Folds the session's new main requests into the saved state, rewrites stage_cycles and stage_spans, and returns the
+// stages whose status changed. The last request may still get content blocks before its turn ends: the saved state
+// folds only up to before it, and it and the commands after it are folded again each time. When the partition's
+// workflows or their definitions, or the rules version, differ from the saved ones, fold from the start
 export function updateStages(db: Db, sessionId: string): StageChange[] {
-  // run 的 claude 还没有写出 jsonl：session 还没有导入，没有可划分的请求
+  // The run's claude has not written its jsonl yet: the session is not imported, nothing to partition
   if (!db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, sessionId)).get())
     return [];
   const partition = sessionPartition(db, sessionId);
   const definitions = definitionsOf(partition);
   const stored = db.select().from(stageStates).where(eq(stageStates.sessionId, sessionId)).get();
-  const parsed = stored === undefined ? undefined : SavedState.parse(stored.state);
+  const header = stored === undefined ? undefined : SavedHeader.parse(stored.state);
   const saved =
-    parsed !== undefined && JSON.stringify(parsed.workflows) === JSON.stringify(definitions)
-      ? { ...stored, state: parsed }
+    stored !== undefined &&
+    header?.rules === STAGE_RULES &&
+    JSON.stringify(header.workflows) === JSON.stringify(definitions)
+      ? { ...stored, state: SavedState.parse(stored.state) }
       : undefined;
   const foldedSeq = saved?.foldedSeq ?? -1;
   const foldedAt = saved?.foldedAt ?? null;
@@ -276,30 +283,33 @@ export function updateStages(db: Db, sessionId: string): StageChange[] {
     )
     .orderBy(asc(userMessages.timestamp))
     .all();
+  const injected = injectedSkillsOf(db, sessionId, foldedAt);
   const complete = fresh.slice(0, -1);
   const state = foldStages(
     partition,
     saved === undefined ? initialStageState() : { cycles: saved.state.cycles },
-    stageItems(partition, complete, users),
+    stageItems(partition, complete, users, injected),
   );
   const committedAt = complete.at(-1)?.timestamp ?? foldedAt;
+  const after = (t: Date) => committedAt === null || t > committedAt;
   const shown = foldStages(
     partition,
     state,
     stageItems(
       partition,
       [last],
-      users.filter((u) => committedAt === null || u.timestamp > committedAt),
+      users.filter((u) => after(u.timestamp)),
+      injected.filter((s) => after(s.timestamp)),
     ),
   );
   const cycles = cyclesOf(partition, shown, last.seq, runFinished(db, sessionId));
   const values = {
-    state: { ...state, workflows: definitions },
+    state: { ...state, rules: STAGE_RULES, workflows: definitions },
     foldedSeq: complete.at(-1)?.seq ?? foldedSeq,
     foldedAt: committedAt,
     updatedAt: new Date(),
   };
-  // 没有变化时不重写（Runs 列表每次读取都会调用）
+  // No rewrite when nothing changed (the Runs list calls this on every read)
   if (
     saved?.foldedSeq === values.foldedSeq &&
     JSON.stringify(savedCycles(db, partition, sessionId)) === JSON.stringify(cycles)
@@ -348,7 +358,7 @@ export function publishStageChanges(sessionId: string, changes: StageChange[]) {
   for (const change of changes) events.publish({ type: 'stage.changed', sessionId, ...change });
 }
 
-// stage_cycles 与 stage_spans 中保存的各轮，形状与 cyclesOf 相同
+// The cycles saved in stage_cycles and stage_spans, shaped like cyclesOf
 function savedCycles(db: Db, partition: Partition, sessionId: string): Cycle[] {
   const cycles = db.select().from(stageCycles).where(eq(stageCycles.sessionId, sessionId)).all();
   const spans = db.select().from(stageSpans).where(eq(stageSpans.sessionId, sessionId)).all();
@@ -376,8 +386,8 @@ function savedCycles(db: Db, partition: Partition, sessionId: string): Cycle[] {
     }));
 }
 
-// 已保存的阶段划分加上统计；导入早于阶段划分的 session 在这里补算。
-// session 还没有导入（run 的 claude 还没写出 jsonl）时为 null
+// The saved stage partition with stats; sessions imported before stage partitioning existed are computed here.
+// null when the session is not imported yet (the run's claude has not written its jsonl)
 export function readReport(db: Db, sessionId: string): StageReport | null {
   if (!db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, sessionId)).get())
     return null;

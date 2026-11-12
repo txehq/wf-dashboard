@@ -11,32 +11,35 @@ import {
 import { useEffect, useRef } from 'react';
 import { requestJson } from '@/lib/http';
 
-// 与 Contracts 26.4（设计与优化会话的 workflow 面板）的接口对应
+// Matches the API of Contracts 26.4 (the workflow panel of design and optimize sessions)
 export type { WorkspaceAgainst, WorkspaceEvent, WorkspaceFileStatus, WorkspaceStageStatus };
 export type Workspace = WorkspaceView;
 export type WorkspaceFile = WorkspaceFileView;
 
-// "对比"可以选的对象（28.4）：底子（空白新建时没有）、上次保存、上一版，按这个顺序，没有的不列出
+// What "Compare" can compare against (28.4): base (absent for a blank start), last saved, previous version, in this
+// order; missing ones are not listed
 export interface AgainstOption {
   value: WorkspaceAgainst;
   label: string;
 }
 
 const clock = (at: number) =>
-  new Date(at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+  new Date(at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
 
 export function againstOptions(workspace: Pick<Workspace, 'base' | 'against'>): AgainstOption[] {
   const { saved, previous } = workspace.against;
   return [
-    ...(workspace.base === null ? [] : [{ value: 'base' as const, label: '底子' }]),
-    ...(saved === null ? [] : [{ value: 'saved' as const, label: `上次保存 ${clock(saved.at)}` }]),
+    ...(workspace.base === null ? [] : [{ value: 'base' as const, label: 'Base' }]),
+    ...(saved === null
+      ? []
+      : [{ value: 'saved' as const, label: `Last saved ${clock(saved.at)}` }]),
     ...(previous === null
       ? []
-      : [{ value: 'previous' as const, label: `上一版 ${clock(previous.at)}` }]),
+      : [{ value: 'previous' as const, label: `Previous version ${clock(previous.at)}` }]),
   ];
 }
 
-// 记下的选择还在时用它，否则用第一个可用的；都没有时为 null
+// Use the stored choice while it is still available, otherwise the first available one; null when there is none
 export const chosenAgainst = (
   options: readonly AgainstOption[],
   stored: WorkspaceAgainst,
@@ -75,8 +78,8 @@ export const workspaceDiffQuery = (liveId: string, path: string, against: Worksp
 
 const EVENT_TYPES = ['changed', 'closed', 'failed'] as const;
 
-// 监视这一项的工作目录（SSE）：每次连上（含断开后重连）先刷新面板的查询，补上断开期间的变化；收到 closed 或
-// failed 后关闭连接，不再重连
+// Watch this item's working directory (SSE): on every connect (including reconnects) refresh the panel's queries first
+// to pick up changes made while disconnected; close the connection after closed or failed and do not reconnect
 export function useWorkspaceEvents(liveId: string, onEvent: (event: WorkspaceEvent) => void) {
   const client = useQueryClient();
   const handler = useRef(onEvent);

@@ -4,7 +4,7 @@ import { batches, runs, sessions, variants } from '../../src/db/schema.js';
 import type { CrossRunRef } from '../../src/grading/schema.js';
 import { initialParseState } from '../../src/ingest/ingest.js';
 
-// variant 属于 workflowId（默认内置的 lfg）；ic 的 run 用 ic 的 variant（Contracts 16.4）
+// The variant belongs to workflowId (the built-in lfg by default); ic runs use an ic variant (Contracts 16.4)
 export function insertVariant(db: Db, id: string, workflowId = 'lfg') {
   db.insert(variants)
     .values({
@@ -34,7 +34,7 @@ export interface RunSeed {
 
 let repeat = 0;
 
-// 一个 run 与它的 session 行；batch 按 run id 建
+// A run and its session row; the batch is created from the run id
 export function insertRun(db: Db, seed: RunSeed) {
   const sessionId = `session-${seed.id}`;
   const startedAt = seed.startedAt ?? new Date('2026-10-09T08:00:00Z');

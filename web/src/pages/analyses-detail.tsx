@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from 'react-router';
 import { FindingsReport } from '@/components/analyses/findings-report';
 import { PatchReview } from '@/components/analyses/patch-review';
 import { EngineChoice } from '@/components/engine-choice';
+import { useSessionVariant } from '@/components/session-variant';
 import { Button } from '@/components/ui/button';
 import { useDesignEngine } from '@/lib/design-engine';
 import {
@@ -27,11 +28,11 @@ import { formatCount, formatDateTime, formatDuration, formatUsd } from '@/lib/fo
 import { useNow } from '@/lib/use-now';
 
 const stepStatus: Record<AnalysisStep['status'], string> = {
-  pending: '等待',
-  running: '进行中',
-  succeeded: '完成',
-  failed: '失败',
-  cancelled: '已停止',
+  pending: 'Pending',
+  running: 'Running',
+  succeeded: 'Done',
+  failed: 'Failed',
+  cancelled: 'Stopped',
 };
 
 function Steps({ analysis }: { analysis: AnalysisDetail }) {
@@ -41,12 +42,12 @@ function Steps({ analysis }: { analysis: AnalysisDetail }) {
       <table className="w-full text-left text-sm" data-testid="analysis-steps">
         <thead className="border-b bg-muted/40 text-xs text-muted-foreground">
           <tr>
-            <th className="py-2 pr-4 pl-3 font-medium">步骤</th>
-            <th className="py-2 pr-4 font-medium">状态</th>
-            <th className="py-2 pr-4 text-right font-medium">耗时</th>
-            <th className="py-2 pr-4 text-right font-medium">事件</th>
-            <th className="py-2 pr-4 text-right font-medium">token</th>
-            <th className="py-2 pr-3 text-right font-medium">花费</th>
+            <th className="py-2 pr-4 pl-3 font-medium">Step</th>
+            <th className="py-2 pr-4 font-medium">Status</th>
+            <th className="py-2 pr-4 text-right font-medium">Duration</th>
+            <th className="py-2 pr-4 text-right font-medium">Events</th>
+            <th className="py-2 pr-4 text-right font-medium">Tokens</th>
+            <th className="py-2 pr-3 text-right font-medium">Cost</th>
           </tr>
         </thead>
         <tbody>
@@ -74,7 +75,7 @@ function Steps({ analysis }: { analysis: AnalysisDetail }) {
               <td className="py-2 pr-4 text-right tabular-nums">{s.events}</td>
               <td
                 className="py-2 pr-4 text-right tabular-nums"
-                title={`input ${String(s.tokens.input)} · output ${String(s.tokens.output)} · cache 读 ${String(s.tokens.cacheRead)} · cache 写 ${String(s.tokens.cacheWrite)} · reasoning ${String(s.tokens.reasoning)}`}
+                title={`input ${String(s.tokens.input)} · output ${String(s.tokens.output)} · cache read ${String(s.tokens.cacheRead)} · cache write ${String(s.tokens.cacheWrite)} · reasoning ${String(s.tokens.reasoning)}`}
               >
                 {formatCount(tokenTotal(s.tokens))}
               </td>
@@ -89,7 +90,7 @@ function Steps({ analysis }: { analysis: AnalysisDetail }) {
   );
 }
 
-// 引用的发现：链接到页面中对应的卡片
+// Cited findings: link to their cards on the page
 function FindingRefs({ ids }: { ids: string[] }) {
   return (
     <span className="flex flex-wrap gap-1">
@@ -102,22 +103,22 @@ function FindingRefs({ ids }: { ids: string[] }) {
   );
 }
 
-// synthesize 写出的报告（Contracts 19.2）：总结、目标与结果、每个方面的条数、影响最大的问题、需要新建 workflow 的建议
+// The report written by synthesize (Contracts 19.2): summary, goal and outcome, findings per aspect, top issues, changes that need a new workflow
 function ReportSummary({ analysis, report }: { analysis: AnalysisDetail; report: AnalysisReport }) {
   return (
     <section
-      aria-label="报告"
+      aria-label="Report"
       className="flex flex-col gap-3 rounded-lg border px-4 py-3"
       data-testid="analysis-report"
     >
-      <h2 className="text-lg font-semibold">报告</h2>
+      <h2 className="text-lg font-semibold">Report</h2>
       <p className="text-sm whitespace-pre-wrap">{report.summary}</p>
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-        <dt className="text-muted-foreground">目标</dt>
+        <dt className="text-muted-foreground">Goal</dt>
         <dd>{report.goal}</dd>
-        <dt className="text-muted-foreground">结果</dt>
+        <dt className="text-muted-foreground">Outcome</dt>
         <dd data-testid="analysis-outcome">{outcomeLabel[report.outcome]}</dd>
-        <dt className="text-muted-foreground">发现</dt>
+        <dt className="text-muted-foreground">Findings</dt>
         <dd className="flex flex-wrap gap-x-3">
           {aspectKeys(analysis.steps).map((a) => (
             <span key={a}>
@@ -128,11 +129,11 @@ function ReportSummary({ analysis, report }: { analysis: AnalysisDetail; report:
       </dl>
       {report.topIssues.length > 0 && (
         <div className="flex flex-col gap-1">
-          <h3 className="text-sm font-medium">影响最大的问题</h3>
+          <h3 className="text-sm font-medium">Top issues</h3>
           <ol className="flex list-decimal flex-col gap-1 pl-5 text-sm">
             {report.topIssues.map((issue, i) => (
               <li key={i}>
-                <span className="font-medium">{issue.title}</span>：{issue.impact}{' '}
+                <span className="font-medium">{issue.title}</span>: {issue.impact}{' '}
                 <FindingRefs ids={issue.findingIds} />
               </li>
             ))}
@@ -141,11 +142,13 @@ function ReportSummary({ analysis, report }: { analysis: AnalysisDetail; report:
       )}
       {report.workflowChanges.length > 0 && (
         <div className="flex flex-col gap-1" data-testid="workflow-changes">
-          <h3 className="text-sm font-medium">需要新建 workflow 的修改（改入口或小阶段）</h3>
+          <h3 className="text-sm font-medium">
+            Changes that need a new workflow (entry skill or stages)
+          </h3>
           <ul className="flex flex-col gap-1 text-sm">
             {report.workflowChanges.map((c, i) => (
               <li key={i}>
-                {c.change}（{c.rationale}） <FindingRefs ids={c.findingIds} />
+                {c.change} ({c.rationale}) <FindingRefs ids={c.findingIds} />
               </li>
             ))}
           </ul>
@@ -155,14 +158,16 @@ function ReportSummary({ analysis, report }: { analysis: AnalysisDetail; report:
   );
 }
 
-// "优化"（Contracts 19.3、22.1、28.4）：选引擎后在 Live 中建会话，工作目录为分析目录，跳到它；引擎默认上次选的
+// "Optimize" (Contracts 19.3, 22.1, 28.4, 33.2): after choosing the engine and workflow-optimize variant, start a Live session
+// in the analysis directory and go to it; the engine defaults to the last choice, the variant to the baseline
 function OptimizeButton({ analysis }: { analysis: AnalysisDetail }) {
   const client = useQueryClient();
   const navigate = useNavigate();
   const [choosing, setChoosing] = useState(false);
   const [engine, setEngine] = useDesignEngine();
+  const session = useSessionVariant('optimize');
   const start = useMutation({
-    mutationFn: () => startOptimize(analysis.id, engine),
+    mutationFn: () => startOptimize(analysis.id, engine, session.variantId),
     onSuccess: async ({ live }) => {
       await client.invalidateQueries({ queryKey: ['live'] });
       await navigate(`/live?item=${live.id}`);
@@ -174,16 +179,17 @@ function OptimizeButton({ analysis }: { analysis: AnalysisDetail }) {
       {choosing ? (
         <span className="contents" data-testid="analysis-optimize-form">
           <EngineChoice value={engine} onChange={setEngine} />
+          {session.select}
           <Button
             size="sm"
             data-testid="analysis-optimize-start"
-            disabled={start.isPending}
+            disabled={start.isPending || session.variantId === ''}
             onClick={() => {
               start.mutate();
             }}
           >
             <Sparkles />
-            {start.isPending ? '正在发起…' : '在 Live 中开始'}
+            {start.isPending ? 'Starting…' : 'Start in Live'}
           </Button>
           <Button
             size="sm"
@@ -192,25 +198,25 @@ function OptimizeButton({ analysis }: { analysis: AnalysisDetail }) {
               setChoosing(false);
             }}
           >
-            取消
+            Cancel
           </Button>
         </span>
       ) : (
         <Button
           size="sm"
           data-testid="analysis-optimize"
-          title="把报告交给 agent，判断改 variant 还是新建 workflow，并把改动做出来"
+          title="Hand the report to an agent to decide between changing the variant and creating a workflow, then make the changes"
           onClick={() => {
             setChoosing(true);
           }}
         >
           <Sparkles />
-          优化
+          Optimize
         </Button>
       )}
       {sessions.map((d) => (
         <Link key={d.id} className="underline" to={`/live?item=${d.liveId ?? ''}`}>
-          优化 {d.id}
+          Optimize {d.id}
         </Link>
       ))}
       {start.isError && (
@@ -242,7 +248,7 @@ function AnalysisView({ analysis }: { analysis: AnalysisDetail }) {
                 cancel.mutate();
               }}
             >
-              取消
+              Cancel
             </Button>
           )}
         </div>
@@ -250,7 +256,7 @@ function AnalysisView({ analysis }: { analysis: AnalysisDetail }) {
           {engineLabel[analysis.engine]} · <span className="font-mono">{analysis.model}</span> ·
           variant{' '}
           {analysis.variantId === null ? (
-            <span data-testid="analysis-variant">本机配置</span>
+            <span data-testid="analysis-variant">Local config</span>
           ) : analysis.variantDeleted ? (
             <span>{analysis.variantName}</span>
           ) : (
@@ -260,7 +266,7 @@ function AnalysisView({ analysis }: { analysis: AnalysisDetail }) {
           )}{' '}
           {analysis.analysisVariantId !== null && (
             <>
-              · 分析方法{' '}
+              · Method{' '}
               {analysis.analysisVariantDeleted ? (
                 <span data-testid="analysis-method">{analysis.analysisVariantName}</span>
               ) : (
@@ -305,7 +311,7 @@ function AnalysisView({ analysis }: { analysis: AnalysisDetail }) {
         </pre>
       )}
       {analysis.report !== null && <ReportSummary analysis={analysis} report={analysis.report} />}
-      {/* 本机配置的 session 的分析只有报告：没有修改建议，不能保存为 variant 或优化（Contracts 25.4） */}
+      {/* Analyses of local-config sessions have only a report: no suggested changes, no saving as a variant, no optimizing (Contracts 25.4) */}
       {analysis.variantId !== null &&
         analysis.status === 'succeeded' &&
         analysis.report !== null && <OptimizeButton analysis={analysis} />}
@@ -331,7 +337,7 @@ function AnalysisView({ analysis }: { analysis: AnalysisDetail }) {
 export function AnalysisDetailPage() {
   useAnalysisEvents();
   const { id } = useParams();
-  if (id === undefined) throw new Error('路由缺少分析 id');
+  if (id === undefined) throw new Error('Route is missing the analysis id');
   const analysis = useQuery(analysisQuery(id));
   return (
     <div className="flex flex-col gap-4">
@@ -340,13 +346,13 @@ export function AnalysisDetailPage() {
         className="inline-flex items-center gap-1 self-start text-sm text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="size-4" />
-        全部分析
+        All analyses
       </Link>
       {analysis.isPending ? (
-        <p className="text-sm text-muted-foreground">正在加载…</p>
+        <p className="text-sm text-muted-foreground">Loading…</p>
       ) : analysis.data === undefined ? (
         <p role="alert" className="text-sm text-destructive">
-          加载分析失败：{analysis.error.message}
+          Couldn't load the analysis: {analysis.error.message}
         </p>
       ) : (
         <AnalysisView analysis={analysis.data} />

@@ -9,7 +9,9 @@ export function RunsPage() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold">Runs</h1>
-        <p className="text-sm text-muted-foreground">发起评估运行，查看实时进度与对话。</p>
+        <p className="text-sm text-muted-foreground">
+          Start evaluation runs and follow their progress and conversations live.
+        </p>
       </div>
       <LaunchBatch />
       <RunSettings />

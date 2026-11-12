@@ -1,18 +1,19 @@
 import { z } from 'zod';
 import { displayUserText } from '../api/user-text.js';
 import type { StageStatus } from '../db/schema.js';
-import { codexSkillOfCall } from '../ingest/codex-skill.js';
+import { codexSkillsOfCall } from '../ingest/codex-skill.js';
 import type { WorkflowDefinition } from '../workflows/schema.js';
 import { inputString } from './rows.js';
 
-// 阶段划分（Contracts 第 5 节、16.6）：按 Skill 调用与用户输入的 slash 命令把主 agent 的请求线性切块，不调用模型。
-// 切块规则读 workflow 定义：一组 workflow（内置的 lfg 与 ic 一起，其他 workflow 单独）的入口与小阶段的顺序，
-// 加上小阶段的 repeatable 与 allowInside
+// Stage partition (Contracts section 5, 16.6): splits the main agent's requests linearly by Skill calls and slash
+// commands the user typed, without calling a model. The rules come from the workflow definitions: the entries and
+// stage order of a group of workflows (built-in lfg and ic together, every other workflow alone), plus each stage's
+// repeatable and allowInside
 export type Partition = readonly WorkflowDefinition[];
 
 export const markerKinds = ['skill', 'command'] as const;
 
-// 进入阶段的那次调用
+// The call that entered the stage
 export const Evidence = z.object({
   seq: z.number(),
   kind: z.enum(markerKinds),
@@ -20,14 +21,14 @@ export const Evidence = z.object({
 });
 export type Evidence = z.infer<typeof Evidence>;
 
-// 一个切块标记：name 为小阶段 id，或 workflow id（入口命令）
+// A split marker: name is a stage id, or a workflow id (entry command)
 export interface Marker {
   kind: (typeof markerKinds)[number];
   name: string;
   text: string;
 }
 
-// 一条主 agent 请求与落在它上面的标记（先是它之前输入的命令，再是它的 Skill 调用，各按出现顺序）
+// A main agent request and the markers on it (first the commands typed before it, then its Skill calls, each in order)
 export interface StageItem {
   seq: number;
   markers: Marker[];
@@ -42,15 +43,15 @@ const EnteredStage = z.object({
 
 const CycleState = z.object({
   workflow: z.string(),
-  // 开启这一轮的用户输入；由 Skill 调用开启时为空
+  // The user input that opened this cycle; null when a Skill call opened it
   label: z.string().nullable(),
   startSeq: z.number(),
-  // 已进入的小阶段，按进入顺序（即阶段顺序）
+  // Stages entered so far, in entry order (which is stage order)
   stages: z.array(EnteredStage),
 });
 type CycleState = z.infer<typeof CycleState>;
 
-// 折叠的状态：全部轮次按开始顺序排列，各 workflow 混排，最后一轮为当前轮次
+// Folded state: all cycles in start order, workflows interleaved; the last cycle is the current one
 export const StageState = z.object({
   cycles: z.array(CycleState),
 });
@@ -60,7 +61,7 @@ export const initialStageState = (): StageState => ({ cycles: [] });
 
 const COMMAND_NAME = /<command-name>\/([^<\s]+)<\/command-name>/;
 
-// 用户消息中的 slash 命令；不是命令时为 null
+// The slash command in a user message; null when it is not a command
 function commandOf(text: string): Marker | null {
   const name = COMMAND_NAME.exec(text)?.[1];
   if (name === undefined) return null;
@@ -79,7 +80,8 @@ const isEntry = (partition: Partition, name: string) => partition.some((w) => w.
 const stageIndex = (workflow: WorkflowDefinition, name: string) =>
   workflow.stages.findIndex((s) => s.id === name);
 
-// 小阶段所在的 workflow：当前轮次的 workflow 有这个小阶段时取它（不同 workflow 可以有同名小阶段），否则取第一个
+// The workflow a stage belongs to: the current cycle's workflow if it has the stage (different workflows may share
+// stage names), otherwise the first one
 function stageOf(
   partition: Partition,
   current: string | undefined,
@@ -106,33 +108,63 @@ interface UserInput {
   text: string;
 }
 
-// 每条主请求上的标记：用户消息落在它之后的第一条请求上（时间不早于消息）；最后一条请求之后的用户消息还没有请求，不产生标记
+// A skill Codex injected as a <skill> message (an injected row in session_skills)
+interface InjectedSkill {
+  timestamp: Date;
+  name: string;
+}
+
+// The markers on each main request: typed commands and Codex-injected skills go to the first request at or after
+// their time; those after the last request have no request yet and produce no marker. An injected skill counts as
+// a command of the message where the user mentioned it as $<skill>, and that message is recorded as its text
 export function stageItems(
   partition: Partition,
   main: MainRequest[],
   users: UserInput[],
+  injected: InjectedSkill[],
 ): StageItem[] {
   const items = main.map((r) => ({ seq: r.seq, markers: [] as Marker[] }));
+  const typed = users.filter((m) => m.kind === 'user');
+  const inputs = [
+    ...typed.flatMap((m) => {
+      const marker = commandOf(m.text);
+      return marker === null ? [] : [{ at: m.timestamp.getTime(), marker }];
+    }),
+    ...injected.map((s) => {
+      const at = s.timestamp.getTime();
+      const said = typed.findLast((m) => m.timestamp.getTime() <= at);
+      if (said === undefined) throw new Error(`No user message before injected skill ${s.name}`);
+      return {
+        at,
+        marker: { kind: 'command' as const, name: s.name, text: displayUserText(said.text) },
+      };
+    }),
+  ].sort((a, b) => a.at - b.at);
   let i = 0;
-  for (const m of users) {
-    if (m.kind !== 'user') continue;
-    const marker = commandOf(m.text);
-    if (marker === null || !isMarker(partition, marker)) continue;
-    const at = m.timestamp.getTime();
+  for (const { at, marker } of inputs) {
+    if (!isMarker(partition, marker)) continue;
     while (i < main.length && (main[i]?.timestamp.getTime() ?? 0) < at) i++;
     items[i]?.markers.push(marker);
   }
   for (const [j, r] of main.entries()) {
     for (const call of r.toolCalls) {
-      // Claude Code 的 Skill 调用；Codex 以 exec_command 执行 cat <skill>/SKILL.md 加载 skill（Contracts 25.2）
-      const codexSkill = codexSkillOfCall(call);
-      const marker =
+      // A Claude Code Skill call; Codex loads a skill by reading <skill>/SKILL.md with cat via exec_command (Contracts 25.2)
+      const markers =
         call.name === 'Skill'
-          ? skillMarker(call.input)
-          : codexSkill === null
-            ? null
-            : { kind: 'skill' as const, name: codexSkill, text: `Skill: ${codexSkill}` };
-      if (marker !== null && isMarker(partition, marker)) items[j]?.markers.push(marker);
+          ? [skillMarker(call.input)]
+          : codexSkillsOfCall(call).map((name) => ({
+              kind: 'skill' as const,
+              name,
+              text: `Skill: ${name}`,
+            }));
+      for (const marker of markers) {
+        if (marker === null || !isMarker(partition, marker)) continue;
+        // A command (slash command, Codex $<skill> injection) already handed the skill to this request: reading the
+        // same skill right after via a Skill call or cat reads what it was given and is not another entry
+        const previous = items[j]?.markers.at(-1);
+        if (previous?.kind === 'command' && previous.name === marker.name) continue;
+        items[j]?.markers.push(marker);
+      }
     }
   }
   return items;
@@ -141,15 +173,26 @@ export function stageItems(
 function apply(partition: Partition, cycles: CycleState[], seq: number, marker: Marker) {
   const evidence: Evidence = { seq, kind: marker.kind, text: marker.text };
   const label = marker.kind === 'command' ? (marker.text.split('\n')[0] ?? marker.text) : null;
-  // workflow 的入口：开始这个 workflow 的新一轮
-  if (isEntry(partition, marker.name)) {
-    cycles.push({ workflow: marker.name, label, startSeq: seq, stages: [] });
+  // A workflow entry starts a new cycle of that workflow. The entry of a single-skill workflow (whose only stage has
+  // its name) also enters that stage; if the stage is repeatable and the current cycle is already in it, count it
+  const entry = partition.find((w) => w.id === marker.name);
+  if (entry !== undefined) {
+    const only =
+      entry.stages.length === 1 && entry.stages[0]?.id === entry.id ? entry.stages[0] : null;
+    const current = cycles.at(-1);
+    const last = current?.stages.at(-1);
+    if (only?.repeatable === true && current?.workflow === entry.id && last?.stage === entry.id) {
+      last.entries += 1;
+      return;
+    }
+    const stages = only === null ? [] : [{ stage: entry.id, startSeq: seq, entries: 1, evidence }];
+    cycles.push({ workflow: marker.name, label, startSeq: seq, stages });
     return;
   }
   const current = cycles.at(-1);
   const found = stageOf(partition, current?.workflow, marker.name);
   if (found === null) {
-    throw new Error(`${marker.name} 不是 ${partition.map((w) => w.id).join('、')} 的阶段`);
+    throw new Error(`${marker.name} is not a stage of ${partition.map((w) => w.id).join(', ')}`);
   }
   const { workflow, index } = found;
   const entered = { stage: marker.name, startSeq: seq, entries: 1, evidence };
@@ -161,27 +204,28 @@ function apply(partition: Partition, cycles: CycleState[], seq: number, marker: 
     return;
   }
   const last = current.stages.at(-1);
-  // 入口命令开启的一轮还没有进入任何小阶段：任一小阶段都在当前之后
+  // A cycle opened by an entry command has entered no stage yet: every stage comes after the current position
   if (last === undefined) {
     current.stages.push(entered);
     return;
   }
   const at = stageIndex(workflow, last.stage);
   const lastStage = workflow.stages[at];
-  if (lastStage === undefined) throw new Error(`workflow ${workflow.id} 没有小阶段 ${last.stage}`);
-  // repeatable 的小阶段再次出现时留在当前阶段并计次（fix-pr 的修复轮数）
+  if (lastStage === undefined)
+    throw new Error(`Workflow ${workflow.id} has no stage ${last.stage}`);
+  // A repeatable stage that appears again stays current and is counted (fix-pr repair rounds)
   if (lastStage.repeatable === true && marker.name === last.stage) {
     last.entries += 1;
     return;
   }
-  // 在当前阶段中调用 allowInside 列出的小阶段不算切换（fix-pr 中重跑验收）
+  // Calling a stage listed in allowInside from the current stage is not a switch (rerunning acceptance in fix-pr)
   if (lastStage.allowInside?.includes(marker.name) === true) return;
-  // 当前阶段之后的阶段：切到那个阶段；第一个阶段、当前阶段本身与之前的阶段：开始新一轮
+  // A later stage: switch to it; the first stage, the current stage itself or an earlier one: start a new cycle
   if (index > at) current.stages.push(entered);
   else open();
 }
 
-// 把新的请求依次折叠进状态；同一组请求一次折叠与分几次折叠的结果相同
+// Folds new requests into the state in order; folding a set of requests at once or in several parts gives the same result
 export function foldStages(
   partition: Partition,
   state: StageState,
@@ -197,7 +241,7 @@ export function foldStages(
 export interface StageSpan {
   stage: string;
   status: StageStatus;
-  // 主 session seq，含端点；skipped 为 [s, s-1]（s 为之后进入的阶段的起点），not-reached 为空
+  // Main session seq, inclusive; skipped is [s, s-1] (s is the start of the next entered stage), not-reached is null
   startSeq: number | null;
   endSeq: number | null;
   entries: number;
@@ -206,7 +250,7 @@ export interface StageSpan {
 
 export interface Cycle {
   workflow: string;
-  // 这个 workflow 的第几轮，从 1 开始
+  // Cycle number within this workflow, from 1
   index: number;
   label: string;
   startSeq: number;
@@ -214,8 +258,8 @@ export interface Cycle {
   spans: StageSpan[];
 }
 
-// 状态在 lastSeq（主 session 的最后一条请求）时的各轮各阶段。session 中的最后一个阶段为 active；
-// finished（session 属于已到终态的 run）时为 done
+// The cycles and stages of the state at lastSeq (the main session's last request). The session's last stage is
+// active, or done when finished (the session belongs to a run in a final state)
 export function cyclesOf(
   partition: Partition,
   state: StageState,
@@ -228,7 +272,8 @@ export function cyclesOf(
     const index = (counts.get(c.workflow) ?? 0) + 1;
     counts.set(c.workflow, index);
     const order = partition.find((w) => w.id === c.workflow)?.stages.map((s) => s.id);
-    if (order === undefined) throw new Error(`划分所用的 workflow 中没有 ${c.workflow}`);
+    if (order === undefined)
+      throw new Error(`The partition's workflows do not include ${c.workflow}`);
     const endSeq = (state.cycles[i + 1]?.startSeq ?? lastSeq + 1) - 1;
     const entered = new Map(c.stages.map((s, k) => [s.stage, k]));
     const spans = order.map((stage, position): StageSpan => {
@@ -254,7 +299,7 @@ export function cyclesOf(
             };
       }
       const s = c.stages[k];
-      if (s === undefined) throw new Error(`第 ${String(k)} 个阶段不存在`);
+      if (s === undefined) throw new Error(`Stage ${String(k)} does not exist`);
       const next = c.stages[k + 1];
       const isLast = next === undefined;
       return {
@@ -269,7 +314,7 @@ export function cyclesOf(
     return {
       workflow: c.workflow,
       index,
-      label: c.label ?? `第 ${String(index)} 轮`,
+      label: c.label ?? `Round ${String(index)}`,
       startSeq: c.startSeq,
       endSeq,
       spans,

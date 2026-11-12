@@ -4,7 +4,7 @@ import { requestJson } from '@/lib/http';
 import { invalidateThrottled, type LiveEventType, useLiveEvent } from '@/lib/live-events';
 import { refreshRequestsThrottled, type StageReport, type StageStatus } from '@/lib/sessions-api';
 
-// 与 Contracts.md 第 7 节的 Runs API 对应（server/src/runs/views.ts）
+// Runs API, Contracts 7 (server/src/runs/views.ts)
 
 export type RunStatus =
   'queued' | 'preparing' | 'running' | 'grading' | 'succeeded' | 'failed' | 'cancelled';
@@ -19,7 +19,7 @@ export const runStatuses: RunStatus[] = [
   'cancelled',
 ];
 
-// 还会变化的状态
+// Statuses that can still change
 export const liveStatuses: ReadonlySet<RunStatus> = new Set([
   'queued',
   'preparing',
@@ -61,7 +61,7 @@ export type Pending =
   | { kind: 'text'; text: string; since: number }
   | { kind: 'questions'; requestId: string; questions: AskQuestion[]; since: number };
 
-// rubric 产物以 rubric 分组 id 为种类（例如 brief、research），其余为固定的种类
+// Rubric outputs use the rubric group id as their kind (e.g. brief, research); the rest are fixed kinds
 export type ArtifactKind =
   'pr' | 'repo' | 'ticket' | 'friction' | 'acceptance' | 'pr_snapshot' | (string & {});
 
@@ -73,17 +73,17 @@ export interface Artifact {
   updatedAt: number;
 }
 
-// Contracts 7.11：这个 run 的请求中指向其他评估 run 的引用
+// Contracts 7.11: references in this run's requests that point at other evaluation runs
 export interface CrossRunRef {
   runId: string;
   kind: 'repo' | 'vault' | 'ticket' | 'other';
-  // 主 session 的 seq；子代理中的调用取发起该子代理的主 session 请求
+  // seq in the main session; calls inside a subagent use the main-session request that started it
   requestSeq: number;
   toolCallId: string;
   excerpt: string;
 }
 
-// Contracts 第 13 节：从 Linear 导入的 task 的 run 读取了来源
+// Contracts 13: a run of a task imported from Linear read its source
 export interface SourceRef {
   kind: 'ticket' | 'pr' | 'repo';
   requestSeq: number;
@@ -95,13 +95,13 @@ export interface RunSummary {
   id: string;
   batchId: string;
   taskId: string;
-  // variant 所属的 workflow（Contracts 16.4）与 task 的评测类型（16.3）
+  // The variant's workflow (Contracts 16.4) and the task's evaluation kind (16.3)
   workflowId: string;
   kind: 'lfg' | 'ic';
   taskTitle: string;
   variantId: string;
   variantName: string;
-  // 发起 batch 时选的模型（别名）与 effort（Contracts 16.5）
+  // Model alias and effort chosen when the batch started (Contracts 16.5)
   model: string;
   effort: string;
   repeatIndex: number;
@@ -111,11 +111,11 @@ export interface RunSummary {
   durationMs: number | null;
   humanIntervened: boolean;
   crossRunRefs: CrossRunRef[];
-  // 读取了来源工单、来源仓库或来源 PR（Contracts 第 13 节）；compare 默认排除
+  // Read the source ticket, repo or PR (Contracts 13); compare excludes these by default
   sourceRefs: SourceRef[];
-  // 标为无效的原因；compare 总是排除这类 run
+  // Why the run was invalidated; compare always excludes these runs
   invalidReason: string | null;
-  // Contracts 7.6：none 不会评分，running 正在评分，done 已评分，failed 评分出错
+  // Contracts 7.6: none = not graded, running = grading, done = graded, failed = grading errored
   grading: { status: 'none' | 'running' | 'done' | 'failed'; error: string | null };
   error: string | null;
   createdAt: number;
@@ -130,7 +130,7 @@ export interface CostBreakdown {
   total: number;
 }
 
-// 运行中的 run 耗时按当前时间计算
+// A running run's duration counts up to now
 export function runDuration(run: RunSummary, now: number): number | null {
   if (run.startedAt === null) return null;
   return (run.endedAt ?? now) - run.startedAt;
@@ -169,14 +169,16 @@ export interface Settings {
   maxUserTurns: number;
   defaultRepeats: number;
   models: { simulatedUser: string; judge: string };
-  // 副本仓库可用的自托管 runner 标签（Contracts 第 13 节）
+  // Self-hosted runner labels available to copy repos (Contracts 13)
   copyRunnerLabels: string[];
-  // 发起 batch 时 model 与 effort 的默认值（Contracts 16.5）
+  // Default model and effort when starting a batch (Contracts 16.5)
   agentModel: ModelAlias;
   agentEffort: Effort;
+  // Day boundaries of the Linear stats (Contracts 37.1), an IANA timezone
+  teamStatsTimezone: string;
 }
 
-// 失败时抛出带 URL、状态码与服务端原因的错误
+// Throws an error with the URL, status code and server reason on failure
 async function call<T>(method: string, url: string, body?: unknown): Promise<T> {
   return (await requestJson(method, url, body)) as T;
 }
@@ -244,19 +246,19 @@ export function answerRun(id: string, answers: Record<string, string>) {
   return call<{ ok: true }>('POST', `/api/runs/${id}/answer`, { answers });
 }
 
-// Contracts 7.12：标为无效（reason 非空）或恢复
+// Contracts 7.12: invalidate (non-null reason) or restore
 export function setRunInvalid(id: string, reason: string | null) {
   return reason === null
     ? call<{ ok: true }>('POST', `/api/runs/${id}/revalidate`)
     : call<{ ok: true }>('POST', `/api/runs/${id}/invalidate`, { reason });
 }
 
-// Contracts 10：同一 batch 中为同一 task × variant 新建 run，返回新 run
+// Contracts 10: creates a new run for the same task x variant in the same batch and returns it
 export function rerunRun(id: string) {
   return call<RunSummary>('POST', `/api/runs/${id}/rerun`);
 }
 
-// 页面上显示"重跑"按钮的 run：失败、取消或已标为无效
+// Runs that show the Rerun button: failed, cancelled or invalidated
 export function rerunnable(run: RunSummary): boolean {
   return run.status === 'failed' || run.status === 'cancelled' || run.invalidReason !== null;
 }
@@ -270,8 +272,8 @@ const runEvents = new Set<LiveEventType>([
   'run.cost',
 ]);
 
-// run.* 刷新列表与对应 run 的详情；session.updated 刷新该 session 的请求明细。
-// 同一查询在窗口内只刷新一次：batch 创建时几十条 run.status、长时间运行中每秒数次 session.updated
+// run.* refreshes the list and that run's detail; session.updated refreshes that session's requests.
+// Each query refreshes at most once per window: batch creation sends dozens of run.status, long runs send several session.updated per second
 export function useRunEvents() {
   const client = useQueryClient();
   useLiveEvent((type, data) => {
@@ -290,11 +292,11 @@ export function useRunEvents() {
 }
 
 export const statusLabel: Record<RunStatus, string> = {
-  queued: '排队中',
-  preparing: '准备中',
-  running: '运行中',
-  grading: '评分中',
-  succeeded: '已完成',
-  failed: '失败',
-  cancelled: '已取消',
+  queued: 'Queued',
+  preparing: 'Preparing',
+  running: 'Running',
+  grading: 'Grading',
+  succeeded: 'Succeeded',
+  failed: 'Failed',
+  cancelled: 'Cancelled',
 };

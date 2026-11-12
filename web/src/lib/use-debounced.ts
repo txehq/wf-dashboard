@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-// 输入停下 ms 毫秒后才更新的值（搜索框）
+// A value that updates only after input pauses for ms milliseconds (search boxes)
 export function useDebounced(value: string, ms: number) {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {

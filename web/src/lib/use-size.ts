@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
-// 元素的内部尺寸（ResizeObserver 在开始观察时与每次变化时报告，放到下一帧，避免在同一次布局中反复触发）；
-// 返回挂到元素上的 ref 与尺寸，没有挂上时为 0
+// An element's content size (ResizeObserver reports when observing starts and on each change, deferred to the next frame so one layout does not trigger it repeatedly);
+// returns the ref to attach and the size, 0 while not attached
 export function useSize() {
   const [element, setElement] = useState<HTMLElement | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });

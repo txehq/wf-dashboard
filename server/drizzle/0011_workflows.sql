@@ -1,6 +1,8 @@
--- 可配置的 workflow（Contracts 16）。drizzle-kit 生成后手工加入了数据步骤（DEFAULT、UPDATE、DELETE），重新生成时必须保留：
--- 现有 task 与 variant 归入 dev-workflow，run 与交互进程的 model 与 effort 取它所用 variant 的值，阶段结果按新形状重算。
--- 只用 ALTER TABLE：重建被引用的表时 DROP TABLE 的隐式 DELETE 会触发外键动作（sessions.variant_id 等被置空）
+-- Configurable workflows (Contracts 16). Data steps (DEFAULT, UPDATE, DELETE) were added by hand after drizzle-kit and
+-- must be kept when regenerating: existing tasks and variants go into dev-workflow, runs and interactive processes take
+-- model and effort from their variant, and stage results are recomputed in the new shape.
+-- Only ALTER TABLE: rebuilding a referenced table fires foreign key actions through DROP TABLE's implicit DELETE
+-- (sessions.variant_id and others would be set to null)
 CREATE TABLE `workflows` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
@@ -34,7 +36,8 @@ ALTER TABLE `runs` ADD `effort` text NOT NULL DEFAULT '';--> statement-breakpoin
 UPDATE `runs` SET
 	`model` = (SELECT `model` FROM `variants` WHERE `variants`.`id` = `runs`.`variant_id`),
 	`effort` = (SELECT `effort` FROM `variants` WHERE `variants`.`id` = `runs`.`variant_id`);--> statement-breakpoint
--- 以前的交互进程以 variant 的 --model 与 --effort 启动；本机配置不传，保持为空
+-- Earlier interactive processes started with the variant's --model and --effort; the local configuration passes
+-- none and stays empty
 ALTER TABLE `live_processes` ADD `model` text;--> statement-breakpoint
 ALTER TABLE `live_processes` ADD `effort` text;--> statement-breakpoint
 UPDATE `live_processes` SET

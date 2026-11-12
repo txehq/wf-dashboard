@@ -39,5 +39,5 @@ CREATE UNIQUE INDEX `sessions_file_path_unique` ON `sessions` (`file_path`);--> 
 CREATE INDEX `sessions_variant_idx` ON `sessions` (`variant_id`);--> statement-breakpoint
 CREATE INDEX `sessions_run_idx` ON `sessions` (`run_id`);--> statement-breakpoint
 CREATE INDEX `sessions_started_at_idx` ON `sessions` (`started_at`,`id`);--> statement-breakpoint
--- 现在已在 dashboard 中的 session 全部保留为已导入（Contracts 25.1）
+-- Every session already in the dashboard stays imported (Contracts 25.1)
 INSERT INTO `session_imports`("session_id", "engine", "file_path", "imported_at", "cleared_at") SELECT "id", "engine", "file_path", "created_at", NULL FROM `sessions`;

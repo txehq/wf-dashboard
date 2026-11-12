@@ -16,17 +16,19 @@ import { cn } from '@/lib/utils';
 import { ARC, fitZoom, flowLayout, NODE_HEIGHT, VIEWPORT_X } from './workflow-flow-size';
 import './workflow-flow.css';
 
-// Contracts 18.4：workflow 页面的小阶段流程图。入口节点之后按顺序连到各小阶段；repeatable 的小阶段画一条回到
-// 自己的边；allowInside: [x] 画一条从本阶段到 x 再回来的虚线边，标注"不算切换"。随定义（表单或 YAML）同步更新
+// Contracts 18.4: the stage flow chart on the workflow page. The entry node connects to each stage in order; a repeatable
+// stage gets an edge back to itself; allowInside: [x] draws a dashed edge from the stage to x and back, labeled
+// "not a stage switch". Follows the definition (form or YAML) as it changes
 
-// 设计与优化会话的面板（Contracts 26.2）：节点标出它的 skill 在草稿中是新增、修改、未变还是缺少，点节点打开它
+// Panel of design and optimize sessions (Contracts 26.2): a node shows whether its skill is added, modified, unchanged or
+// missing in the draft; clicking a node opens it
 export type StageMark = 'added' | 'modified' | 'unchanged' | 'missing';
 
 const markLabel: Record<StageMark, string | null> = {
-  added: '新增',
-  modified: '修改',
+  added: 'Added',
+  modified: 'Modified',
   unchanged: null,
-  missing: '缺少',
+  missing: 'Missing',
 };
 
 interface FlowNodeData extends Record<string, unknown> {
@@ -108,7 +110,7 @@ function FlowNodeView({ data }: NodeProps<FlowNode>) {
           data-entry={data.entry}
           data-mark={data.mark ?? undefined}
           aria-pressed={data.selected}
-          title={`打开 skills/${data.id}/SKILL.md`}
+          title={`Open skills/${data.id}/SKILL.md`}
           className={cn(className, 'nodrag nopan')}
           onClick={() => {
             data.onSelect?.(data.id);
@@ -124,7 +126,7 @@ function FlowNodeView({ data }: NodeProps<FlowNode>) {
 const color = 'var(--foreground)';
 const marker = { type: MarkerType.ArrowClosed, color, width: 14, height: 14 };
 
-// repeatable：从框顶右侧出发，弧线回到框顶左侧
+// repeatable: an arc from the top right of the box back to its top left
 function LoopEdge({ sourceX, sourceY, targetX, targetY, markerEnd, style }: EdgeProps) {
   const lift = 30;
   const path = `M ${String(sourceX)} ${String(sourceY)} C ${String(sourceX + 16)} ${String(sourceY - lift)}, ${String(targetX - 16)} ${String(targetY - lift)}, ${String(targetX)} ${String(targetY)}`;
@@ -133,11 +135,12 @@ function LoopEdge({ sourceX, sourceY, targetX, targetY, markerEnd, style }: Edge
   );
 }
 
-// allowInside：从本阶段框底到 x 框底的虚线弧线，再从 x 回到本阶段（更深的一条），中间标注"不算切换"
+// allowInside: a dashed arc from the bottom of this stage to the bottom of x, then back from x (the deeper arc),
+// labeled "not a stage switch" in the middle
 function InsideEdge({ id, sourceX, sourceY, targetX, targetY, style }: EdgeProps) {
   const there = `M ${String(sourceX - 8)} ${String(sourceY)} C ${String(sourceX - 8)} ${String(sourceY + ARC)}, ${String(targetX + 8)} ${String(targetY + ARC)}, ${String(targetX + 8)} ${String(targetY)}`;
   const back = `M ${String(targetX - 8)} ${String(targetY)} C ${String(targetX - 8)} ${String(targetY + ARC * 2)}, ${String(sourceX + 8)} ${String(sourceY + ARC * 2)}, ${String(sourceX + 8)} ${String(sourceY)}`;
-  // url(#…) 中的 id 只用字母、数字与连字符
+  // Ids inside url(#...) use only letters, digits and hyphens
   const markerId = `inside-arrow-${id.replace(/[^a-z0-9-]/gi, '_')}`;
   return (
     <g data-testid={`flow-inside-${id}`}>
@@ -163,7 +166,7 @@ function InsideEdge({ id, sourceX, sourceY, targetX, targetY, style }: EdgeProps
           markerEnd={`url(#${markerId})`}
         />
       ))}
-      {/* 深的一条弧线最低处约在框底之下 1.5 × ARC，标注放在它下面，描一圈背景色免得压在线上 */}
+      {/* The deeper arc bottoms out about 1.5 x ARC below the boxes; the label sits below it, outlined in the background color so it does not sit on the line */}
       <text
         x={(sourceX + targetX) / 2}
         y={Math.max(sourceY, targetY) + ARC * 1.5 + 14}
@@ -171,7 +174,7 @@ function InsideEdge({ id, sourceX, sourceY, targetX, targetY, style }: EdgeProps
         className="fill-muted-foreground text-[11px]"
         style={{ paintOrder: 'stroke', stroke: 'var(--background)', strokeWidth: 4 }}
       >
-        不算切换
+        not a stage switch
       </text>
     </g>
   );
@@ -190,13 +193,13 @@ export function StageFlow({
   compact = false,
 }: {
   definition: WorkflowDefinition;
-  // 每个节点（入口与各小阶段的 id）的标记；不给时不标
+  // Mark for each node (by entry or stage id); no marks when omitted
   marks?: Record<string, StageMark> | undefined;
   selected?: string | null;
   onSelect?: ((id: string) => void) | undefined;
-  // 整张图缩放到框的宽度内可见（Contracts 26.2、28.4），给了高度时同时缩放到这个高度内；到下限后横向滚动
+  // Fit the whole chart to the frame width (Contracts 26.2, 28.4), and to this height when given; scroll sideways below the minimum zoom
   fitHeight?: number | null;
-  // 更窄的节点与间隔（workflow-flow-size.ts）
+  // Narrower nodes and gaps (workflow-flow-size.ts)
   compact?: boolean;
 }) {
   const [frame, frameSize] = useSize();
@@ -217,7 +220,7 @@ export function StageFlow({
     },
     draggable: false,
     selectable: false,
-    // 不可选、不可拖动的节点 React Flow 设为 pointer-events: none；可以点击打开 skill 时恢复
+    // React Flow gives unselectable, undraggable nodes pointer-events: none; restore it when a click opens the skill
     ...(onSelect === undefined ? {} : { style: { pointerEvents: 'all' } }),
   }));
   const edges: Edge[] = [];
@@ -260,7 +263,7 @@ export function StageFlow({
     }
   }
   const { width, height } = layout;
-  // 外框的宽度在下一帧量出，量出之前不显示，免得先按原大画出再缩小
+  // The frame width is measured on the next frame; stay hidden until then so the chart is not drawn full size and then shrunk
   const measured = frameSize.width > 0;
   const zoom = fitZoom(layout, {
     width: frameSize.width,
@@ -276,18 +279,18 @@ export function StageFlow({
       data-testid="stage-flow"
       data-zoom={measured ? zoom : undefined}
       role="group"
-      aria-label={`/${definition.id} 的小阶段流程图`}
+      aria-label={`Stage flow of /${definition.id}`}
     >
       <div style={{ width: width * zoom, height: height * zoom }}>
         <ReactFlow
-          // 缩放变化时按新的 defaultViewport 重建
+          // Rebuild with the new defaultViewport when the zoom changes
           key={zoom}
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           defaultViewport={{ x: VIEWPORT_X * zoom, y: 0, zoom }}
-          // 署名按 React Flow 的 MIT 许可可以去掉（THIRD_PARTY_NOTICES.md）
+          // React Flow's MIT license allows removing the attribution (THIRD_PARTY_NOTICES.md)
           proOptions={{ hideAttribution: true }}
           nodesDraggable={false}
           nodesConnectable={false}

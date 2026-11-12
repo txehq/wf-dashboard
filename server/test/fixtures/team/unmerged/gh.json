@@ -1,0 +1,15 @@
+{
+  "commands": [
+    {
+      "args": [
+        "api",
+        "repos/capsohq/txe/pulls/2131",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":471,\"closed_at\":\"2026-10-10T12:28:54Z\",\"created_at\":\"2026-09-11T16:30:43Z\",\"deletions\":547,\"draft\":false,\"id\":4507829186,\"merged_at\":null,\"state\":\"closed\",\"user\":{\"login\":\"ding113\"}}",
+      "stderr": ""
+    }
+  ]
+}

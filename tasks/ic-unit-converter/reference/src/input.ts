@@ -11,7 +11,7 @@ const NUMBER = /^-?(\d+(\.\d+)?|\.\d+)$/;
 export function readValue(text: string, unitId: string): ValueState {
   const trimmed = text.trim();
   if (trimmed === '') return { kind: 'empty' };
-  if (!NUMBER.test(trimmed)) return { kind: 'invalid', message: '请输入数字' };
+  if (!NUMBER.test(trimmed)) return { kind: 'invalid', message: 'Enter a number' };
   const value = Number(trimmed);
   const { category, unit } = findUnit(unitId);
   if (unit.toBase(value) < category.minBase) {

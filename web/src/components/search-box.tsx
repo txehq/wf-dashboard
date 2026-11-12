@@ -1,7 +1,7 @@
 import { Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-// 带放大镜图标的搜索框；label 只给读屏
+// Search box with a magnifier icon; label is for screen readers only
 export function SearchBox({
   value,
   onChange,

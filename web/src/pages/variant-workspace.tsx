@@ -71,7 +71,7 @@ interface TreeNode {
   children: TreeNode[];
 }
 
-// 把 skills/a/b.md 这样的路径组成目录树，根是 skills/ 下的各个 skill
+// Build a directory tree from paths like skills/a/b.md; the roots are the skills under skills/
 function buildTree(files: SkillFile[]): TreeNode[] {
   const root: TreeNode = { name: '', path: 'skills', children: [] };
   for (const file of files) {
@@ -88,7 +88,7 @@ function buildTree(files: SkillFile[]): TreeNode[] {
   return root.children;
 }
 
-// skill 目录（skills/ 下第一层）的重命名与删除（Contracts 16.4）
+// Rename and delete of skill directories (first level under skills/, Contracts 16.4)
 interface SkillActions {
   onRename: (name: string) => void;
   onDelete: (name: string) => void;
@@ -105,7 +105,7 @@ function TreeItem({
   depth: number;
   selected: string | null;
   onSelect: (path: string) => void;
-  // 只给 skill 目录（depth 0）且 variant 可以编辑时
+  // Only for skill directories (depth 0) of an editable variant
   actions?: SkillActions | undefined;
 }) {
   const [open, setOpen] = useState(selected?.startsWith(`${node.path}/`) === true);
@@ -149,8 +149,8 @@ function TreeItem({
             <Button
               size="icon-xs"
               variant="ghost"
-              aria-label={`重命名 skill ${node.name}`}
-              title="重命名 skill 目录"
+              aria-label={`Rename skill ${node.name}`}
+              title="Rename skill directory"
               onClick={() => {
                 actions.onRename(node.name);
               }}
@@ -160,8 +160,8 @@ function TreeItem({
             <Button
               size="icon-xs"
               variant="ghost"
-              aria-label={`删除 skill ${node.name}`}
-              title="删除 skill 目录"
+              aria-label={`Delete skill ${node.name}`}
+              title="Delete skill directory"
               onClick={() => {
                 actions.onDelete(node.name);
               }}
@@ -185,7 +185,7 @@ function TreeItem({
   );
 }
 
-// 编辑中的文件的状态，显示在工作区顶部的工具栏
+// State of the file being edited, shown in the workspace toolbar
 export interface EditorStatus {
   dirty: boolean;
   saving: boolean;
@@ -194,8 +194,9 @@ export interface EditorStatus {
 
 const cleanStatus: EditorStatus = { dirty: false, saving: false, error: null };
 
-// 并排时编辑器与预览按比例同步滚动；带动另一侧产生的滚动不再带动回去。编辑器在 setScrollTop 中同步报告滚动；
-// 预览的滚动事件在之后的一帧才到（机器忙时可能晚很久），按带动后它所在的位置认出
+// Side by side, the editor and preview scroll in proportion; a scroll caused by the other side does not echo
+// back. The editor reports its scroll synchronously inside setScrollTop; the preview's scroll event arrives a
+// frame later (much later on a busy machine) and is recognised by the position it was moved to
 function useEditorPreviewSync(
   editor: MonacoEditor | null,
   preview: RefObject<HTMLDivElement | null>,
@@ -212,7 +213,7 @@ function useEditorPreviewSync(
       const ratio = range <= 0 ? 0 : event.scrollTop / range;
       const from = target.scrollTop;
       target.scrollTop = ratio * (target.scrollHeight - target.clientHeight);
-      // 位置没有变时不会有滚动事件
+      // No scroll event fires when the position did not change
       previewMovedTo = target.scrollTop === from ? null : target.scrollTop;
     });
     const fromPreview = () => {
@@ -245,12 +246,12 @@ function FileEditor({
   variant: Variant;
   path: string;
   readOnly: boolean;
-  // .md 文件的"编辑 / 预览 / 并排"；其他文件总是 edit
+  // Edit / preview / side by side for .md files; other files are always edit
   view: MdView;
-  // 工具栏的"保存"与 ⌘S 调用它
+  // Called by the toolbar's Save and by ⌘S
   saveRef: RefObject<() => void>;
   onStatus: (status: EditorStatus) => void;
-  // 预览中指向 variant 内其他文件的链接
+  // Links in the preview that point to other files in the variant
   onOpenFile: (path: string) => void;
 }) {
   const theme = useMonacoTheme();
@@ -260,7 +261,7 @@ function FileEditor({
   const editorRef = useRef<MonacoEditor | null>(null);
   const [editor, setEditor] = useState<MonacoEditor | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
-  // 预览跟着编辑实时更新；输入很快时渲染可以落后几个字
+  // The preview follows edits live; fast typing may let rendering lag a few characters
   const previewContent = useDeferredValue(draft ?? file.data?.content ?? '');
   useEditorPreviewSync(editor, previewRef, view === 'split');
   const dirty = draft !== null && draft !== file.data?.content;
@@ -282,12 +283,12 @@ function FileEditor({
       if (!readOnly && draft !== null && draft !== file.data?.content) save.mutate(draft);
     };
   });
-  // 进入与退出全屏后按新的尺寸重新排版；内容、光标与选区不变（同一个编辑器实例）
+  // Re-layout at the new size after entering or leaving full screen; content, cursor and selection stay (same editor instance)
   useFullscreenLayout(() => {
     editorRef.current?.layout();
   });
 
-  if (file.isPending) return <p className="p-4 text-sm text-muted-foreground">加载中…</p>;
+  if (file.isPending) return <p className="p-4 text-sm text-muted-foreground">Loading…</p>;
   if (file.isError) {
     return (
       <QueryError
@@ -298,7 +299,7 @@ function FileEditor({
       />
     );
   }
-  // 预览时编辑器只隐藏不卸载：未保存的内容、光标与选区在切回编辑后不变
+  // In preview the editor is hidden, not unmounted: unsaved content, cursor and selection survive switching back
   return (
     <div className="flex min-h-0 min-w-0 flex-1" data-testid="file-view" data-view={view}>
       <div
@@ -316,7 +317,7 @@ function FileEditor({
             wordWrap: 'on',
             fontSize: 13,
             scrollBeyondLastLine: false,
-            // 拖动文件树宽度、收起面板时跟着容器重新排版
+            // Re-layout with the container when the tree is resized or a panel collapses
             automaticLayout: true,
           }}
           onChange={(value) => {
@@ -350,9 +351,9 @@ function FileEditor({
   );
 }
 
-const diffStatusLabel = { added: '新增', removed: '删除', modified: '修改' } as const;
+const diffStatusLabel = { added: 'Added', removed: 'Removed', modified: 'Modified' } as const;
 
-// 服务端给出的一个文件的 unified diff 转成共用的 diff 显示的数据；新增的空文件没有 hunk
+// Convert the server's unified diff for one file into the shared diff view's data; a new empty file has no hunks
 function diffFileOf(f: FileDiff): DiffFile {
   return (
     parseUnifiedDiff(f.patch)[0] ?? {
@@ -365,9 +366,9 @@ function diffFileOf(f: FileDiff): DiffFile {
   );
 }
 
-// 对比（Contracts 21.3）：左侧是改过的文件，右侧是这些文件的 diff，点左侧的文件滚动到它
+// Diff (Contracts 21.3): changed files on the left, their diffs on the right; clicking a file scrolls to it
 function DiffPane({ variant, viewType }: { variant: Variant; viewType: ViewType }) {
-  // 任意 workflow 的 variant 没有基线（Contracts 18.6），只能与来源对比
+  // A custom workflow's variant has no base (Contracts 18.6) and can only be compared with its source
   const hasBase = variant.baseCommit !== '';
   const [against, setAgainst] = useState<'base' | 'parent'>(hasBase ? 'base' : 'parent');
   const comparable = hasBase || variant.parentId !== null;
@@ -385,7 +386,8 @@ function DiffPane({ variant, viewType }: { variant: Variant; viewType: ViewType 
   if (!comparable) {
     return (
       <p className="m-auto px-4 text-center text-sm text-muted-foreground">
-        这个 variant 没有基线，也不是从别的 variant 派生的，没有可以对比的内容。
+        This variant has no base and was not derived from another variant, so there is nothing to
+        compare.
       </p>
     );
   }
@@ -401,7 +403,7 @@ function DiffPane({ variant, viewType }: { variant: Variant; viewType: ViewType 
                 setAgainst('base');
               }}
             >
-              与基线对比
+              Against base
             </Button>
           )}
           {variant.parentId !== null && (
@@ -412,17 +414,17 @@ function DiffPane({ variant, viewType }: { variant: Variant; viewType: ViewType 
                 setAgainst('parent');
               }}
             >
-              与来源对比
+              Against source
             </Button>
           )}
           {diff.data !== undefined && (
             <span className="ml-auto pr-1 text-xs text-muted-foreground">
-              {diff.data.files.length} 个文件
+              {diff.data.files.length} {diff.data.files.length === 1 ? 'file' : 'files'}
             </span>
           )}
         </div>
-        <nav aria-label="改过的文件" className="min-h-0 flex-1 overflow-auto py-1">
-          {diff.isPending && <p className="px-3 text-muted-foreground">加载中…</p>}
+        <nav aria-label="Changed files" className="min-h-0 flex-1 overflow-auto py-1">
+          {diff.isPending && <p className="px-3 text-muted-foreground">Loading…</p>}
           {diff.isError && (
             <QueryError
               className="px-3"
@@ -432,7 +434,7 @@ function DiffPane({ variant, viewType }: { variant: Variant; viewType: ViewType 
             />
           )}
           {diff.data?.files.length === 0 && (
-            <p className="px-3 text-muted-foreground">skills 内容相同，没有差异。</p>
+            <p className="px-3 text-muted-foreground">The skills are identical; no differences.</p>
           )}
           {diff.data?.files.map((f) => (
             <button
@@ -468,21 +470,22 @@ function DiffPane({ variant, viewType }: { variant: Variant; viewType: ViewType 
   );
 }
 
-// 日志面板标题：说的是面板中这份日志（最近一次构建）的结果。构建开始时清空 buildError，失败时写入，
-// 所以 buildError 不为空即最近一次构建失败；编辑后 buildStatus 回到 none，builtHash 仍是上次构建的内容
+// Log panel title: the result of the log shown (the latest build). A build start clears buildError and a
+// failure sets it, so a non-null buildError means the latest build failed; after an edit buildStatus returns
+// to none and builtHash still holds the last build
 function lastBuildLabel(variant: Variant): string {
   const changed = variant.builtHash !== variant.skillsHash;
   if (variant.buildError !== null) {
     return variant.buildStatus === 'failed'
-      ? '最近一次构建失败'
-      : '最近一次构建失败；之后内容有修改';
+      ? 'Latest build failed'
+      : 'Latest build failed; content changed since';
   }
-  if (variant.builtHash === null || variant.builtAt === null) return '未构建';
+  if (variant.builtHash === null || variant.builtAt === null) return 'Not built';
   const at = formatDateTime(variant.builtAt);
-  return changed ? `${at} 构建完成；之后内容有修改，需要重新构建` : `${at} 构建完成`;
+  return changed ? `Built ${at}; content changed since, needs rebuild` : `Built ${at}`;
 }
 
-// 底部可收起的构建日志面板
+// Collapsible build log panel at the bottom
 function BuildLogPanel({ variant, building }: { variant: Variant; building: boolean }) {
   const log = useQuery({ ...buildLogQuery(variant.id, building), enabled: !isImported(variant) });
   const ref = useRef<HTMLPreElement>(null);
@@ -490,9 +493,9 @@ function BuildLogPanel({ variant, building }: { variant: Variant; building: bool
     ref.current?.scrollTo({ top: ref.current.scrollHeight });
   }, [log.data]);
   if (isImported(variant)) {
-    return <p className="p-3 text-sm text-muted-foreground">{importedLabel}，没有构建日志。</p>;
+    return <p className="p-3 text-sm text-muted-foreground">{importedLabel}. No build log.</p>;
   }
-  if (log.isPending) return <p className="p-3 text-sm text-muted-foreground">加载中…</p>;
+  if (log.isPending) return <p className="p-3 text-sm text-muted-foreground">Loading…</p>;
   if (log.isError) {
     return (
       <QueryError
@@ -503,7 +506,7 @@ function BuildLogPanel({ variant, building }: { variant: Variant; building: bool
       />
     );
   }
-  // 最近一次构建自动登记与删去的 skill（Contracts 16.4），即日志中 register-skills 的说明行
+  // Skills the latest build registered and removed automatically (Contracts 16.4): the register-skills line in the log
   const registered = log.data
     .split('\n')
     .filter((line) => line.startsWith('[register-skills] ') && !line.endsWith(' s'))
@@ -513,7 +516,7 @@ function BuildLogPanel({ variant, building }: { variant: Variant; building: bool
     <div className="flex min-h-0 flex-1 flex-col">
       {registered !== undefined && (
         <p className="border-b px-3 py-1 text-xs" data-testid="registered-skills">
-          自动登记的 skill：{registered}
+          Registered skills: {registered}
         </p>
       )}
       <pre
@@ -521,7 +524,7 @@ function BuildLogPanel({ variant, building }: { variant: Variant; building: bool
         data-testid="build-log"
         className="min-h-0 flex-1 overflow-auto bg-muted/40 px-3 py-2 font-mono text-xs whitespace-pre-wrap"
       >
-        {log.data === '' ? '还没有构建过。点页面头部的"构建"。' : log.data}
+        {log.data === '' ? 'Not built yet. Click Build in the page header.' : log.data}
       </pre>
     </div>
   );
@@ -536,7 +539,7 @@ function storedTreeWidth(): number {
   return Number.isFinite(raw) && raw >= MIN_TREE && raw <= MAX_TREE ? raw : 256;
 }
 
-// 文件树与编辑器之间的分隔条：按住拖动改变文件树的宽度，宽度记在浏览器中
+// Splitter between the file tree and the editor: drag to resize the tree; the width is kept in the browser
 function Splitter({ width, onWidth }: { width: number; onWidth: (width: number) => void }) {
   const start = useRef<{ x: number; width: number } | null>(null);
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
@@ -556,7 +559,7 @@ function Splitter({ width, onWidth }: { width: number; onWidth: (width: number) 
     <div
       role="separator"
       aria-orientation="vertical"
-      aria-label="拖动改变文件树的宽度"
+      aria-label="Drag to resize the file tree"
       aria-valuenow={width}
       data-testid="tree-splitter"
       className="w-1 shrink-0 cursor-col-resize bg-border hover:bg-foreground/30"
@@ -567,8 +570,9 @@ function Splitter({ width, onWidth }: { width: number; onWidth: (width: number) 
   );
 }
 
-// skill 编辑区（Contracts 20.2）：顶部一条细工具栏，下面是可拖动宽度、可收起的文件树与 Monaco（或 diff），
-// 底部是可收起的构建日志面板。整个区域可以页面内全屏（Contracts 20.1）
+// Skill workspace (Contracts 20.2): a thin toolbar on top; below it a resizable, collapsible file tree and
+// Monaco (or the diff); a collapsible build log panel at the bottom. The whole area can go full screen in the
+// page (Contracts 20.1)
 export function VariantWorkspace({
   variant,
   fullscreen,
@@ -586,7 +590,7 @@ export function VariantWorkspace({
   const files = useQuery(filesQuery(variant.id));
   const [stored, setView] = useWorkspaceView();
   const [viewType] = useDiffViewType();
-  // 打开的文件写在地址的 ?file= 中：刷新（包括全屏时）后仍打开它
+  // The open file is kept in ?file= so it stays open after a reload (including in full screen)
   const [params, setParams] = useSearchParams();
   const selected = params.get('file');
   const setSelected = (path: string | null) => {
@@ -606,16 +610,20 @@ export function VariantWorkspace({
   const saveRef = useRef<() => void>(() => undefined);
   const editable = variant.status === 'draft' && !isImported(variant);
 
-  // 当前文件有未保存的修改时，切换前确认；确认后修改被丢弃
+  // With unsaved changes, confirm before switching; confirming discards them
   const select = (path: string) => {
-    if (status.dirty && !window.confirm('当前文件有未保存的修改，切换后会丢弃。继续？')) return;
+    if (
+      status.dirty &&
+      !window.confirm('This file has unsaved changes. Switching will discard them. Continue?')
+    )
+      return;
     setStatus(cleanStatus);
     setSelected(path);
   };
-  // 默认打开 workflow 的入口 skill
+  // Opens the workflow's entry skill by default
   const entry = `skills/${variant.workflowId}/SKILL.md`;
   const current = selected ?? files.data?.find((f) => f.path === entry)?.path ?? null;
-  // 编辑、预览、并排与对比合为一组（Contracts 21.2）；非 .md 文件的预览与并排按编辑显示
+  // Edit, preview, side by side and diff are one group (Contracts 21.2); non-.md files show preview and side by side as edit
   const view = effectiveView(stored, current);
   const mode = view === 'diff' ? 'diff' : 'edit';
   const refresh = async () => {
@@ -642,7 +650,7 @@ export function VariantWorkspace({
       await refresh();
     },
   });
-  // skill 目录的新增、重命名与删除（Contracts 16.4）
+  // Add, rename and delete skill directories (Contracts 16.4)
   const skills = useMutation({
     mutationFn: (
       op:
@@ -673,13 +681,13 @@ export function VariantWorkspace({
   const actions: SkillActions | undefined = editable
     ? {
         onRename: (from) => {
-          const to = window.prompt(`把 skill ${from} 改名为`, from);
+          const to = window.prompt(`Rename skill ${from} to`, from);
           if (to !== null && to.trim() !== '' && to.trim() !== from) {
             skills.mutate({ kind: 'rename', from, to: to.trim() });
           }
         },
         onDelete: (name) => {
-          if (window.confirm(`删除 skill 目录 skills/${name}/ 及其中的全部文件？`)) {
+          if (window.confirm(`Delete the skill directory skills/${name}/ and all its files?`)) {
             skills.mutate({ kind: 'delete', name });
           }
         },
@@ -687,12 +695,12 @@ export function VariantWorkspace({
     : undefined;
   const error = create.error ?? removeFile.error ?? skills.error;
   const saveState = status.saving
-    ? '保存中…'
+    ? 'Saving…'
     : status.error !== null
-      ? `保存失败：${status.error}`
+      ? `Save failed: ${status.error}`
       : status.dirty
-        ? '未保存'
-        : '已保存';
+        ? 'Unsaved'
+        : 'Saved';
 
   return (
     <FullscreenArea
@@ -700,7 +708,7 @@ export function VariantWorkspace({
       testId="skill-workspace"
       className="flex h-[calc(100svh-12rem)] min-h-[28rem] flex-col overflow-hidden rounded-lg border"
     >
-      {/* 顶部细工具栏：文件树开关、编辑 / 预览 / 并排 / 对比、文件路径与保存状态、保存、构建日志开关、全屏 */}
+      {/* Thin toolbar: tree toggle, edit / preview / side by side / diff, file path and save state, save, build log toggle, full screen */}
       <div
         className="flex h-9 shrink-0 items-center gap-1 border-b px-1.5 text-sm"
         data-testid="workspace-toolbar"
@@ -708,9 +716,9 @@ export function VariantWorkspace({
         <Button
           size="icon-xs"
           variant="ghost"
-          aria-label={treeOpen ? '收起文件树' : '展开文件树'}
+          aria-label={treeOpen ? 'Collapse file tree' : 'Expand file tree'}
           aria-pressed={treeOpen}
-          title={treeOpen ? '收起文件树' : '展开文件树'}
+          title={treeOpen ? 'Collapse file tree' : 'Expand file tree'}
           data-testid="tree-toggle"
           onClick={() => {
             setTreeOpen(!treeOpen);
@@ -720,7 +728,7 @@ export function VariantWorkspace({
         </Button>
         <div
           role="tablist"
-          aria-label="编辑区的显示"
+          aria-label="Workspace view"
           className="flex rounded-md border p-0.5"
           data-testid="workspace-view"
           data-view={view}
@@ -770,22 +778,22 @@ export function VariantWorkspace({
                 variant="ghost"
                 disabled={removeFile.isPending}
                 onClick={() => {
-                  if (window.confirm(`删除 ${current}？`)) removeFile.mutate(current);
+                  if (window.confirm(`Delete ${current}?`)) removeFile.mutate(current);
                 }}
               >
                 <Trash2 />
-                删除文件
+                Delete file
               </Button>
               <Button
                 size="xs"
                 disabled={!status.dirty || status.saving}
-                title="保存（⌘S）"
+                title="Save (⌘S)"
                 onClick={() => {
                   saveRef.current();
                 }}
               >
                 <Save />
-                保存
+                Save
               </Button>
             </>
           )}
@@ -799,13 +807,13 @@ export function VariantWorkspace({
             }}
           >
             <PanelBottom />
-            构建日志
+            Build log
           </Button>
           <FullscreenButton active={fullscreen.active} onToggle={fullscreen.toggle} size="xs" />
         </div>
       </div>
 
-      {/* 对比时编辑区只隐藏不卸载：未保存的内容、光标与选区在切回后不变 */}
+      {/* In diff the editor is hidden, not unmounted: unsaved content, cursor and selection survive switching back */}
       <div className={cn('flex min-h-0 flex-1', mode === 'diff' && 'hidden')}>
         {treeOpen && (
           <>
@@ -821,10 +829,10 @@ export function VariantWorkspace({
                     <Button
                       size="icon-xs"
                       variant="ghost"
-                      aria-label="新增 skill 目录"
-                      title="新增 skill 目录"
+                      aria-label="New skill directory"
+                      title="New skill directory"
                       onClick={() => {
-                        const name = window.prompt('新 skill 的名字（skills/<名字>/SKILL.md）', '');
+                        const name = window.prompt('New skill name (skills/<name>/SKILL.md)', '');
                         if (name !== null && name.trim() !== '') {
                           skills.mutate({ kind: 'add', name: name.trim() });
                         }
@@ -835,11 +843,11 @@ export function VariantWorkspace({
                     <Button
                       size="icon-xs"
                       variant="ghost"
-                      aria-label="新建文件"
-                      title="新建文件"
+                      aria-label="New file"
+                      title="New file"
                       onClick={() => {
                         const path = window.prompt(
-                          '新文件路径（skills/<skill>/ 以内）',
+                          'New file path (inside skills/<skill>/)',
                           current === null ? 'skills/' : current.replace(/[^/]+$/, ''),
                         );
                         if (path !== null && path.trim() !== '') create.mutate(path.trim());
@@ -850,8 +858,8 @@ export function VariantWorkspace({
                   </span>
                 )}
               </div>
-              <nav aria-label="skills 文件" className="min-h-0 flex-1 overflow-auto py-1 text-sm">
-                {files.isPending && <p className="px-3 text-muted-foreground">加载中…</p>}
+              <nav aria-label="Skill files" className="min-h-0 flex-1 overflow-auto py-1 text-sm">
+                {files.isPending && <p className="px-3 text-muted-foreground">Loading…</p>}
                 {files.isError && (
                   <QueryError
                     className="px-3"
@@ -877,7 +885,7 @@ export function VariantWorkspace({
           </>
         )}
         {current === null ? (
-          <p className="m-auto text-sm text-muted-foreground">在左侧选择一个文件。</p>
+          <p className="m-auto text-sm text-muted-foreground">Select a file on the left.</p>
         ) : (
           <FileEditor
             key={current}
@@ -903,16 +911,20 @@ export function VariantWorkspace({
           data-testid="build-log-panel"
         >
           <div className="flex h-7 shrink-0 items-center gap-2 border-b px-3 text-xs">
-            <span className="font-medium">构建日志</span>
+            <span className="font-medium">Build log</span>
             <span className="text-muted-foreground" data-testid="build-log-status">
-              {building ? '构建中…' : isImported(variant) ? importedLabel : lastBuildLabel(variant)}
+              {building
+                ? 'Building…'
+                : isImported(variant)
+                  ? importedLabel
+                  : lastBuildLabel(variant)}
             </span>
             <Button
               size="icon-xs"
               variant="ghost"
               className="ml-auto"
-              aria-label="收起构建日志"
-              title="收起构建日志"
+              aria-label="Collapse build log"
+              title="Collapse build log"
               onClick={() => {
                 onLogOpen(false);
               }}

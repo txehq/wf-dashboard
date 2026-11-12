@@ -1,25 +1,26 @@
 import type { WorkflowDefinition } from '@wf-dashboard/server/workflows/schema';
 
-// 小阶段流程图（workflow-flow.tsx）的布局尺寸。compact 用于设计与优化会话的面板（Contracts 26.2）：节点与间隔更窄。
-// 节点的宽度按文字算，文字不折行（28.4）
+// Layout sizes of the stage flow chart (workflow-flow.tsx). compact is for the panel of design and optimize sessions
+// (Contracts 26.2): narrower nodes and gaps. Node width follows its text, which never wraps (28.4)
 export const NODE_HEIGHT = 40;
-// 节点上方留出自环的位置，下方留出 allowInside 的往返弧线；没有这两种边时上下只留一点边距，窄的面板中整张图可以大一些
+// Room above the nodes for self-loops and below for allowInside arcs; without those edges only a small margin, so the
+// chart can be larger in a narrow panel
 const LOOP_SPACE = 44;
 const INSIDE_ARC_SPACE = 92;
 const EDGE_SPACE = 12;
 export const ARC = 28;
 export const VIEWPORT_X = 4;
-// 节点文字是 12 px 的等宽字体（每个字符约 0.6em），按 7.5 px 算留出余量；workflow 与小阶段的 id 只有 ASCII
+// Node text is a 12 px monospace font (about 0.6em per character); 7.5 px leaves a margin. Workflow and stage ids are ASCII only
 const CHAR_PX = 7.5;
-// 左右的 px-2 与边框
+// px-2 on both sides plus the border
 const NODE_PAD = 20;
-// 整张图缩放到框内可见时的下限：再小节点上的字看不清，之后横向滚动
+// Lowest zoom when fitting the chart into the frame: below it node text is unreadable, so the chart scrolls sideways
 export const MIN_FLOW_ZOOM = 0.6;
 
 const spacing = (compact: boolean) =>
   compact ? { minWidth: 48, gap: 24 } : { minWidth: 132, gap: 56 };
 
-// 每个节点（入口与各小阶段，按顺序）的位置与宽度、节点的 y，以及 zoom 为 1 时整张图的尺寸
+// Position and width of each node (entry, then stages in order), the node y, and the chart size at zoom 1
 export function flowLayout(definition: WorkflowDefinition, compact: boolean) {
   const { minWidth, gap } = spacing(compact);
   const labels = [`/${definition.id}`, ...definition.stages.map((s) => s.id)];
@@ -42,8 +43,8 @@ export function flowLayout(definition: WorkflowDefinition, compact: boolean) {
   };
 }
 
-// 整张图缩放到 available 中可见（不放大）；节点很多时到下限为止，之后横向滚动。按 0.05 取整，拖动时不反复重建。
-// available 的高度为 null 时只按宽度
+// Zoom that fits the whole chart into available (never above 1); with many nodes it stops at the minimum and the chart
+// scrolls sideways. Rounded to 0.05 so resizing does not rebuild repeatedly. A null height fits the width only
 export function fitZoom(
   size: { width: number; height: number },
   available: { width: number; height: number | null },

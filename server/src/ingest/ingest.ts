@@ -31,6 +31,7 @@ import { rebindSession, SKILL_PREFIX } from '../bindings/index.js';
 import { publishStageChanges, type StageChange, updateStages } from '../stages/report.js';
 import { inputString } from '../stages/rows.js';
 import { AnyRecord, AssistantRecord, SubagentMeta, UserRecord } from './records.js';
+import { clearImportFailure, setSpillWait } from './import-problems.js';
 import { markImported } from './imports.js';
 import { detectFromToolCall, detectFromUserText, type WorkflowFlags } from './workflows.js';
 
@@ -40,14 +41,14 @@ type SkillLoadRow = typeof sessionSkills.$inferInsert;
 
 const resultLimit = 20_000;
 
-// tool 结果截断到 20000 个 UTF-16 单元（Contracts 2）；截断点落在代理对中间时少保留一个，不留下半个字符
+// Tool results are truncated to 20000 UTF-16 units (Contracts 2); when the cut falls inside a surrogate pair keep one fewer, never half a character
 export function truncateResult(text: string): string {
   if (text.length <= resultLimit) return text;
   const code = text.charCodeAt(resultLimit - 1);
   const cut = code >= 0xd800 && code <= 0xdbff ? resultLimit - 1 : resultLimit;
   return text.slice(0, cut);
 }
-// Claude Code 在本地生成的 API 错误、中断提示，不是模型请求
+// API errors and interruption notices Claude Code generates locally; not model requests
 const syntheticModel = '<synthetic>';
 const persisted = /^<persisted-output>\nOutput too large \([^)]*\)\. Full output saved to: (.+)$/m;
 
@@ -55,18 +56,22 @@ export function initialParseState(): ParseState {
   return { nextSeq: 0, lastUserAt: null, pending: {} };
 }
 
-// 读取 offset 之后的全部完整行；末尾没有换行的半行留到下一次
-// 从 offset 读到最后一个换行为止的完整行。给了 limit 时最多读 limit 字节（一行比 limit 长时读完这一行所在的剩余部分），
-// more 表示 limit 之后还有没读的内容
+// Read all complete lines after offset; a trailing half line without a newline waits for next time
+// Complete lines from offset up to the last newline. With limit, read at most limit bytes (a line longer than limit is read to its end),
+// more means content remains past limit. When stopBefore returns a reason for a line, stop before it: that line and the rest wait for next time,
+// and stopped is that reason
 export function readCompleteLines(
   file: string,
   offset: number,
   limit = Infinity,
-): { lines: string[]; end: number; more: boolean } {
+  stopBefore?: (line: string) => string | null,
+): { lines: string[]; end: number; more: boolean; stopped: string | null } {
   const fd = openSync(file, 'r');
   const size = fstatSync(fd).size;
   if (size < offset)
-    throw new Error(`${file} 的大小 ${String(size)} 小于已解析的偏移量 ${String(offset)}`);
+    throw new Error(
+      `Size ${String(size)} of ${file} is smaller than the parsed offset ${String(offset)}`,
+    );
   const readFrom = (length: number) => {
     const buffer = Buffer.alloc(length);
     let read = 0;
@@ -85,12 +90,26 @@ export function readCompleteLines(
   }
   closeSync(fd);
   const more = offset + buffer.length < size;
-  if (lastNewline === -1) return { lines: [], end: offset, more: false };
-  const lines = buffer
-    .toString('utf8', 0, lastNewline)
-    .split('\n')
-    .filter((l) => l.length > 0);
-  return { lines, end: offset + lastNewline + 1, more };
+  if (lastNewline === -1) return { lines: [], end: offset, more: false, stopped: null };
+  const segments = buffer.toString('utf8', 0, lastNewline).split('\n');
+  if (stopBefore === undefined)
+    return {
+      lines: segments.filter((l) => l.length > 0),
+      end: offset + lastNewline + 1,
+      more,
+      stopped: null,
+    };
+  const lines: string[] = [];
+  let start = offset;
+  for (const segment of segments) {
+    if (segment.length > 0) {
+      const stopped = stopBefore(segment);
+      if (stopped !== null) return { lines, end: start, more: false, stopped };
+      lines.push(segment);
+    }
+    start += Buffer.byteLength(segment, 'utf8') + 1;
+  }
+  return { lines, end: offset + lastNewline + 1, more, stopped: null };
 }
 
 export function resultText(content: UserRecordToolResult['content']): string {
@@ -136,7 +155,7 @@ function loadRequest(ctx: ParseContext, messageId: string): RequestRow | undefin
     .get();
 }
 
-// fork 子代理继承的父代理对话：派生它的 Agent 调用的 tool_result 之前的记录都跳过
+// The parent conversation a fork subagent inherits: skip every record before the tool_result of the Agent call that spawned it
 function inheritedFromParent(state: ParseState, raw: unknown, type: string): boolean {
   const spawn = state.forkToolUseId;
   if (spawn === undefined) return false;
@@ -148,7 +167,7 @@ function inheritedFromParent(state: ParseState, raw: unknown, type: string): boo
   );
 }
 
-// Claude Code 自己生成的 user 记录：后台任务通知、本地命令输出；以及其他 agent 会话发来的消息（Contracts 第 2 节）
+// User records Claude Code generates itself: background task notifications, local command output; plus messages from other agent sessions (Contracts section 2)
 function isNotice(record: UserRecord, text: string): boolean {
   return (
     record.origin?.kind === 'task-notification' ||
@@ -157,14 +176,14 @@ function isNotice(record: UserRecord, text: string): boolean {
   );
 }
 
-// 其他 Claude session 发来的消息（Orca orchestration）：origin.kind 为 peer、isMeta，正文为
-// "Another Claude session sent a message:" 加上带发送方的 <cross-session-message> 元素
+// A message from another Claude session (Orca orchestration): origin.kind peer, isMeta, text is
+// "Another Claude session sent a message:" followed by a <cross-session-message> element naming the sender
 function isPeer(record: UserRecord): boolean {
   return record.origin?.kind === 'peer';
 }
 
-// 一段主 jsonl 行的开头信息（Contracts 25.1，列出磁盘上的 session 用）：第一条带时间的记录的时间、第一条带 cwd 的记录的 cwd，
-// 与 parseLines 相同规则下的第一条用户消息（kind 为 user）
+// Head of some main jsonl lines (Contracts 25.1, for listing sessions on disk): the time of the first timestamped record, the cwd of the first record with a cwd,
+// and the first user message (kind user) under the same rules as parseLines
 export function claudeHead(lines: string[]): {
   firstAt: number | null;
   cwd: string | null;
@@ -274,7 +293,7 @@ function parseLines(ctx: ParseContext, lines: string[]): ParseOutput {
           state.pending[block.id] = message.id;
         }
       }
-      // 同一 message 的每条记录都带 usage，后面的记录 output_tokens 更完整；只保留最后一份
+      // Every record of a message carries usage, later ones with more complete output_tokens; keep only the last
       const usage = fromApiUsage(message.usage);
       row.model = message.model;
       row.inputTokens = usage.inputTokens;
@@ -289,7 +308,8 @@ function parseLines(ctx: ParseContext, lines: string[]): ParseOutput {
     if (any.type === 'user') {
       const record = UserRecord.parse(raw);
       const at = Date.parse(record.timestamp);
-      // peer 消息虽然是 isMeta，也作为 notice 返回；它开始新的一轮，之后第一条请求的 duration_ms 从它算起
+      // Peer messages are isMeta but still returned as notices; they start a new round, and the duration_ms of the
+      // first request after them counts from them
       const isInput =
         (record.isMeta !== true || isPeer(record)) && record.isCompactSummary !== true;
       const { content } = record.message;
@@ -299,7 +319,7 @@ function parseLines(ctx: ParseContext, lines: string[]): ParseOutput {
         for (const block of content) {
           if (block.type === 'text') texts.push(block.text);
           if (block.type === 'tool_result') {
-            // 派生 fork 的 Agent 调用属于父代理，它的结果之后才是 fork 自己的对话
+            // The Agent call that forks belongs to the parent; the fork's own conversation starts after its result
             if (block.tool_use_id === state.forkToolUseId) delete state.forkToolUseId;
             else attachResult(ctx, block, touch);
             state.lastUserAt = at;
@@ -319,7 +339,7 @@ function parseLines(ctx: ParseContext, lines: string[]): ParseOutput {
       }
       if (record.isMeta === true && !isPeer(record)) {
         const loads = texts.filter((t) => SKILL_PREFIX.test(t));
-        if (loads.length > 1) throw new Error(`记录 ${record.uuid} 中有多段 skill 正文`);
+        if (loads.length > 1) throw new Error(`Record ${record.uuid} has several skill bodies`);
         const [load] = loads;
         if (load !== undefined) out.skillLoads.push(skillLoad(ctx, out, record, load, at));
       }
@@ -328,8 +348,8 @@ function parseLines(ctx: ParseContext, lines: string[]): ParseOutput {
   return out;
 }
 
-// 加载 skill 的 isMeta 记录（Contracts 15.1）：参数来自 sourceToolUseID 指向的 Skill 调用的 input.args，
-// 或 parentUuid 指向的 slash 命令消息中的 <command-args>
+// isMeta records that load a skill (Contracts 15.1): arguments come from input.args of the Skill call sourceToolUseID
+// points at, or <command-args> in the slash command message parentUuid points at
 function skillLoad(
   ctx: ParseContext,
   out: ParseOutput,
@@ -338,7 +358,7 @@ function skillLoad(
   at: number,
 ): SkillLoadRow {
   const match = SKILL_PREFIX.exec(text);
-  if (match?.[1] === undefined) throw new Error(`记录 ${record.uuid} 不是 skill 正文`);
+  if (match?.[1] === undefined) throw new Error(`Record ${record.uuid} is not a skill body`);
   const baseDir = match[1];
   const name = path.basename(baseDir);
   let args: string;
@@ -346,7 +366,7 @@ function skillLoad(
     const call = findToolCall(ctx, out, record.sourceToolUseID);
     if (call === undefined) {
       throw new Error(
-        `skill ${name} 的正文（记录 ${record.uuid}）指向的 tool 调用 ${record.sourceToolUseID} 不存在`,
+        `The tool call ${record.sourceToolUseID} that the body of skill ${name} (record ${record.uuid}) points at does not exist`,
       );
     }
     const raw = inputString(call.input, 'args');
@@ -365,7 +385,7 @@ function skillLoad(
     const parsed = command === undefined ? null : commandArgs(command.text);
     if (parsed === null) {
       throw new Error(
-        `skill ${name} 的正文（记录 ${record.uuid}）既没有指向 Skill 调用，上一条记录 ${String(parent)} 也不是 slash 命令`,
+        `The body of skill ${name} (record ${record.uuid}) points at no Skill call, and the previous record ${String(parent)} is not a slash command`,
       );
     }
     args = parsed;
@@ -408,12 +428,12 @@ function attachResult(
   const messageId = ctx.state.pending[block.tool_use_id];
   if (messageId === undefined)
     throw new Error(
-      `tool_result ${block.tool_use_id} 没有对应的 tool_use（session ${ctx.sessionId}）`,
+      `tool_result ${block.tool_use_id} has no matching tool_use (session ${ctx.sessionId})`,
     );
   const row = touch(messageId);
   const call = row?.toolCalls.find((c) => c.id === block.tool_use_id);
   if (call === undefined)
-    throw new Error(`message ${messageId} 中没有 tool_use ${block.tool_use_id}`);
+    throw new Error(`Message ${messageId} has no tool_use ${block.tool_use_id}`);
   const text = resultText(block.content);
   call.result = truncateResult(text);
   call.resultChars = text.length;
@@ -423,22 +443,45 @@ function attachResult(
   delete ctx.state.pending[block.tool_use_id];
 }
 
-// 溢出文件位于 <sessionId>/tool-results/（子代理用父 session 的目录）；jsonl 中记录的是写入时的绝对路径，按文件名定位到
-// 本地副本。Claude Code 写出的溢出，路径总在这个 session 自己的 <sessionId>/tool-results/ 下（本机 100 个真实溢出全部如此）；
-// 指向别处的同样开头的文字是工具输出中引用的另一个 session 的溢出提示（例如用 jq 读别的 session 的记录），不是溢出
-function spillPath(ctx: ParseContext, text: string): string | null {
+// Spill files live in <sessionId>/tool-results/ (subagents use the parent session's directory); the jsonl records the
+// absolute path at write time, located in the local copy by file name. Spills Claude Code writes are always under this
+// session's own <sessionId>/tool-results/ (true of all 100 real spills on this machine); the same opening text pointing
+// elsewhere is another session's spill notice quoted in tool output (e.g. jq reading another session's records), not a
+// spill
+function ownSpill(spillDir: string, text: string): string | null {
   if (!text.startsWith('<persisted-output>')) return null;
   const match = persisted.exec(text);
-  if (match?.[1] === undefined) throw new Error(`无法识别溢出输出的路径：${text.slice(0, 200)}`);
+  if (match?.[1] === undefined)
+    throw new Error(`Unrecognised spilled output path: ${text.slice(0, 200)}`);
   const target = match[1];
   const own =
     path.basename(path.dirname(target)) === 'tool-results' &&
-    path.basename(path.dirname(path.dirname(target))) === path.basename(path.dirname(ctx.spillDir));
-  if (!own) return null;
-  const local = path.join(ctx.spillDir, path.basename(target));
-  if (!existsSync(local)) throw new Error(`溢出文件不存在：${local}`);
+    path.basename(path.dirname(path.dirname(target))) === path.basename(path.dirname(spillDir));
+  return own ? path.join(spillDir, path.basename(target)) : null;
+}
+
+function spillPath(ctx: ParseContext, text: string): string | null {
+  const local = ownSpill(ctx.spillDir, text);
+  if (local !== null && !existsSync(local)) throw new Error(`Spill file does not exist: ${local}`);
   return local;
 }
+
+// A spill file a line references but that is not local yet (stopBefore of readCompleteLines): like a subagent whose
+// meta.json is not written yet, the line waits for the next import. When a remote session syncs to this machine, the
+// jsonl and subagent records may arrive before the spill files they reference
+const missingSpill = (spillDir: string) => (line: string) => {
+  if (!line.includes('<persisted-output>')) return null;
+  const raw: unknown = JSON.parse(line);
+  if (AnyRecord.parse(raw).type !== 'user') return null;
+  const { content } = UserRecord.parse(raw).message;
+  if (typeof content === 'string') return null;
+  for (const block of content) {
+    if (block.type !== 'tool_result') continue;
+    const local = ownSpill(spillDir, resultText(block.content));
+    if (local !== null && !existsSync(local)) return local;
+  }
+  return null;
+};
 
 export function writeRows(db: Db, rows: Iterable<RequestRow>) {
   for (const row of rows) {
@@ -469,7 +512,7 @@ function runIdFor(db: Db, sessionId: string): string | null {
   );
 }
 
-// 交互区中这个 session 所属的项（Contracts 14.1，claude_session_id 唯一）
+// The Live item this session belongs to (Contracts 14.1, claude_session_id is unique)
 export function liveIdFor(db: Db, sessionId: string): string | null {
   return (
     db
@@ -480,7 +523,8 @@ export function liveIdFor(db: Db, sessionId: string): string | null {
   );
 }
 
-// resume 时 session 复制进了另一个配置目录，之后导入那一份（Contracts 14.5）；原文件不再导入
+// On resume the session was copied into another configuration directory and that copy is imported from then on
+// (Contracts 14.5); the original file is no longer imported
 function resumedElsewhere(db: Db, sessionId: string): boolean {
   return (
     db
@@ -492,7 +536,8 @@ function resumedElsewhere(db: Db, sessionId: string): boolean {
   );
 }
 
-// 把指向 toolUseId 的 ToolCall 标上子代理；父调用尚未解析时由 parseLines 在解析到它时标上
+// Mark the ToolCall pointed at by toolUseId with the subagent; when the parent call is not parsed yet, parseLines marks
+// it on reaching it
 function linkSubagent(db: Db, sessionId: string, toolUseId: string, agentId: string) {
   const found = db.$client
     .prepare<[string, string], { id: number }>(
@@ -502,7 +547,7 @@ function linkSubagent(db: Db, sessionId: string, toolUseId: string, agentId: str
     .get(sessionId, toolUseId);
   if (found === undefined) return;
   const row = db.select().from(requests).where(eq(requests.id, found.id)).get();
-  if (row === undefined) throw new Error(`request ${String(found.id)} 不存在`);
+  if (row === undefined) throw new Error(`Request ${String(found.id)} does not exist`);
   const toolCalls: ToolCall[] = row.toolCalls.map((c) =>
     c.id === toolUseId ? { ...c, subagentId: agentId } : c,
   );
@@ -518,7 +563,7 @@ function subagentMap(db: Db, sessionId: string): Map<string, string> {
   return new Map(rows.map((r) => [r.parent, r.agentId]));
 }
 
-// 登记新出现的 agent-<id>.jsonl；meta.json 尚未写出的子代理留到下一次
+// Register new agent-<id>.jsonl files; subagents whose meta.json is not written yet wait for the next time
 function registerSubagents(db: Db, sessionId: string, dir: string): boolean {
   if (!existsSync(dir)) return false;
   let added = false;
@@ -558,41 +603,48 @@ function registerSubagents(db: Db, sessionId: string, dir: string): boolean {
 
 export interface IngestResult {
   sessionId: string;
-  // 本次是否写入了新的请求、用户消息或子代理
+  // Whether this pass wrote new requests, user messages or subagents
   changed: boolean;
-  // 给了 limit 时：主 jsonl 中还有没读的内容，再调用一次接着读
+  // With limit: the main jsonl still has unread content; call again to continue
   more: boolean;
 }
 
-// 增量解析一个主 session jsonl 及其 subagents/；写入后发 session.updated。
-// limit：本次最多读主 jsonl 的多少字节；导入大的 session 时分段读，每段一个事务，段与段之间服务端可以处理其他请求
+// Incrementally parse a main session jsonl and its subagents/, then send session.updated.
+// limit: at most this many bytes of the main jsonl per call; large sessions are read in chunks, one transaction each,
+// so the server can handle other requests in between
 export function ingestFile(db: Db, file: string, limit = Infinity): IngestResult {
   const absolute = path.resolve(file);
-  if (!absolute.endsWith('.jsonl')) throw new Error(`不是 jsonl 文件：${absolute}`);
+  if (!absolute.endsWith('.jsonl')) throw new Error(`Not a jsonl file: ${absolute}`);
   const sessionId = path.basename(absolute, '.jsonl');
   const sessionDir = path.join(path.dirname(absolute), sessionId);
   const spillDir = path.join(sessionDir, 'tool-results');
 
-  const { changed, stageChanges, skillsAdded, created, more } = db.$client.transaction(() => {
+  const result = db.$client.transaction(() => {
     const unchanged = {
       changed: false,
       stageChanges: [] as StageChange[],
       skillsAdded: false,
       created: false,
       more: false,
+      waiting: null as string | null,
     };
     const existing = db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
     if (existing?.engine === 'codex' || (existing !== undefined && 'kind' in existing.parseState))
-      throw new Error(`session ${sessionId} 是 Codex 的 rollout，由 ingestCodexFile 导入`);
+      throw new Error(`Session ${sessionId} is a Codex rollout, imported by ingestCodexFile`);
     if (existing !== undefined && existing.filePath !== absolute) {
       if (resumedElsewhere(db, sessionId)) return unchanged;
       throw new Error(
-        `session ${sessionId} 已从 ${existing.filePath} 导入，不能再从 ${absolute} 导入`,
+        `Session ${sessionId} was imported from ${existing.filePath} and cannot be imported from ${absolute}`,
       );
     }
     const offset = existing?.parseOffset ?? 0;
     const state = existing?.parseState ?? initialParseState();
-    const { lines, end, more } = readCompleteLines(absolute, offset, limit);
+    const { lines, end, more, stopped } = readCompleteLines(
+      absolute,
+      offset,
+      limit,
+      missingSpill(spillDir),
+    );
     let changed = false;
     let skillsAdded = false;
 
@@ -606,17 +658,18 @@ export function ingestFile(db: Db, file: string, limit = Infinity): IngestResult
         state,
       };
       const out = parseLines(ctx, lines);
-      // 还没有任何带时间的记录时不建 session，下次从头再读
-      if (existing === undefined && out.firstAt === null) return unchanged;
+      // No session is created before any timed record; next time it is read from the start
+      if (existing === undefined && out.firstAt === null) return { ...unchanged, waiting: stopped };
       const startedAt = existing?.startedAt.getTime() ?? out.firstAt;
       const endedAt = out.lastAt ?? existing?.endedAt.getTime();
-      if (startedAt == null || endedAt === undefined) throw new Error(`${absolute} 缺少记录时间`);
+      if (startedAt == null || endedAt === undefined)
+        throw new Error(`${absolute} lacks record times`);
       const flags = flagsOf(out.rows.values(), out.userMessages);
       const firstUser = out.userMessages.find((m) => m.kind === 'user');
       const runId = existing?.runId ?? runIdFor(db, sessionId);
       const values = {
         cwd: existing?.cwd ?? out.cwd,
-        // 搜索用的标题，与列表标题的规则相同（slash 命令为命令名加参数）
+        // The title for search, with the same rules as the list title (slash commands are name plus arguments)
         title: existing?.title ?? (firstUser === undefined ? null : sessionTitle(firstUser.text)),
         endedAt: new Date(endedAt),
         hasLfg: (existing?.hasLfg ?? false) || flags.lfg,
@@ -625,7 +678,7 @@ export function ingestFile(db: Db, file: string, limit = Infinity): IngestResult
         liveId: existing?.liveId ?? liveIdFor(db, sessionId),
         parseOffset: end,
         parseState: state,
-        // run 的 session 绑定 run 所用的 variant（Contracts 15.1）
+        // A run's session is bound to the run's variant (Contracts 15.1)
         ...(runId !== null && existing?.variantBinding !== 'run'
           ? { variantId: runVariantId(db, runId), variantBinding: 'run' as const }
           : {}),
@@ -647,38 +700,47 @@ export function ingestFile(db: Db, file: string, limit = Infinity): IngestResult
       writeSkillLoads(db, out.skillLoads);
       changed = out.rows.size > 0 || out.userMessages.length > 0;
       skillsAdded = out.skillLoads.length > 0;
-    } else if (existing === undefined) return unchanged;
+    } else if (existing === undefined) return { ...unchanged, waiting: stopped };
 
     if (registerSubagents(db, sessionId, path.join(sessionDir, 'subagents'))) changed = true;
     const sub = ingestSubagents(db, sessionId, spillDir);
     if (sub.changed) changed = true;
     if (sub.skillsAdded) skillsAdded = true;
-    // 阶段划分随导入增量更新（Contracts 第 5 节）
+    // Stage partition updates incrementally with import (Contracts section 5)
     return {
       changed,
       stageChanges: changed ? updateStages(db, sessionId) : [],
       skillsAdded,
       created: existing === undefined,
       more,
+      waiting: stopped ?? sub.waiting,
     };
   })();
+  const { changed, stageChanges, skillsAdded, created, more, waiting } = result;
 
-  // 新导入的 session（variant 配置下的绑定所属的 variant）与新加载的 skill 可能改变自动绑定
+  // Import succeeded: clear an earlier recorded error; record waiting when stopped before a spill file that has not
+  // appeared (shown in Sessions)
+  const recovered = clearImportFailure(sessionId);
+  const waitChanged = setSpillWait(sessionId, waiting);
+  // A newly imported session (bound to the variant of its variant configuration) and newly loaded skills may change
+  // automatic bindings
   if (skillsAdded || created) rebindSession(db, config.dataDir, sessionId);
-  // 新建出的 session 也发：还没有请求时已经打开的页面先前读到的是 404，要靠这个事件重新读取
-  if (changed || created) events.publish({ type: 'session.updated', sessionId });
+  // Also sent for newly created sessions: a page opened before there were requests read a 404 and needs this event to
+  // read again
+  if (changed || created || recovered || waitChanged)
+    events.publish({ type: 'session.updated', sessionId });
   publishStageChanges(sessionId, stageChanges);
   return { sessionId, changed, more };
 }
 
 function runVariantId(db: Db, runId: string): string {
   const run = db.select({ variantId: runs.variantId }).from(runs).where(eq(runs.id, runId)).get();
-  if (run === undefined) throw new Error(`run ${runId} 不存在`);
+  if (run === undefined) throw new Error(`Run not found: ${runId}`);
   return run.variantId;
 }
 
-// 已导入、但还没有提取过 skill 正文的 session（本功能之前导入的）：读主 jsonl 与子代理到已解析的偏移量，只提取 skill 加载；
-// 返回补提取了的 session
+// Sessions imported but without extracted skill bodies (imported before this feature): read the main jsonl and
+// subagents up to the parsed offset and extract only skill loads; returns the sessions extracted
 export function backfillSkillLoads(db: Db): string[] {
   const pending = db
     .select({ id: sessions.id, filePath: sessions.filePath, parseOffset: sessions.parseOffset })
@@ -700,7 +762,7 @@ export function backfillSkillLoads(db: Db): string[] {
     ];
     db.$client.transaction(() => {
       let added = false;
-      // 已被删除的 jsonl（例如 Claude Code 按 cleanupPeriodDays 清理的旧 session）没有可以提取的内容
+      // A deleted jsonl (e.g. old sessions Claude Code cleaned up per cleanupPeriodDays) has nothing to extract
       for (const file of files.filter((f) => existsSync(f.filePath))) {
         const loads = scanSkillLoads(db, session.id, file.agentId, file.filePath, file.offset);
         writeSkillLoads(db, loads);
@@ -747,7 +809,7 @@ function scanSkillLoads(
     const texts =
       typeof c === 'string' ? [c] : c.flatMap((b) => (b.type === 'text' ? [b.text] : []));
     const loads = texts.filter((t) => SKILL_PREFIX.test(t));
-    if (loads.length > 1) throw new Error(`记录 ${record.uuid} 中有多段 skill 正文`);
+    if (loads.length > 1) throw new Error(`Record ${record.uuid} has several skill bodies`);
     const [load] = loads;
     if (load !== undefined) {
       out.skillLoads.push(skillLoad(ctx, out, record, load, Date.parse(record.timestamp)));
@@ -760,13 +822,20 @@ function ingestSubagents(
   db: Db,
   sessionId: string,
   spillDir: string,
-): { changed: boolean; skillsAdded: boolean } {
+): { changed: boolean; skillsAdded: boolean; waiting: string | null } {
   const all = db.select().from(subagents).where(eq(subagents.sessionId, sessionId)).all();
   const byToolUse = new Map(all.map((s) => [s.parentToolUseId, s.agentId]));
   let changed = false;
   let skillsAdded = false;
+  let waiting: string | null = null;
   for (const sub of all) {
-    const { lines, end } = readCompleteLines(sub.filePath, sub.parseOffset);
+    const { lines, end, stopped } = readCompleteLines(
+      sub.filePath,
+      sub.parseOffset,
+      Infinity,
+      missingSpill(spillDir),
+    );
+    waiting ??= stopped;
     if (lines.length === 0) continue;
     const ctx: ParseContext = {
       db,
@@ -792,5 +861,5 @@ function ingestSubagents(
       .run();
     if (out.rows.size > 0 || out.userMessages.length > 0) changed = true;
   }
-  return { changed, skillsAdded };
+  return { changed, skillsAdded, waiting };
 }

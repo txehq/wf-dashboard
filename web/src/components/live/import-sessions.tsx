@@ -8,8 +8,10 @@ import { importLive, type LiveSummary } from '@/lib/live-api';
 import { useSessionEngine } from '@/lib/session-view';
 import { importSessions, type PickedSession } from '@/lib/sessions-api';
 
-// "导入本机 session"（Contracts 14.5、25.1）：与 Sessions 页面相同的视图切换与三列。已在交互区的不能勾选；所属的项已关闭的
-// 可选，导入即恢复显示。"导入 N 个"先导入进管理表格，再导入交互区；切换视图时清除勾选
+// "Import local sessions" (Contracts 14.5, 25.1): the same view switch and three columns as the Sessions
+// page. Sessions already in the workspace cannot be checked; those whose item was closed can, and
+// importing restores them. "Import N" imports into the management table first, then into the
+// workspace; switching views clears the selection
 function ImportForm({
   onClose,
   onImported,
@@ -41,7 +43,7 @@ function ImportForm({
           setChosen(new Map());
         }}
         order={['claude', 'codex']}
-        label="视图"
+        label="View"
       />
       <div data-testid="import-list">
         <ImportColumns engine={engine} mode="live" changes={chosen} onChanges={setChosen} />
@@ -53,7 +55,7 @@ function ImportForm({
       )}
       <div className="flex justify-end gap-2">
         <Button variant="outline" onClick={onClose}>
-          取消
+          Cancel
         </Button>
         <Button
           data-testid="import-confirm"
@@ -63,7 +65,7 @@ function ImportForm({
           }}
         >
           <Download />
-          {importing.isPending ? '正在导入…' : `导入 ${String(chosen.size)} 个`}
+          {importing.isPending ? 'Importing…' : `Import ${String(chosen.size)}`}
         </Button>
       </div>
     </div>
@@ -87,18 +89,18 @@ export function ImportSessionsButton({
         }}
       >
         <Download />
-        导入本机 session
+        Import local sessions
       </Button>
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div
             role="dialog"
             aria-modal="true"
-            aria-label="导入本机 session"
+            aria-label="Import local sessions"
             className="flex max-h-[90vh] w-[72rem] max-w-[95vw] flex-col gap-4 rounded-lg border bg-background p-5 shadow-lg"
             data-testid="import-dialog"
           >
-            <h2 className="text-base font-semibold">导入本机 session</h2>
+            <h2 className="text-base font-semibold">Import local sessions</h2>
             <ImportForm
               onClose={() => {
                 setOpen(false);

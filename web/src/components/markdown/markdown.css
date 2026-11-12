@@ -1,6 +1,6 @@
-/* github-markdown-css 之外的少量样式 */
+/* A few styles beyond github-markdown-css */
 
-/* Tailwind 的 preflight 去掉了列表的符号，这里按 GitHub 的样子补回 */
+/* Tailwind's preflight removes list markers; restore them the way GitHub shows them */
 .markdown-body ul {
   list-style-type: disc;
 }
@@ -47,9 +47,9 @@
   font-size: 85%;
 }
 
-/* 窄处的 frontmatter（Contracts 26.3）：纵向的「键：值」列表，边框与底色取 github-markdown-css 表格的颜色（它没有
-   CSS 变量，明暗两种各写一份）；值长时在自己的一栏中换行。选择器前加 html：暗色的 github-markdown-css 在页面上
-   之后才插入（theme.ts），同样特异度时它的 dl dt（斜体、上边距）会盖过这里 */
+/* Frontmatter in narrow places (Contracts 26.3): a vertical "key: value" list; border and background use github-markdown-css table colours
+   (it has no CSS variables, so light and dark are written out); long values wrap in their own column. Selectors start with html: the dark
+   github-markdown-css is inserted later (theme.ts), and at equal specificity its dl dt (italic, top margin) would win */
 :root {
   --wfd-md-table-border: #d1d9e0;
   --wfd-md-table-muted: #f6f8fa;
@@ -90,7 +90,7 @@ html .markdown-body dl.frontmatter > dt {
 }
 
 html .markdown-body dl.frontmatter > dt::after {
-  content: '：';
+  content: ':';
 }
 
 html .markdown-body dl.frontmatter dl,
@@ -98,7 +98,7 @@ html .markdown-body dl.frontmatter ul {
   margin: 0;
 }
 
-/* 更窄时（所在的容器声明了 container-type，例如 workflow 面板）键在上一行、值在下一行 */
+/* Narrower still (the container declares container-type, for example the workflow panel): key on one line, value on the next */
 @container (max-width: 300px) {
   html .markdown-body dl.frontmatter {
     grid-template-columns: minmax(0, 1fr);
@@ -110,7 +110,7 @@ html .markdown-body dl.frontmatter ul {
   }
 }
 
-/* 渲染后的对比：改动的段落，左侧一道色条加浅底色，与 diff 的红绿相同 */
+/* Rendered comparison: changed paragraphs get a colour bar on the left and a light background, the same red and green as the diff */
 .markdown-body .md-mark-added,
 .markdown-body .md-mark-removed {
   border-radius: 2px;

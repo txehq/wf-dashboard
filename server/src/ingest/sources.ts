@@ -4,8 +4,10 @@ import { setImmediate } from 'node:timers/promises';
 import { and, eq, isNotNull, isNull } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
 import { type SessionEngine, sessionImports, sessions } from '../db/schema.js';
+import { events } from '../events.js';
 import { HttpError } from '../variants/errors.js';
 import { ingestCodexFile, isRollout, readSessionMeta } from './codex.js';
+import { recordImportFailure } from './import-problems.js';
 import { markAnalysisOnly, restoreCleared } from './imports.js';
 import { ingestFile } from './ingest.js';
 import { configSourceDirs } from './session-config.js';
@@ -13,15 +15,17 @@ import { configSourceDirs } from './session-config.js';
 export const defaultSourceDirs: SourceDirs = configSourceDirs;
 
 export interface SourceDirs {
-  // ~/.claude/projects（config.claudeProjectsDir）
+  // ~/.claude/projects (config.claudeProjectsDir)
   projectsDir: string;
   // data/variants
   variantsDir: string;
-  // 本机 Codex 的 CODEX_HOME（config.codexHome，Contracts 25.1）
+  // This machine's Codex CODEX_HOME (config.codexHome, Contracts 25.1)
   codexHome: string;
-  // 设计与优化（Contracts 17、19.3、22）：草稿目录与分析目录，其中的 claude-config/ 与 codex-home/
+  // Design sessions (Contracts 17, 19.3, 22): the drafts and analyses directories, with their claude-config/ and codex-home/
   draftsDir: string;
   analysesDir: string;
+  // Local copies of sessions synced back from SSH hosts (Contracts 31.6): data/remote/<hostId>/<remote path>
+  remoteDir: string;
 }
 
 function subdirs(dir: string): string[] {
@@ -35,10 +39,10 @@ function isDir(p: string): boolean {
   return statSync(p, { throwIfNoEntry: false })?.isDirectory() ?? false;
 }
 
-// 导入时每段读的字节数：37 MB 的 session 分成约二十段，每段之间让出事件循环，导入大的 session 时页面、Live 与其他请求照常响应
+// Bytes read per import chunk: a 37 MB session takes about twenty chunks, yielding the event loop between them so pages, Live and other requests stay responsive
 const IMPORT_CHUNK_BYTES = 2 * 1024 * 1024;
 
-// 分段增量导入一个文件；返回是否有变化
+// Incrementally import a file in chunks; returns whether anything changed
 export async function importInChunks(
   db: Db,
   engine: SessionEngine,
@@ -55,8 +59,29 @@ export async function importInChunks(
   return changed;
 }
 
-// 开始分析时读入还不在 dashboard 中的 session（Contracts 27）：照常分段导入，第一段建出记录后即记为只为分析读入，
-// 不进入管理表格。文件中还没有带时间的记录（建不出 session）时 400
+// One session in an incremental import (Requirements Log round 13 item 19): a failure affects only this session; the text is recorded (shown in the Sessions management table
+// and detail) and logged, other sessions import as usual, the server keeps running; retried on the next incremental import. Returns whether the import succeeded
+export async function importIsolated(
+  db: Db,
+  sessionId: string,
+  engine: SessionEngine,
+  file: string,
+): Promise<boolean> {
+  try {
+    await importInChunks(db, engine, file);
+    return true;
+  } catch (error) {
+    const e = error instanceof Error ? error : new Error(String(error));
+    if (recordImportFailure(sessionId, `Import of ${file} failed: ${e.message}`)) {
+      console.error(`[sessions] Import of ${sessionId} failed`, e);
+      events.publish({ type: 'session.updated', sessionId });
+    }
+    return false;
+  }
+}
+
+// When an analysis starts, read sessions not yet in the dashboard (Contracts 27): imported in chunks as usual, marked as read only for analysis once the first chunk creates the row,
+// and kept out of the management table. 400 when the file has no timestamped record yet (no session can be created)
 export async function readForAnalysis(
   db: Db,
   engine: SessionEngine,
@@ -77,7 +102,11 @@ export async function readForAnalysis(
     await setImmediate();
     if (!result.more) break;
   }
-  if (!marked) throw new HttpError(400, `session ${sessionId} 中还没有记录，不能分析：${file}`);
+  if (!marked)
+    throw new HttpError(
+      400,
+      `Session ${sessionId} has no records yet and cannot be analysed: ${file}`,
+    );
 }
 
 export interface ImportedFile {
@@ -85,9 +114,9 @@ export interface ImportedFile {
   file: string;
 }
 
-// 用户点"导入 N 个"（Contracts 25.1、25.5）：逐个分段导入，新建的记为已导入，清除过的清空清除时间（重新进入管理表格）。
-// 已导入的接着增量导入；Claude Code 的同一个 session 已从另一个文件导入时（例如 resume 复制进了交互的配置目录）不再导入这一份。
-// Codex 的 rollout 在 dashboard 之外归档或恢复后换了位置，ingestCodexFile 记下新的位置
+// The user's "Import N" (Contracts 25.1, 25.5): import each in chunks; new ones are marked imported, cleared ones get their cleared time removed (back in the management table).
+// Already imported ones continue incrementally; a Claude Code session already imported from another file (e.g. resume copied it into the interactive config directory) is not imported again from this one.
+// When a Codex rollout moves after being archived or restored outside the dashboard, ingestCodexFile records the new location
 export async function importFiles(
   db: Db,
   engine: SessionEngine,
@@ -105,8 +134,8 @@ export async function importFiles(
   }
 }
 
-// 早先的清除删除了 dashboard 中的记录：按导入记录中的文件重新导入，仍记为清除（清除时间不变），
-// 用到它的 run、分析与 Live 项重新读得到它的数据。文件已不在的不导入
+// An earlier clear deleted the dashboard's rows: re-import from the files in the import records, still marked cleared (cleared time unchanged),
+// so the runs, analyses and Live items using them can read their data again. Missing files are skipped; on an import error it stays cleared and later incremental imports retry
 export async function restoreClearedRecords(db: Db): Promise<number> {
   const rows = db
     .select({
@@ -122,17 +151,17 @@ export async function restoreClearedRecords(db: Db): Promise<number> {
   let restored = 0;
   for (const row of rows) {
     if (!existsSync(row.filePath)) continue;
-    await importInChunks(db, row.engine, row.filePath);
+    const imported = await importIsolated(db, row.sessionId, row.engine, row.filePath);
     db.update(sessionImports)
       .set({ clearedAt: row.clearedAt })
       .where(eq(sessionImports.sessionId, row.sessionId))
       .run();
-    restored++;
+    if (imported) restored++;
   }
   return restored;
 }
 
-// 设计与优化的 Claude Code 会话（Contracts 22.2）：草稿目录与分析目录中 claude-config/projects/ 下的项目目录
+// Claude Code design sessions (Contracts 22.2): project directories under claude-config/projects/ in the drafts and analyses directories
 export function designClaudeDirs(dirs: SourceDirs): string[] {
   return [dirs.draftsDir, dirs.analysesDir].flatMap((root) =>
     isDir(root)
@@ -151,7 +180,7 @@ export interface RolloutInfo {
   archived: boolean;
 }
 
-// 一个 CODEX_HOME 中 sessions/ 与 archived_sessions/ 下全部 rollout 的 session_meta（按文件的大小与修改时间缓存）
+// session_meta of every rollout under sessions/ and archived_sessions/ in a CODEX_HOME (cached by file size and mtime)
 const metaCache = new Map<string, { size: number; mtimeMs: number; meta: RolloutInfo | null }>();
 
 export function rolloutsOf(codexHome: string): RolloutInfo[] {
@@ -183,7 +212,7 @@ export function rolloutsOf(codexHome: string): RolloutInfo[] {
 
 export const localCodexRollouts = (dirs: SourceDirs) => rolloutsOf(dirs.codexHome);
 
-// 设计与优化的 Codex 会话：草稿目录与分析目录中的 codex-home/
+// Codex design sessions: codex-home/ in the drafts and analyses directories
 export function designCodexRollouts(dirs: SourceDirs): RolloutInfo[] {
   return [dirs.draftsDir, dirs.analysesDir].flatMap((root) =>
     isDir(root) ? subdirs(root).flatMap((d) => rolloutsOf(path.join(d, 'codex-home'))) : [],

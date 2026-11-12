@@ -5,8 +5,8 @@ import { cn } from '@/lib/utils';
 import { FULLSCREEN_SHORTCUT_LABEL } from './shortcut';
 import { FullscreenContext } from './use-fullscreen';
 
-// 可以全屏的工作区（Contracts 20.1）：全屏时铺满整个浏览器窗口（position: fixed; inset: 0，盖住导航与页面头部），
-// 不用浏览器的 Fullscreen API。两种状态下是同一个元素，只换 class：子组件不重新挂载，编辑器的内容、光标与选区不变
+// A workspace that can go full screen (Contracts 20.1): in full screen it fills the whole browser window (position: fixed; inset: 0, covering the navigation and page header),
+// without the browser Fullscreen API. Both states use the same element with different classes: children do not remount, so editor content, cursor and selection stay
 export function FullscreenArea({
   active,
   className,
@@ -15,9 +15,9 @@ export function FullscreenArea({
   testId,
 }: {
   active: boolean;
-  // 不全屏时的样式
+  // Classes when not in full screen
   className?: string;
-  // 全屏时另加的样式（铺满窗口之外的部分，例如内部的排列）
+  // Extra classes in full screen (beyond filling the window, for example the inner layout)
   activeClassName?: string;
   children: ReactNode;
   testId?: string;
@@ -29,7 +29,7 @@ export function FullscreenArea({
         data-fullscreen={active}
         className={cn(
           className,
-          // 不全屏时的尺寸、圆角与边框在全屏时去掉，铺满窗口
+          // In full screen the normal size, rounding and border go away and the area fills the window
           active &&
             'fixed inset-0 z-50 m-0 flex h-auto max-h-none min-h-0 w-auto max-w-none flex-col rounded-none border-0 bg-background',
           active && activeClassName,
@@ -41,7 +41,7 @@ export function FullscreenArea({
   );
 }
 
-// 工作区右上角的按钮：进入全屏，全屏时为"退出全屏"；提示中写明快捷键
+// The button at the workspace's top right: enters full screen, and reads "Exit full screen" while in it; the tooltip shows the shortcut
 export function FullscreenButton({
   active,
   onToggle,
@@ -51,18 +51,18 @@ export function FullscreenButton({
   onToggle: () => void;
   size?: 'sm' | 'xs';
 }) {
-  const label = active ? '退出全屏' : '全屏';
+  const label = active ? 'Exit full screen' : 'Full screen';
   return (
     <Button
       size={size}
       variant="ghost"
       data-testid="fullscreen-toggle"
       aria-pressed={active}
-      title={`${label}（${FULLSCREEN_SHORTCUT_LABEL}）`}
+      title={`${label} (${FULLSCREEN_SHORTCUT_LABEL})`}
       onClick={onToggle}
     >
       {active ? <Minimize2 /> : <Maximize2 />}
-      {/* 工具栏窄时可以只留图标（Live 设计项的工具栏），名字仍是按钮的无障碍名称与悬停提示 */}
+      {/* A narrow toolbar may keep only the icon (the Live design item toolbar); the name stays as the accessible name and tooltip */}
       <span data-toolbar-label>{label}</span>
     </Button>
   );

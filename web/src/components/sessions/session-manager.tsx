@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { LoaderCircle } from 'lucide-react';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useRef, useState } from 'react';
 import { Pager } from '@/components/pager';
 import { SearchBox } from '@/components/search-box';
 import { SessionTable } from '@/components/sessions/session-table';
@@ -26,15 +26,16 @@ import {
 } from '@/lib/session-selection';
 import { useDebounced } from '@/lib/use-debounced';
 
-// 下面的管理表格（Contracts 25.1）：已导入的 session，搜索（标题、cwd、session id）、按配置筛选、每页 50 个。
-// 切换搜索、配置、"显示已归档"或视图时回到第一页并清空选择；翻页时选择保留。
-// 有选择时表格上方一行写出选了多少（本页全部选中时提供"选择全部 N 个"）与 actions 给出的操作
+// The manage table below (Contracts 25.1): imported sessions, search (title, cwd, session id), filter by config,
+// 50 per page. Changing the search, config, "Show archived" or view goes back to the first page and clears the
+// selection; paging keeps it. With a selection, a row above the table says how many are selected (offering
+// "Select all N" when the whole page is selected) and shows the operations from actions
 export function SessionManager({
   engine,
   actions,
 }: {
   engine: SessionEngine;
-  // 选中的 session 的操作；done 清空选择
+  // Operations on the selected sessions; done clears the selection
   actions: (targets: readonly SelectedSession[], done: () => void) => ReactNode;
 }) {
   const [text, setText] = useState('');
@@ -42,6 +43,7 @@ export function SessionManager({
   const [archived, setArchived] = useState(false);
   const [page, setPage] = useState(1);
   const [selection, setSelection] = useState<SessionSelection>(noSelection);
+  const table = useRef<HTMLDivElement>(null);
   const [stateFor, setStateFor] = useState(engine);
   if (stateFor !== engine) {
     setStateFor(engine);
@@ -60,11 +62,11 @@ export function SessionManager({
   }
   const configs = useQuery(importConfigsQuery(engine));
   const sessions = useQuery(sessionsQuery({ ...scope, page }));
-  // 选中全部时这个范围内的全部 id
+  // With all selected: every id in this scope
   const allIds = useQuery({ ...sessionIdsQuery(scope), enabled: selection.kind === 'all' });
   const all = allIds.data?.ids.map((id) => ({ id, engine, archived }));
   const data = sessions.data;
-  // 清除、删除或归档后当前页超出范围时回到最后一页
+  // Back to the last page when clearing, deleting or archiving leaves the current page out of range
   if (
     data !== undefined &&
     !sessions.isPlaceholderData &&
@@ -88,17 +90,17 @@ export function SessionManager({
   if (data === undefined) {
     body = sessions.isError ? (
       <p role="alert" className="py-8 text-center text-sm text-destructive">
-        加载 session 失败：{sessions.error.message}
+        Failed to load sessions: {sessions.error.message}
       </p>
     ) : (
-      <p className="py-8 text-center text-sm text-muted-foreground">正在加载 session…</p>
+      <p className="py-8 text-center text-sm text-muted-foreground">Loading sessions…</p>
     );
   } else if (data.total === 0) {
     body = (
       <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-12 text-sm text-muted-foreground">
         {data.q !== '' ? (
           <>
-            <p>没有符合「{data.q}」的 session。</p>
+            <p>No sessions match "{data.q}".</p>
             <Button
               variant="outline"
               size="sm"
@@ -106,19 +108,20 @@ export function SessionManager({
                 setText('');
               }}
             >
-              清除搜索
+              Clear search
             </Button>
           </>
         ) : data.archived ? (
-          <p>没有已归档的 session。</p>
+          <p>No archived sessions.</p>
         ) : (
-          <p>还没有导入的 session。在上面勾选 session 后点"应用"。</p>
+          <p>No imported sessions yet. Check sessions above, then click Apply.</p>
         )}
       </div>
     );
   } else {
     body = (
       <div
+        ref={table}
         className={sessions.isFetching ? 'opacity-70' : undefined}
         data-refreshing={sessions.isFetching}
       >
@@ -145,17 +148,17 @@ export function SessionManager({
   }
 
   return (
-    <section aria-label="管理的 session" className="flex min-w-0 flex-col gap-3">
+    <section aria-label="Managed sessions" className="flex min-w-0 flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
         <SearchBox
           className="w-80"
           value={text}
           onChange={setText}
-          label="搜索 session"
-          placeholder="搜索标题、目录或 session id"
+          label="Search sessions"
+          placeholder="Search titles, directories or session ids"
         />
         <label className="flex items-center gap-2 text-sm">
-          <span className="sr-only">按配置筛选</span>
+          <span className="sr-only">Filter by config</span>
           <select
             className="h-9 max-w-64 rounded-md border bg-background px-2 text-sm"
             value={config ?? ''}
@@ -165,7 +168,7 @@ export function SessionManager({
               setPage(1);
             }}
           >
-            <option value="">全部配置</option>
+            <option value="">All configs</option>
             {configGroups(configs.data ?? []).map((g) => {
               const options = g.configs.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -194,7 +197,7 @@ export function SessionManager({
                 setPage(1);
               }}
             />
-            显示已归档
+            Show archived
           </label>
         )}
         {data !== undefined && (
@@ -202,8 +205,8 @@ export function SessionManager({
             page={data.page}
             pageSize={SESSION_PAGE_SIZE}
             total={data.total}
-            unit="个 session"
-            label="session 的分页"
+            unit={data.total === 1 ? 'session' : 'sessions'}
+            label="Session pages"
             onPage={setPage}
             testId="session-pager"
           />
@@ -211,7 +214,7 @@ export function SessionManager({
         {sessions.isFetching && data !== undefined && (
           <LoaderCircle
             className="size-4 animate-spin text-muted-foreground"
-            aria-label="正在刷新"
+            aria-label="Refreshing"
           />
         )}
       </div>
@@ -233,28 +236,45 @@ export function SessionManager({
                   setSelection({ kind: 'all' });
                 }}
               >
-                选择全部 {data?.total} 个
+                Select all {data?.total}
               </Button>
             </>
           )}
           <span className="text-muted-foreground">·</span>
           <Button variant="link" size="sm" className="h-auto px-0" onClick={done}>
-            取消选择
+            Clear selection
           </Button>
           <span className="ml-auto flex flex-wrap items-center justify-end gap-2">
             {targets !== undefined ? (
               actions(targets, done)
             ) : allIds.isError ? (
               <span role="alert" className="text-destructive">
-                读取全部 session 的 id 失败：{allIds.error.message}
+                Failed to load the ids of all sessions: {allIds.error.message}
               </span>
             ) : (
-              <span className="text-muted-foreground">正在读取全部 session 的 id…</span>
+              <span className="text-muted-foreground">Loading the ids of all sessions…</span>
             )}
           </span>
         </div>
       )}
       {body}
+      {/* The same page below the table; paging from here brings the top of the table back into view */}
+      {data !== undefined && data.total > SESSION_PAGE_SIZE && (
+        <div className="flex justify-end">
+          <Pager
+            page={data.page}
+            pageSize={SESSION_PAGE_SIZE}
+            total={data.total}
+            unit="sessions"
+            label="Session pages, bottom"
+            onPage={(next) => {
+              setPage(next);
+              table.current?.scrollIntoView({ block: 'start' });
+            }}
+            testId="session-pager-bottom"
+          />
+        </div>
+      )}
     </section>
   );
 }

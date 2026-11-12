@@ -30,21 +30,21 @@ type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 export const taskYamlPath = (tasksDir: string, id: string) =>
   path.join(tasksDir, id, 'task.yaml');
 
-// task.yaml 的规范写法：页面保存后再读回、再保存，文件内容不变
+// Canonical form of task.yaml: saving from the page, reading back and saving again leaves the file unchanged
 export function serializeTask(definition: TaskDefinition): string {
   return stringify(TaskDefinition.parse(definition), { lineWidth: 0 });
 }
 
 export function parseTaskYaml(text: string, file: string): TaskDefinition {
   const result = TaskDefinition.safeParse(parse(text));
-  if (!result.success) throw new Error(`${file} 不符合 task schema：${result.error.message}`);
+  if (!result.success) throw new Error(`${file} does not match the task schema: ${result.error.message}`);
   return result.data;
 }
 
-// 字段按 task 的评测类型的积木校验（Contracts 16.3），缺少或多出时以原文失败
+// Fields are checked against the blocks of the task's eval kind (Contracts 16.3); missing or extra ones fail with the exact text
 export function checkTask(definition: TaskDefinition) {
   const issues = taskFieldIssues(definition);
-  if (issues.length > 0) throw new Error(issues.join('；'));
+  if (issues.length > 0) throw new Error(issues.join('; '));
 }
 
 function readTaskFile(tasksDir: string, id: string) {
@@ -52,7 +52,7 @@ function readTaskFile(tasksDir: string, id: string) {
   const text = readFileSync(file, 'utf8');
   const definition = parseTaskYaml(text, file);
   if (definition.id !== id) {
-    throw new Error(`${file} 的 id 为 ${definition.id}，与目录名 ${id} 不一致`);
+    throw new Error(`${file} has id ${definition.id}, which does not match the directory name ${id}`);
   }
   checkTask(definition);
   return { definition, hash: createHash('sha256').update(text).digest('hex') };
@@ -151,12 +151,18 @@ function upsert(tx: Tx, tasksDir: string, id: string, result: SyncResult) {
   }
 }
 
-// 把 tasks/*/task.yaml 同步进 tasks 表；文件已删除的 task 从表中删除（被 run 引用时外键报错）
-export function syncTasks(db: Db, tasksDir: string): SyncResult {
-  const ids = readdirSync(tasksDir, { withFileTypes: true })
+// The task ids in a tasks directory, sorted: a directory holding a task.yaml is a task, anything else (a stray file such as .DS_Store, a
+// directory without task.yaml) is not
+export function listTaskIds(tasksDir: string): string[] {
+  return readdirSync(tasksDir, { withFileTypes: true })
     .filter((e) => e.isDirectory() && existsSync(taskYamlPath(tasksDir, e.name)))
     .map((e) => e.name)
     .sort();
+}
+
+// Syncs tasks/*/task.yaml into the tasks table; tasks whose files were deleted are removed (a foreign key error if a run references them)
+export function syncTasks(db: Db, tasksDir: string): SyncResult {
+  const ids = listTaskIds(tasksDir);
   const result = emptyResult();
   db.transaction((tx) => {
     for (const id of ids) upsert(tx, tasksDir, id, result);
@@ -174,12 +180,12 @@ export function syncTasks(db: Db, tasksDir: string): SyncResult {
   return result;
 }
 
-// 写回 tasks/<id>/task.yaml 并同步这一个 task；字段不符合评测类型时不写文件
+// Writes tasks/<id>/task.yaml and syncs this one task; nothing is written when the fields do not fit the eval kind
 export function saveTask(db: Db, tasksDir: string, definition: TaskDefinition): TaskRecord {
   checkTask(definition);
   const file = taskYamlPath(tasksDir, definition.id);
   mkdirSync(path.dirname(file), { recursive: true });
-  // 先写临时文件再改名：写到一半时进程退出不会留下损坏的 task.yaml
+  // Write a temp file and rename it: a process exit halfway through leaves no corrupt task.yaml
   const tmp = `${file}.${String(process.pid)}.tmp`;
   writeFileSync(tmp, serializeTask(definition));
   renameSync(tmp, file);
@@ -187,7 +193,7 @@ export function saveTask(db: Db, tasksDir: string, definition: TaskDefinition): 
     upsert(tx, tasksDir, definition.id, emptyResult());
   });
   const record = getTaskRecord(db, definition.id);
-  if (!record) throw new Error(`task ${definition.id} 写入后读不到`);
+  if (!record) throw new Error(`Task ${definition.id} cannot be read after writing`);
   return record;
 }
 
@@ -211,27 +217,27 @@ export function getTaskRecord(db: Db, id: string): TaskRecord | undefined {
   return row && toRecord(row);
 }
 
-// 供 runs、grading 使用：带 task 目录绝对路径的 task
+// For runs and grading: the task with the absolute path of its directory
 export function loadTask(db: Db, id: string): Task {
   const record = getTaskRecord(db, id);
-  if (!record) throw new Error(`没有 task ${id}`);
+  if (!record) throw new Error(`Task not found: ${id}`);
   return { ...record.task, dir: record.dir };
 }
 
-// 以下按积木取出必有的字段：加载时已按评测类型校验，缺少说明调用方用错了积木
+// The following take out the fields a block requires: loading already checked them against the eval kind, so a missing one means the caller used the wrong block
 export function withRubric(task: Task): RubricTask {
-  if (task.rubric === undefined) throw new Error(`task ${task.id} 没有 rubric`);
+  if (task.rubric === undefined) throw new Error(`Task ${task.id} has no rubric`);
   return { ...task, rubric: task.rubric };
 }
 
 export function withTicket(task: Task): TicketTask {
-  if (task.ticket === undefined) throw new Error(`task ${task.id} 没有工单`);
+  if (task.ticket === undefined) throw new Error(`Task ${task.id} has no ticket`);
   return { ...task, ticket: task.ticket };
 }
 
 export function withRepo(task: Task): RepoTask {
   if (task.repo === undefined || task.requiredChecks === undefined) {
-    throw new Error(`task ${task.id} 没有起始仓库与 requiredChecks`);
+    throw new Error(`Task ${task.id} has no starting repo and requiredChecks`);
   }
   return { ...task, repo: task.repo, requiredChecks: task.requiredChecks };
 }
@@ -241,8 +247,8 @@ export function withPr(task: Task): PrTask {
   return { ...task, repo, requiredChecks, ticket: withTicket(task).ticket };
 }
 
-// 隐藏测试的执行与清单生成只用于带隐藏测试的 task
+// Running hidden tests and generating the manifest only apply to tasks with hidden tests
 export function withHiddenTests(task: Task): TestsTask {
-  if (task.hiddenTests === undefined) throw new Error(`task ${task.id} 没有隐藏测试`);
+  if (task.hiddenTests === undefined) throw new Error(`Task ${task.id} has no hidden tests`);
   return { ...withRepo(task), hiddenTests: task.hiddenTests };
 }

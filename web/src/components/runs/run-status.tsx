@@ -11,7 +11,7 @@ import {
 import { type RunStatus, statusLabel } from '@/lib/runs-api';
 import { cn } from '@/lib/utils';
 
-// 状态由图标与文字区分，颜色只是附加
+// Icon and text distinguish the status; color is only extra
 const meta: Record<RunStatus, { icon: LucideIcon; className: string }> = {
   queued: { icon: Clock, className: 'text-muted-foreground' },
   preparing: { icon: LoaderCircle, className: 'animate-spin text-[var(--viz-series-1)]' },

@@ -31,8 +31,8 @@ interface JudgedGroup {
 const LINEAR_SAVE_ISSUE = /^mcp__.*linear.*__save_issue$/i;
 const SavedIssue = z.looseObject({ id: z.string().regex(/^[A-Z][A-Z0-9]*-\d+$/) });
 
-// 该 run 建出的工单（Contracts 7.9）：run 的 session（含子代理）中 Linear save_issue 成功的新建调用
-// （输入不带 id；带 id 的是修改已有工单）返回的 identifier，按调用顺序
+// Tickets this run created (Contracts 7.9): identifiers returned by successful Linear save_issue create calls in the run's session (subagents included)
+// (input without id; with id it edits an existing ticket), in call order
 export function createdTickets(db: Db, run: Run): string[] {
   const rows = db
     .select()
@@ -45,7 +45,7 @@ export function createdTickets(db: Db, run: Run): string[] {
     if (!LINEAR_SAVE_ISSUE.test(call.name) || inputField(call.input, 'id') !== undefined) continue;
     if (call.isError || call.result === null) continue;
     if (call.resultChars > call.result.length) {
-      throw new Error(`save_issue ${call.id} 的结果被截断，读不到建出的工单`);
+      throw new Error(`Result of save_issue ${call.id} is truncated, created ticket unreadable`);
     }
     const { id } = SavedIssue.parse(JSON.parse(call.result));
     if (!out.includes(id)) out.push(id);
@@ -53,7 +53,7 @@ export function createdTickets(db: Db, run: Run): string[] {
   return out;
 }
 
-// linearTickets 的产物：文件快照加上 Linear 中该 run 建出的工单的标题与正文
+// The linearTickets artifact: the file snapshot plus title and body of the tickets this run created in Linear
 export async function ticketsContent(db: Db, run: Run, snapshot: string): Promise<string> {
   const issues = [];
   for (const identifier of createdTickets(db, run)) {
@@ -61,11 +61,11 @@ export async function ticketsContent(db: Db, run: Run, snapshot: string): Promis
   }
   const section =
     issues.length === 0
-      ? '该 run 没有在 Linear 中建出工单。'
+      ? 'This run created no tickets in Linear.'
       : issues
-          .map((i) => `## ${i.id} ${i.title}\n\n${i.url}\n\n${i.description ?? '（正文为空）'}`)
+          .map((i) => `## ${i.id} ${i.title}\n\n${i.url}\n\n${i.description ?? '(empty body)'}`)
           .join('\n\n');
-  return `${snapshot}\n\n---\n\n# Linear 中该 run 建出的工单\n\n${section}`;
+  return `${snapshot}\n\n---\n\n# Tickets this run created in Linear\n\n${section}`;
 }
 
 async function judgeGroup(
@@ -90,7 +90,7 @@ async function judgeGroup(
     } satisfies JudgedGroup;
   }
   if (artifact.snapshot === null) {
-    throw new Error(`run ${run.id} 的 ${group.artifact} 产物没有内容快照`);
+    throw new Error(`Artifact ${group.artifact} of run ${run.id} has no content snapshot`);
   }
   const spec = judging.artifacts.find((a) => a.id === group.artifact);
   const content =
@@ -110,7 +110,7 @@ async function judgeGroup(
   } satisfies JudgedGroup;
 }
 
-// rubric 积木：每个产物一次 judge 调用（Contracts 7.9 的 lfg 评分）
+// rubric block: one judge call per artifact (lfg grading, Contracts 7.9)
 async function gradeRubric(
   db: Db,
   run: Run,
@@ -146,7 +146,7 @@ async function gradeRubric(
   });
 }
 
-// hidden-tests 积木；endpoint 为评测类型是否有 pr-endpoint
+// hidden-tests block; endpoint tells whether the eval kind has pr-endpoint
 async function gradeHiddenTests(
   db: Db,
   run: Run,
@@ -166,10 +166,10 @@ async function gradeHiddenTests(
       icDetail: result.detail,
     })
     .run();
-  // detail.error 是 agent 的代码造成的失败（Contracts 7.9）：已记 0 / 声明数，评分照常完成
+  // detail.error is a failure caused by the agent's code (Contracts 7.9): already scored 0 / declared, grading completes as usual
 }
 
-// criteria-judge 积木：一次 judge 调用按验收标准逐条评分（Contracts 第 13 节），条目写 grade_items
+// criteria-judge block: one judge call grades each acceptance criterion (Contracts section 13); items go to grade_items
 async function gradeCriteria(
   db: Db,
   run: Run,
@@ -201,7 +201,7 @@ async function gradeCriteria(
   });
 }
 
-// 只选了 pr-endpoint：仓库中最新的 PR 的终点判定；没有 PR 时为否
+// Only pr-endpoint chosen: endpoint verdict of the repo's latest PR; false without a PR
 async function gradeEndpoint(db: Db, run: Run, task: Task, repo: string) {
   const pr = await readPr(repo);
   const endpoint =
@@ -222,13 +222,13 @@ async function gradeEndpoint(db: Db, run: Run, task: Task, repo: string) {
     .run();
 }
 
-// runs 模块在进入 grading 时调用：按 run 所用 variant 的 workflow 的评测类型的评分积木执行（Contracts 16.2）。全部评分完成后一次写入，
-// 任何一步失败都不留下部分结果。signal 中止（取消评分、服务关闭）时结束评分的子进程与模型请求，抛出 signal.reason，不写入
+// Called by the runs module on entering grading: runs the grading blocks of the eval kind of the run's variant's workflow (Contracts 16.2). Writes once after all grading finishes,
+// so a failing step leaves no partial result. When signal aborts (grading cancelled, server shutting down) it kills grading subprocesses and model requests, throws signal.reason and writes nothing
 export async function gradeRun(db: Db, runId: string, signal: AbortSignal): Promise<void> {
   const run = db.select().from(runs).where(eq(runs.id, runId)).get();
-  if (run === undefined) throw new Error(`没有 run ${runId}`);
+  if (run === undefined) throw new Error(`No run ${runId}`);
   if (db.select({ id: grades.id }).from(grades).where(eq(grades.runId, runId)).get()) {
-    throw new Error(`run ${runId} 已经评分过`);
+    throw new Error(`Run ${runId} is already graded`);
   }
   const task = loadTask(db, run.taskId);
   const stage = evalSpecOf(db, workflowOfVariant(db, run.variantId));
@@ -242,13 +242,13 @@ export async function gradeRun(db: Db, runId: string, signal: AbortSignal): Prom
   const criteria = hasGrading(stage, 'criteria-judge') && !tests;
   const endpoint = hasGrading(stage, 'pr-endpoint');
   if (!tests && !criteria && !endpoint) return;
-  if (run.githubRepo === null) throw new Error(`run ${run.id} 没有仓库`);
+  if (run.githubRepo === null) throw new Error(`Run ${run.id} has no repo`);
   if (tests) await gradeHiddenTests(db, run, task, run.githubRepo, endpoint, signal);
   else if (criteria) await gradeCriteria(db, run, task, run.githubRepo, endpoint, signal);
   else await gradeEndpoint(db, run, task, run.githubRepo);
 }
 
-// 尚未评分时为 null
+// null while not yet graded
 export function readRunGrades(db: Db, runId: string): RunGrades | null {
   const rows = db
     .select()
@@ -276,7 +276,7 @@ export function readRunGrades(db: Db, runId: string): RunGrades | null {
   const rubricRows = rows.filter((r) => r.kind === 'rubric');
   const groups = rubricRows.map((g): ArtifactGrade => {
     if (g.artifact === null)
-      throw new Error(`run ${runId} 的 rubric 评分 ${String(g.id)} 没有产物组`);
+      throw new Error(`Rubric grade ${String(g.id)} of run ${runId} has no artifact group`);
     const items = itemsOf(g.id);
     return {
       artifact: g.artifact,
@@ -297,11 +297,11 @@ export function readRunGrades(db: Db, runId: string): RunGrades | null {
     ic !== undefined &&
     (ic.testsPassed === null || ic.testsDeclared === null || ic.icDetail === null)
   ) {
-    throw new Error(`run ${runId} 的隐藏测试评分不完整`);
+    throw new Error(`Hidden tests grade of run ${runId} is incomplete`);
   }
   const criteria = rows.find((r) => r.kind === 'ic_criteria');
   if (criteria?.criteriaDetail === null) {
-    throw new Error(`run ${runId} 的验收标准评分不完整`);
+    throw new Error(`Acceptance criteria grade of run ${runId} is incomplete`);
   }
   const criteriaItems = criteria === undefined ? [] : itemsOf(criteria.id);
   const endpointRow = rows.find((r) => r.kind !== 'rubric' && r.reachedEnd !== null);

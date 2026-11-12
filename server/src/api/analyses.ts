@@ -25,29 +25,29 @@ const ScopeSession = z.object({
   runId: z.string().nullable(),
   variant: Named.nullable(),
   binding: z.enum(variantBindings).nullable(),
-  // 本机配置的 session（Contracts 25.4）
+  // Session of the local machine configuration (Contracts 25.4)
   local: z.boolean(),
   engine: z.enum(sessionEngines),
-  // 所在的配置（Contracts 27）；不在任何配置中时为空
+  // Configuration it is in (Contracts 27); null when in none
   config: Config.nullable(),
-  // 项目：工作目录的目录名
+  // Project: the name of the working directory
   project: z.string().nullable(),
-  // 已在 dashboard 中；为 false 时开始分析时读入，不进入管理表格
+  // Already in the dashboard; when false it is read in when the analysis starts, without entering the management table
   inDashboard: z.boolean(),
 });
 
 const Scope = z.object({
   sessions: z.array(ScopeSession),
-  // 同一种引擎、同一个配置（Contracts 25.4、27）；不是时为空
+  // One engine and one configuration (Contracts 25.4, 27); null otherwise
   engine: z.enum(sessionEngines).nullable(),
   config: Config.nullable(),
   variant: Named.nullable(),
-  // 全部是本机配置的 session：分析没有 variant
+  // All sessions are of the local machine configuration: the analysis has no variant
   local: z.boolean(),
   problem: z.string().nullable(),
 });
 
-// 新建分析中从磁盘选的 session（Contracts 27）：这个引擎某个配置下列出的文件
+// Sessions picked from disk in a new analysis (Contracts 27): files listed under one configuration of this engine
 const Disk = z.strictObject({
   engine: z.enum(sessionEngines),
   files: z.array(z.string().min(1)).min(1),
@@ -61,7 +61,7 @@ const Tokens = z.object({
   reasoning: z.number(),
 });
 
-// key 是所选 session-analysis variant 的小阶段（Contracts 19.2）
+// key is a stage of the chosen session-analysis variant (Contracts 19.2)
 const Step = z.object({
   key: z.string(),
   status: z.enum(['pending', 'running', 'succeeded', 'failed', 'cancelled']),
@@ -77,10 +77,10 @@ const Summary = z.object({
   id: z.string(),
   engine: z.enum(analysisEngines),
   model: z.string(),
-  // 本机配置的 session 的分析没有 variant，页面显示"本机配置"（Contracts 25.4）
+  // Analyses of local machine configuration sessions have no variant; the page shows "local machine" (Contracts 25.4)
   variantId: z.string().nullable(),
   variantName: z.string().nullable(),
-  // 驱动分析的 session-analysis variant；W45 之前的分析为空
+  // The session-analysis variant that drives the analysis; null for analyses before W45
   analysisVariantId: z.string().nullable(),
   analysisVariantName: z.string().nullable(),
   sessionIds: z.array(z.string()),
@@ -105,7 +105,7 @@ const Finding = z.object({
 
 const Ids = z.array(z.string());
 
-// output/report.json（Contracts 19.2）
+// output/report.json (Contracts 19.2)
 const Report = z.object({
   summary: z.string(),
   goal: z.string(),
@@ -117,12 +117,12 @@ const Report = z.object({
 });
 
 const Detail = Summary.extend({
-  // 被分析的与驱动分析的 variant 已删除（Contracts 24.3）：显示名字，不能点进 variant 页面
+  // The analysed or driving variant was deleted (Contracts 24.3): show the name, no link to the variant page
   variantDeleted: z.boolean(),
   analysisVariantDeleted: z.boolean(),
   sessions: z.array(ScopeSession),
   report: Report.nullable(),
-  // 交给 Codex 优化的草稿与它在 Live 中的项（Contracts 19.3）
+  // Drafts handed to Codex for optimization and their Live items (Contracts 19.3)
   optimizeDrafts: z.array(z.object({ id: z.string(), liveId: z.string().nullable() })),
   findings: z.array(Finding),
   patches: z.array(
@@ -152,7 +152,7 @@ const Detail = Summary.extend({
 });
 
 const Params = z.object({ id: z.string() });
-// ?sessions=a,b 或 ?batch=<id>
+// ?sessions=a,b or ?batch=<id>
 const ScopeQuery = z.object({
   sessions: z
     .string()
@@ -162,7 +162,7 @@ const ScopeQuery = z.object({
   batch: z.string().min(1).optional(),
 });
 
-// Contracts 15.2、15.3
+// Contracts 15.2, 15.3
 export const analysisRoutes: FastifyPluginCallbackZod<{ insights: Insights }> = (
   app,
   { insights },
@@ -171,7 +171,7 @@ export const analysisRoutes: FastifyPluginCallbackZod<{ insights: Insights }> = 
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
-  // 默认模型与默认的 session-analysis variant（基线），以及可选的 variant（按当前内容构建通过的）
+  // Default model and default session-analysis variant (the baseline), plus the selectable variants (built from current content)
   app.get(
     '/api/analyses/options',
     {
@@ -200,8 +200,8 @@ export const analysisRoutes: FastifyPluginCallbackZod<{ insights: Insights }> = 
     (request) =>
       insights.scope({ sessionIds: request.query.sessions, batchId: request.query.batch }),
   );
-  // 同样的范围，ids 放在请求体中：Sessions 表格选中全部时 id 很多，查询字符串会超过请求头的上限（Contracts 25.5）；
-  // disk 为新建分析中从磁盘选的文件（Contracts 27）
+  // Same scope with ids in the body: selecting all in the Sessions table can exceed the header limit (Contracts 25.5);
+  // disk is the files picked from disk in a new analysis (Contracts 27)
   app.post(
     '/api/analyses/scope',
     {
@@ -209,7 +209,7 @@ export const analysisRoutes: FastifyPluginCallbackZod<{ insights: Insights }> = 
         body: z
           .strictObject({ ids: z.array(z.string().min(1)).optional(), disk: Disk.optional() })
           .refine((b) => (b.ids?.length ?? 0) > 0 || b.disk !== undefined, {
-            message: 'ids 与 disk 至少给出一个',
+            message: 'Give at least one of ids and disk',
           }),
         response: { 200: Scope },
       },
@@ -229,11 +229,11 @@ export const analysisRoutes: FastifyPluginCallbackZod<{ insights: Insights }> = 
           .object({
             sessionIds: z.array(z.string().min(1)).min(1).optional(),
             batchId: z.string().min(1).optional(),
-            // 新建分析中从磁盘选的（Contracts 27）：还不在 dashboard 中的先读入，不进入管理表格
+            // Picked from disk in a new analysis (Contracts 27): read in first if not in the dashboard, not entering the management table
             disk: Disk.optional(),
             engine: z.enum(analysisEngines),
             model: z.string().trim().min(1).optional(),
-            // 用哪个 session-analysis variant 分析（Contracts 19.2），默认基线
+            // Which session-analysis variant analyses it (Contracts 19.2), the baseline by default
             analysisVariantId: z.string().min(1).optional(),
           })
           .refine(
@@ -241,7 +241,7 @@ export const analysisRoutes: FastifyPluginCallbackZod<{ insights: Insights }> = 
               b.batchId === undefined
                 ? b.sessionIds !== undefined || b.disk !== undefined
                 : b.sessionIds === undefined && b.disk === undefined,
-            { message: 'batchId 与 sessionIds、disk 必须恰好给出一种' },
+            { message: 'Give exactly one of batchId and sessionIds/disk' },
           ),
         response: { 201: z.object({ id: z.string() }) },
       },
@@ -269,7 +269,7 @@ export const analysisRoutes: FastifyPluginCallbackZod<{ insights: Insights }> = 
     {
       schema: {
         params: Params,
-        // 名字与描述必填（Contracts 19.3），由服务端校验，以原文 400
+        // Name and description are required (Contracts 19.3), validated by the server, 400 with the message
         body: z.object({
           name: z.string(),
           description: z.string(),

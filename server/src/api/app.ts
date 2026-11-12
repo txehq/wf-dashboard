@@ -3,11 +3,12 @@ import { fastifySSE } from '@fastify/sse';
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
 import Fastify from 'fastify';
-import { config } from '../config.js';
+import { config, install } from '../config.js';
 import type { Db } from '../db/index.js';
+import { sshHosts } from '../db/schema.js';
 import { events } from '../events.js';
 import { closeLinearClient } from '../external/linear.js';
-import { runReposFor } from '../external/run-repos.js';
+import { githubRepos } from '../external/run-repos.js';
 import { defaultSourceDirs } from '../ingest/sources.js';
 import { watcherCount } from '../ingest/watch.js';
 import { createLive } from '../live/index.js';
@@ -28,16 +29,17 @@ import { createEnvironment } from '../environment.js';
 import { models } from '../llm/client.js';
 import { environmentRoutes } from './environment.js';
 import { liveRoutes } from './live.js';
+import { backfillCodexInjections } from '../ingest/codex.js';
 import { backfillSkillLoads } from '../ingest/ingest.js';
 import { bindRunSessions, rebindAll } from '../bindings/index.js';
 import { createInsights } from '../insights/index.js';
-import { ensureAnalysisBaseline } from '../insights/baseline.js';
+import { ensureBuiltinBaselines } from '../workflows/baselines.js';
 import { bindingRoutes } from './bindings.js';
 import { analysisRoutes } from './analyses.js';
 import { createWorkflows } from '../workflows/index.js';
 import { workflowRoutes } from './workflows.js';
 import { openRoutes } from './open.js';
-import { createDrafts } from '../drafts/index.js';
+import { backfillDraftVariants, createDrafts } from '../drafts/index.js';
 import { createSessionSync } from '../drafts/session-config.js';
 import { draftRoutes } from './drafts.js';
 import { createWorkspace } from '../drafts/workspace.js';
@@ -48,20 +50,33 @@ import { createSessionActions } from '../deletion/sessions.js';
 import { sessionActionRoutes } from './session-actions.js';
 import { createMagiAgent } from '../magi-agent/index.js';
 import { magiAgentRoutes } from './magi-agent.js';
+import { createHosts } from '../remote/hosts.js';
+import { sshHostRoutes } from './ssh-hosts.js';
+import { createVscode } from '../vscode/index.js';
+import { vscodeRoutes } from './vscode.js';
+import { createLocalDirs } from '../dirs/local.js';
+import { localDirRoutes } from './local-dirs.js';
+import { createTeamSync } from '../team/sync.js';
+import { teamRoutes } from './team.js';
+import { createUpdater } from '../install/index.js';
+import { installRoutes } from './install.js';
 
 export interface AppOptions {
   db: Db;
   sseHeartbeatMs: number;
   logger: boolean;
   tasksDir: string;
-  // pnpm start：构建好的页面目录（web/dist），由同一个进程提供
+  // pnpm start: the built page directory (web/dist), served by the same process
   webDir?: string | undefined;
-  // 交互"本机配置"的 HOME，默认真实 HOME；测试用 .work/ 下的目录
-  localHome?: string | undefined;
-  // Magi Agent 部署的最后一步（Contracts 23.5）：pnpm start 中服务以退出码 75 结束；部署的测试传自己的函数
+  // The last step of a Magi Agent deploy (Contracts 23.5): under pnpm start the service exits with code 75
   onRestart?: (() => void) | undefined;
-  // 检查 txe-workflow 的最新版并自动导入（Contracts 29.1）：只有 main.ts 按 config.releaseCheck 打开
+  // Check for the latest txe-workflow release and import it automatically (Contracts 29.1): only main.ts turns it on
   releaseCheck?: boolean | undefined;
+  // Sync the Linear stats at startup and every 30 minutes (Contracts 37.2): only main.ts turns it on
+  scheduledTeamSync?: boolean | undefined;
+  // From an installed release package, update from the latest Release at startup and every 6 hours (Contracts 39.4):
+  // only main.ts turns it on
+  selfUpdate?: boolean | undefined;
 }
 
 export async function buildApp({
@@ -70,12 +85,14 @@ export async function buildApp({
   logger,
   tasksDir,
   webDir,
-  localHome,
   onRestart,
   releaseCheck,
+  scheduledTeamSync,
+  selfUpdate,
 }: AppOptions) {
-  // 关闭服务时销毁全部连接：打开着的页面的 /api/events 是一直不结束的响应，server.close() 会一直等它，
-  // 服务不退出、交互进程也不结束（W58 实测）。终端的 WebSocket 由 @fastify/websocket 的 preClose 关闭
+  // Destroy every connection on shutdown: an open page's /api/events is a response that never ends, server.close()
+  // would wait for it forever, and neither the service nor the Live processes would exit (measured in W58). Terminal
+  // WebSockets are closed by @fastify/websocket's preClose
   const app = Fastify({ logger, forceCloseConnections: true });
   await app.register(fastifySSE, { heartbeatInterval: sseHeartbeatMs });
 
@@ -103,7 +120,7 @@ export async function buildApp({
   await app.register(compareRoutes({ db, variants }));
 
   const settings = createSettingsStore(db);
-  const repos = runReposFor(config.localReposDir);
+  const repos = githubRepos;
   const runs = createRuns({
     db,
     variants,
@@ -115,7 +132,7 @@ export async function buildApp({
   });
   await app.register(runRoutes, { runs, settings });
   await app.register(settingsRoutes, { settings });
-  // 先结束 run（它们可能还在调用 Linear），再关闭 mcp-remote 子进程
+  // Stop runs first (they may still be calling Linear), then close the mcp-remote child processes
   app.addHook('onClose', async () => {
     await runs.shutdown();
     await closeLinearClient();
@@ -131,25 +148,41 @@ export async function buildApp({
     codexAuthPath: config.codexAuthPath,
     codexConfigPath: config.codexConfigPath,
     workDir: config.environmentDir,
+    // With a Linux SSH host, check the tools for cross-compiling wf (Contracts 31.5)
+    remoteLinux: () =>
+      db
+        .select({ check: sshHosts.check })
+        .from(sshHosts)
+        .all()
+        .some((h) => h.check?.platform?.startsWith('Linux ') === true),
   });
   await app.register(environmentRoutes, { environment });
   await app.register(linearImportRoutes({ settings }));
 
-  // session 绑定 variant 与 skill 分析（Contracts 第 15 节）：本功能之前导入的 session 补提取 skill 正文与 run 的绑定
+  // Analysis, design and optimize are driven by the built-in session-analysis, workflow-design and workflow-optimize
+  // (Contracts 19.2, 33.1): their baseline variants are created and built at startup; earlier design and optimize
+  // sessions are recorded as using the matching baseline (33.3)
+  const baselines = await ensureBuiltinBaselines(db, variants, config.dataDir);
+  backfillDraftVariants(db, baselines);
+  // Sessions bound to variants and skill analysis (Contracts section 15): sessions imported before this feature get
+  // their skill bodies and run bindings extracted
   backfillSkillLoads(db);
   bindRunSessions(db);
   rebindAll(db, config.dataDir);
+  // Codex sessions imported before <skill> injections were read get their injections and stages (Contracts 16.6)
+  backfillCodexInjections(db);
   await app.register(bindingRoutes, { db, variants, dataDir: config.dataDir });
-  // 分析由内置的 session-analysis 驱动（Contracts 19.2）：启动时建出并构建它的基线 variant
-  await ensureAnalysisBaseline(db, variants);
   const insights = createInsights({ db, variants, dataDir: config.dataDir });
   await app.register(analysisRoutes, { insights });
   app.addHook('onClose', async () => {
     await insights.shutdown();
   });
 
-  // 交互（Contracts 14）：hook 命令 POST 到服务实际监听的地址
+  // Live (Contracts 14): hook commands POST to the address the service actually listens on
   await app.register(fastifyWebsocket);
+  // SSH hosts (Contracts 31.1)
+  const hosts = createHosts({ db, sshHostsFile: config.sshHostsFile });
+  await app.register(sshHostRoutes, { hosts });
   const live = createLive({
     db,
     variants,
@@ -161,11 +194,11 @@ export async function buildApp({
     serverUrl: () => {
       const address = app.server.address();
       if (address === null || typeof address === 'string') {
-        throw new Error(`HTTP 服务没有监听 TCP 端口：${String(address)}`);
+        throw new Error(`The HTTP server is not listening on a TCP port: ${String(address)}`);
       }
       return `http://${config.host}:${String(address.port)}`;
     },
-    localHome: localHome ?? os.homedir(),
+    localHome: os.homedir(),
     repos,
     codex: {
       bin: config.codexBin,
@@ -174,10 +207,19 @@ export async function buildApp({
     },
     claudeBin: config.claudeBin,
     autoStop: { idleMs: config.liveAutoStopMs, graceMs: config.liveStopGraceMs },
+    remote: { hosts, dir: config.remoteDir, reconnectMs: config.sshReconnectMs },
+    orca: config.orca,
   });
   await app.register(liveRoutes, { live });
+  // After a dashboard restart, reconnect running processes on SSH hosts (Contracts 31.4), then start syncing Orca's
+  // collaboration topology (Contracts 35.3)
+  app.addHook('onListen', () => {
+    live.reattachRemote();
+    live.startOrca();
+  });
 
-  // 实时事件推送：连接时先发 ready，之后转发事件总线上的全部事件。每个连接是一个打开着的页面（自动结束，Contracts 14.3）
+  // Live event push: send ready on connect, then forward every event on the event bus. Each connection is an open page
+  // (auto-stop, Contracts 14.3)
   app.get('/api/events', { sse: 'only' }, async (_request, reply) => {
     reply.sse.keepAlive();
     const unsubscribe = events.subscribe((event) => {
@@ -192,9 +234,17 @@ export async function buildApp({
   });
   app.addHook('onClose', async () => {
     await live.shutdown();
+    await hosts.shutdown();
   });
 
-  // Magi Agent（Contracts 第 23 节）：服务监听端口之后处理"部署后 resume"
+  // Magi Agent (Contracts section 23): "resume after deploy" is handled once the service listens
+  const restart =
+    onRestart ??
+    (() => {
+      throw new Error(
+        'This service has no way to restart after a deploy or update (main.ts of pnpm start sets it)',
+      );
+    });
   const magi = createMagiAgent({
     db,
     live,
@@ -203,22 +253,36 @@ export async function buildApp({
     worktree: config.magiWorktree,
     check: config.magiCheck,
     dataDir: config.dataDir,
-    restart:
-      onRestart ??
-      (() => {
-        throw new Error('这个服务没有设置部署后重新启动的方法（pnpm start 的 main.ts 设置）');
-      }),
+    install,
+    restart,
   });
   await app.register(magiAgentRoutes, { magi });
-  // Sessions 页面 resume Magi Agent 的会话：按它记下的引擎与 worktree 启动，带注入
+  // Resuming a Magi Agent session from the Sessions page: started with its recorded engine and worktree, with the
+  // injection
   live.setAgentResume((liveId) => magi.resume(liveId));
   app.addHook('onListen', () => {
     magi.resumeAfterDeploy();
   });
 
-  // 可配置的 workflow（Contracts 16.1）
+  // The installed version and its self-update (Contracts 39.4); a git checkout has neither
+  const updater = install === null ? null : createUpdater({ db, install, restart });
+  await app.register(installRoutes, {
+    view: () => (updater === null ? { installed: false as const } : updater.view(config.dataDir)),
+  });
+  if (updater !== null && selfUpdate === true) {
+    app.addHook('onListen', () => {
+      updater.start();
+    });
+    app.addHook('onClose', () => {
+      updater.stop();
+      return Promise.resolve();
+    });
+  }
+
+  // Configurable workflows (Contracts 16.1)
   await app.register(workflowRoutes, { workflows: createWorkflows({ db, variants }) });
-  // lfg、ic 默认带 txe-workflow 最新版的 variant（Contracts 29.1）：服务监听后在后台检查，不阻塞启动
+  // lfg and ic come with a variant of the latest txe-workflow release (Contracts 29.1): checked in the background once
+  // the service listens, without blocking startup
   if (releaseCheck === true) {
     const releases = createReleaseCheck({ db, variants, repo: config.txeWorkflowRepo });
     app.addHook('onListen', () => {
@@ -229,29 +293,28 @@ export async function buildApp({
       return Promise.resolve();
     });
   }
-  // "在访达中打开"（Contracts 16.7）
+  // "Open in Finder" (Contracts 16.7)
   await app.register(openRoutes, { db, variants, live });
-  // 用 Codex 生成 workflow 或 variant（Contracts 第 17 节）
+  // Generate a workflow or variant with Codex (Contracts section 17)
   const drafts = createDrafts({
     db,
     variants,
     live,
     draftsDir: config.workflowDraftsDir,
     dataDir: config.dataDir,
-    skillSources: config.codexSkillSources,
   });
   await app.register(draftRoutes, { drafts });
-  // 设计与优化会话的 workflow 面板（Contracts 第 26 节）
+  // The workflow panel of design and optimize sessions (Contracts section 26)
   const workspace = createWorkspace({ db, drafts });
   await app.register(workspaceRoutes, { workspace });
-  // 设计与优化会话中 src/skills 随写随装（Contracts 28.2）
+  // src/skills in design and optimize sessions are installed as they are written (Contracts 28.2)
   const sessionSync = createSessionSync({ db });
   app.addHook('onClose', () => {
     workspace.shutdown();
     sessionSync.shutdown();
     return Promise.resolve();
   });
-  // 删除 variant 与 workflow（Contracts 第 24 节）
+  // Deleting variants and workflows (Contracts section 24)
   await app.register(deletionRoutes, {
     deletion: createDeletion({
       db,
@@ -261,11 +324,11 @@ export async function buildApp({
       dataDir: config.dataDir,
     }),
   });
-  // Sessions 页面的删除与归档（Contracts 25.3）
+  // Deleting and archiving on the Sessions page (Contracts 25.3)
   await app.register(sessionActionRoutes, {
     actions: createSessionActions({ db, live, codexBin: config.codexBin }),
   });
-  // 诊断（Contracts 第 5 节，W58）：只读，测量与测试用它确认资源释放
+  // Diagnostics (Contracts section 5, W58): read-only; measurements and tests use it to confirm resources are released
   app.get('/api/diagnostics', () => {
     const activeResources: Record<string, number> = {};
     for (const kind of process.getActiveResourcesInfo()) {
@@ -281,12 +344,50 @@ export async function buildApp({
     };
   });
 
-  // 页面的路由在浏览器中：未匹配 /api 的路径都返回 index.html
+  // Open a Live item's working directory in VS Code for the Web (Contracts section 32): the server stops when the
+  // dashboard exits
+  const vscode = createVscode({
+    dir: config.vscodeDir,
+    serversDir: config.vscodeServersDir,
+    itemOf: (liveId) => {
+      const item = live.get(liveId);
+      return { cwd: item.cwd, hostId: item.host?.id ?? null };
+    },
+    hosts,
+    stopGraceMs: 10_000,
+  });
+  await app.register(vscodeRoutes, { vscode });
+  // Once the service listens, list the VS Code servers still running on SSH hosts in the background (Contracts 32.3),
+  // without blocking startup
+  app.addHook('onListen', () => {
+    void vscode.restoreRemote();
+  });
+  app.addHook('onClose', async () => {
+    await vscode.shutdown();
+  });
+  // Working directories of the local real environment: browse and create folders (Contracts 34.1), starting at home
+  await app.register(localDirRoutes, {
+    dirs: createLocalDirs({ home: os.homedir() }),
+  });
+  // Linear stats (Contracts section 37): Sync now always works; the sync at startup and every 30 minutes only when
+  // main.ts turns it on
+  const teamSync = createTeamSync({ db, team: config.teamStatsTeam });
+  await app.register(teamRoutes, { db, team: config.teamStatsTeam, sync: teamSync, settings });
+  if (scheduledTeamSync === true) {
+    app.addHook('onListen', () => {
+      teamSync.schedule(config.teamSyncIntervalMs);
+    });
+  }
+  app.addHook('onClose', async () => {
+    await teamSync.shutdown();
+  });
+
+  // Page routes live in the browser: every path not matching /api returns index.html
   if (webDir !== undefined) {
     await app.register(fastifyStatic, { root: webDir });
     app.setNotFoundHandler((request, reply) => {
       if (request.url.startsWith('/api/') || request.method !== 'GET') {
-        return reply.code(404).send({ message: `${request.method} ${request.url} 不存在` });
+        return reply.code(404).send({ message: `${request.method} ${request.url} not found` });
       }
       return reply.sendFile('index.html');
     });

@@ -5,7 +5,7 @@ import {
 } from 'fastify-type-provider-zod';
 import { Settings, type SettingsStore } from '../runs/settings.js';
 
-// 修改立即生效：并发数调大时队列马上启动排队的 run
+// Changes take effect at once: raising the concurrency starts queued runs immediately
 export const settingsRoutes: FastifyPluginCallbackZod<{ settings: SettingsStore }> = (
   app,
   { settings },

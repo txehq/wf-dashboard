@@ -10,7 +10,14 @@ import {
   Zap,
 } from 'lucide-react';
 import { createContext, use, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
-import { formatCount, formatDuration, formatInteger, formatTime, formatUsd } from '@/lib/format';
+import {
+  formatCount,
+  formatDuration,
+  formatInteger,
+  formatNoun,
+  formatTime,
+  formatUsd,
+} from '@/lib/format';
 import {
   requestsQuery,
   type MessageItem,
@@ -21,7 +28,7 @@ import {
   type ToolCall,
 } from '@/lib/sessions-api';
 
-// 展开状态放在列表之外：虚拟滚动卸载的行再次出现时保持原样
+// Expand state lives outside the list: rows unmounted by virtual scrolling look the same when they return
 interface ExpandState {
   isOpen: (key: string) => boolean;
   toggle: (key: string) => void;
@@ -32,7 +39,7 @@ const ExpandContext = createContext<ExpandState | null>(null);
 
 function useExpand(): ExpandState {
   const value = use(ExpandContext);
-  if (value === null) throw new Error('ExpandContext 未提供');
+  if (value === null) throw new Error('ExpandContext is not provided');
   return value;
 }
 
@@ -59,11 +66,11 @@ function useExpandState(): ExpandState {
 
 const SubagentsContext = createContext<ReadonlyMap<string, SubagentInfo>>(new Map());
 
-// 被外部定位到的请求（message id），该行加框标出
+// The request focused from outside (message id); that row gets a ring
 const FocusContext = createContext<string | null>(null);
 
-// 外部要求定位的主 session 请求；nonce 让同一条请求可以被再次定位。
-// toolCallId 为空时只滚动到该请求（对话条目的跳转）
+// A main-session request to focus from outside; nonce lets the same request be focused again.
+// With toolCallId null it only scrolls to the request (jump from a conversation entry)
 export interface TimelineFocus {
   seq: number;
   toolCallId: string | null;
@@ -76,7 +83,7 @@ function str(input: unknown, key: string): string | null {
   return typeof value === 'string' ? value : null;
 }
 
-// tool 参数摘要：常见 tool 取最能说明意图的字段，其余取 JSON 的开头
+// Tool input summary: the most telling field for common tools, the start of the JSON otherwise
 function inputSummary(call: ToolCall): string {
   const pick = (...keys: string[]) => {
     for (const key of keys) {
@@ -161,7 +168,7 @@ function Clamped({
             expand.toggle(expandKey);
           }}
         >
-          {open ? '收起' : '展开全文'}
+          {open ? 'Collapse' : 'Show all'}
         </button>
       )}
     </div>
@@ -198,24 +205,24 @@ function ToolCallView({ call, sessionId }: { call: ToolCall; sessionId: string }
         {call.isError && (
           <span className="ml-auto inline-flex shrink-0 items-center gap-1 rounded border border-destructive/40 px-1.5 text-xs text-destructive">
             <AlertTriangle className="size-3" aria-hidden />
-            出错
+            Error
           </span>
         )}
       </button>
       {open && (
         <div className="flex flex-col gap-2 border-t px-2.5 py-2" data-testid="tool-call-detail">
           <section>
-            <h4 className="mb-1 text-xs font-medium text-muted-foreground">参数</h4>
+            <h4 className="mb-1 text-xs font-medium text-muted-foreground">Input</h4>
             <pre className="max-h-72 overflow-auto rounded bg-muted/50 p-2 font-mono text-xs break-words whitespace-pre-wrap">
               {JSON.stringify(call.input, null, 2)}
             </pre>
           </section>
           <section>
             <h4 className="mb-1 text-xs font-medium text-muted-foreground">
-              结果 · {formatInteger(call.resultChars)} 字符
+              Result · {formatNoun(call.resultChars, 'character')}
             </h4>
             {call.result === null ? (
-              <p className="text-xs text-muted-foreground">没有返回结果。</p>
+              <p className="text-xs text-muted-foreground">No result returned.</p>
             ) : (
               <pre className="max-h-96 overflow-auto rounded bg-muted/50 p-2 font-mono text-xs break-words whitespace-pre-wrap">
                 {call.result}
@@ -223,13 +230,13 @@ function ToolCallView({ call, sessionId }: { call: ToolCall; sessionId: string }
             )}
             {truncated && (
               <p className="mt-1 text-xs text-muted-foreground">
-                结果共 {formatInteger(call.resultChars)} 字符，这里只显示前{' '}
-                {formatInteger(call.result?.length ?? 0)} 字符。
+                Showing the first {formatInteger(call.result?.length ?? 0)} of{' '}
+                {formatInteger(call.resultChars)} characters.
               </p>
             )}
             {call.spillPath !== null && (
               <p className="mt-1 text-xs break-all text-muted-foreground">
-                完整输出保存在 <span className="font-mono">{call.spillPath}</span>
+                Full output saved at <span className="font-mono">{call.spillPath}</span>
               </p>
             )}
           </section>
@@ -250,10 +257,10 @@ function ToolCallView({ call, sessionId }: { call: ToolCall; sessionId: string }
               className={`size-3.5 text-muted-foreground transition-transform ${agentOpen ? 'rotate-90' : ''}`}
             />
             <Bot className="size-3.5 text-muted-foreground" aria-hidden />
-            子代理 {sub?.agentType ?? call.subagentId}
+            Subagent {sub?.agentType ?? call.subagentId}
             {sub !== undefined && (
               <span className="font-normal text-muted-foreground">
-                · {formatInteger(sub.requestCount)} 次请求
+                · {formatNoun(sub.requestCount, 'request')}
               </span>
             )}
           </button>
@@ -289,13 +296,13 @@ function RequestRow({ item, sessionId }: { item: RequestItem; sessionId: string 
         <span>{formatTime(item.timestamp)}</span>
         <span className="font-mono">{item.model}</span>
         <span>
-          {item.durationMs === null ? '耗时 —' : `耗时 ${formatDuration(item.durationMs)}`}
+          {item.durationMs === null ? 'Duration —' : `Duration ${formatDuration(item.durationMs)}`}
         </span>
         <span
-          title={`input ${formatInteger(t.input)} · output ${formatInteger(t.output)} · cache 读 ${formatInteger(t.cacheRead)} · cache 写 ${formatInteger(t.cacheCreation)}`}
+          title={`input ${formatInteger(t.input)} · output ${formatInteger(t.output)} · cache read ${formatInteger(t.cacheRead)} · cache write ${formatInteger(t.cacheCreation)}`}
         >
-          in {formatCount(t.input)} · out {formatCount(t.output)} · cache 读{' '}
-          {formatCount(t.cacheRead)} 写 {formatCount(t.cacheCreation)}
+          in {formatCount(t.input)} · out {formatCount(t.output)} · cache read{' '}
+          {formatCount(t.cacheRead)} write {formatCount(t.cacheCreation)}
         </span>
         <span className="font-medium text-foreground">{formatUsd(item.costUsd)}</span>
         {item.attributionSkill !== null && (
@@ -315,7 +322,8 @@ function RequestRow({ item, sessionId }: { item: RequestItem; sessionId: string 
             <ChevronRight
               className={`size-3.5 transition-transform ${expand.isOpen(thinkingKey) ? 'rotate-90' : ''}`}
             />
-            思考 · {formatInteger(item.thinking.length)} 字
+            Thinking · {formatInteger(item.thinking.length)}{' '}
+            {item.thinking.length === 1 ? 'character' : 'characters'}
           </button>
           {expand.isOpen(thinkingKey) && (
             <p className="mt-1 border-l-2 pl-2 text-xs break-words whitespace-pre-wrap text-muted-foreground italic">
@@ -347,7 +355,7 @@ function MessageRow({ item, index }: { item: MessageItem; index: number }) {
       >
         <header className="flex items-center gap-2 text-xs text-muted-foreground tabular-nums">
           <MessageSquare className="size-3.5" aria-hidden />
-          <span className="font-medium text-foreground">用户</span>
+          <span className="font-medium text-foreground">User</span>
           <span>{formatTime(item.timestamp)}</span>
         </header>
         <Clamped text={item.text} lines={6} expandKey={`user:${item.timestamp}:${String(index)}`} />
@@ -359,7 +367,7 @@ function MessageRow({ item, index }: { item: MessageItem; index: number }) {
       className="flex items-start gap-2 rounded-md border border-dashed px-3 py-1.5 text-xs text-muted-foreground"
       data-testid="notice-row"
     >
-      <span className="shrink-0 font-medium">系统事件</span>
+      <span className="shrink-0 font-medium">System event</span>
       <span className="shrink-0 tabular-nums">{formatTime(item.timestamp)}</span>
       <Clamped
         text={item.text}
@@ -390,7 +398,7 @@ function VirtualRows({
   sessionId: string;
   nested: boolean;
   scrollHandle?: ScrollHandle | undefined;
-  // 实时运行：停在最新一条；用户向上滚动后不再自动跳转，回到底部后恢复
+  // Live run: stay on the latest row; stops jumping once the user scrolls up, resumes back at the bottom
   follow?: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -416,7 +424,7 @@ function VirtualRows({
   }, [virtualizer, scrollHandle]);
   const following = follow && atBottom;
   const total = virtualizer.getTotalSize();
-  // 跟随最新：条数增加，或最后一条请求追加了内容（高度变化）时都滚到底部
+  // Follow the latest: scroll to the bottom when rows are added or the last request grows (height changes)
   useEffect(() => {
     if (following && items.length > 0) {
       virtualizer.scrollToIndex(items.length - 1, { align: 'end' });
@@ -470,7 +478,7 @@ function VirtualRows({
             setAtBottom(true);
           }}
         >
-          跳到最新
+          Jump to latest
         </button>
       )}
     </div>
@@ -495,27 +503,28 @@ function Timeline({
     return (
       <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
         <LoaderCircle className="size-4 animate-spin" />
-        正在加载请求…
+        Loading requests…
       </p>
     );
-  // 后台重新拉取失败时 data 仍在：照常显示，错误作为上方提示，滚动位置与展开状态不丢
+  // When a background refetch fails, data is still there: show it as usual with the error above, keeping
+  // scroll position and expand state
   const items = query.data;
   if (items === undefined)
     return (
       <p role="alert" className="py-6 text-sm text-destructive">
-        加载请求失败：{query.error.message}
+        Failed to load requests: {query.error.message}
       </p>
     );
   const refreshError = query.isError ? (
     <p role="alert" className="text-sm text-destructive">
-      刷新请求失败：{query.error.message}
+      Failed to refresh requests: {query.error.message}
     </p>
   ) : null;
   if (items.length === 0)
     return (
       <>
         {refreshError}
-        <p className="py-6 text-sm text-muted-foreground">这一段没有请求。</p>
+        <p className="py-6 text-sm text-muted-foreground">No requests in this part.</p>
       </>
     );
   return (
@@ -532,7 +541,8 @@ function Timeline({
   );
 }
 
-// 请求明细：一段主 session 请求（或全部），用户消息与系统事件按时间穿插
+// Requests: a range of main-session requests (or all of them), with user messages and system events
+// interleaved by time
 export function RequestTimeline({
   sessionId,
   range,
@@ -552,8 +562,9 @@ export function RequestTimeline({
   const scrollRef = useRef<((index: number) => void) | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  // 定位：滚动到该请求并展开对应的 tool 调用；调用在子代理中时展开该请求发起的子代理。
-  // open 的引用随展开状态变化，放在 ref 中，定位只随 focus 与数据变化执行
+  // Focus: scroll to the request and expand its tool call; if the call is inside a subagent, expand the
+  // subagents that request started. open changes with the expand state, so it sits in a ref and focusing
+  // runs only when focus or data change
   const openRef = useRef(expand.open);
   useEffect(() => {
     openRef.current = expand.open;
@@ -572,8 +583,9 @@ export function RequestTimeline({
       }
     }
     scrollRef.current?.(index);
-    // 虚拟列表滚动后下一帧才渲染出这一行：等它出现，再把它连同页面一起滚到视野中央。
-    // 打开页面时就带着定位（?seq=）时，列表刚挂载、还没有测量，第一次滚动不生效，没出现时再滚一次
+    // The virtual list renders the row one frame after scrolling: wait for it, then scroll it and the page to
+    // the center. When the page opens already focused (?seq=), the list has just mounted and is not measured,
+    // so the first scroll has no effect; scroll again while the row has not appeared
     let frames = 0;
     let handle = 0;
     const reveal = () => {
@@ -619,7 +631,8 @@ export function RequestTimeline({
           {query.data !== undefined && (
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               <span>
-                {formatInteger(counts.requests)} 次请求 · {formatInteger(counts.users)} 条用户消息
+                {formatNoun(counts.requests, 'request')} ·{' '}
+                {formatNoun(counts.users, 'user message')}
               </span>
               {counts.agents.map(({ index, call }) => {
                 const sub = call.subagentId === null ? undefined : subagentMap.get(call.subagentId);

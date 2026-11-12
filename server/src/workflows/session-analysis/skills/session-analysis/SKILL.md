@@ -3,23 +3,23 @@ name: session-analysis
 description: Analyse coding-agent session transcripts exported in input/ — one aspect when given a stage name (process-adherence, plan-adherence, failures, repeated-work, token-waste, time-waste, user-interaction, output-quality, request-conflicts, synthesize), all aspects in order when given none.
 ---
 
-# session 分析
+# Session analysis
 
-当前目录是一次分析的目录：`input/` 是被分析的 session 与它们所用 variant 的 skill（只读），`output/` 是你唯一可以写的地方。你找出这个 variant 的 skill 在这些 session 中造成或放任的问题，每条都有原文证据。本机配置的 session 没有 variant（`input/case.json` 的 `variant` 为 null），你找出这些 session 本身的问题，做法见 `references/input.md` 的最后一节。
+The current directory is the directory of one analysis: `input/` holds the analyzed sessions and the skills of the variant they used (read-only), and `output/` is the only place you may write. You find the problems that this variant's skills caused or allowed in these sessions, each backed by verbatim evidence. Sessions with the local machine configuration have no variant (`variant` in `input/case.json` is null); for them you find the problems of the sessions themselves, as described in the last section of `references/input.md`.
 
-## 步骤
+## Steps
 
-1. 读这五份参考，全部读完再往下：
-   - [`references/input.md`](references/input.md)：`input/` 的每个文件与字段。
-   - [`references/context-safety.md`](references/context-safety.md)：读大文件的规则，每次读 `input/` 都遵守。
-   - [`references/evidence.md`](references/evidence.md)：证据规则。dashboard 逐条校验，一条不合格整个阶段失败。
-   - [`references/findings.md`](references/findings.md)：发现的 JSON 格式、severity 与 detail 的写法。
-   - [`references/boundaries.md`](references/boundaries.md)：每种行为归哪个阶段报告。
-2. 读 `input/case.json`，知道这次分析哪些 session、哪个 variant。
-3. 按参数进入阶段：
-   - 参数是一个阶段名：用 Skill 调用那个阶段的 skill，照它做完，结束。
-   - 没有参数：按顺序逐个调用 `process-adherence`、`plan-adherence`、`failures`、`repeated-work`、`token-waste`、`time-waste`、`user-interaction`、`output-quality`、`request-conflicts`，最后 `synthesize`；每个阶段写完它的输出文件后再调用下一个。
+1. Read these five references, all of them, before going on:
+   - [`references/input.md`](references/input.md): every file and field in `input/`.
+   - [`references/context-safety.md`](references/context-safety.md): rules for reading large files; follow them every time you read `input/`.
+   - [`references/evidence.md`](references/evidence.md): evidence rules. The dashboard checks every item, and one invalid item fails the whole stage.
+   - [`references/findings.md`](references/findings.md): the JSON format of findings and how to write severity and detail.
+   - [`references/boundaries.md`](references/boundaries.md): which stage reports each kind of behavior.
+2. Read `input/case.json` to learn which sessions and which variant this analysis covers.
+3. Enter stages according to the argument:
+   - The argument is a stage name: call that stage's skill with Skill, do what it says, and finish.
+   - No argument: call `process-adherence`, `plan-adherence`, `failures`, `repeated-work`, `token-waste`, `time-waste`, `user-interaction`, `output-quality`, `request-conflicts` one by one in this order, and finally `synthesize`; call the next stage only after the current one has written its output file.
 
-完成条件：参数指定的阶段（或全部阶段）的输出文件已写出，并通过 `jq .`。
+Done when: the output files of the stage given by the argument (or of all stages) are written and pass `jq .`.
 
-出处见 [`NOTICE.md`](NOTICE.md)。
+Sources are in [`NOTICE.md`](NOTICE.md).

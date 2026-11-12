@@ -5,21 +5,21 @@ feature: r-20261009-dqva52
 updated: "2026-10-09"
 ---
 
-# Brief: 初中机房离线网页计算器
-**Date:** 2026-10-09 · **Interviewed:** 学校老师（需求提出人） · **By:** Claude Opus 5.5（/lfg 会话）
+# Brief: Offline Web Calculator for the Junior High Computer Lab
+**Date:** 2026-10-09 · **Interviewed:** school teacher (requirement submitter) · **By:** Claude Opus 5.5 (/lfg session)
 
 ## Problem & consumer
 
-- **使用者：** 学校初一到初三的学生，在学校机房用（Windows 7，学校统一安装的 Chrome 109），也在家里用自己的电脑；老师上课时投影给全班演示。
-- **问题：** 机房现在装的是普通计算器，学生也会拿手机算，用起来不方便，而且上课不让用手机。机房经常断网，联网才能打开的网页用不了。
-- **为什么现在做：** 要在两个月后开学前能用上，交付日期为 **2026-12-09**。
-- **常见困扰：** 电脑算 `0.1+0.2` 会出现一长串奇怪的数字，把学生搞糊涂；除不尽的数显示得不整齐；除以 0、括号没配对、负数开平方时没有看得懂的提示。
+- **Users:** students from grade 7 to grade 9 at the school, who use it in the school computer lab (Windows 7, Chrome 109 installed by the school) and also on their own computers at home; the teacher projects it for the whole class during lessons.
+- **Problem:** The computer lab currently has an ordinary calculator, students also use their phones to calculate, it is inconvenient to use, and phones are not allowed during class. The lab often loses its internet connection, so web pages that need to be online to open don't work.
+- **Why now:** it needs to be usable before the semester starts, two months from now; the delivery date is **2026-12-09**.
+- **Common confusion:** Computing `0.1+0.2` on a computer shows a long string of strange numbers that confuse students; numbers that don't divide evenly display untidily; dividing by 0, unmatched parentheses, and taking the square root of a negative number have no clear prompts.
 
 ## Done means
 
-老师准备的测试题全部算对，显示结果完全一致：
+All of the teacher's prepared test questions calculate correctly, and the displayed results match exactly:
 
-| 输入 | 显示 |
+| Input | Display |
 |---|---|
 | `0.1+0.2` | `0.3` |
 | `(2+3)*4` | `20` |
@@ -28,114 +28,114 @@ updated: "2026-10-09"
 | `50%*200` | `100` |
 | `1/3` | `0.3333333333` |
 | `-5+3` | `-2` |
-| `1/0` | 中文提示“不能除以 0”，出错位置标红 |
-| `(2+3` | 中文提示“括号不配对”，标出缺少或多出的括号 |
+| `1/0` | Chinese prompt "Cannot divide by 0", error position marked in red |
+| `(2+3` | Chinese prompt "Unmatched parentheses", marks the missing or extra parentheses |
 
-另外，下面“要做的功能”里的每一条都能在 Windows 7 + Chrome 109、断网状态下双击网页文件演示出来。最少的证据：上表每一行的截图，加上历史记录（关掉再打开仍在、点击放回、清空）和投影模式的截图。
+In addition, each item under "Features to build" below can be demonstrated on Windows 7 + Chrome 109, offline, by double-clicking the web page file. The minimum evidence: a screenshot of each row in the table above, plus screenshots of history (still there after closing and reopening, click to put back, clear) and projector mode.
 
 ## Where it lives
 
-- **仓库：** `txehq/wfe-r-20261009-dqva52`（GitHub），目前只有一个提交，里面只有一行 `README.md`。
-- **产品：** Magi Eval；功能 slug `r-20261009-dqva52`。
-- **交付物：** 一个单独的网页文件（`.html`），双击用 Chrome 打开，完全不联网，不用安装任何东西；附一份中文使用说明。做好后由开发方用微信或邮件把两个文件发给老师，老师不注册任何网站。老师把文件拷到机房电脑或 U 盘里，学生也可以拷回家用。
-- **依据：** 本 brief 是唯一的需求来源，没有对应的工单或规格文档。
-- **前置条件：** 无。
-- **后续工作：** 无已知后续。
+- **Repo:** `txehq/wfe-r-20261009-dqva52` (GitHub), currently has just one commit, which contains only a single line in `README.md`.
+- **Product:** Magi Eval; feature slug `r-20261009-dqva52`.
+- **Deliverable:** a single web page file (`.html`); double-click to open in Chrome; fully offline, nothing to install; include a Chinese usage guide. Once done, the developer sends both files to the teacher via WeChat or email; the teacher does not register on any website. The teacher copies the file to the computer room PCs or a USB drive; students may also copy it home.
+- **Basis:** this brief is the only requirements source; there is no corresponding ticket or spec document.
+- **Prerequisites:** None.
+- **Follow-up work:** No known follow-up.
 
-### 要做的功能
+### Features to build
 
-1. **打开方式：** 一个单独的 `.html` 文件，所有代码、样式、字体都包含在里面，在 Chrome 109 中双击打开（`file://`），全程不发出任何网络请求。
-2. **输入：** 屏幕上有按键，也可以直接用键盘打字；整个式子显示在输入框里，按“=”（或键盘回车）出结果。
-3. **运算：** 加 `+`、减 `-`、乘 `*`/`×`、除 `/`/`÷`、括号、负数、小数、百分号、乘方 `^`、开平方 `√`。
-   - 百分号：`50%` 等于 0.5，`50%*200=100`，`200+10%=200.1`。
-   - 运算顺序按初中课本：先括号，再乘方和开平方，再乘除，最后加减。
-   - `-2^2 = -4`（先算乘方再取负）。
-   - `2^3^2 = 512`（乘方从右往左算）。
-   - 允许省略乘号：`2(3+4)=14`，`2√9=6`。
-   - 小数计算精确：`0.1+0.2` 得 `0.3`。
-4. **结果显示：** 先四舍五入到 10 位小数，最多保留 12 位有效数字，去掉末尾的 0（`1/3` → `0.3333333333`）。整数部分超过 12 位、或绝对值小于 0.0000000001 的非零结果，用科学记数法显示，例如 `2^50` → `1.12589990684×10^15`，`1/300000000000` → `3.33333333333×10^-12`。
-5. **错误提示：** 用中文说明原因，在式子里把出错的位置标红，式子保留在输入框里方便修改：
-   - 除以 0：“不能除以 0”
-   - 括号没配对：“括号不配对”，标出多出来或缺少的那个括号
-   - 负数开平方：“负数不能开平方”
-   - 负数开小数次方，例如 `(-8)^0.5`：“负数不能开这个次方”
-   - 式子没写完，例如 `3+`：“式子没写完”
-   - 结果的绝对值超过 10^100：“结果太大，算不了”
-   - 其他写法错误，例如 `3..2`、`*5`：“式子写法不对”，标出第一个写错的字符
-   - `0^0`：“0 的 0 次方没有意义”（按课本，a⁰ = 1 要求 a ≠ 0）
-6. **历史记录：** 保留最近 20 条（式子和结果），更早的自动删掉；关掉网页再打开记录还在，直到点“清空”才删除；点一条记录就把那道式子放回输入框，学生可以改了再算。机房电脑装有还原卡，定期还原，重启后历史记录会被清掉，这是还原卡的作用，网页无法保留；使用说明里写明这一点。学生家里的电脑上不受影响。
-7. **投影模式：** 一个按钮把字号放大，方便全班看清；再点一次恢复原来的字号。
+1. **How to open:** a single `.html` file with all code, styles and fonts included; double-click to open in Chrome 109 (`file://`); it makes no network requests at any time.
+2. **Input:** on-screen buttons, and you can also type directly on the keyboard; the whole expression is shown in the input box, and pressing "=" (or Enter) gives the result.
+3. **Operations:** add `+`, subtract `-`, multiply `*`/`×`, divide `/`/`÷`, parentheses, negative numbers, decimals, percent, power `^`, square root `√`.
+   - Percent: `50%` equals 0.5, `50%*200=100`, `200+10%=200.1`.
+   - Order of operations follows the junior high textbook: parentheses first, then powers and square roots, then multiplication and division, and finally addition and subtraction.
+   - `-2^2 = -4` (compute the power first, then negate).
+   - `2^3^2 = 512` (exponentiation is evaluated from right to left).
+   - Implicit multiplication is allowed: `2(3+4)=14`, `2√9=6`.
+   - Decimal calculations are exact: `0.1+0.2` gives `0.3`.
+4. **Result display:** First round to 10 decimal places, keep at most 12 significant digits, remove trailing 0s (`1/3` → `0.3333333333`). Nonzero results whose integer part exceeds 12 digits, or whose absolute value is less than 0.0000000001, are displayed in scientific notation, for example `2^50` → `1.12589990684×10^15`, `1/300000000000` → `3.33333333333×10^-12`.
+5. **Error messages:** Explain the cause in Chinese, mark the error position in red within the expression, and keep the expression in the input box for editing:
+   - Division by 0: "Cannot divide by 0"
+   - Unmatched parentheses: "Parentheses don't match", marking the extra or missing parenthesis
+   - Negative square root: "Cannot take the square root of a negative number"
+   - Negative base with a fractional exponent, e.g. `(-8)^0.5`: "Cannot take this root of a negative number"
+   - Incomplete expression, e.g. `3+`: "Expression is incomplete"
+   - Absolute value of the result exceeds 10^100: "Result too large, can't compute"
+   - Other syntax errors, e.g. `3..2`, `*5`: "Expression format is incorrect", marking the first incorrect character
+   - `0^0`: "0 to the power of 0 has no meaning" (per the textbook, a⁰ = 1 requires a ≠ 0)
+6. **History:** Keep the most recent 20 entries (expressions and results); older ones are deleted automatically. Records remain after closing and reopening the page, and are only deleted when you click "Clear". Clicking an entry puts that expression back into the input box so students can edit it before recalculating. The lab computers have restore cards and are restored periodically; after a reboot the history is cleared. This is the restore card's doing, and the web page cannot keep it, so state this in the usage instructions. Students' home computers are not affected.
+7. **Projection mode:** One button enlarges the font so the whole class can see; click it again to restore the original font size.
 
 ## Verified current behaviour
 
-- 仓库 `txehq/wfe-r-20261009-dqva52` 只有提交 `09d22b2 chore: initial commit`，内容是一行 `README.md`（`# wfe-r-20261009-dqva52`），没有任何代码、测试或 CI 配置。
-- Obsidian 库 `Project Magi Eval/Features/` 下没有这个 slug 的文件夹；Linear 里没有这个计算器的工单。
+- Repo `txehq/wfe-r-20261009-dqva52` has only the commit `09d22b2 chore: initial commit`, whose content is one `README.md` line (`# wfe-r-20261009-dqva52`), with no code, tests, or CI config.
+- The Obsidian vault `Project Magi Eval/Features/` has no folder for this slug; Linear has no ticket for this calculator.
 
 ## Out of scope & constraints
 
-**这次不做：**
+**Not doing this time:**
 
-- 三角函数、对数
-- 分数计算，以及用分数形式显示结果
-- 画函数图像
-- 解方程
-- 显示计算步骤
-- 手机和平板上的使用
-- M+ 这类记忆键
-- 任何联网功能（在线更新、统计、上传、外部字体或脚本）
-- 安装程序或浏览器插件
-- 把文件拷到机房电脑（由老师自己做）
+- Trigonometric functions, logarithms
+- Fraction calculations, and displaying results as fractions
+- Plotting function graphs
+- Solving equations
+- Showing calculation steps
+- Use on phones and tablets
+- Memory keys such as M+
+- Any online features (online updates, statistics, uploads, external fonts or scripts)
+- Installers or browser extensions
+- Copying files to the computer room PCs (the teacher does this)
 
-**限制：**
+**Constraints:**
 
-- 必须在 Windows 7 + Chrome 109 上完全断网可用。
-- 交付日期：2026-12-09（开学前）。
-- 技术选择由开发方决定；老师只看结果对不对、学生能不能看懂。
-- 界面文字和提示全部用中文，初中学生能看懂。
+- Must work fully offline on Windows 7 + Chrome 109.
+- Delivery date: 2026-12-09 (before the start of term).
+- The developer decides the technical choices; the teacher only checks whether the results are correct and whether students can understand them.
+- All interface text and prompts are in Chinese, so middle-school students can understand them.
 
 ## Authority ceiling
 
-- **会话可以自己做：** 拆工单、选技术、写代码、测试、开 PR、按评审意见修改；合并按仓库的自动合并规则进行。
-- **上限：** PR 合并到仓库为止。没有生产环境；把文件拷到机房电脑由老师做。
-- **必须先问老师：** 任何会改变本 brief 里功能、显示规则、错误提示或“这次不做”清单的事情。
+- **The session can handle these itself:** split tickets, choose technology, write code, test, open PRs, revise per review comments; merging follows the repo's automatic merge rules.
+- **Ceiling:** Work ends when the PR is merged into the repo. There is no production environment; copying files to the computer room PCs is done by the teacher.
+- **Must ask the teacher first:** Anything that would change the features, display rules, error messages, or the "Not doing this time" list in this brief.
 
 ## Open questions
 
-- 用什么方式做精确的小数计算（十进制运算库的选择），以及显示规则（10 位小数、12 位有效数字、科学记数法）的实现方式。
-- 怎样把所有代码、样式和依赖打包进一个能在 `file://` 下运行的 `.html` 文件，并证明它不发出网络请求。
-- 在 `file://` 下用什么方式保存历史记录（Chrome 109 中 `localStorage` 对 `file://` 页面的行为需要核实）。
-- 式子的解析方式：省略乘号、`√` 后面跟数字或括号、百分号、负号与乘方的优先级，以及出错位置如何定位。
-- 投影模式放大多少倍，屏幕按键的排列方式。
-- 怎样在 Windows 7 + Chrome 109 上验证（测试环境的准备）。
+- Which approach to use for exact decimal arithmetic (choice of decimal math library), and how to implement the display rules (10 decimal places, 12 significant digits, scientific notation).
+- How to bundle all code, styles, and dependencies into a single `.html` file that runs under `file://`, and prove it makes no network requests.
+- How to save history under `file://` (the behavior of `localStorage` for `file://` pages in Chrome 109 needs to be verified).
+- How expressions are parsed: implicit multiplication, `√` followed by a number or parentheses, percent signs, precedence of negation and exponentiation, and how error positions are located.
+- How much to enlarge in projection mode, and the layout of the on-screen keys.
+- How to verify on Windows 7 + Chrome 109 (preparing the test environment).
 
 ## Decision ledger
 
-| 问题 | 答案 | 状态 |
+| Question | Answer | Status |
 |---|---|---|
-| 交付形式 | 单独的网页文件，双击打开，不联网 | confirmed |
-| 输入方式 | 屏幕按键和键盘都可以，显示整个式子，按“=”出结果 | confirmed |
-| 结果显示 | 四舍五入到 10 位小数，最多 12 位有效数字，去掉末尾的 0；不显示分数 | confirmed |
-| 很大和很小的数 | 用科学记数法（`×10^n`） | delegated（老师选了推荐做法） |
+| Delivery format | A standalone web page file, opened by double-clicking, no network | confirmed |
+| Input method | On-screen keys and keyboard both work; shows the whole expression; press "=" to get the result | confirmed |
+| Result display | Round to 10 decimal places, at most 12 significant digits, drop trailing zeros; fractions not shown | confirmed |
+| Very large and very small numbers | Scientific notation (`×10^n`) | delegated (teacher chose the recommended approach) |
 | `-2^2` | -4 | confirmed |
 | `2^3^2` | 512 | delegated |
 | `200+10%` | 200.1 | confirmed |
-| 省略乘号 | 允许，`2(3+4)=14`，`2√9=6` | confirmed |
-| 历史记录 | 最近 20 条，关掉网页后仍在，点“清空”才删，点击放回输入框 | confirmed |
-| 投影模式 | 一键放大字号，再点恢复 | confirmed |
-| 错误提示语 | 八条中文提示（见功能 5），标红出错位置，保留式子 | confirmed |
-| 写法错误的提示 | “式子写法不对”，标出第一个写错的字符 | confirmed |
-| `0^0` | 提示“0 的 0 次方没有意义” | confirmed |
-| 交付方式 | 用微信或邮件把文件发给老师，老师不注册网站 | confirmed |
-| 机房还原卡 | 机房电脑装有还原卡，重启后历史记录清空；写进使用说明 | confirmed |
-| 不做的功能 | 见“这次不做”清单 | confirmed |
-| 会话权限 | 自己拆工单到开 PR，合并按仓库规则 | confirmed |
-| 拷文件到机房 | 老师自己做 | confirmed |
-| 交付日期 | 2026-12-09 | confirmed |
-| 技术选择 | 由开发方决定 | delegated |
+| Omit multiplication sign | Allowed, `2(3+4)=14`, `2√9=6` | confirmed |
+| History | Last 20 entries, still there after closing the page, deleted only when you click "Clear", click to put back into the input box | confirmed |
+| Projector mode | One click to enlarge the font size, click again to restore | confirmed |
+| Error message text | Eight Chinese messages (see feature 5), mark the error position in red, keep the expression | confirmed |
+| Syntax error message | "Expression format is incorrect", marking the first incorrect character | confirmed |
+| `0^0` | Show "0 to the power of 0 has no meaning" | confirmed |
+| Delivery method | Send the file to the teacher via WeChat or email; the teacher does not register on a website | confirmed |
+| Computer room restore card | Computer room PCs have restore cards; history is cleared after restart; written into the usage guide | confirmed |
+| Out-of-scope features | See "Not doing this time" list | confirmed |
+| Session permissions | Break down tickets yourself and open PRs; merge per repo rules | confirmed |
+| Copy files to the computer lab | Teacher does it themselves | confirmed |
+| Delivery date | 2026-12-09 | confirmed |
+| Technical choices | Decided by the development side | delegated |
 
 ## Inferred answers & sources
 
-- **不收集、不发送学生信息：** 由“完全不联网”推断，老师已确认整理稿。
-- **家里的电脑也用 Chrome，版本不低于 109：** 由机房环境推断，老师已确认整理稿。
-- **交付日期 2026-12-09：** 由“两个月后开学前”和今天的日期 2026-10-09 推断，老师已确认。
-- **“=”也可以用键盘回车触发：** 由“键盘也要能用”推断，属于可以更改的默认做法。
+- **Do not collect or send student information:** Inferred from "fully offline"; the teacher has confirmed the summary draft.
+- **Home computers also use Chrome, version 109 or higher:** Inferred from the computer lab environment; the teacher has confirmed the summary draft.
+- **Delivery date 2026-12-09:** Inferred from "two months before the start of school" and today's date 2026-10-09; confirmed by the teacher.
+- **"=" can also be triggered with the keyboard Enter key:** Inferred from "the keyboard must also work"; this is a default practice that can be changed.

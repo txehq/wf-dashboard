@@ -3,11 +3,11 @@ import { useDarkMode } from '@/lib/dark-mode';
 
 type Rendered = { svg: string; dark: boolean } | { error: string } | null;
 
-// mermaid.render(id) 先删去页面中 id 相同的元素：每次渲染用新的 id，已经显示的图不会被删去
+// mermaid.render(id) first removes any element with the same id: each render uses a new id so diagrams already shown are not removed
 let renders = 0;
 
-// mermaid 代码块渲染成图。mermaid 很大，用到时才加载；securityLevel strict 时图中的文字不作为 HTML 解释、点击事件不可用。
-// 语法有错时显示 mermaid 的原文与代码
+// Renders a mermaid code block as a diagram. mermaid is large and loads on first use; with securityLevel strict, diagram text is not
+// treated as HTML and click events are off. On a syntax error, shows mermaid's message and the code
 export function MermaidDiagram({ code }: { code: string }) {
   const dark = useDarkMode();
   const [rendered, setRendered] = useState<Rendered>(null);
@@ -48,7 +48,7 @@ export function MermaidDiagram({ code }: { code: string }) {
       </div>
     );
   }
-  // data-theme：已显示的图按哪种主题渲染（换主题后重新渲染完成之前仍是之前的主题）
+  // data-theme: the theme the shown diagram was rendered in (it keeps the old theme until the re-render after a theme change finishes)
   return (
     <div
       className="md-mermaid"

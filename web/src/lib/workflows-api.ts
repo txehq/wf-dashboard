@@ -16,7 +16,7 @@ async function fetchWorkflows(): Promise<WorkflowRecord[]> {
   return z.array(WorkflowView).parse(await requestJson('GET', '/api/workflows'));
 }
 
-// Contracts 16.1：workflow 的列表（内置的 lfg、ic 在前）
+// Contracts 16.1: the workflow list (built-in lfg and ic first)
 export const workflowsQuery = queryOptions({ queryKey: ['workflows'], queryFn: fetchWorkflows });
 
 export const workflowQuery = (id: string) =>
@@ -36,7 +36,7 @@ export async function updateWorkflow(
   return WorkflowView.parse(await requestJson('PUT', `/api/workflows/${id}`, body));
 }
 
-// workflow 的评测类型；列表还没有读到或 workflow 没有评测类型时为 null
+// The workflow's eval kind; null before the list has loaded or when the workflow has no eval kind
 export function evalKindOf(
   workflows: WorkflowRecord[] | undefined,
   workflowId: string,
@@ -44,9 +44,9 @@ export function evalKindOf(
   return workflows?.find((w) => w.id === workflowId)?.evalKind ?? null;
 }
 
-export const evalKindLabel = (kind: EvalKind | null) => kind ?? '无（不评测）';
+export const evalKindLabel = (kind: EvalKind | null) => kind ?? 'Not evaluated';
 
-// lfg、ic 默认选的 variant（Contracts 29.1）：最新版自动导入的 variant，构建成功时；否则为 null
+// The default variant of lfg and ic (Contracts 29.1): the variant auto-imported from the latest release, when built; otherwise null
 export function latestReleaseVariant<V extends Variant>(
   workflows: WorkflowRecord[] | undefined,
   variants: V[] | undefined,
@@ -57,8 +57,8 @@ export function latestReleaseVariant<V extends Variant>(
   return variant !== undefined && isBuilt(variant) ? variant : null;
 }
 
-// 发起 batch 时默认勾选的 variant（Contracts 29.1）：lfg、ic 最新版的 variant；选了 task 后只取与它们评测类型
-// 相同的，batch 才能发起
+// Variants checked by default for a new batch (Contracts 29.1): the latest-release variants of lfg and ic; with tasks
+// selected, only those of the same eval kind, so the batch can start
 export function defaultBatchVariants(
   workflows: WorkflowRecord[] | undefined,
   variants: Variant[] | undefined,
@@ -69,9 +69,9 @@ export function defaultBatchVariants(
     .flatMap((kind) => latestReleaseVariant(workflows, variants, kind)?.id ?? []);
 }
 
-// Live 的新建交互在配置还没有改过时用的 variant（Contracts 29.1、29.2）：默认的入口命令是 lfg，用 lfg 最新版的
-// variant；它还没有构建成功时为 lfg 的第一个构建成功的 variant，再没有时为任何构建成功的 variant；都没有时为 null
-// （本机配置）。built 是构建成功的 variant
+// The variant a new Live interaction uses while its config is unchanged (Contracts 29.1, 29.2): the default entry command
+// is lfg, so the latest-release lfg variant; if it is not built, the first built lfg variant, then any built variant;
+// null (local config) when there is none. built holds the built variants
 export function defaultLiveVariant<V extends Variant>(
   workflows: WorkflowRecord[] | undefined,
   built: V[],

@@ -1,0 +1,93 @@
+{
+  "calls": [
+    {
+      "name": "list_users",
+      "args": { "limit": 250 },
+      "isError": false,
+      "text": "{\"users\":[{\"id\":\"c06444f9-f671-4b10-b513-0f32a808c1f0\",\"name\":\"eluo@txehq.com\",\"email\":\"eluo@txehq.com\",\"displayName\":\"eluo\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-10-20T09:40:52.021Z\",\"updatedAt\":\"2026-10-20T10:51:40.937Z\",\"status\":\"Offline (last seen 2026-11-04T04:28:51.545Z)\"},{\"id\":\"5e75cd38-4268-424a-b9f3-03a8294f5845\",\"name\":\"KFC\",\"email\":\"grindelwald029@gmail.com\",\"displayName\":\"kfc\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-08-04T08:56:10.306Z\",\"updatedAt\":\"2026-10-10T07:21:04.608Z\",\"status\":\"Offline (last seen 2026-10-28T14:29:25.689Z)\"},{\"id\":\"f92b2a27-822f-4fdc-b6f1-dd3df6e6376d\",\"name\":\"Connor Wang\",\"email\":\"wangconnor@gmail.com\",\"displayName\":\"wangconnor\",\"avatarUrl\":\"https://public.linear.app/f92b2a27-822f-4fdc-b6f1-dd3df6e6376d/08395cd0-1063-4f73-b88e-be4ca3085c8d\",\"isAdmin\":true,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2025-05-27T17:05:35.849Z\",\"updatedAt\":\"2026-10-05T07:59:40.202Z\",\"status\":\"Offline (last seen 2026-11-04T04:14:51.588Z)\"},{\"id\":\"f4abe8ec-6736-4090-a0cb-14e9daa42187\",\"name\":\"luyi.leo@gmail.com\",\"email\":\"luyi.leo@gmail.com\",\"displayName\":\"luyi.leo\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-05-21T04:39:10.443Z\",\"updatedAt\":\"2026-09-29T08:17:45.368Z\",\"status\":\"Offline (last seen 2026-09-29T13:54:52.648Z)\"},{\"id\":\"a1b8cb86-541b-4e8a-9bf1-057b74ea136d\",\"name\":\"lin luo\",\"email\":\"luolinc2023@gmail.com\",\"displayName\":\"luolinc2023\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-09-25T11:23:21.985Z\",\"updatedAt\":\"2026-09-25T11:24:25.410Z\",\"status\":\"Offline (last seen 2026-11-04T04:08:54.958Z)\"},{\"id\":\"2024e2d7-a3b7-46d2-825f-f009942f7b43\",\"name\":\"Cursor\",\"email\":\"afd5064f-8c2e-4f60-a91a-2b753321d325@oauthapp.linear.app\",\"displayName\":\"cursor\",\"avatarUrl\":\"https://public.linear.app/df6e40bb-b470-4d4d-b4f5-87152f63d6da/8c59abef-7b00-4081-b33f-22fb391f7188/256x256/0bc68260-6b56-4585-bead-de5414a06e2b\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-08-15T17:42:43.820Z\",\"updatedAt\":\"2026-08-15T17:42:43.973Z\",\"status\":\"Offline (last seen 2026-08-15T17:42:43.937Z)\"},{\"id\":\"02866db2-6890-477d-b9c4-54354c90a543\",\"name\":\"Ella Xu\",\"email\":\"ellaxu.f@gmail.com\",\"displayName\":\"ellaxu.f\",\"avatarUrl\":\"https://public.linear.app/02866db2-6890-477d-b9c4-54354c90a543/ff07f349-1cca-471c-afa3-df24286fde11\",\"isAdmin\":true,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-08-14T15:31:11.494Z\",\"updatedAt\":\"2026-08-14T15:38:35.440Z\",\"status\":\"Offline (last seen 2026-10-25T07:50:10.515Z)\"},{\"id\":\"81b8b898-ca6c-481a-941b-16079a7bc813\",\"name\":\"Ding\",\"email\":\"h.ding.262@gmail.com\",\"displayName\":\"h.ding.262\",\"avatarUrl\":\"https://public.linear.app/81b8b898-ca6c-481a-941b-16079a7bc813/72317d80-b018-4841-9094-6a0cd00e3042\",\"isAdmin\":true,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-08-04T08:56:10.762Z\",\"updatedAt\":\"2026-08-13T12:22:39.889Z\",\"status\":\"Offline (last seen 2026-10-29T17:58:43.578Z)\"},{\"id\":\"a8ee7caa-ff55-450a-a1d4-f670fe04e83f\",\"name\":\"AptS:1547\",\"email\":\"esaps@esaps.net\",\"displayName\":\"esaps\",\"avatarUrl\":\"https://public.linear.app/80e9315e-7666-4d5b-ba2b-2606edbdaf59/07727f60-1aaa-4058-a97b-1a7cc0fdc839/f2bef142-baa5-450c-8129-63dc8cc56daf\",\"isAdmin\":true,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-08-04T08:56:09.747Z\",\"updatedAt\":\"2026-08-13T12:22:30.032Z\",\"status\":\"Offline (last seen 2026-10-28T17:16:15.078Z)\"},{\"id\":\"d8fa73db-5f2a-435b-971c-7ae0b457698d\",\"name\":\"Linear\",\"email\":\"linear-80e9315e-7666-4d5b-ba2b-2606edbdaf59@linear.linear.app\",\"displayName\":\"linear\",\"avatarUrl\":\"https://static.linear.app/assets/avatar/avatar_512.png\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-03-24T18:24:32.148Z\",\"updatedAt\":\"2026-03-24T18:24:32.148Z\",\"status\":\"Offline (last seen 2026-03-24T18:24:32.175Z)\"},{\"id\":\"0e13266a-6a31-4d3c-ae83-a26ed94284ba\",\"name\":\"Li Yachuan\",\"email\":\"applesstt@gmail.com\",\"displayName\":\"applesstt\",\"avatarUrl\":\"https://public.linear.app/0e13266a-6a31-4d3c-ae83-a26ed94284ba/35bb204a-e742-4b18-bb4a-c42044d49869\",\"isAdmin\":true,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2025-09-26T09:19:59.197Z\",\"updatedAt\":\"2026-01-04T08:23:46.874Z\",\"status\":\"Offline (last seen 2026-01-22T14:47:03.412Z)\"},{\"id\":\"dd17bdac-03e3-44ae-afe9-fbb584044ab4\",\"name\":\"Codex\",\"email\":\"a4bc02c9-24f5-44c3-a1d1-03a2e3042a99@oauthapp.linear.app\",\"displayName\":\"codex\",\"avatarUrl\":\"https://public.linear.app/a7929e46-07ed-49ae-a46d-dd6c052e08e1/0f912afe-b125-4df1-a206-a3382ebb8d14/256x256/316e7aed-54d5-4841-abf5-fbae0e806bb9\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-01-03T16:28:55.466Z\",\"updatedAt\":\"2026-01-03T16:28:55.516Z\",\"status\":\"Offline (last seen 2026-01-03T16:28:55.486Z)\"}],\"hasNextPage\":false}"
+    },
+    {
+      "name": "list_issues",
+      "args": {
+        "team": "TXE",
+        "query": "Organize docs using the TXE Docs Atlas",
+        "state": "In Progress",
+        "includeArchived": true,
+        "orderBy": "updatedAt",
+        "limit": 250,
+        "fields": ["id", "updatedAt"]
+      },
+      "isError": false,
+      "text": "{\"issues\":[{\"id\":\"TXE-1889\",\"updatedAt\":\"2026-09-11T16:31:37.627Z\"},{\"id\":\"TXE-3681\",\"updatedAt\":\"2026-10-09T03:48:39.526Z\"}],\"hasNextPage\":false}"
+    },
+    {
+      "name": "list_issues",
+      "args": {
+        "team": "TXE",
+        "query": "Organize docs using the TXE Docs Atlas",
+        "state": "In Progress",
+        "includeArchived": true,
+        "orderBy": "updatedAt",
+        "limit": 250,
+        "fields": ["id", "updatedAt"],
+        "updatedAt": "2026-09-11T16:31:37.627Z"
+      },
+      "isError": false,
+      "text": "{\"issues\":[{\"id\":\"TXE-1889\",\"updatedAt\":\"2026-09-11T16:31:37.627Z\"},{\"id\":\"TXE-3681\",\"updatedAt\":\"2026-10-09T03:48:39.526Z\"}],\"hasNextPage\":false}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-1889",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"c56b8a77-a95a-4406-a3a1-d61a401c1a9b\",\"title\":\"[CC-s01a091] Organize docs using the TXE Docs Atlas within the docs-only boundary\",\"url\":\"https://linear.app/capso/issue/TXE-1889/cc-s01a091-organize-docs-using-the-txe-docs-atlas-within-the-docs-only\",\"status\":\"In Progress\",\"statusType\":\"started\",\"assignee\":\"Ding\",\"assigneeId\":\"81b8b898-ca6c-481a-941b-16079a7bc813\",\"createdBy\":\"Ding\",\"createdById\":\"81b8b898-ca6c-481a-941b-16079a7bc813\",\"createdAt\":\"2026-09-11T15:47:22.935Z\",\"startedAt\":\"2026-09-11T15:47:23.083Z\",\"completedAt\":null,\"canceledAt\":null,\"updatedAt\":\"2026-09-11T16:31:37.627Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-09-11T15:47:22.935Z\",\"endedAt\":null}],\"attachments\":[{\"id\":\"c8f9c9ac-15b6-44a2-8459-9bd8289c6a2d\",\"title\":\"docs: TXE-1889 remove external skills catalog and consolidate guides\",\"subtitle\":null,\"url\":\"https://github.com/capsohq/txe/pull/2131\"}],\"id\":\"TXE-1889\"}"
+    },
+    {
+      "name": "get_issue",
+      "args": {
+        "id": "TXE-3681",
+        "fields": [
+          "uuid",
+          "title",
+          "url",
+          "status",
+          "statusType",
+          "assignee",
+          "assigneeId",
+          "createdBy",
+          "createdById",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "updatedAt",
+          "archivedAt",
+          "stateHistory",
+          "attachments"
+        ]
+      },
+      "isError": false,
+      "text": "{\"uuid\":\"c471cbde-4195-42b7-ab2a-6414a5664c19\",\"title\":\"[CC2-s783e51] Post the first real Actions observation of the hardened self-heal controller (dedup, source check, no-op) owed by the 2026-10-08 fixes\",\"url\":\"https://linear.app/capso/issue/TXE-3681/cc2-s783e51-post-the-first-real-actions-observation-of-the-hardened\",\"status\":\"In Progress\",\"statusType\":\"started\",\"assignee\":\"Connor Wang\",\"assigneeId\":\"f92b2a27-822f-4fdc-b6f1-dd3df6e6376d\",\"createdBy\":\"Connor Wang\",\"createdById\":\"f92b2a27-822f-4fdc-b6f1-dd3df6e6376d\",\"createdAt\":\"2026-10-08T21:06:14.748Z\",\"startedAt\":\"2026-10-09T03:23:27.243Z\",\"completedAt\":null,\"canceledAt\":null,\"updatedAt\":\"2026-10-09T03:48:39.526Z\",\"archivedAt\":null,\"stateHistory\":[{\"state\":{\"id\":\"ce37db39-5810-41fa-b4e0-a5186d6fe85a\",\"name\":\"Backlog\",\"type\":\"backlog\"},\"startedAt\":\"2026-10-08T21:06:14.748Z\",\"endedAt\":\"2026-10-09T03:23:27.261Z\"},{\"state\":{\"id\":\"24c792ff-f798-4a64-947a-707e3a2f23af\",\"name\":\"In Progress\",\"type\":\"started\"},\"startedAt\":\"2026-10-09T03:23:27.261Z\",\"endedAt\":null}],\"attachments\":[],\"id\":\"TXE-3681\"}"
+    }
+  ]
+}

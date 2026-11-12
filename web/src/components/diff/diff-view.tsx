@@ -24,15 +24,15 @@ const diffTypes: Record<DiffStatus, DiffType> = {
 };
 
 const statusLabels: Record<DiffStatus, string | null> = {
-  added: '新增',
-  removed: '删除',
+  added: 'Added',
+  removed: 'Removed',
   modified: null,
 };
 
 const hunkKey = (h: HunkData) => `${String(h.oldStart)}:${String(h.newStart)}`;
 
-// 一个文件的改动（Contracts 21.3）：删除的行红底、新增的行绿底、行首 - 与 +、两侧行号、行内改动的词加深。
-// 给出原文 source 时，hunk 之间没有改动的行折叠成一行，点击展开；renderHunkHeader 在每个 hunk 上方加一行
+// Changes to one file (Contracts 21.3): removed lines on red, added lines on green, - and + markers, line numbers on both sides, changed words darker.
+// With the original source, unchanged lines between hunks fold into one row that expands on click; renderHunkHeader adds a row above each hunk
 export function DiffHunks({
   hunks,
   status = 'modified',
@@ -46,7 +46,7 @@ export function DiffHunks({
   source?: string | undefined;
   renderHunkHeader?: ((hunk: HunkData, index: number) => ReactNode) | undefined;
 }) {
-  // 已展开的间隔：第 i 个是第 i 个 hunk 之前的，最后一个是文件结尾的
+  // Expanded gaps: gap i is the one before hunk i, the last one is the end of the file
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(new Set());
   const lines = useMemo(
     () => (source === undefined ? null : splitLines(source).map((l) => l.replace(/\n$/, ''))),
@@ -99,7 +99,7 @@ export function DiffHunks({
               }}
             >
               <UnfoldVertical className="size-3.5" />
-              展开 {count} 行未改动
+              Expand {count} unchanged {count === 1 ? 'line' : 'lines'}
             </button>
           )}
           {title !== null && <span className="wfd-diff-gap-title font-mono">{title}</span>}
@@ -141,7 +141,7 @@ export function DiffCounts({ additions, deletions }: { additions: number; deleti
   );
 }
 
-// 一个文件：可折叠的标题（路径、增删行数）与它的改动
+// One file: a collapsible header (path, added and removed line counts) and its changes
 export function DiffFileCard({
   file,
   viewType,
@@ -152,9 +152,9 @@ export function DiffFileCard({
 }: {
   file: DiffFile;
   viewType: ViewType;
-  // 原文：给出时可以展开没有改动的行
+  // Original source: when given, unchanged lines can be expanded
   source?: string | undefined;
-  // 标题右侧的内容
+  // Content on the right of the header
   actions?: ReactNode;
   renderHunkHeader?: ((hunk: HunkData, index: number) => ReactNode) | undefined;
   className?: string;
@@ -197,7 +197,7 @@ export function DiffFileCard({
   );
 }
 
-// 若干文件的改动；sources 以路径为键给出原文
+// Changes to several files; sources gives the original source keyed by path
 export function DiffView({
   files,
   viewType,

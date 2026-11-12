@@ -7,13 +7,13 @@ import { cn } from '@/lib/utils';
 
 const isGroup = (entry: NavItem | NavGroup): entry is NavGroup => 'items' in entry;
 
-// 路径属于某个路径前缀：它本身或它下面的详情页
+// A path is under a prefix: the prefix itself or a detail page below it
 const under = (pathname: string, to: string) => pathname === to || pathname.startsWith(`${to}/`);
-// 路径属于某个菜单项：它的 to 或 also 中的前缀
+// A path belongs to a menu item: its to or a prefix in also
 const within = (pathname: string, item: NavItem) =>
   [item.to, ...(item.also ?? [])].some((prefix) => under(pathname, prefix));
 
-// 浏览器标签页标题：当前菜单项的名称，pageTitles 中的页面用自己的标题
+// Browser tab title: the current menu item's name; pages in pageTitles use their own title
 const APP_TITLE = 'Magi Workflow Dashboard';
 function pageTitle(pathname: string): string {
   const own = pageTitles[pathname];
@@ -24,7 +24,7 @@ function pageTitle(pathname: string): string {
   return item?.label ?? APP_TITLE;
 }
 
-// 分组的展开状态存在 localStorage，默认展开；当前页面所在的分组总是展开
+// Group expansion is kept in localStorage, expanded by default; the group of the current page is always expanded
 const STORAGE_KEY = 'wfd.nav.collapsed';
 
 function readCollapsed(): string[] {
@@ -41,11 +41,11 @@ function Item({ item, nested }: { item: NavItem; nested: boolean }) {
       variant="ghost"
       className={cn(
         'w-full justify-start aria-[current=page]:bg-background aria-[current=page]:font-semibold aria-[current=page]:shadow-xs',
-        // 按钮的 has-[>svg]:px-3 优先于普通的 pl-*，子项的缩进用同样的选择器
+        // The button's has-[>svg]:px-3 wins over a plain pl-*, so child indentation uses the same selector
         nested && 'has-[>svg]:pl-8',
       )}
     >
-      {/* 高亮按菜单项自己的路径与 also 中的前缀判断（NavLink 只认 to） */}
+      {/* Highlight by the item's own path and the prefixes in also (NavLink only knows to) */}
       <Link to={item.to} aria-current={within(pathname, item) ? 'page' : undefined}>
         <Icon />
         {item.label}
@@ -72,7 +72,7 @@ export function MainNav() {
   };
 
   return (
-    <nav aria-label="主导航" className="flex flex-col gap-1 px-2">
+    <nav aria-label="Main navigation" className="flex flex-col gap-1 px-2">
       {navEntries.map((entry) => {
         if (!isGroup(entry)) return <Item key={entry.to} item={entry} nested={false} />;
         const containsCurrent = entry.items.some((i) => within(pathname, i));
@@ -86,8 +86,8 @@ export function MainNav() {
               className="w-full justify-start text-muted-foreground"
               aria-expanded={open}
               aria-controls={listId + '-items'}
-              // 当前页面在这个分组中时不能收起
-              title={containsCurrent ? '当前页面在这个分组中' : undefined}
+              // Can't collapse while the current page is in this group
+              title={containsCurrent ? 'The current page is in this group' : undefined}
               onClick={() => {
                 if (!containsCurrent) toggle(entry.label);
               }}

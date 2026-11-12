@@ -9,7 +9,7 @@ import { monaco, useMonacoTheme } from '@/pages/variants-monaco';
 
 type MonacoEditor = Parameters<NonNullable<Parameters<typeof Editor>[0]['onMount']>>[0];
 
-// "YAML"标签页：Monaco 编辑同一份定义，错误以原文显示在对应行
+// "YAML" tab: Monaco edits the same definition; errors show verbatim on their lines
 export function DefinitionYamlEditor({
   text,
   readOnly,
@@ -72,7 +72,8 @@ const move = <T,>(list: T[], from: number, to: number): T[] => {
   return next;
 };
 
-// "表单"标签页：名字与小阶段；小阶段从这个 workflow 各 variant 的 skill 名中选，可拖动排序，勾选 repeatable 与 allowInside
+// "Form" tab: name and stages; stages are picked from the skill names of this workflow's variants, reordered by dragging,
+// with repeatable and allowInside checkboxes
 export function DefinitionForm({
   definition,
   skillNames,
@@ -98,7 +99,7 @@ export function DefinitionForm({
   return (
     <div className="flex flex-col gap-4" data-testid="workflow-form">
       <label className="flex flex-col gap-1.5 text-sm">
-        <span className="font-medium">名字</span>
+        <span className="font-medium">Name</span>
         <input
           className="h-9 max-w-md rounded-md border bg-background px-3"
           value={definition.name}
@@ -109,8 +110,8 @@ export function DefinitionForm({
         />
       </label>
       <div className="flex flex-col gap-1.5 text-sm">
-        <span className="font-medium">小阶段（名字即 skill 名，拖动排序）</span>
-        <ol className="flex flex-col gap-1" aria-label="小阶段">
+        <span className="font-medium">Stages (each name is a skill name; drag to reorder)</span>
+        <ol className="flex flex-col gap-1" aria-label="Stages">
           {stages.map((stage, index) => (
             <li
               key={stage.id}
@@ -160,7 +161,7 @@ export function DefinitionForm({
                     <label key={other.id} className="flex items-center gap-1 text-foreground">
                       <input
                         type="checkbox"
-                        aria-label={`${stage.id} 中允许 ${other.id}`}
+                        aria-label={`Allow ${other.id} inside ${stage.id}`}
                         checked={stage.allowInside?.includes(other.id) === true}
                         disabled={readOnly}
                         onChange={(event) => {
@@ -183,9 +184,9 @@ export function DefinitionForm({
                   size="icon-xs"
                   variant="ghost"
                   className="ml-auto"
-                  aria-label={`去掉小阶段 ${stage.id}`}
+                  aria-label={`Remove stage ${stage.id}`}
                   onClick={() => {
-                    // 去掉的小阶段也从其他小阶段的 allowInside 中去掉
+                    // A removed stage also leaves the allowInside of the other stages
                     setStages(
                       stages
                         .filter((_, i) => i !== index)
@@ -209,9 +210,9 @@ export function DefinitionForm({
           <div className="flex items-center gap-2">
             <input
               className="h-9 w-56 rounded-md border bg-background px-3 font-mono"
-              aria-label="要加入的小阶段"
+              aria-label="Stage to add"
               list="stage-suggestions"
-              placeholder="小阶段 id，例如 scan"
+              placeholder="Stage id, e.g. scan"
               value={adding}
               onChange={(event) => {
                 setAdding(event.target.value.trim());
@@ -232,7 +233,7 @@ export function DefinitionForm({
               }}
             >
               <Plus />
-              加入小阶段
+              Add stage
             </Button>
           </div>
         )}

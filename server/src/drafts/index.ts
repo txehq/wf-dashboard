@@ -1,14 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, isNull } from 'drizzle-orm';
 import { stringify } from 'yaml';
-import type { CodexSkillSources } from '../config.js';
 import type { Db } from '../db/index.js';
 import {
   analyses,
-  analysisFindings,
-  analysisPatches,
   type DraftMode,
   type DraftStatus,
   type DraftStep,
@@ -32,7 +29,13 @@ import {
   parseDefinition,
   workflowOfVariant,
 } from '../workflows/index.js';
-import { OPTIMIZE_SKILL, type WorkflowDefinition } from '../workflows/schema.js';
+import { currentBaseline } from '../workflows/baselines.js';
+import {
+  DESIGN_WORKFLOW,
+  type DraftWorkflow,
+  OPTIMIZE_WORKFLOW,
+  type WorkflowDefinition,
+} from '../workflows/schema.js';
 import {
   copyDraftSource,
   draftLayout,
@@ -41,16 +44,34 @@ import {
   sessionSkillsDir,
   writeDraftDocs,
 } from './dir.js';
-import { installSessionSkill } from './skills.js';
 import { recordSaved } from './snapshots.js';
 import { checkDraftSkills, readDraftDefinition } from './validate.js';
 import type {
   CreateDraftBody,
   DraftDiffView,
   DraftView,
+  OptimizeBody,
   SaveDraftBody,
   SavePlanView,
+  SessionVariantsView,
 } from './views.js';
+
+// Migration (Contracts 33.3): design and optimize drafts before 0027 are recorded as using the matching baseline, and their
+// preparation steps become putting in its skills; called at server start after the baselines exist, so session auto-binding binds the baseline
+export function backfillDraftVariants(db: Db, baselines: Record<DraftWorkflow, Variant>) {
+  const legacy = db
+    .select()
+    .from(workflowDrafts)
+    .where(isNull(workflowDrafts.designVariantId))
+    .all();
+  for (const d of legacy) {
+    const baseline = baselines[draftWorkflowOf(d.mode)];
+    db.update(workflowDrafts)
+      .set({ designVariantId: baseline.id, steps: migrateDraftSteps(d.steps, baseline.name) })
+      .where(eq(workflowDrafts.id, d.id))
+      .run();
+  }
+}
 
 export interface DraftsDeps {
   db: Db;
@@ -58,80 +79,99 @@ export interface DraftsDeps {
   live: Live;
   // data/workflow-drafts
   draftsDir: string;
-  // 数据目录：mode 为 optimize 的草稿目录是其中的 analyses/<id>/
+  // Data dir: an optimize draft's dir is analyses/<id>/ in it
   dataDir: string;
-  skillSources: CodexSkillSources;
 }
 
 type DraftRow = typeof workflowDrafts.$inferSelect;
 
-const SKILL_STEP = 'skill:';
-// 启动会话的一步；id 沿用 W42 时的 start-codex，两种引擎相同，已有草稿记下的步骤照常重试
+// The step that starts the session; its id stays start-codex from W42, the same for both engines, so steps recorded in existing drafts retry as usual
 const START_STEP = 'start-codex';
-// mode 为 optimize 时复制分析所用 variant 中的 optimize-from-report（Contracts 19.3）
-const OPTIMIZE_SKILL_STEP = 'copy-optimize-skill';
+// Put the skills of the workflow-design or workflow-optimize variant used into the session's skill dir (Contracts 33.2)
+const SKILLS_STEP = 'copy-skills';
 
 const copyLabel: Record<DraftMode, string> = {
-  workflow: '写入口与各小阶段的 SKILL.md 骨架',
-  variant: '复制底子 variant 的 src',
-  optimize: '复制被分析 variant 的 src 到 optimize/src',
+  workflow: 'Write SKILL.md skeletons for the entry and each sub-stage',
+  variant: 'Copy the base variant src',
+  optimize: 'Copy the analysed variant src to optimize/src',
 };
 
-// 草稿准备的各步（Contracts 17.1、19.3）：复制 src（新 workflow 为写骨架）、写说明与例子、逐个安装 skill、启动会话
-function initialSteps(
-  mode: DraftMode,
-  sources: CodexSkillSources,
-  engine: LiveEngine,
-): DraftStep[] {
-  const step = (id: string, label: string): DraftStep => ({
-    id,
-    label,
-    status: 'pending',
-    error: null,
-    startedAt: null,
-    endedAt: null,
-  });
+// Which built-in workflow's variant drives the session: workflow-design for designing a workflow or variant, workflow-optimize for optimising
+export const draftWorkflowOf = (mode: DraftMode): DraftWorkflow =>
+  mode === 'optimize' ? OPTIMIZE_WORKFLOW : DESIGN_WORKFLOW;
+
+const pendingStep = (id: string, label: string): DraftStep => ({
+  id,
+  label,
+  status: 'pending',
+  error: null,
+  startedAt: null,
+  endedAt: null,
+});
+
+const skillsStep = (variantName: string) =>
+  pendingStep(SKILLS_STEP, `Put in the skills of ${variantName}`);
+
+// Draft preparation steps (Contracts 17.1, 19.3, 33.2): copy src (a skeleton for a new workflow), write workflow.yaml and PLATFORM.md,
+// put in the skills of the variant used, start the session
+function initialSteps(mode: DraftMode, engine: LiveEngine, variantName: string): DraftStep[] {
   return [
-    step('copy-src', copyLabel[mode]),
-    step('write-docs', '写 workflow.yaml、PLATFORM.md、例子 workflow 与 platform-mcp'),
-    ...sources.map((s) => step(`${SKILL_STEP}${s.name}`, `安装 ${s.name}`)),
-    ...(mode === 'optimize' ? [step(OPTIMIZE_SKILL_STEP, `复制 ${OPTIMIZE_SKILL}`)] : []),
-    step(START_STEP, `启动 ${engineNames[engine]}`),
+    pendingStep('copy-src', copyLabel[mode]),
+    pendingStep('write-docs', 'Write workflow.yaml and PLATFORM.md'),
+    skillsStep(variantName),
+    pendingStep(START_STEP, `Start ${engineNames[engine]}`),
   ];
 }
 
-// 从空白开始的新 workflow 草稿只有一个小阶段，由 Codex 在 workflow.yaml 中改（Contracts 18.5）
+// Migrate the preparation steps of drafts before 0027 (one npx skills add each, copying optimize-from-report) into the single step that puts in the variant's skills;
+// it is recorded as done when the session has already started
+export function migrateDraftSteps(steps: DraftStep[], variantName: string): DraftStep[] {
+  const legacy = (s: DraftStep) => s.id.startsWith('skill:') || s.id === 'copy-optimize-skill';
+  if (!steps.some(legacy) || steps.some((s) => s.id === SKILLS_STEP)) return steps;
+  const started = steps.find((s) => s.id === START_STEP)?.status === 'done';
+  const next = started
+    ? { ...skillsStep(variantName), status: 'done' as const }
+    : skillsStep(variantName);
+  const kept = steps.filter((s) => !legacy(s));
+  const at = kept.findIndex((s) => s.id === START_STEP);
+  return [...kept.slice(0, at), next, ...kept.slice(at)];
+}
+
+// A new workflow draft started from blank has one sub-stage, which Codex changes in workflow.yaml (Contracts 18.5)
 const BLANK_STAGES = [{ id: 'stage-1' }];
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-// 新 workflow 第一个 variant 的名字的预填（Contracts 17.4）
-const FIRST_VARIANT = '初稿';
+// Prefilled name of a new workflow's first variant (Contracts 17.4)
+const FIRST_VARIANT = 'First draft';
 
-// 定义相同即入口与小阶段相同（Contracts 19.1）；名字是 workflow 的属性，在 Workflow 页面改
+// Same definition means same entry and sub-stages (Contracts 19.1); the name is a workflow property, changed in the Workflow page
 const sameStages = (a: WorkflowDefinition, b: WorkflowDefinition) =>
   isDeepStrictEqual({ id: a.id, stages: a.stages }, { id: b.id, stages: b.stages });
 
-// 保存时 workflow 的名字与描述必填
+// The workflow name and description are required on save
 function checkText(label: string, value: string, max: number): string {
   const text = value.trim();
-  if (text === '') throw new HttpError(400, `${label}不能为空`);
+  if (text === '') throw new HttpError(400, `${label} cannot be empty`);
   if (text.length > max) {
-    throw new HttpError(400, `${label}最多 ${String(max)} 字，现在是 ${String(text.length)} 字`);
+    throw new HttpError(
+      400,
+      `${label} is at most ${String(max)} characters, got ${String(text.length)}`,
+    );
   }
   return text;
 }
 
-// 用 Codex 生成 workflow 或 variant（Contracts 第 17 节）
-export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSources }: DraftsDeps) {
-  // 上次服务退出时还在准备的草稿不会再完成：那一步记为失败，可以重试
+// Generate a workflow or variant with Codex (Contracts section 17)
+export function createDrafts({ db, variants, live, draftsDir, dataDir }: DraftsDeps) {
+  // Drafts still preparing when the server last exited will never finish: that step is failed and can be retried
   const interrupted = db
     .select()
     .from(workflowDrafts)
     .where(eq(workflowDrafts.status, 'preparing'))
     .all();
   for (const d of interrupted) {
-    const error = '服务重启，准备中断';
+    const error = 'Preparation interrupted by a service restart';
     db.update(workflowDrafts)
       .set({
         status: 'failed',
@@ -146,7 +186,7 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
 
   function row(id: string): DraftRow {
     const found = db.select().from(workflowDrafts).where(eq(workflowDrafts.id, id)).get();
-    if (found === undefined) throw new HttpError(404, `草稿不存在：${id}`);
+    if (found === undefined) throw new HttpError(404, `Draft not found: ${id}`);
     return found;
   }
 
@@ -154,6 +194,13 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
     r.analysisId === null ? path.join(draftsDir, r.id) : analysisLayout(dataDir, r.analysisId).dir;
   const layoutOf = (r: Pick<DraftRow, 'id' | 'mode' | 'analysisId'>) =>
     draftLayout(dirOf(r), r.mode);
+
+  // Display of the variant the session uses (a deleted one is "<name> (deleted)", Contracts 24.3)
+  function designVariantOf(r: DraftRow) {
+    if (r.designVariantId === null) return null;
+    const v = variants.record(r.designVariantId);
+    return { id: v.id, name: displayName(v), deleted: v.deletedAt !== null };
+  }
 
   function view(r: DraftRow): DraftView {
     return {
@@ -172,7 +219,7 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
       steps: r.steps,
       savedWorkflowId: r.savedWorkflowId,
       savedVariantId: r.savedVariantId,
-      // 已删除的显示"<名字>（已删除）"，不能点进 variant 页面（Contracts 24.3）
+      // Deleted ones show "<name> (deleted)" and cannot be opened in the variant page (Contracts 24.3)
       savedVariants: db
         .select({
           id: variantsTable.id,
@@ -190,13 +237,13 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
           workflowId: v.workflowId,
           deleted: v.deletedAt !== null,
         })),
-      skills: r.skills,
+      designVariant: designVariantOf(r),
       dir: layoutOf(r).dir,
       createdAt: r.createdAt.getTime(),
     };
   }
 
-  // 状态与进度写入后推送：草稿与它的交互项都重新读取
+  // Publish after writing state and progress: the draft and its Live item are both re-read
   function update(id: string, values: Partial<DraftRow>) {
     db.update(workflowDrafts).set(values).where(eq(workflowDrafts.id, id)).run();
     const r = row(id);
@@ -210,37 +257,33 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
     });
   }
 
-  // 草稿的定义：mode 为 workflow 时是 id、名字与一个小阶段的空白定义；mode 为 variant、optimize 时是所属 workflow 的定义
+  // The draft's definition: for mode workflow, a blank definition with the id, name and one sub-stage; for variant and optimize, its workflow's definition
   function definitionOf(d: Pick<DraftRow, 'mode' | 'workflowId' | 'name'>) {
     if (d.mode !== 'workflow') return loadWorkflow(db, d.workflowId);
     return parseDefinition(
       { id: d.workflowId, name: d.name, stages: BLANK_STAGES },
-      `新 workflow ${d.workflowId} 的定义`,
+      `definition of new workflow ${d.workflowId}`,
     );
   }
 
   function analysisRow(analysisId: string) {
     const a = db.select().from(analyses).where(eq(analyses.id, analysisId)).get();
-    if (a === undefined) throw new HttpError(404, `分析不存在：${analysisId}`);
+    if (a === undefined) throw new HttpError(404, `Analysis not found: ${analysisId}`);
     return a;
   }
 
-  // 分析所用的 session-analysis variant 中的 optimize-from-report 装进优化会话的 skill 目录（Contracts 19.3、22.2）
-  function copyOptimizeSkill(d: DraftRow, skillsDir: string) {
-    if (d.analysisId === null) throw new Error(`草稿 ${d.id} 不是优化草稿`);
-    const a = analysisRow(d.analysisId);
-    if (a.analysisVariantId === null) {
-      throw new Error(`分析 ${a.id} 没有记录所用的 session-analysis variant`);
+  // Put the skills of the workflow-design or workflow-optimize variant used into the session's skill dir (Contracts 33.2):
+  // .claude/skills/ for Claude Code, .agents/skills/ for Codex; same-named entries are deleted first
+  function copySessionSkills(d: DraftRow, skillsDir: string) {
+    if (d.designVariantId === null) throw new Error(`Draft ${d.id} has no recorded variant`);
+    const from = variants.layout(d.designVariantId).skills;
+    fs.mkdirSync(skillsDir, { recursive: true });
+    for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const to = path.join(skillsDir, entry.name);
+      fs.rmSync(to, { recursive: true, force: true });
+      fs.cpSync(path.join(from, entry.name), to, { recursive: true, verbatimSymlinks: true });
     }
-    const from = path.join(variants.layout(a.analysisVariantId).skills, OPTIMIZE_SKILL);
-    if (!fs.existsSync(path.join(from, 'SKILL.md'))) {
-      throw new Error(
-        `分析 ${a.id} 所用的 variant ${variants.get(a.analysisVariantId).name} 中没有 ${OPTIMIZE_SKILL}（应为 src/skills/${OPTIMIZE_SKILL}/SKILL.md）`,
-      );
-    }
-    const to = path.join(skillsDir, OPTIMIZE_SKILL);
-    fs.rmSync(to, { recursive: true, force: true });
-    fs.cpSync(from, to, { recursive: true });
   }
 
   async function runStep(id: string, stepId: string) {
@@ -248,36 +291,34 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
     const layout = layoutOf(d);
     if (stepId === 'copy-src') {
       if (d.mode === 'optimize') {
-        // 分析目录中可能有 Codex 引擎用过的 session-analysis skill，优化会话只装自己的 skill
+        // The analysis dir may hold session-analysis skills used by the Codex engine; the optimize session installs only its own
         fs.rmSync(path.dirname(layout.agentSkills), { recursive: true, force: true });
         fs.rmSync(layout.claudeSkills, { recursive: true, force: true });
-        fs.rmSync(layout.skillsLock, { force: true });
       }
       await copyDraftSource(layout, async (dest) => {
         if (d.baseVariantId === null) writeSkeleton(path.join(dest, 'skills'), definitionOf(d));
         else await variants.exportSource(d.baseVariantId, dest);
       });
     } else if (stepId === 'write-docs') {
-      writeDraftDocs(layout, d.mode, definitionOf(d), d.engine);
-    } else if (stepId.startsWith(SKILL_STEP)) {
-      const name = stepId.slice(SKILL_STEP.length);
-      const source = skillSources.find((s) => s.name === name);
-      if (source === undefined) {
-        throw new Error(`没有 skill ${name} 的来源（WFD_CODEX_SKILL_SOURCES）`);
-      }
-      const version = await installSessionSkill(layout, source, d.engine);
-      update(id, { skills: [...row(id).skills.filter((s) => s.name !== name), version] });
-    } else if (stepId === OPTIMIZE_SKILL_STEP) {
-      copyOptimizeSkill(d, sessionSkillsDir(layout, d.engine));
+      const base = d.baseVariantId === null ? null : variants.record(d.baseVariantId);
+      writeDraftDocs(layout, {
+        mode: d.mode,
+        engine: d.engine,
+        definition: definitionOf(d),
+        base: base === null ? null : { id: base.id, name: displayName(base) },
+        analysisId: d.analysisId,
+      });
+    } else if (stepId === SKILLS_STEP) {
+      copySessionSkills(d, sessionSkillsDir(layout, d.engine));
     } else if (stepId === START_STEP) {
-      if (d.liveId === null) throw new Error(`草稿 ${id} 的交互项已删除`);
+      if (d.liveId === null) throw new Error(`The Live item of draft ${id} was deleted`);
       await live.startDraft(d.liveId);
     } else {
-      throw new Error(`未知的准备步骤：${stepId}`);
+      throw new Error(`Unknown preparation step: ${stepId}`);
     }
   }
 
-  // 从第一步没有完成的步骤接着做（重试时即失败的那一步）；准备完成后状态为 open，再启动 Codex
+  // Continue from the first step not done (on retry, the failed one); when preparation is done the status is open, then Codex starts
   async function prepare(id: string) {
     for (const step of row(id).steps) {
       if (step.status === 'done') continue;
@@ -294,14 +335,40 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
       );
       if (failed !== null) {
         setStep(id, step.id, { status: 'failed', error: failed, endedAt: Date.now() });
-        update(id, { status: 'failed', error: `${step.label}失败：${failed}` });
+        update(id, { status: 'failed', error: `${step.label} failed: ${failed}` });
         return;
       }
       setStep(id, step.id, { status: 'done', endedAt: Date.now() });
     }
   }
 
-  // 建草稿与它在 Live 中的项（还没有进程）；草稿目录由 prepare 在后台准备
+  // Create the draft and its Live item (no process yet); prepare readies the draft dir in the background
+  // The workflow-design or workflow-optimize variant the session uses (Contracts 33.2): the baseline when none is chosen; it must belong to that workflow
+  // and be built from its current content
+  function sessionVariant(mode: DraftMode, variantId: string | undefined): Variant {
+    const workflowId = draftWorkflowOf(mode);
+    const v =
+      variantId === undefined ? currentBaseline(db, dataDir, workflowId) : variants.get(variantId);
+    if (v === null)
+      throw new HttpError(
+        409,
+        `No baseline variant of ${workflowId} yet (created when the server starts)`,
+      );
+    if (v.workflowId !== workflowId) {
+      throw new HttpError(
+        400,
+        `Variant ${v.name} belongs to workflow ${v.workflowId}; ${mode === 'optimize' ? 'optimize' : 'design'} sessions can only use ${workflowId} variants`,
+      );
+    }
+    if (v.buildStatus !== 'built' || v.builtHash !== v.skillsHash) {
+      throw new HttpError(
+        409,
+        `Variant ${v.name} is not built from its current content; build it before using it`,
+      );
+    }
+    return v;
+  }
+
   function open(body: CreateDraftBody): { draft: DraftView; live: LiveDetail } {
     let base: Variant | null = null;
     if (body.mode === 'workflow') {
@@ -315,15 +382,16 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
       if (base.workflowId !== body.workflowId) {
         throw new HttpError(
           400,
-          `底子 variant ${base.name} 属于 workflow ${base.workflowId}，不是 ${body.workflowId} 的 variant`,
+          `Base variant ${base.name} belongs to workflow ${base.workflowId}, not ${body.workflowId}`,
         );
       }
     }
+    const design = sessionVariant(body.mode, body.designVariantId);
     const id = newId('d');
     const item = live.createDraftItem({
       cwd: path.join(draftsDir, id),
-      prompt: initialMessage(body.mode, body.requirement, body.engine),
-      // 名字用 workflow id 或 variant 名，引擎在页面上以 logo 表示（Contracts 28.4）
+      prompt: initialMessage(body.requirement, body.engine),
+      // Named by workflow id or variant name; the page shows the engine as a logo (Contracts 28.4)
       title: base === null ? body.workflowId : `${body.workflowId} · ${base.name}`,
       workflow: body.mode === 'workflow' ? null : body.workflowId,
       purpose: 'design',
@@ -338,10 +406,11 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
         name: body.mode === 'workflow' ? body.name : null,
         description: body.mode === 'workflow' ? body.description.trim() : null,
         baseVariantId: base?.id ?? null,
+        designVariantId: design.id,
         requirement: body.requirement,
         liveId: item.id,
         status: 'preparing',
-        steps: initialSteps(body.mode, skillSources, body.engine),
+        steps: initialSteps(body.mode, body.engine, design.name),
       })
       .run();
     events.publish({ type: 'draft.updated', draftId: id, status: 'preparing' });
@@ -349,42 +418,30 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
     return { draft: view(row(id)), live: live.get(item.id) };
   }
 
-  // 交给 agent 优化（Contracts 19.3、22.1）：草稿目录即分析目录，底子是被分析的 variant，所属 workflow 是它的 workflow
+  // Hand to an agent for optimisation (Contracts 19.3, 22.1, 33.2): the draft dir is the analysis dir, the base is the analysed variant, the workflow is its
+  // workflow; the session is driven by the chosen workflow-optimize variant
   function openOptimize(
     analysisId: string,
-    engine: LiveEngine,
+    body: OptimizeBody,
   ): { draft: DraftView; live: LiveDetail } {
+    const { engine } = body;
     const a = analysisRow(analysisId);
     if (a.status !== 'succeeded' || a.report === null) {
-      throw new HttpError(409, `分析 ${analysisId} 还没有成功完成，没有报告可以优化`);
+      throw new HttpError(
+        409,
+        `Analysis ${analysisId} has not succeeded and has no report to optimise from`,
+      );
     }
     if (a.variantId === null) {
       throw new HttpError(
         409,
-        `分析 ${analysisId} 分析的是本机配置的 session，没有 variant 可以优化`,
+        `Analysis ${analysisId} analysed local-machine sessions and has no variant to optimise`,
       );
     }
     const base = variants.get(a.variantId);
     const workflowId = workflowOfVariant(db, base.id);
-    const findings = db
-      .select({ severity: analysisFindings.severity })
-      .from(analysisFindings)
-      .where(eq(analysisFindings.analysisId, analysisId))
-      .all();
-    const count = (s: string) => findings.filter((f) => f.severity === s).length;
-    const prompt = optimizeMessage({
-      analysisId,
-      workflowId,
-      variantName: base.name,
-      report: a.report,
-      findings: { high: count('high'), medium: count('medium'), low: count('low') },
-      patches: db
-        .select({ id: analysisPatches.id })
-        .from(analysisPatches)
-        .where(eq(analysisPatches.analysisId, analysisId))
-        .all().length,
-      engine,
-    });
+    const design = sessionVariant('optimize', body.designVariantId);
+    const prompt = optimizeMessage({ analysisId, workflowId, variantName: base.name, engine });
     const id = newId('d');
     const item = live.createDraftItem({
       cwd: analysisLayout(dataDir, analysisId).dir,
@@ -403,11 +460,12 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
         name: null,
         description: null,
         baseVariantId: base.id,
+        designVariantId: design.id,
         analysisId,
         requirement: prompt,
         liveId: item.id,
         status: 'preparing',
-        steps: initialSteps('optimize', skillSources, engine),
+        steps: initialSteps('optimize', engine, design.name),
       })
       .run();
     events.publish({ type: 'draft.updated', draftId: id, status: 'preparing' });
@@ -415,7 +473,7 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
     return { draft: view(row(id)), live: live.get(item.id) };
   }
 
-  // 保存到哪个 workflow（Contracts 17.4、19.3）：定义、是否新建 workflow、新建 variant 时的 parent
+  // Which workflow to save to (Contracts 17.4, 19.3): the definition, whether a new workflow is created, and the parent of a new variant
   function saveTarget(draft: DraftRow): {
     definition: WorkflowDefinition;
     newWorkflow: boolean;
@@ -431,7 +489,7 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
     }
     const definition = readDraftDefinition(layout);
     if (draft.mode === 'optimize') {
-      // optimize/workflow.yaml 的入口与小阶段与原 workflow 相同：保存到原 workflow，parent 为被分析的 variant
+      // optimize/workflow.yaml has the same entry and sub-stages as the original workflow: save to it, with the analysed variant as parent
       if (sameStages(loadWorkflow(db, draft.workflowId), definition)) {
         return { definition, newWorkflow: false, parentId: draft.baseVariantId };
       }
@@ -443,15 +501,15 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
       assertNewWorkflow(db, definition);
       return { definition, newWorkflow: true, parentId: draft.baseVariantId };
     }
-    // 再次保存：保存到已保存出的新 workflow，入口与小阶段必须没有改动
+    // Saving again: save to the new workflow already saved; the entry and sub-stages must be unchanged
     const saved = loadWorkflow(db, draft.savedWorkflowId);
     if (!sameStages(saved, definition)) {
       throw new HttpError(
         400,
-        `workflow.yaml 与已保存的 workflow ${saved.id} 的定义不同；要改定义就在 Workflow 页面改，或另开草稿。\n已保存：\n${stringify(saved)}\nworkflow.yaml：\n${stringify(definition)}`,
+        `workflow.yaml differs from the definition of saved workflow ${saved.id}; change the definition in the Workflow page or open another draft.\nSaved:\n${stringify(saved)}\nworkflow.yaml:\n${stringify(definition)}`,
       );
     }
-    // 新 workflow 下的 variant 没有 parent：被分析的 variant 属于另一个 workflow
+    // Variants under a new workflow have no parent: the analysed variant belongs to another workflow
     return {
       definition: saved,
       newWorkflow: false,
@@ -459,8 +517,8 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
     };
   }
 
-  // 保存对话框的内容（Contracts 17.4）：第一次保存为新 workflow 时填 workflow 与第一个 variant；
-  // 其余情况列出同一 workflow 的 variant，导入的与已冻结的不能被覆盖，写明原因
+  // Contents of the save dialog (Contracts 17.4): the first save as a new workflow fills in the workflow and first variant;
+  // otherwise list the same workflow's variants, where imported and frozen ones cannot be overwritten, with the reason
   function savePlan(id: string): SavePlanView {
     const draft = savableRow(id);
     const { definition, newWorkflow, parentId } = saveTarget(draft);
@@ -473,7 +531,7 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
         variantName: FIRST_VARIANT,
       };
     }
-    // 底子已删除时照常显示它的名字（"（已删除）"，Contracts 24.3）
+    // A deleted base still shows its name (" (deleted)", Contracts 24.3)
     const parent = parentId === null ? null : variants.record(parentId);
     return {
       kind: 'variant',
@@ -493,14 +551,14 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
     };
   }
 
-  // 新 workflow 的描述的预填：mode 为 workflow 时是发起时填的，mode 为 optimize 时写明来源
+  // Prefilled description of a new workflow: for mode workflow, the one entered when starting; for optimize, its origin
   const newWorkflowDescription = (draft: DraftRow) =>
     draft.mode === 'optimize'
-      ? `由 ${engineNames[draft.engine]} 按分析 ${draft.analysisId ?? ''} 的报告，从 workflow ${draft.workflowId} 改出`
+      ? `Changed from workflow ${draft.workflowId} by ${engineNames[draft.engine]} following the report of analysis ${draft.analysisId ?? ''}`
       : (draft.description ?? '');
 
-  // 校验后建 workflow 与 variant，或覆盖已有 variant；不构建，variant 状态为未构建（Contracts 17.4）。
-  // 任何一项校验不通过都以原文失败，草稿保留，什么都不改
+  // Validate, then create the workflow and variant or overwrite an existing variant; not built, the variant is unbuilt (Contracts 17.4).
+  // Any failed check fails with its original text; the draft stays and nothing changes
   function saveDraft(id: string, body: SaveDraftBody): DraftView {
     const draft = row(id);
     const layout = layoutOf(draft);
@@ -514,25 +572,29 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
       if (body.workflow === undefined) {
         throw new HttpError(
           400,
-          `第一次保存为新 workflow ${definition.id}，要填 workflow 的名字与描述`,
+          `First save as new workflow ${definition.id}: fill in the workflow name and description`,
         );
       }
       if (target.kind !== 'new') {
         throw new HttpError(
           400,
-          `新 workflow ${definition.id} 还没有 variant，只能新建第一个 variant`,
+          `New workflow ${definition.id} has no variants yet; only a first variant can be created`,
         );
       }
-      saved = { ...definition, name: checkText('workflow 的名字', body.workflow.name, 100) };
-      const workflowDescription = checkText('workflow 的描述', body.workflow.description, 2000);
+      saved = { ...definition, name: checkText('Workflow name', body.workflow.name, 100) };
+      const workflowDescription = checkText(
+        'Workflow description',
+        body.workflow.description,
+        2000,
+      );
       insertWorkflow(db, saved, workflowDescription);
     } else if (body.workflow !== undefined) {
       throw new HttpError(
         400,
-        `保存到已有的 workflow ${definition.id}，不填 workflow 的名字与描述（在 Workflow 页面改）`,
+        `Saving to existing workflow ${definition.id}: leave out the workflow name and description (change them in the Workflow page)`,
       );
     }
-    const source = draft.analysisId === null ? '' : `，分析 ${draft.analysisId}`;
+    const source = draft.analysisId === null ? '' : `, analysis ${draft.analysisId}`;
     let variant: Variant;
     if (target.kind === 'new') {
       const parent = parentId === null ? null : variants.record(parentId);
@@ -544,14 +606,14 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
         parentId,
         draftId: id,
         analysisId: draft.analysisId,
-        note: `从 ${engineNames[draft.engine]} 草稿 ${id} 保存（${parent === null ? '没有底子' : `底子 ${displayName(parent)}，${parent.id}`}${source}），需要构建`,
+        note: `Saved from ${engineNames[draft.engine]} draft ${id} (${parent === null ? 'no base' : `base ${displayName(parent)}, ${parent.id}`}${source}); needs a build`,
       });
     } else {
       const existing = variants.get(target.variantId);
       if (existing.workflowId !== saved.id) {
         throw new HttpError(
           400,
-          `variant ${existing.name} 属于 workflow ${existing.workflowId}，这个草稿保存到 ${saved.id}，只能覆盖其中的 variant`,
+          `Variant ${existing.name} belongs to workflow ${existing.workflowId}; this draft saves to ${saved.id} and can only overwrite its variants`,
         );
       }
       variant = variants.overwriteFromSource(existing.id, {
@@ -564,7 +626,7 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
       });
     }
     update(id, { status: 'saved', savedWorkflowId: saved.id, savedVariantId: variant.id });
-    // 面板的"对比"中的"上次保存"（Contracts 26.4）
+    // "Last saved" in the panel's Compare (Contracts 26.4)
     recordSaved(layout);
     return view(row(id));
   }
@@ -574,7 +636,10 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
   function savableRow(id: string): DraftRow {
     const d = row(id);
     if (!savable.includes(d.status)) {
-      throw new HttpError(409, `草稿 ${id} 的状态是 ${d.status}，准备完成后才能保存`);
+      throw new HttpError(
+        409,
+        `Draft ${id} is ${d.status}; it can be saved once preparation is done`,
+      );
     }
     return d;
   }
@@ -582,12 +647,32 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
   return {
     get: (id: string) => view(row(id)),
 
-    // 设计与优化会话的 workflow 面板（Contracts 26.4）：这一项的草稿、工作目录与底子的 src/。底子已删除时它的文件
-    // 已不在（24.3），与没有底子相同
+    sessionVariants(): SessionVariantsView {
+      const choice = (workflowId: DraftWorkflow) => ({
+        defaultId: currentBaseline(db, dataDir, workflowId)?.id ?? null,
+        variants: variants
+          .list()
+          .filter(
+            (v) =>
+              v.workflowId === workflowId &&
+              v.buildStatus === 'built' &&
+              v.builtHash === v.skillsHash,
+          )
+          .reverse()
+          .map((v) => ({ id: v.id, name: v.name })),
+      });
+      return { design: choice(DESIGN_WORKFLOW), optimize: choice(OPTIMIZE_WORKFLOW) };
+    },
+
+    // Workflow panel of design and optimize sessions (Contracts 26.4): this item's draft, working dir and the base's src/. When the base is deleted
+    // its files are gone (24.3), the same as having no base
     workspaceOf(liveId: string) {
       const d = db.select().from(workflowDrafts).where(eq(workflowDrafts.liveId, liveId)).get();
       if (d === undefined)
-        throw new HttpError(404, `交互 ${liveId} 不是设计或优化的会话，没有草稿`);
+        throw new HttpError(
+          404,
+          `Live item ${liveId} is not a design or optimize session and has no draft`,
+        );
       const base = d.baseVariantId === null ? null : variants.record(d.baseVariantId);
       return {
         draft: d,
@@ -597,8 +682,8 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
       };
     },
 
-    // 保存前的改动预览（Contracts 17.4、21.3）：将要保存的 src/ 相对目标的 diff。against 为被覆盖的 variant；
-    // 不传时相对底子（新建时），从空白开始的草稿没有底子；底子已删除时它的文件已不在，全部算作新增（Contracts 24.3）
+    // Preview of changes before saving (Contracts 17.4, 21.3): diff of the src/ to be saved against the target. against is the overwritten variant;
+    // without it, against the base (when creating); a blank-start draft has no base; a deleted base's files are gone, so everything is new (Contracts 24.3)
     diff(id: string, against: string | undefined): DraftDiffView {
       const d = savableRow(id);
       const baseId = against ?? d.baseVariantId;
@@ -613,10 +698,10 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
 
     open,
 
-    // 在后台准备草稿目录；返回的 promise 在准备结束（完成或某一步失败）时完成，测试可以等它
+    // Prepare the draft dir in the background; the promise resolves when preparation ends (done or a step failed), so tests can await it
     prepare,
 
-    // 发起（Contracts 17.1）：立即建草稿与 Live 项并返回，草稿目录在后台准备
+    // Start (Contracts 17.1): create the draft and Live item and return at once; the draft dir is prepared in the background
     create(body: CreateDraftBody): { draft: DraftView; live: LiveDetail } {
       const created = open(body);
       void prepare(created.draft.id);
@@ -625,25 +710,28 @@ export function createDrafts({ db, variants, live, draftsDir, dataDir, skillSour
 
     openOptimize,
 
-    // 交给 Codex 优化（Contracts 19.3）：与发起相同，立即返回，分析目录中的准备在后台进行
-    optimize(analysisId: string, engine: LiveEngine): { draft: DraftView; live: LiveDetail } {
-      const created = openOptimize(analysisId, engine);
+    // Hand to an agent for optimisation (Contracts 19.3): like starting, returns at once; preparation in the analysis dir runs in the background
+    optimize(analysisId: string, body: OptimizeBody): { draft: DraftView; live: LiveDetail } {
+      const created = openOptimize(analysisId, body);
       void prepare(created.draft.id);
       return created;
     },
 
-    // 重试准备：从失败的那一步接着做
+    // Retry preparation from the failed step
     retry(id: string): DraftView {
       const d = row(id);
       if (d.status !== 'failed') {
-        throw new HttpError(409, `草稿 ${id} 的状态是 ${d.status}，只有准备失败的草稿可以重试`);
+        throw new HttpError(
+          409,
+          `Draft ${id} is ${d.status}; only drafts whose preparation failed can be retried`,
+        );
       }
       update(id, { status: 'preparing', error: null });
       void prepare(id);
       return view(row(id));
     },
 
-    // 保存（Contracts 17.4）：新建 variant 或覆盖已有 variant，不构建
+    // Save (Contracts 17.4): create a variant or overwrite an existing one, without building
     save(id: string, body: SaveDraftBody): DraftView {
       savableRow(id);
       return saveDraft(id, body);

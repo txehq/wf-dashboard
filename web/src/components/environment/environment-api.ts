@@ -2,7 +2,7 @@ import { queryOptions, useQuery } from '@tanstack/react-query';
 import { requestJson } from '@/lib/http';
 import { settingsQuery } from '@/lib/runs-api';
 
-// 与 Contracts 第 8 节的 GET /api/environment 对应（server/src/environment.ts）
+// GET /api/environment, Contracts 8 (server/src/environment.ts)
 export interface EnvironmentCheck {
   id: string;
   label: string;
@@ -21,7 +21,7 @@ async function getReport(refresh: boolean): Promise<EnvironmentReport> {
   return (await requestJson('GET', url)) as EnvironmentReport;
 }
 
-// 键带上当前的角色模型：Settings 保存后重新请求，服务端发现模型变化会重新检查
+// The key includes the current role models: saving Settings refetches, and the server re-checks when models change
 const environmentQuery = (modelsKey: string) =>
   queryOptions({
     queryKey: ['environment', modelsKey],

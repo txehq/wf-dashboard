@@ -3,12 +3,13 @@ import { Language, Parser, type Node } from 'web-tree-sitter';
 
 const require = createRequire(import.meta.url);
 
-// wasm 在模块加载时初始化一次，之后的解析是同步的（ingest 的粗判在同步的导入事务中调用）
+// The wasm initializes once at module load; later parses are synchronous (ingest's rough classification calls them
+// inside the synchronous import transaction)
 await Parser.init();
 const parser = new Parser();
 parser.setLanguage(await Language.load(require.resolve('tree-sitter-bash/tree-sitter-bash.wasm')));
 
-// $'…' 中的转义（bash 手册 ANSI-C Quoting）
+// Escapes inside $'…' (bash manual, ANSI-C Quoting)
 const ANSI_C_ESCAPE =
   /\\([0-7]{1,3}|x[\dA-Fa-f]{1,2}|u[\dA-Fa-f]{1,4}|U[\dA-Fa-f]{1,8}|c[\s\S]|[\s\S])/g;
 const ANSI_C_LETTERS: Record<string, string> = {
@@ -27,7 +28,7 @@ const ANSI_C_LETTERS: Record<string, string> = {
   '?': '?',
 };
 
-// \x 与八进制给出的是字节（例如 $'\xef\xbf\xbd' 是一个 U+FFFD），按 UTF-8 拼回字符串
+// \x and octal escapes give bytes (e.g. $'\xef\xbf\xbd' is one U+FFFD); join them back into a string as UTF-8
 function ansiC(body: string): string {
   const bytes: Buffer[] = [];
   let at = 0;
@@ -46,25 +47,27 @@ function ansiCEscape(all: string, e: string): Buffer {
   if (kind === 'x' && e.length > 1) return Buffer.from([parseInt(e.slice(1), 16)]);
   if ((kind === 'u' || kind === 'U') && e.length > 1) {
     const cp = parseInt(e.slice(1), 16);
-    // 超出 Unicode 范围的 bash 原样保留
+    // bash keeps code points beyond the Unicode range as written
     return Buffer.from(cp > 0x10ffff ? all : String.fromCodePoint(cp));
   }
   if (kind >= '0' && kind <= '7') return Buffer.from([parseInt(e, 8) & 0xff]);
   return Buffer.from(ANSI_C_LETTERS[e] ?? all);
 }
 
-// 未加引号的字面文本：反斜杠转义下一个字符，反斜杠加换行是续行；含 glob 字符时不是字面量
+// Unquoted literal text: a backslash escapes the next character, backslash-newline continues the line; text with
+// glob characters is not a literal
 function bare(text: string): string | null {
   if (/[*?]/.test(text)) return null;
   return text.replace(/\\(\n|[\s\S])/g, (_, c: string) => (c === '\n' ? '' : c));
 }
 
-// 双引号中的字面文本：只有 \$ \` \" \\ 与续行是转义
+// Literal text inside double quotes: only \$ \` \" \\ and line continuation are escapes
 function quoted(text: string): string {
   return text.replace(/\\([$`"\\\n])/g, (_, c: string) => (c === '\n' ? '' : c));
 }
 
-// 由几部分连成的词（双引号字符串、concatenation）：子节点之间的文本（例如换行、末尾的 $）按 literal 解释
+// A word made of several parts (double-quoted string, concatenation): text between children (e.g. newlines, a
+// trailing $) is read with literal
 function joined(node: Node, from: number, to: number, literal: (text: string) => string | null) {
   let out = '';
   let at = from;
@@ -84,8 +87,8 @@ function joined(node: Node, from: number, to: number, literal: (text: string) =>
   return tail === null ? null : out + tail;
 }
 
-// 一个词的值：引号去掉、转义还原，变量与参数展开（$X、${o:+-c}）保持原文；
-// 含命令替换、算术展开、进程替换、未加引号的 glob 时不是字面量，为 null
+// A word's value: quotes removed, escapes restored, variable and parameter expansions ($X, ${o:+-c}) kept as written;
+// null (not a literal) with command substitution, arithmetic expansion, process substitution or an unquoted glob
 function wordOf(node: Node): string | null {
   switch (node.type) {
     case 'word':
@@ -107,9 +110,9 @@ function wordOf(node: Node): string | null {
     case 'string':
       return joined(node, 1, node.text.length - 1, quoted);
     case 'translated_string': {
-      // $"…" 是 $ 加一个双引号字符串
+      // $"…" is $ followed by a double-quoted string
       const inner = node.firstNamedChild;
-      if (inner === null) throw new Error(`$"…" 中没有字符串：${node.text}`);
+      if (inner === null) throw new Error(`No string inside $"…": ${node.text}`);
       return wordOf(inner);
     }
     case 'concatenation':
@@ -120,28 +123,20 @@ function wordOf(node: Node): string | null {
     case 'brace_expression':
       return null;
     default:
-      throw new Error(`tree-sitter-bash 的词中出现未知的节点 ${node.type}：${node.text}`);
+      throw new Error(`Unknown node ${node.type} in a tree-sitter-bash word: ${node.text}`);
   }
 }
 
-// 一条 shell 脚本中的每个简单命令的 argv（含复合命令、管道、命令替换中的命令）。
-// 每个词取自 tree-sitter-bash 语法树中命令的 name 与 argument 节点：命令前的变量赋值与重定向（含 heredoc 正文）
-// 不在 argv 中，非字面量的词不计入
+// The argv of every simple command in a shell script (including those in compound commands, pipelines and command
+// substitutions). Each word comes from the command's name and argument nodes in the tree-sitter-bash tree: variable
+// assignments and redirections before the command (including heredoc bodies) are not in argv; non-literal words are
+// skipped
 export function commandsOf(script: string): string[][] {
   const tree = parser.parse(script);
-  if (tree === null) throw new Error('tree-sitter-bash 没有返回语法树');
+  if (tree === null) throw new Error('tree-sitter-bash returned no syntax tree');
   const out: string[][] = [];
   const walk = (node: Node) => {
-    if (node.type === 'command') {
-      const argv: string[] = [];
-      node.children.forEach((child, i) => {
-        const field = node.fieldNameForChild(i);
-        if (field !== 'name' && field !== 'argument') return;
-        const word = wordOf(field === 'name' ? (child.firstNamedChild ?? child) : child);
-        if (word !== null) argv.push(word);
-      });
-      out.push(argv);
-    }
+    if (node.type === 'command') out.push(argvOf(node));
     for (const child of node.namedChildren) walk(child);
   };
   walk(tree.rootNode);
@@ -149,7 +144,39 @@ export function commandsOf(script: string): string[][] {
   return out;
 }
 
-// 一次 wf obsidian 调用的参数（clap 的 --name value 与 --name=value 两种写法）
+function argvOf(node: Node): string[] {
+  const argv: string[] = [];
+  node.children.forEach((child, i) => {
+    const field = node.fieldNameForChild(i);
+    if (field !== 'name' && field !== 'argument') return;
+    const word = wordOf(field === 'name' ? (child.firstNamedChild ?? child) : child);
+    if (word !== null) argv.push(word);
+  });
+  return argv;
+}
+
+const hasCommand = (node: Node): boolean =>
+  node.namedChildren.some((c) => c.type === 'command' || hasCommand(c));
+
+// The argv of each command in a script made only of simple commands joined by ;, &&, || or newlines; null with
+// pipelines, redirections, subshells, control structures, command substitution or syntax errors
+export function sequenceOf(script: string): string[][] | null {
+  const tree = parser.parse(script);
+  if (tree === null) throw new Error('tree-sitter-bash returned no syntax tree');
+  const out: string[][] = [];
+  const walk = (node: Node): boolean => {
+    if (node.type === 'program' || node.type === 'list') return node.namedChildren.every(walk);
+    if (node.type === 'comment') return true;
+    if (node.type !== 'command' || hasCommand(node)) return false;
+    out.push(argvOf(node));
+    return true;
+  };
+  const simple = !tree.rootNode.hasError && walk(tree.rootNode);
+  tree.delete();
+  return simple ? out : null;
+}
+
+// The arguments of a wf obsidian call (clap's --name value and --name=value forms)
 export interface ObsidianArgs {
   kind: string | null;
   file: string | null;
@@ -159,10 +186,10 @@ export interface ObsidianArgs {
   json: boolean;
 }
 
-// argv 是 wf obsidian 时返回它的参数，否则为 null
+// Its arguments when argv is wf obsidian, otherwise null
 export function obsidianArgs(argv: string[]): ObsidianArgs | null {
   if (argv[0] !== 'wf') return null;
-  // --json 是全局参数，可以写在子命令之前
+  // --json is a global flag and may come before the subcommand
   const sub = argv.findIndex((w, i) => i > 0 && !w.startsWith('-'));
   if (sub === -1 || argv[sub] !== 'obsidian') return null;
   const value = (name: string): string | null => {

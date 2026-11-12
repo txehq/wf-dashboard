@@ -1,33 +1,34 @@
 import { CheckCircle2, Circle, CircleDot, SkipForward, type LucideIcon } from 'lucide-react';
 import type { StageEvidence, StageStatus, StageView, WorkflowCycle } from '@/lib/sessions-api';
 
-// 轮次名称：由 Skill 调用开启的一轮标签本身就是"第 N 轮"
+// Cycle name: a cycle opened by a Skill call has the label "Round N" itself (server/src/stages/partition.ts)
 export function cycleName(c: WorkflowCycle): string {
-  const ordinal = `第 ${String(c.index)} 轮`;
+  const ordinal = `Round ${String(c.index)}`;
   return c.label === ordinal ? ordinal : `${ordinal} · ${c.label}`;
 }
 
-// 进入阶段的那次调用的种类
+// Kind of call that entered the stage
 export const evidenceKindLabel: Record<StageEvidence['kind'], string> = {
-  skill: 'Skill 调用',
-  command: '用户输入的命令',
+  skill: 'Skill call',
+  command: 'User command',
 };
 
-// fix-pr 显示修复轮数，其他阶段显示调用次数；没有进入的阶段为 null
+// fix-pr shows fix rounds, other stages show call counts; null for stages never entered
 export function entriesText(view: StageView): string | null {
   if (view.entries === 0) return null;
+  const n = view.entries;
   return view.stage === 'fix-pr'
-    ? `修复 ${String(view.entries)} 轮`
-    : `调用 ${String(view.entries)} 次`;
+    ? `${String(n)} ${n === 1 ? 'fix round' : 'fix rounds'}`
+    : `${String(n)} ${n === 1 ? 'call' : 'calls'}`;
 }
 
-// 状态同时由图标、文字和边框样式区分，颜色只是附加
+// Status is told apart by icon, text and border style; color is only extra
 export const statusMeta: Record<
   StageStatus,
   { label: string; icon: LucideIcon; iconClass: string }
 > = {
-  done: { label: '完成', icon: CheckCircle2, iconClass: 'text-[var(--viz-status-good-text)]' },
-  active: { label: '进行中', icon: CircleDot, iconClass: 'text-[var(--viz-series-1)]' },
-  skipped: { label: '跳过', icon: SkipForward, iconClass: 'text-muted-foreground' },
-  'not-reached': { label: '未到达', icon: Circle, iconClass: 'text-muted-foreground' },
+  done: { label: 'Done', icon: CheckCircle2, iconClass: 'text-[var(--viz-status-good-text)]' },
+  active: { label: 'In progress', icon: CircleDot, iconClass: 'text-[var(--viz-series-1)]' },
+  skipped: { label: 'Skipped', icon: SkipForward, iconClass: 'text-muted-foreground' },
+  'not-reached': { label: 'Not reached', icon: Circle, iconClass: 'text-muted-foreground' },
 };

@@ -4,19 +4,19 @@ import { requestJson } from '@/lib/http';
 export interface Variant {
   id: string;
   name: string;
-  // 基本描述（Contracts 18.3）
+  // Description (Contracts 18.3)
   description: string | null;
-  // 所属 workflow（Contracts 16.4）
+  // Owning workflow (Contracts 16.4)
   workflowId: string;
   parentId: string | null;
-  // 任意 workflow 的 variant 只有一组 skill，没有基线：为空字符串（Contracts 18.6）
+  // A variant of a custom workflow has only one set of skills and no base: empty string (Contracts 18.6)
   baseCommit: string;
   skillsHash: string;
   version: string;
   status: 'draft' | 'frozen';
-  // 从其他数据目录导入的 variant 没有安装目录
+  // Variants imported from another data directory have no install directory
   installDir: string | null;
-  // 与另一个 variant 共用的目录（迁移拆出的 lfg 与 ic，Contracts 16.4）；为空时是自己的目录
+  // Directory shared with another variant (lfg and ic split by migration, Contracts 16.4); null means its own
   storageId: string | null;
   buildStatus: 'none' | 'building' | 'built' | 'failed';
   builtHash: string | null;
@@ -24,15 +24,18 @@ export interface Variant {
   builtAt: string | null;
   createdAt: string;
   frozenAt: string | null;
-  // 由分析的"另存为 variant"建出时的分析 id；按 session 的 skill 新建时的来源 session
+  // Analysis id when created by an analysis's "Save as variant"; source session when created from a session's skills
   analysisId: string | null;
   sourceSessionId: string | null;
-  // 由草稿保存出时的草稿 id（Contracts 17.4）
+  // Draft id when saved from a draft (Contracts 17.4)
   draftId: string | null;
-  // 删除的时间（Contracts 24.3）：已删除的只保留名字用于显示，不再出现在列表与选择中
+  // Deletion time (Contracts 24.3): deleted variants keep only their name for display and leave lists and pickers
   deletedAt: string | null;
-  // 自动导入的 txe-workflow release 的 tag（Contracts 29.1）；其他为空
+  // Tag of the auto-imported txe-workflow release (Contracts 29.1); null otherwise
   releaseTag: string | null;
+  // "Include Orca skills" (Contracts 35.5) and the Orca version the latest build included
+  orcaSkills: boolean;
+  orcaVersion: string | null;
 }
 
 export interface VariantOptions {
@@ -58,25 +61,25 @@ export interface VariantDiff {
   files: FileDiff[];
 }
 
-export const statusLabel: Record<Variant['status'], string> = { draft: '草稿', frozen: '已冻结' };
+export const statusLabel: Record<Variant['status'], string> = { draft: 'Draft', frozen: 'Frozen' };
 
-// 页面中 variant 的名字：名字 (workflow)，例如 基线 (lfg)；已删除的为 名字（已删除） (workflow)
+// A variant's name on pages: name (workflow), e.g. Base (lfg); deleted ones are name (deleted) (workflow)
 export const variantLabel = (
   variant: Pick<Variant, 'name' | 'workflowId'> & { deletedAt?: string | null },
 ) =>
-  `${variant.name}${variant.deletedAt === undefined || variant.deletedAt === null ? '' : '（已删除）'} (${variant.workflowId})`;
+  `${variant.name}${variant.deletedAt === undefined || variant.deletedAt === null ? '' : ' (deleted)'} (${variant.workflowId})`;
 
-// 全部 variant，包括已删除的（Compare 显示保留的 run，Contracts 24.3）
+// All variants, including deleted ones (Compare shows their kept runs, Contracts 24.3)
 export const allVariantsQuery = queryOptions({
   queryKey: ['variants', 'with-deleted'],
   queryFn: () =>
     request<(Variant & { boundSessions: number })[]>('GET', '/api/variants?includeDeleted=1'),
 });
 
-// variant 的独立页面（Contracts 18.3）
+// The variant's own page (Contracts 18.3)
 export const variantHref = (variant: Pick<Variant, 'id'>) => `/variants/${variant.id}`;
 
-// 安装到本机的清单（Contracts 18.6）
+// Manifest of a local install (Contracts 18.6)
 export interface InstallManifest {
   variantId: string;
   variantName: string;
@@ -87,31 +90,31 @@ export interface InstallManifest {
   files: { path: string; sha256: string }[];
 }
 
-// 按当前内容构建成功、可以运行
+// Built from the current content and ready to run
 export function isBuilt(v: Pick<Variant, 'buildStatus' | 'builtHash' | 'skillsHash'>): boolean {
   return v.buildStatus === 'built' && v.builtHash === v.skillsHash;
 }
 
 export function buildLabel(variant: Variant): string {
-  // 构建过，之后编辑了内容（服务端把 buildStatus 改回 none，builtHash 仍是上次构建的内容）
+  // Built, then edited (the server resets buildStatus to none; builtHash still holds the last build)
   if (
     (variant.buildStatus === 'built' || variant.buildStatus === 'none') &&
     variant.builtHash !== null &&
     variant.builtHash !== variant.skillsHash
   ) {
-    return '需要重新构建';
+    return 'Needs rebuild';
   }
-  return { none: '未构建', building: '构建中', built: '已构建', failed: '构建失败' }[
+  return { none: 'Not built', building: 'Building', built: 'Built', failed: 'Build failed' }[
     variant.buildStatus
   ];
 }
 
-// 失败时抛出带 URL、状态码与服务端原因的错误
+// On failure throws an error with the URL, status code and the server's reason
 export async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
   return (await requestJson(method, url, body)) as T;
 }
 
-// 失败后不自动重复请求（重试、窗口聚焦、网络恢复、重新挂载都不触发），由页面上的「重试」重新请求
+// After a failure nothing re-requests automatically (retry, window focus, reconnect, remount); the page's Retry does
 const notFailed = (query: { state: { status: string } }) => query.state.status !== 'error';
 const manualRetry = {
   retry: false,
@@ -120,16 +123,16 @@ const manualRetry = {
   refetchOnReconnect: notFailed,
 } as const;
 
-// 从其他数据目录导入的 variant：只有 skills 内容，不能编辑、构建与运行
+// Variants imported from another data directory: skills content only, cannot be edited, built or run
 export function isImported(variant: Variant): boolean {
   return variant.installDir === null;
 }
 
-export const importedLabel = '导入的 variant（只读，派生后可以构建与运行）';
+export const importedLabel = 'Imported variant (read-only; derive one to build and run)';
 
 export const variantsQuery = queryOptions({
   queryKey: ['variants'],
-  // 列表中每个 variant 另带绑定的 session 数
+  // Each listed variant also carries its bound session count
   queryFn: () => request<(Variant & { boundSessions: number })[]>('GET', '/api/variants'),
   ...manualRetry,
 });
@@ -182,16 +185,18 @@ export const buildLogQuery = (id: string, building: boolean) =>
     refetchInterval: (query) => (building && notFailed(query) ? 1000 : false),
   });
 
-// 构建开始或结束时重新读取构建日志。面板刚打开、第一次读取还没有回应时，TanStack Query 的 invalidate 沿用进行中的
-// 那次读取，它读到的可能是构建结束之前的日志：先取消它再读
+// Re-read the build log when a build starts or ends. If the panel just opened and the first read has not
+// answered yet, TanStack Query's invalidate reuses that in-flight read, which may return the log from before
+// the build ended: cancel it first, then read
 export async function refetchBuildLog(client: QueryClient, id: string) {
   const { queryKey } = buildLogQuery(id, false);
   await client.cancelQueries({ queryKey, exact: true });
   await client.invalidateQueries({ queryKey, exact: true });
 }
 
-// variant 历史的一条（Contracts 16.4、17.4）：改名，或被草稿覆盖、恢复时存下的原来的 src/。draftEngine 为草稿的
-// 引擎（28.4），草稿已删除且覆盖时没有记下时为空
+// One variant history entry (Contracts 16.4, 17.4): a rename, or the previous src/ kept when a draft overwrote
+// it or a restore happened. draftEngine is the draft's engine (28.4); null when the draft was deleted and the
+// overwrite did not record it
 export type HistoryEntry = { id: number; at: number } & (
   | { kind: 'rename'; from: string; to: string }
   | {
@@ -211,7 +216,7 @@ export const historyQuery = (id: string) =>
     ...manualRetry,
   });
 
-// 查看历史中存下的 src/：现在的内容恢复成它时逐文件的改动
+// A src/ kept in history: per-file changes if the current content were restored to it
 export const historyDiffQuery = (id: string, eventId: number) =>
   queryOptions({
     queryKey: ['variants', id, 'history', eventId, 'diff'],

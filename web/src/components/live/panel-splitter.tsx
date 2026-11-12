@@ -1,7 +1,8 @@
 import type { PointerEvent } from 'react';
 import { cn } from '@/lib/utils';
 
-// 可以拖动的分隔条：按住后把指针的位置（vertical 为 clientX，horizontal 为 clientY）交给 onDrag，松开时 onEnd
+// Draggable divider: while held, passes the pointer position (clientX for vertical, clientY for
+// horizontal) to onDrag, and calls onEnd on release
 export function PanelSplitter({
   orientation,
   label,
@@ -9,7 +10,7 @@ export function PanelSplitter({
   onDrag,
   onEnd,
 }: {
-  // vertical：左右两部分之间的竖条；horizontal：上下两部分之间的横条
+  // vertical: a bar between left and right parts; horizontal: a bar between top and bottom parts
   orientation: 'vertical' | 'horizontal';
   label: string;
   testId: string;

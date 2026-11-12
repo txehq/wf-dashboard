@@ -24,5 +24,6 @@ PRAGMA foreign_keys=ON;--> statement-breakpoint
 ALTER TABLE `sessions` ADD `engine` text DEFAULT 'claude' NOT NULL;--> statement-breakpoint
 ALTER TABLE `sessions` ADD `archived_at` integer;--> statement-breakpoint
 ALTER TABLE `sources` ADD `engine` text DEFAULT 'claude' NOT NULL;--> statement-breakpoint
--- 本机配置的 session 不绑定 variant（Contracts 25.4）：清除已有的自动与手动绑定。本机的 session 属于不是 variant 目录的来源
+-- Sessions of the local configuration are not bound to a variant (Contracts 25.4): clear existing automatic and manual
+-- bindings. Local sessions belong to sources that are not variant directories
 UPDATE `sessions` SET `variant_id` = NULL, `variant_binding` = NULL WHERE `variant_binding` IN ('auto', 'manual') AND `source_id` IN (SELECT `id` FROM `sources` WHERE `variant` IS NULL);

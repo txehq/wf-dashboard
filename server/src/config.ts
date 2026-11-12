@@ -1,27 +1,43 @@
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 
-// src/ 与 dist/ 都位于 server/ 下，两级之上即仓库根目录
+// src/ and dist/ both sit under server/; two levels up is the repo root (in a release package, the package root)
 const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
-// e2e 用 WFD_DATA_DIR（相对仓库根目录或绝对路径）指向专用的数据目录
+// WFD_DATA_DIR (relative to the repo root or absolute) points at another data directory; tests use their own
 const dataDir = path.resolve(repoRoot, process.env.WFD_DATA_DIR ?? 'data');
 
-// 一个 skill 的来源：npx skills add <source> --skill <name>；source 是 git 仓库（安装时用 git ls-remote 记下 commit）
-export const CodexSkillSources = z
-  .array(z.strictObject({ name: z.string().min(1), source: z.string().min(1) }))
-  .min(1);
-export type CodexSkillSources = z.infer<typeof CodexSkillSources>;
+// A release package (Contracts 39.2) carries release.json at its root; a git checkout has none. The LaunchAgent the
+// installer writes passes the install root (the directory holding app/, current and data/) as WFD_INSTALL_ROOT
+const ReleaseFile = z.object({ version: z.string().min(1), commit: z.string().min(1) });
+export const RELEASE_FILE = 'release.json';
 
-// Obsidian vault 的位置（Contracts 第 30 节）：与 txe-workflow 的 wf obsidian 相同，MAGI_VAULT 非空时取它
-// （展开 ~，转为绝对路径），否则为 txe-workflow 的默认值
+function readInstall() {
+  const file = path.join(repoRoot, RELEASE_FILE);
+  if (!fs.existsSync(file)) return null;
+  const release = ReleaseFile.parse(JSON.parse(fs.readFileSync(file, 'utf8')));
+  const root = process.env.WFD_INSTALL_ROOT;
+  if (root === undefined || root === '') {
+    throw new Error(
+      `${file} marks this as an installed release package, but WFD_INSTALL_ROOT is not set; start the dashboard through the LaunchAgent that install.sh writes`,
+    );
+  }
+  return { ...release, root: path.resolve(root), packageDir: path.resolve(repoRoot) };
+}
+
+export const install = readInstall();
+export type Install = NonNullable<typeof install>;
+
+// Obsidian vault location (Contracts section 30): same as txe-workflow's wf obsidian; MAGI_VAULT when non-empty
+// (~ expanded, made absolute), otherwise txe-workflow's default
 export const DEFAULT_VAULT = '~/Projects/Obsidian/TXE';
-export type VaultSource = 'MAGI_VAULT' | '默认';
+export type VaultSource = 'MAGI_VAULT' | 'default';
 
 export function resolveVault(env: NodeJS.ProcessEnv): { dir: string; source: VaultSource } {
   const value = env.MAGI_VAULT ?? '';
-  const source: VaultSource = value === '' ? '默认' : 'MAGI_VAULT';
+  const source: VaultSource = value === '' ? 'default' : 'MAGI_VAULT';
   const raw = value === '' ? DEFAULT_VAULT : value;
   const expanded =
     raw === '~' || raw.startsWith('~/') ? path.join(os.homedir(), raw.slice(1)) : raw;
@@ -30,124 +46,105 @@ export function resolveVault(env: NodeJS.ProcessEnv): { dir: string; source: Vau
 
 const vault = resolveVault(process.env);
 
-// "结束进程"在 SIGINT 之后等待的默认时长（Contracts 14.3）
+// Default wait after SIGINT for "Stop process" (Contracts 14.3)
 export const LIVE_STOP_GRACE_MS = 10_000;
 
 export const config = {
   repoRoot,
   host: '127.0.0.1',
-  // 多个 worktree 并行运行时用 WFD_PORT 错开
+  // Parallel worktrees use WFD_PORT to avoid clashing
   port: z.coerce.number().int().min(1).max(65535).default(7317).parse(process.env.WFD_PORT),
   dataDir,
-  // e2e 用 WFD_DB_PATH 指向每次重建的独立数据库
+  // WFD_DB_PATH points at another database file
   dbPath: process.env.WFD_DB_PATH ?? path.join(dataDir, 'db.sqlite'),
   variantsDir: path.join(dataDir, 'variants'),
   runsDir: path.join(dataDir, 'runs'),
-  // 交互 session 的目录（hooks.json、pty.log、isolated 的 workspace）
+  // Interactive session directories (hooks.json, pty.log, isolated workspace)
   liveDir: path.join(dataDir, 'live'),
-  // Playwright 浏览器的共享目录；测试的各进程用不同的数据目录，用 WFD_PLAYWRIGHT_BROWSERS_DIR 共用一份
-  playwrightBrowsersDir: path.resolve(
-    process.env.WFD_PLAYWRIGHT_BROWSERS_DIR ?? path.join(dataDir, 'playwright-browsers'),
-  ),
-  tasksDir: path.join(repoRoot, 'tasks'),
-  // 本地仓库模式（Contracts 7.2）：设置时 run 与 isolated 交互的仓库建为这个目录下的 bare 仓库，不在 GitHub 上建；
-  // 测试与 e2e 都用它
-  localReposDir:
-    process.env.WFD_LOCAL_REPOS_DIR === undefined
-      ? null
-      : path.resolve(repoRoot, process.env.WFD_LOCAL_REPOS_DIR),
-  // Sessions 页面的来源目录所在处；e2e 用 WFD_CLAUDE_PROJECTS 指向由真实 session 组成的目录
+  // VS Code for the Web (Contracts section 32): connection token, extensions and settings, local server ports and logs
+  vscodeDir: path.join(dataDir, 'vscode'),
+  // Server packages cached by commit and platform (about 200 MB)
+  vscodeServersDir: path.join(dataDir, 'vscode', 'servers'),
+  // Playwright browsers installed for grading
+  playwrightBrowsersDir: path.join(dataDir, 'playwright-browsers'),
+  // Task definitions are written by the page and by Linear imports: an installed package keeps them in data/tasks/
+  // (seeded from the package's tasks/ at startup) so they survive updates, which replace the package
+  tasksDir: install === null ? path.join(repoRoot, 'tasks') : path.join(dataDir, 'tasks'),
+  // The tasks shipped with the code
+  bundledTasksDir: path.join(repoRoot, 'tasks'),
+  // Where the Sessions page's source directories live; tests point WFD_CLAUDE_PROJECTS at their own directory
   claudeProjectsDir: path.resolve(
     process.env.WFD_CLAUDE_PROJECTS ?? path.join(os.homedir(), '.claude/projects'),
   ),
-  // 本机 Codex 的 CODEX_HOME（Contracts 25.1）：其中的 sessions/ 与 archived_sessions/ 是本机配置的 Codex session；
-  // 测试用 WFD_CODEX_HOME 指向测试自己建的目录，不读写用户的 ~/.codex
+  // Local Codex CODEX_HOME (Contracts 25.1): its sessions/ and archived_sessions/ hold the local-config Codex sessions;
+  // tests point WFD_CODEX_HOME at their own directory and never touch the user's ~/.codex
   codexHome: path.resolve(process.env.WFD_CODEX_HOME ?? path.join(os.homedir(), '.codex')),
-  // 被评估的 workflow 仓库，基线 variant 从它的 commit 导出；其他机器用 WFD_TXE_WORKFLOW 指定
+  // The evaluated workflow repo; baseline variants are exported from its commits; other machines set WFD_TXE_WORKFLOW
   txeWorkflowRepo: path.resolve(
     process.env.WFD_TXE_WORKFLOW ?? path.join(os.homedir(), 'Project/txe/txe-workflow'),
   ),
-  // wf-history MCP 直接启动真实的 ctx
+  // The wf-history MCP starts the real ctx directly
   ctxBin: path.join(os.homedir(), '.local/bin/ctx'),
   migrationsDir: fileURLToPath(new URL('../drizzle', import.meta.url)),
-  // 同时进行的运行数等默认设置；PUT /api/settings 修改后保存在数据库
+  // Defaults such as run concurrency; PUT /api/settings saves changes in the database
   runConcurrency: 3,
-  // 每个 variant 在每个 task 上的默认重复次数
+  // Default repeats of each variant on each task
   defaultRepeats: 3,
-  // 同一 run 中模拟用户回答次数的上限
+  // Maximum simulated user replies in one run
   maxUserTurns: 80,
-  // gateway 认证与模型别名的来源；测试用 WFD_CLAUDE_SETTINGS 指向一份测试用 settings
-  claudeSettingsPath: path.resolve(
-    process.env.WFD_CLAUDE_SETTINGS ?? path.join(os.homedir(), '.claude/settings.json'),
-  ),
-  // skill 中的 codex exec 用的登录凭据，运行前复制进 variant 的 CODEX_HOME
-  codexAuthPath: path.resolve(
-    process.env.WFD_CODEX_AUTH ?? path.join(os.homedir(), '.codex/auth.json'),
-  ),
-  // codex exec 的模型与 provider 配置（例如经 gateway 调用），其中的模型配置运行前写进 variant 的 CODEX_HOME
-  codexConfigPath: path.resolve(
-    process.env.WFD_CODEX_CONFIG ?? path.join(os.homedir(), '.codex/config.toml'),
-  ),
-  // 环境检查的工作目录：Codex 检查在其中的 codex-home 下准备配置后运行 codex exec
+  // Source of gateway auth and model aliases
+  claudeSettingsPath: path.join(os.homedir(), '.claude/settings.json'),
+  // Login credentials for codex exec in skills, copied into the variant's CODEX_HOME before a run
+  codexAuthPath: path.join(os.homedir(), '.codex/auth.json'),
+  // codex exec model and provider config (e.g. via gateway); its model config is written into the variant's CODEX_HOME before a run
+  codexConfigPath: path.join(os.homedir(), '.codex/config.toml'),
+  // Environment check working directory: the Codex check prepares config under its codex-home, then runs codex exec
   environmentDir: path.join(dataDir, 'environment'),
-  // 用 Codex 生成 workflow 或 variant 的草稿目录（Contracts 17.2）
+  // Draft directories for workflows or variants generated with Codex (Contracts 17.2)
   workflowDraftsDir: path.join(dataDir, 'workflow-drafts'),
-  // Live 中 Codex 会话运行的命令；e2e 用 WFD_CODEX_BIN 换成测试中的替身命令，只验证页面与 API
-  codexBin: process.env.WFD_CODEX_BIN ?? 'codex',
-  // Live 中 Claude Code 会话运行的命令；基础档的 e2e 用 WFD_CLAUDE_BIN 换成回显按键与终端尺寸的替身，只验证页面与终端
-  claudeBin: process.env.WFD_CLAUDE_BIN ?? 'claude',
-  // 自动结束（Contracts 14.3）：没有任何 /api/events 的 SSE 连接、也没有任何 PTY 的 WebSocket 连接持续这么久时，
-  // 结束全部运行中的交互进程；e2e 用 WFD_LIVE_AUTO_STOP_MS 改小
-  liveAutoStopMs: z.coerce
-    .number()
-    .int()
-    .min(1)
-    .default(120_000)
-    .parse(process.env.WFD_LIVE_AUTO_STOP_MS),
-  // "结束进程"：先 SIGINT，过了这么久仍在则 SIGTERM；测试用 WFD_LIVE_STOP_GRACE_MS 改小
-  liveStopGraceMs: z.coerce
-    .number()
-    .int()
-    .min(1)
-    .default(LIVE_STOP_GRACE_MS)
-    .parse(process.env.WFD_LIVE_STOP_GRACE_MS),
-  // Live"本机配置"的 HOME（claude 读 <HOME>/.claude）；e2e 用 WFD_LOCAL_HOME 指向 .work/ 下的目录
-  localHome: path.resolve(process.env.WFD_LOCAL_HOME ?? os.homedir()),
-  // 服务启动时与之后每 6 小时检查 txe-workflow 的最新版并自动导入（Contracts 29.1）；真实档的 e2e 与指南截图
-  // 用 WFD_RELEASE_CHECK=off 关闭：它们的服务读得到 GitHub，不在各自的数据目录中导入、编译 wf
-  releaseCheck: z.enum(['on', 'off']).default('on').parse(process.env.WFD_RELEASE_CHECK) === 'on',
-  // Magi Agent（Contracts 第 23 节）：主仓库是正在运行的 dashboard 所在的目录（部署合并进它的 main，MAGI.md 从它读取），
-  // 演示与 e2e 用 WFD_MAGI_REPO 指向 .work/ 下的仓库副本；worktree 默认在主仓库的上一级目录
-  magiRepo: path.resolve(process.env.WFD_MAGI_REPO ?? repoRoot),
-  magiWorktree: path.resolve(
-    process.env.WFD_MAGI_WORKTREE ??
-      path.join(
-        path.dirname(path.resolve(process.env.WFD_MAGI_REPO ?? repoRoot)),
-        'wf-dashboard-magi-agent',
-      ),
+  // Command for Codex sessions in Live
+  codexBin: 'codex',
+  // Command for Claude Code sessions in Live
+  claudeBin: 'claude',
+  // Auto stop (Contracts 14.3): when there has been no /api/events SSE connection and no PTY WebSocket connection for this
+  // long, stop all running interactive processes
+  liveAutoStopMs: 120_000,
+  // "Stop process": SIGINT first, SIGTERM if still running after this long
+  liveStopGraceMs: LIVE_STOP_GRACE_MS,
+  // SSH hosts (Contracts 31.1): always connect with this machine's ssh, which reads ~/.ssh/config; the Host list is read from it
+  sshHostsFile: path.join(os.homedir(), '.ssh', 'config'),
+  // ControlMaster socket directory: macOS socket paths are limited to 104 bytes, so keep it short
+  sshControlDir: path.resolve(
+    process.env.WFD_SSH_CONTROL_DIR ?? path.join(os.homedir(), '.wf-dashboard', 'ssh'),
   ),
-  // 部署第 3 步在 worktree 中运行的检查（Contracts 23.5）；测试用 WFD_MAGI_CHECK（JSON 数组）换成一条快的真实命令
-  magiCheck: z
-    .array(z.string().min(1))
-    .min(1)
-    .parse(
-      process.env.WFD_MAGI_CHECK === undefined
-        ? ['pnpm', 'check']
-        : JSON.parse(process.env.WFD_MAGI_CHECK),
-    ),
-  // 草稿发起时装进 <草稿目录>/.agents/skills/ 的 skill 与来源（Contracts 17.3）；测试用 WFD_CODEX_SKILL_SOURCES
-  // （JSON 数组）换成 .work/ 下的本地 git 仓库
-  codexSkillSources: CodexSkillSources.parse(
-    process.env.WFD_CODEX_SKILL_SOURCES === undefined
-      ? [
-          { name: 'find-skills', source: 'https://github.com/vercel-labs/skills' },
-          { name: 'skill-creator', source: 'https://github.com/anthropics/skills' },
-          { name: 'writing-for-agents', source: 'https://github.com/mattpocock/skills' },
-        ]
-      : JSON.parse(process.env.WFD_CODEX_SKILL_SOURCES),
-  ),
-  // 评估运行写入的 Obsidian vault 与其中的 product（wf obsidian 写到 <vault>/Project <product>/）；
-  // 服务启动时读取一次，测试把 MAGI_VAULT 设为 .work/ 下的目录
+  // Reconnect interval after losing a remote connection
+  sshReconnectMs: 5000,
+  // Local copies of synced remote sessions (Contracts 31.6): data/remote/<hostId>/<remote path>
+  remoteDir: path.join(dataDir, 'remote'),
+  // Orca (Contracts section 35): command the dashboard uses to read and write Orca orchestration and create identity
+  // terminals for Live items; pollMs is how often Orca's runs, tasks and workers are read while a page is connected (Contracts 35.3)
+  orca: { bin: 'orca', pollMs: 5000 },
+  // Magi Agent (Contracts section 23): the main repo is the running dashboard's directory (deploy merges into its main,
+  // MAGI.md is read from it); the worktree sits in the main repo's parent directory. An installed package has no git
+  // repository: the agent works in the package's own sources, read-only (Contracts 39.5)
+  magiRepo: path.resolve(repoRoot),
+  magiWorktree:
+    install === null
+      ? path.join(path.dirname(path.resolve(repoRoot)), 'wf-dashboard-magi-agent')
+      : path.resolve(repoRoot),
+  // Check run in the worktree at deploy step 3 (Contracts 23.5)
+  magiCheck: ['pnpm', 'check'],
+  // Command of the Linear MCP connection: null is mcp-remote (external/linear.ts); the Linear stats test swaps in the
+  // stand-in that replays recorded Linear responses via WFD_LINEAR_MCP (JSON array)
+  linearMcp:
+    process.env.WFD_LINEAR_MCP === undefined
+      ? null
+      : z.array(z.string().min(1)).min(1).parse(JSON.parse(process.env.WFD_LINEAR_MCP)),
+  // Linear stats (Contracts section 37): the team counted, and the sync at startup and every 30 minutes (37.2)
+  teamStatsTeam: 'TXE',
+  teamSyncIntervalMs: 30 * 60_000,
+  // Obsidian vault and product written by evaluation runs (wf obsidian writes to <vault>/Project <product>/);
+  // read once at startup; tests set MAGI_VAULT to a directory under .work/
   vaultDir: vault.dir,
   vaultSource: vault.source,
   evalProduct: 'Magi Eval',

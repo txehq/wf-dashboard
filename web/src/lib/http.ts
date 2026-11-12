@@ -1,8 +1,9 @@
-// 带状态码的请求错误：页面据此区分"还不存在"（404）与其他错误
+// Request error with a status code: pages use it to tell "does not exist yet" (404) from other errors; reason is the server's reason (empty when none)
 export class HttpError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    readonly reason: string,
   ) {
     super(message);
   }
@@ -10,9 +11,9 @@ export class HttpError extends Error {
 
 export const isNotFound = (error: unknown) => error instanceof HttpError && error.status === 404;
 
-// 全部页面请求共用：先看状态码再读正文。错误信息带 URL 与状态码，再加上服务端给出的原因：
-// 路由中抛出的错误由 Fastify 返回 { statusCode, error, message }，原文在 message；路由自己返回 { error } 或 { message }；
-// 服务端没有运行时 Vite 代理返回空正文或纯文本的 502，原样附上
+// Shared by all page requests: check the status before reading the body. The error message has the URL and status, plus the server's reason:
+// errors thrown in a route come back from Fastify as { statusCode, error, message } with the text in message; routes themselves return { error } or { message };
+// when the server is not running, the Vite proxy returns a 502 with an empty or plain text body, attached as is
 export async function responseError(response: Response, url: string): Promise<HttpError> {
   const text = (await response.text()).trim();
   const json = response.headers.get('content-type')?.includes('application/json') === true;
@@ -27,12 +28,13 @@ export async function responseError(response: Response, url: string): Promise<Ht
           ? body.error
           : text;
   return new HttpError(
-    `${url} 返回 ${String(response.status)}${reason === '' ? '' : `：${reason}`}`,
+    `${url} returned ${String(response.status)}${reason === '' ? '' : `: ${reason}`}`,
     response.status,
+    reason,
   );
 }
 
-// 成功的响应：JSON 正文按 JSON 读，其余按文本读
+// A successful response: a JSON body is read as JSON, anything else as text
 export async function readBody(response: Response, url: string): Promise<unknown> {
   if (!response.ok) throw await responseError(response, url);
   const json = response.headers.get('content-type')?.includes('application/json') === true;

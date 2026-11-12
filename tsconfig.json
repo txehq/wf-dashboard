@@ -4,17 +4,8 @@
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "types": ["node"],
-    // e2e 中 evaluate 的回调在浏览器中运行
-    "lib": ["ES2023", "DOM"],
+    "lib": ["ES2023"],
     "noEmit": true
   },
-  "include": [
-    "check.ts",
-    "start.ts",
-    "e2e",
-    "playwright.config.ts",
-    "playwright.real.config.ts",
-    "playwright.guide.config.ts",
-    "ports.ts"
-  ]
+  "include": ["check.ts", "lint-cjk.ts", "start.ts", "ports.ts", "release/release.ts"]
 }

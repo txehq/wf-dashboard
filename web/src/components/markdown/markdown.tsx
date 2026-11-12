@@ -14,7 +14,7 @@ import { type LineMarks, rehypeMarkLines } from './mark-lines';
 import { MermaidDiagram } from './mermaid';
 import './theme';
 
-// GitHub 的白名单（rehype-sanitize 的默认规则），另允许 frontmatter 表格与列表的 class
+// GitHub's allowlist (rehype-sanitize's default schema), plus the class of the frontmatter table and list
 const schema = {
   ...defaultSchema,
   attributes: {
@@ -24,18 +24,18 @@ const schema = {
   },
 };
 
-// sanitize 给 id 加的前缀，避免内容中的 id 与页面的冲突
+// Prefix sanitize adds to ids so ids in the content do not clash with the page's
 const ID_PREFIX = 'user-content-';
 
 const hasScheme = (url: string) => /^[a-z][a-z0-9+.-]*:/i.test(url) || url.startsWith('//');
 
-// 相对路径按所在文件解析，得到相对根目录的路径
+// Resolves a relative path against the containing file, giving a path relative to the root
 function resolvePath(filePath: string, target: string): string {
   const base = `file:///${filePath.split('/').map(encodeURIComponent).join('/')}`;
   return decodeURIComponent(new URL(target, base).pathname.slice(1));
 }
 
-// react-markdown 传给组件的 node（hast 节点）不是 DOM 属性
+// The node (hast node) react-markdown passes to components is not a DOM attribute
 function domProps<T extends { node?: unknown }>(props: T): Omit<T, 'node'> {
   const copy = { ...props };
   delete copy.node;
@@ -52,22 +52,22 @@ const mermaidCode = (pre: Element | undefined): string | null => {
 
 export interface MarkdownProps {
   content: string;
-  // 这份内容所在文件的路径：相对链接与图片按它解析
+  // Path of the file this content comes from: relative links and images resolve against it
   filePath?: string | undefined;
-  // 指向其他文件的链接：地址，与点击时的动作（不给动作时按地址跳转）
+  // Links to other files: the address, and the action on click (without an action the link follows the address)
   fileHref?: ((path: string) => string) | undefined;
   onOpenFile?: ((path: string) => void) | undefined;
-  // 相对路径的图片的地址
+  // Address of an image with a relative path
   imageSrc?: ((path: string) => string) | undefined;
-  // 源文件中要标出的行所在的段落
+  // Paragraphs to mark, by source line
   marks?: LineMarks | undefined;
-  // frontmatter 的显示：表格（默认，与 GitHub 相同）或窄处用的纵向「键：值」列表
+  // Frontmatter display: a table (default, as on GitHub) or the vertical "key: value" list for narrow places
   frontmatter?: FrontmatterLayout | undefined;
   className?: string | undefined;
 }
 
-// 共用的 Markdown 渲染（Contracts 21.1）：与 GitHub 一致——GFM、代码高亮、mermaid、frontmatter 表格、
-// github-markdown-css。内容中的 HTML 经 rehype-sanitize 过滤，脚本与事件属性不会留下
+// Shared Markdown rendering (Contracts 21.1), matching GitHub: GFM, code highlighting, mermaid, frontmatter table,
+// github-markdown-css. HTML in the content passes through rehype-sanitize, so scripts and event attributes are removed
 export const Markdown = memo(function Markdown({
   content,
   filePath = '',
@@ -85,7 +85,7 @@ export const Markdown = memo(function Markdown({
       const { href, children, ...rest } = domProps(props);
       if (href === undefined) return <a {...rest}>{children}</a>;
       if (href.startsWith('#')) {
-        // 页内的锚点：标题与脚注的 id 带前缀
+        // In-page anchors: heading and footnote ids carry the prefix
         const jump = (event: MouseEvent) => {
           event.preventDefault();
           const id = `${ID_PREFIX}${decodeURIComponent(href.slice(1))}`;
@@ -155,7 +155,7 @@ export const Markdown = memo(function Markdown({
           [remarkFrontmatterTable, { layout: frontmatter }],
           remarkGfm,
         ]}
-        // 脚注的 id 不在这里加前缀，统一由 sanitize 加
+        // Footnote ids get no prefix here; sanitize adds it to all ids
         remarkRehypeOptions={{ clobberPrefix: '' }}
         rehypePlugins={[
           rehypeRaw,

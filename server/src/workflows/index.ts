@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { and, asc, count, eq, isNull } from 'drizzle-orm';
@@ -12,45 +12,75 @@ import type { Variants } from '../variants/index.js';
 import { releaseView } from '../variants/release.js';
 import { evalSpec } from './eval-kinds.js';
 import {
+  ANALYSIS_WORKFLOW,
   BUILTIN_WORKFLOWS,
   type BuiltinWorkflow,
   type EvalSpec,
   isBuiltinWorkflow,
   isWfWorkflow,
   type NewWorkflowBody,
+  type OwnBuiltinWorkflow,
   type UpdateWorkflowBody,
   WorkflowDefinition,
   type WorkflowView,
 } from './schema.js';
 
-// pnpm start 运行 dist 时同样从源码目录读取
+// pnpm start running dist also reads from the source directory
 const builtinFile = (id: BuiltinWorkflow) =>
   path.join(config.repoRoot, `server/src/workflows/${id}.yaml`);
 
-// session-analysis 基线 variant 的 skill（Contracts 19.2）：src/ 的形状，skills/ 在其下
+// Skills of the session-analysis baseline variant (Contracts 19.2): shaped like src/, with skills/ under it
 export const analysisBaselineSrc = path.join(
   config.repoRoot,
   'server/src/workflows/session-analysis',
 );
 
+const workflowsDir = path.join(config.repoRoot, 'server/src/workflows');
+
+// src/ of the baseline variant of a built-in workflow the dashboard manages (Contracts 19.2, 33.1), passed to use.
+// session-analysis is the repo directory itself; design and optimize are assembled from three parts of the repo: the
+// entry skill in <id>/skills/, the authoring/ references (workflow rules, MCP, example) in the entry skill's directory,
+// and the three third-party skills in external-skills/. Each call assembles its own directory under
+// <dataDir>/builtin-baselines/ and deletes it afterwards, so processes sharing a data directory (tests) do not interfere
+export function withBaselineSrc<T>(
+  dataDir: string,
+  id: OwnBuiltinWorkflow,
+  use: (src: string) => T,
+): T {
+  if (id === ANALYSIS_WORKFLOW) return use(analysisBaselineSrc);
+  const dir = path.join(dataDir, 'builtin-baselines', `${id}-${randomUUID()}`);
+  const skills = path.join(dir, 'src', 'skills');
+  fs.cpSync(path.join(workflowsDir, id, 'skills'), skills, { recursive: true });
+  fs.cpSync(path.join(workflowsDir, 'authoring'), path.join(skills, id), { recursive: true });
+  fs.cpSync(path.join(workflowsDir, 'external-skills'), skills, { recursive: true });
+  try {
+    return use(path.join(dir, 'src'));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 type WorkflowRow = typeof workflowTable.$inferSelect;
 
-// 定义不符合 schema 时以 zod 的原文失败
+// A definition that does not match the schema fails with zod's original message
 export function parseDefinition(value: unknown, where: string): WorkflowDefinition {
   const result = WorkflowDefinition.safeParse(value);
   if (!result.success)
-    throw new HttpError(400, `${where} 不符合 workflow schema：${result.error.message}`);
+    throw new HttpError(
+      400,
+      `${where} does not match the workflow schema: ${result.error.message}`,
+    );
   return result.data;
 }
 
 const BuiltinFile = z.looseObject({ description: z.string().trim().min(1) });
 
-// 内置 yaml 的 description 不属于定义（Contracts 18.3），其余部分是定义
+// The description in a built-in yaml is not part of the definition (Contracts 18.3); the rest is the definition
 function readBuiltin(id: BuiltinWorkflow): { definition: WorkflowDefinition; description: string } {
   const file = builtinFile(id);
   const { description, ...rest } = BuiltinFile.parse(parse(fs.readFileSync(file, 'utf8')));
   const definition = parseDefinition(rest, file);
-  if (definition.id !== id) throw new Error(`${file} 的 id 应为 ${id}：${definition.id}`);
+  if (definition.id !== id) throw new Error(`The id in ${file} should be ${id}: ${definition.id}`);
   return { definition, description };
 }
 
@@ -58,13 +88,14 @@ export function builtinDefinition(id: BuiltinWorkflow): WorkflowDefinition {
   return readBuiltin(id).definition;
 }
 
-// 阶段划分的增量状态据此判断定义是否改变
+// The incremental stage partition state uses this to tell whether a definition changed
 export function definitionHash(definition: WorkflowDefinition): string {
   return createHash('sha256').update(JSON.stringify(definition)).digest('hex');
 }
 
-// 服务启动时（打开数据库后）以内置 YAML 为准写入 lfg、ic 与 session-analysis：lfg、ic 的评测类型与 id 同名，
-// session-analysis 没有评测类型（Contracts 19.2）。描述只在还没有时取 yaml 中的（之后在页面中编辑，Contracts 18.3）
+// At startup (after opening the database) writes lfg, ic and session-analysis from the built-in YAML: lfg and ic have
+// the eval kind of the same name, session-analysis has none (Contracts 19.2). The yaml description is used only when
+// there is none yet (edited on the page afterwards, Contracts 18.3)
 export function syncBuiltinWorkflows(db: Db) {
   for (const id of BUILTIN_WORKFLOWS) {
     const { definition, description } = readBuiltin(id);
@@ -90,17 +121,17 @@ export function syncBuiltinWorkflows(db: Db) {
   }
 }
 
-// 包括已删除的 workflow：只用于显示名字（Contracts 24.5）
+// Includes deleted workflows: used only to show names (Contracts 24.5)
 export function workflowRecord(db: Db, id: string): WorkflowRow {
   const found = db.select().from(workflowTable).where(eq(workflowTable.id, id)).get();
-  if (found === undefined) throw new HttpError(404, `没有 workflow ${id}`);
+  if (found === undefined) throw new HttpError(404, `No workflow ${id}`);
   return found;
 }
 
-// 已删除的 workflow 不能再使用
+// Deleted workflows can no longer be used
 export function workflowRow(db: Db, id: string): WorkflowRow {
   const found = workflowRecord(db, id);
-  if (found.deletedAt !== null) throw new HttpError(404, `workflow ${id} 已删除`);
+  if (found.deletedAt !== null) throw new HttpError(404, `Workflow ${id} is deleted`);
   return found;
 }
 
@@ -108,13 +139,13 @@ export function loadWorkflow(db: Db, id: string): WorkflowDefinition {
   return parseDefinition(workflowRow(db, id).definition, `workflow ${id}`);
 }
 
-// 有评测类型的 workflow 运行时取用的配置（16.2）；没有评测类型时 400 原文
+// The run-time configuration of a workflow with an eval kind (16.2); 400 with the message when it has none
 export function evalSpecOf(db: Db, workflowId: string): EvalSpec {
   const r = workflowRow(db, workflowId);
   if (r.evalKind === null) {
     throw new HttpError(
       400,
-      `workflow ${workflowId} 没有评测类型，不能评测（只用于 Live、阶段划分与分析）`,
+      `Workflow ${workflowId} has no eval kind and cannot be evaluated (it is used only for Live, the stage partition and analysis)`,
     );
   }
   return evalSpec(r.evalKind, r.id);
@@ -126,7 +157,7 @@ export function workflowOfVariant(db: Db, variantId: string): string {
     .from(variants)
     .where(eq(variants.id, variantId))
     .get();
-  if (v === undefined) throw new Error(`variant ${variantId} 不存在`);
+  if (v === undefined) throw new Error(`Variant ${variantId} does not exist`);
   return v.workflowId;
 }
 
@@ -151,44 +182,48 @@ function view(db: Db, r: WorkflowRow): WorkflowView {
   };
 }
 
-// 定义中的 id、name 必须与请求一致
+// The id and name in the definition must match the request
 function checkedDefinition(value: unknown, id: string, name: string): WorkflowDefinition {
-  const definition = parseDefinition(value, `workflow ${id} 的定义`);
+  const definition = parseDefinition(value, `The definition of workflow ${id}`);
   if (definition.id !== id || definition.name !== name) {
     throw new HttpError(
       400,
-      `定义中的 id、name（${definition.id}、${definition.name}）与请求（${id}、${name}）不一致`,
+      `The id and name in the definition (${definition.id}, ${definition.name}) do not match the request (${id}, ${name})`,
     );
   }
   return definition;
 }
 
-// workflow id 是入口命令，也不能与任何 workflow 的小阶段同名（否则 Skill 调用无法区分是哪一个）
+// A workflow id is an entry command and must not share a name with any workflow's stage (otherwise a Skill call could
+// not tell which one it is)
 function assertEntryFree(db: Db, definition: WorkflowDefinition) {
   for (const r of db.select().from(workflowTable).where(isNull(workflowTable.deletedAt)).all()) {
     if (r.id === definition.id) continue;
     const other = parseDefinition(r.definition, `workflow ${r.id}`);
     if (other.stages.some((s) => s.id === definition.id)) {
-      throw new HttpError(400, `workflow id ${definition.id} 与 workflow ${r.id} 的小阶段同名`);
+      throw new HttpError(
+        400,
+        `Workflow id ${definition.id} has the name of a stage of workflow ${r.id}`,
+      );
     }
   }
 }
 
-// Codex 草稿保存为新 workflow（Contracts 17.4）：id 未被使用、不与其他 workflow 的小阶段同名
+// Saving a Codex draft as a new workflow (Contracts 17.4): the id is unused and is not a stage name of another workflow
 export function assertNewWorkflow(db: Db, definition: WorkflowDefinition) {
   const existing = db.select().from(workflowTable).where(eq(workflowTable.id, definition.id)).get();
   if (existing !== undefined) {
     throw new HttpError(
       400,
       existing.deletedAt === null
-        ? `workflow id ${definition.id} 已被使用`
-        : `workflow id ${definition.id} 已被使用：已删除的 workflow ${existing.name} 保留这个 id，换一个 id`,
+        ? `Workflow id ${definition.id} is already used`
+        : `Workflow id ${definition.id} is already used: the deleted workflow ${existing.name} keeps this id, choose another id`,
     );
   }
   assertEntryFree(db, definition);
 }
 
-// 没有评测类型的新 workflow（Contracts 18.5）：从空白新建或保存 Codex 草稿
+// A new workflow without an eval kind (Contracts 18.5): created from blank or from a saved Codex draft
 export function insertWorkflow(db: Db, definition: WorkflowDefinition, description: string) {
   assertNewWorkflow(db, definition);
   db.insert(workflowTable)
@@ -203,10 +238,10 @@ export function insertWorkflow(db: Db, definition: WorkflowDefinition, descripti
     .run();
 }
 
-// Contracts 16.1 的 API 背后的服务
+// The service behind the Contracts 16.1 API
 export function createWorkflows({ db, variants: variantsModule }: { db: Db; variants: Variants }) {
   return {
-    // 内置的 lfg、ic 在前，其余按创建顺序
+    // Built-in lfg and ic first, the rest in creation order
     list(): WorkflowView[] {
       const order = (id: string) => {
         const i = (BUILTIN_WORKFLOWS as readonly string[]).indexOf(id);
@@ -226,7 +261,8 @@ export function createWorkflows({ db, variants: variantsModule }: { db: Db; vari
       return view(db, workflowRow(db, id));
     },
 
-    // 从空白新建（Contracts 18.5）：没有评测类型；同时建出第一个 variant"初稿"（入口与各小阶段的 SKILL.md 骨架）
+    // Create from blank (Contracts 18.5): no eval kind; also creates the first variant "First draft" (SKILL.md
+    // skeletons for the entry and each stage)
     create(input: NewWorkflowBody): WorkflowView {
       const definition = checkedDefinition(input.definition, input.id, input.name);
       const existing = db.select().from(workflowTable).where(eq(workflowTable.id, input.id)).get();
@@ -234,17 +270,18 @@ export function createWorkflows({ db, variants: variantsModule }: { db: Db; vari
         throw new HttpError(
           409,
           existing.deletedAt === null
-            ? `workflow ${input.id} 已存在`
-            : `workflow ${input.id} 已存在：已删除的 workflow ${existing.name} 保留这个 id，换一个 id`,
+            ? `Workflow ${input.id} already exists`
+            : `Workflow ${input.id} already exists: the deleted workflow ${existing.name} keeps this id, choose another id`,
         );
       }
-      // 先写 workflow 行，再建 variant：variant 的 workflow 必须已存在
+      // Write the workflow row first, then create the variant: the variant's workflow must exist
       insertWorkflow(db, definition, input.description.trim());
-      variantsModule.createBlank({ workflowId: input.id, name: '初稿' });
+      variantsModule.createBlank({ workflowId: input.id, name: 'First draft' });
       return view(db, workflowRow(db, input.id));
     },
 
-    // 名字、描述与定义可改，评测类型不能改；内置的两个只能改描述，改了名字或定义时 409
+    // Name, description and definition can change, the eval kind cannot; the built-in ones can change only the
+    // description, and 409 when the name or definition changes
     update(id: string, input: UpdateWorkflowBody): WorkflowView {
       const current = workflowRow(db, id);
       const definition = checkedDefinition(input.definition, id, input.name);
@@ -254,7 +291,7 @@ export function createWorkflows({ db, variants: variantsModule }: { db: Db; vari
       ) {
         throw new HttpError(
           409,
-          `${id} 是内置的 workflow，只能修改描述；要换入口或小阶段就从空白新建一个 workflow`,
+          `${id} is a built-in workflow and only its description can change; to change the entry or stages, create a new workflow from blank`,
         );
       }
       db.update(workflowTable)

@@ -1,44 +1,44 @@
 id: ic-wrap-cli
 kind: ic
-title: wrap 命令行工具：段落、长单词与参数校验
+title: "wrap command-line tool: paragraphs, long words and argument validation"
 persona: |-
-  林晓，Acme 文档团队的工程师，用 wrap 把发布说明排成固定宽度后贴进邮件和终端提示。
-  关心：长 URL 会把版面撑破，多段文字会被挤成一段；脚本里调用 wrap 出错时希望拿到明确的退出码，而不是悄悄输出空白。
-  说话方式：中文，口语化，喜欢举一段具体文本说明期望的样子；对命令行习惯（退出码、stderr、结尾换行）比较讲究。
+  Lin Xiao, an engineer on Acme's documentation team, uses wrap to lay out release notes at a fixed width before pasting them into emails and terminal messages.
+  Cares about: long URLs break the layout and several paragraphs get squashed into one; when wrap fails inside a script she wants a clear exit code, not silently blank output.
+  How she talks: in English, casual, likes to give a concrete piece of text to show what she expects; particular about command-line conventions (exit codes, stderr, trailing newline).
 hiddenRequirements: |-
-  wrap(text, width = 80)：
-  - 段落以空行分隔（只含空格、制表符的行也算空行，连续多个空行等于一个）；输出中段落之间正好一个空行。
-  - 段落内部的空格、制表符与单个换行都折叠成一个空格；每行没有首尾空白；开头与结尾的空行去掉。
-  - 贪心换行，任何一行都不超过 width；第一个单词前不能出现空行。
-  - 比 width 长的单词另起一行，按 width 个字符切成若干段，最后一段作为新的当前行，后面的单词可以接在它后面。
-  - 宽度按 Unicode code point 计数（emoji、带重音的字母都算一个）。
-  - 支持 CRLF 换行。
-  - 空字符串或只有空白的输入返回空字符串。
-  - width 不是正整数时抛出 RangeError。
-  命令行 bin/wrap.js：
-  - 用法 wrap [--width N | -w N | --width=N] [file]，默认宽度 80；没有 file 时读 stdin。
-  - 输出为 wrap 的结果加一个结尾换行；结果为空时什么都不输出；退出码 0。
-  - width 不是正整数（0、负数、小数、字母、空字符串）时，stderr 输出 `wrap: invalid width: <原值>`，退出码 2，stdout 为空。
-  - 文件不存在或不可读时，stderr 以 `wrap: cannot read <路径>` 开头，退出码 1。
-  - 未知选项时 stderr 以 `wrap: ` 开头，退出码 2。
-  - 不新增依赖；参数解析继续用 node:util 的 parseArgs；为库与命令行补充测试。
+  wrap(text, width = 80):
+  - Paragraphs are separated by blank lines (lines with only spaces and tabs count as blank, and several consecutive blank lines count as one); in the output there is exactly one blank line between paragraphs.
+  - Spaces, tabs and single newlines inside a paragraph collapse into one space; no line has leading or trailing whitespace; leading and trailing blank lines are removed.
+  - Greedy line breaking, no line exceeds width; there must be no blank line before the first word.
+  - A word longer than width starts on a new line and is cut into chunks of width characters; the last chunk becomes the new current line, and following words may join it.
+  - Width is counted in Unicode code points (an emoji or an accented letter counts as one).
+  - CRLF line endings are supported.
+  - An empty or whitespace-only input returns an empty string.
+  - A RangeError is thrown when width is not a positive integer.
+  Command line bin/wrap.js:
+  - Usage wrap [--width N | -w N | --width=N] [file], default width 80; without file it reads stdin.
+  - The output is the result of wrap plus a trailing newline; when the result is empty nothing is printed; exit code 0.
+  - When width is not a positive integer (0, negative, fractional, letters, empty string), stderr prints `wrap: invalid width: <original value>`, the exit code is 2 and stdout is empty.
+  - When the file does not exist or cannot be read, stderr starts with `wrap: cannot read <path>` and the exit code is 1.
+  - For an unknown option stderr starts with `wrap: ` and the exit code is 2.
+  - No new dependencies; argument parsing keeps using parseArgs from node:util; add tests for the library and the command line.
 ticket:
-  title: wrap 撑破长单词、合并段落，命令行参数不校验
+  title: wrap overflows on long words, merges paragraphs and does not validate command-line arguments
   body: |-
-    `wrap` 目前只按空格切分，问题有三类：
+    `wrap` currently only splits on spaces, which causes three kinds of problems:
 
-    1. 比宽度长的单词（例如 URL）原样输出，行宽超出设定；第一个单词就超长时，输出以一个空行开头。
-    2. 输入中的换行和空行被当作单词的一部分，段落结构乱掉，多余的空格也被保留下来。
-    3. 命令行不校验 `--width`：`wrap --width abc` 没有任何报错，输出也没有结尾换行；文件不存在时打印 Node 的堆栈。
+    1. Words longer than the width (URLs, for example) are printed as they are and lines exceed the width; when the first word is too long, the output starts with a blank line.
+    2. Newlines and blank lines in the input are treated as part of words, the paragraph structure is lost, and extra spaces are kept.
+    3. The command line does not validate `--width`: `wrap --width abc` reports no error and the output has no trailing newline; a missing file prints a Node stack trace.
 
-    请修复 `src/wrap.js` 与 `bin/wrap.js`，让 wrap 可以放心地在脚本中使用。
+    Please fix `src/wrap.js` and `bin/wrap.js` so wrap can be used safely in scripts.
   acceptanceCriteria:
-    - 任何输出行都不超过设定宽度；比宽度长的单词另起一行并按宽度切分；宽度按 Unicode code point 计算。
-    - 以空行分隔的段落在输出中保持分隔，段落之间正好一个空行；段落内的换行与连续空白折叠成一个空格，行首行尾没有空白。
-    - "`wrap()` 的 width 不是正整数时抛出 `RangeError`；空输入或只有空白的输入返回空字符串。"
-    - 命令行从文件或 stdin 读取，输出以一个换行结尾；`--width`、`-w`、`--width=N` 都可用，默认 80。
-    - "`--width` 非法时 stderr 输出 `wrap: invalid width: <值>` 并以退出码 2 结束；文件不可读时以 `wrap: cannot read <路径>` 开头并以退出码 1 结束；未知选项退出码 2。"
-    - 新增的测试覆盖以上行为，`npm test` 通过。
+    - No output line exceeds the configured width; a word longer than the width starts on a new line and is split by the width; width is counted in Unicode code points.
+    - Paragraphs separated by blank lines stay separated in the output with exactly one blank line between them; newlines and runs of whitespace inside a paragraph collapse into one space, and lines have no leading or trailing whitespace.
+    - "`wrap()` throws a `RangeError` when width is not a positive integer; empty or whitespace-only input returns an empty string."
+    - The command line reads from a file or stdin and ends its output with one newline; `--width`, `-w` and `--width=N` all work, default 80.
+    - "With an invalid `--width`, stderr prints `wrap: invalid width: <value>` and the exit code is 2; for an unreadable file stderr starts with `wrap: cannot read <path>` and the exit code is 1; an unknown option exits with code 2."
+    - New tests cover the behaviour above and `npm test` passes.
 repo:
   path: repo.bundle
   commit: e54d68d23fa64b1c1664f6f05cf59a809640a293

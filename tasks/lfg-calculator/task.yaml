@@ -1,117 +1,117 @@
 id: lfg-calculator
 kind: lfg
-title: 课堂用的网页计算器
+title: A web calculator for the classroom
 persona: |
-  陈慧，某市第二中学的数学老师，兼管学校机房和信息课，教初一到初三。
-  关心：学生在课堂上算出来的结果必须准确（她见过 0.1+0.2 算出 0.30000000000000004 把学生弄糊涂）；机房经常断网，打不开就上不了课；错误提示要让十二三岁的孩子看得懂。
-  说话方式：不懂技术术语，用日常的话描述，喜欢举课堂上的具体例子；被问到技术选择时会说"这个你们定，我不懂"；被问到范围时会认真想，回答明确。
+  Chen Hui, a maths teacher at the city's No. 2 Middle School who also runs the school's computer lab and IT classes; she teaches grades 7 to 9.
+  Cares about: results students get in class must be exact (she has seen 0.1+0.2 give 0.30000000000000004 and confuse students); the computer lab often loses its internet connection, and if the page will not open the lesson cannot go ahead; error messages must make sense to 12- and 13-year-olds.
+  How she talks: knows no technical terms, describes things in everyday words and likes concrete classroom examples; asked about technical choices she says "you decide, I don't understand that"; asked about scope she thinks it through and answers clearly.
 hiddenRequirements: |
-  使用者与场景
-  - 初一到初三的学生在学校机房（Windows 7 电脑，学校统一安装的 Chrome 109）和家里使用；老师在投影上演示。
-  - 下学期开学（两个月后）要在课堂上用。
-  形式
-  - 网页：双击一个本地 HTML 文件或打开学校内网的静态网站就能用。
-  - 必须完全离线可用：不能有任何网络请求，包括 CDN、统计脚本、网络字体。
-  功能
-  - 四则运算、括号、负数、小数、百分号（50% 即 0.5）、乘方（用 ^）、平方根（√），运算优先级正确。
-  - 输入整个算式并能看到完整算式，按回车或"="得到结果；屏幕按钮和键盘输入都要支持。
-  - 精度：按十进制精确计算，0.1+0.2 显示 0.3；结果最多显示 12 位有效数字；除不尽时四舍五入到 10 位小数并去掉末尾的 0（1/3 显示 0.3333333333）。
-  - 错误提示用中文并高亮出错的位置：除以 0 显示"不能除以 0"，括号不配对显示"括号不配对"，负数开平方显示"负数不能开平方"。
-  - 历史记录：显示最近 20 条算式与结果，点击某条重新载入算式；只保存在本浏览器（localStorage），刷新后还在；有"清空历史"按钮。
-  - 投影模式：一个按钮把字号放大，坐在后排的学生也能看清。
-  不做
-  - 三角函数、对数等科学计算；画函数图像；分数形式的结果；单位换算；账号登录；手机 App；多语言（只要中文界面）。
-  约束
-  - 不收集任何学生数据。
-  验收
-  - 老师准备的 10 道题全部正确：0.1+0.2=0.3，(2+3)*4=20，2^10=1024，√16=4，50%*200=100，1/3=0.3333333333，-5+3=-2，(1+2)*(3+4)/7=3，5/0 提示"不能除以 0"，(1+2 提示"括号不配对"。
-  授权
-  - 技术选择全部交给 agent；agent 可以新建仓库并提交代码；部署到学校服务器由老师自己做，不需要上线到公网。
-input: 做一个计算器
+  Users and setting
+  - Students in grades 7 to 9 use it in the school computer lab (Windows 7 PCs with the school-installed Chrome 109) and at home; the teacher demonstrates it on a projector.
+  - It is needed in class at the start of next term (two months from now).
+  Form
+  - A web page: it works by double-clicking a local HTML file or opening a static site on the school intranet.
+  - It must work fully offline: no network requests at all, including CDNs, analytics scripts and web fonts.
+  Features
+  - The four basic operations, parentheses, negative numbers, decimals, percent (50% is 0.5), powers (with ^) and square root (√), with correct operator precedence.
+  - The whole expression is typed in and visible in full; Enter or "=" gives the result; both on-screen buttons and keyboard input are supported.
+  - Precision: exact decimal arithmetic, 0.1+0.2 shows 0.3; results show at most 12 significant digits; non-terminating divisions are rounded to 10 decimal places with trailing zeros removed (1/3 shows 0.3333333333).
+  - Error messages are in English and highlight where the error is: dividing by 0 shows "Cannot divide by 0", unmatched parentheses show "Unmatched parentheses", the square root of a negative number shows "Cannot take the square root of a negative number".
+  - History: shows the last 20 expressions and results, clicking one reloads its expression; stored only in this browser (localStorage), still there after a refresh; has a "Clear history" button.
+  - Projector mode: a button enlarges the font so students in the back rows can read it.
+  Out of scope
+  - Scientific functions such as trigonometry and logarithms; plotting functions; results as fractions; unit conversion; account login; a mobile app; multiple languages (English UI only).
+  Constraints
+  - No student data is collected.
+  Acceptance
+  - All 10 of the teacher's questions are correct: 0.1+0.2=0.3, (2+3)*4=20, 2^10=1024, √16=4, 50%*200=100, 1/3=0.3333333333, -5+3=-2, (1+2)*(3+4)/7=3, 5/0 shows "Cannot divide by 0", (1+2 shows "Unmatched parentheses".
+  Authority
+  - All technical choices are left to the agent; the agent may create a new repository and commit code; deploying to the school server is done by the teacher, and it does not need to go live on the public internet.
+input: build a calculator
 rubric:
   - artifact: brief
     items:
       - id: b1
-        criterion: Brief 是否写明使用者是初中学生、在学校机房与家中使用、老师在投影上演示。
+        criterion: Does the brief state that the users are middle school students, that it is used in the school computer lab and at home, and that the teacher demonstrates it on a projector?
         maxScore: 3
       - id: b2
-        criterion: Brief 是否写明必须完全离线可用、不发起任何网络请求（包括 CDN、统计、网络字体）。
+        criterion: Does the brief state that it must work fully offline and make no network requests (including CDNs, analytics and web fonts)?
         maxScore: 5
       - id: b3
-        criterion: Brief 是否列出需要支持的运算：四则、括号、负数、小数、百分号、乘方、平方根，并要求运算优先级正确。
+        criterion: Does the brief list the operations to support (the four basic operations, parentheses, negative numbers, decimals, percent, powers, square root) and require correct operator precedence?
         maxScore: 4
       - id: b4
-        criterion: Brief 是否写明十进制精度要求（0.1+0.2 显示 0.3）以及有效位数与除不尽时的舍入规则。
+        criterion: Does the brief state the decimal precision requirement (0.1+0.2 shows 0.3) and the rules for significant digits and rounding of non-terminating divisions?
         maxScore: 4
       - id: b5
-        criterion: Brief 是否写明除以 0、括号不配对、负数开平方三种错误的中文提示与出错位置高亮。
+        criterion: Does the brief state the English messages for the three errors (dividing by 0, unmatched parentheses, square root of a negative number) and the highlighting of the error position?
         maxScore: 3
       - id: b6
-        criterion: Brief 是否逐项列出不做的范围：三角函数与对数、函数图像、分数结果、单位换算、账号、手机 App、多语言。
+        criterion: Does the brief list each out-of-scope item (trigonometry and logarithms, function plots, fraction results, unit conversion, accounts, mobile app, multiple languages)?
         maxScore: 4
       - id: b7
-        criterion: Brief 是否写明历史记录（最近 20 条、只存在本浏览器、可清空）与投影放大字号。
+        criterion: Does the brief state the history (last 20 entries, stored only in this browser, can be cleared) and the enlarged projector font?
         maxScore: 3
       - id: b8
-        criterion: Brief 是否写明授权上限：agent 可自选技术并在新仓库提交，部署到学校服务器由老师完成。
+        criterion: Does the brief state the limits of authority (the agent picks the technology and commits to a new repository, the teacher deploys to the school server)?
         maxScore: 2
   - artifact: research
     items:
       - id: r1
-        criterion: Research 是否比较了表达式求值与十进制计算的做法（例如成熟的表达式解析库或十进制数库），说明为什么不能直接用浮点数，并附出处。
+        criterion: Does the research compare approaches to expression evaluation and decimal arithmetic (for example an established expression parser or decimal number library), explain why plain floating point cannot be used, and cite sources?
         maxScore: 4
       - id: r2
-        criterion: Research 是否确认所选的库可以打包进本地文件离线使用、不依赖 CDN，并核实了许可证。
+        criterion: Does the research confirm that the chosen libraries can be bundled into local files for offline use without a CDN, and check their licences?
         maxScore: 3
       - id: r3
-        criterion: Research 是否核实了所选技术能在 Windows 7 上的 Chrome 109 运行（例如构建目标的设置），并附出处。
+        criterion: Does the research verify that the chosen technology runs on Chrome 109 on Windows 7 (for example the build target settings), with sources?
         maxScore: 3
       - id: r4
-        criterion: Research 是否调研了投影场景下的大字号与可读性做法。
+        criterion: Does the research look into large fonts and readability for projector use?
         maxScore: 2
       - id: r5
-        criterion: Research 是否把需求拆成可独立实现的部分（求值核心、界面与键盘输入、历史记录、投影模式），每部分有测试计划与验收标准。
+        criterion: Does the research split the requirement into independently implementable parts (evaluation core, UI and keyboard input, history, projector mode), each with a test plan and acceptance criteria?
         maxScore: 4
       - id: r6
-        criterion: Research 的风险部分是否至少包括浮点精度与旧版浏览器兼容两项。
+        criterion: Does the risks section of the research include at least floating point precision and old browser compatibility?
         maxScore: 2
   - artifact: plan
     items:
       - id: p1
-        criterion: Plan 是否带有锁定状态与锁定日期。
+        criterion: Does the plan carry a locked status and a lock date?
         maxScore: 2
       - id: p2
-        criterion: Plan 的部分是否按依赖排序：求值核心先于界面，界面先于历史记录与投影模式。
+        criterion: Are the parts of the plan ordered by dependency, with the evaluation core before the UI and the UI before history and projector mode?
         maxScore: 3
       - id: p3
-        criterion: Plan 中求值核心的验证方式是否包含老师给出的 10 道题及其期望结果。
+        criterion: Does the plan's verification of the evaluation core include the teacher's 10 questions and their expected results?
         maxScore: 5
       - id: p4
-        criterion: Plan 是否写明离线的验证方法（例如断网后打开页面、确认没有任何网络请求）。
+        criterion: Does the plan state how offline use is verified (for example opening the page with the network disconnected and confirming there are no network requests)?
         maxScore: 4
       - id: p5
-        criterion: Plan 是否写明三种错误提示（除以 0、括号不配对、负数开平方）的验证方法。
+        criterion: Does the plan state how the three error messages (dividing by 0, unmatched parentheses, square root of a negative number) are verified?
         maxScore: 3
       - id: p6
-        criterion: Plan 是否没有包含超出范围的工作（三角函数、函数图像、账号、App、多语言等）。
+        criterion: Is the plan free of out-of-scope work (trigonometry, function plots, accounts, app, multiple languages and so on)?
         maxScore: 3
   - artifact: tickets
     items:
       - id: t1
-        criterion: Tickets.md 是否存在并列出每张工单的 Linear 编号与标题。
+        criterion: Does Tickets.md exist and list the Linear identifier and title of every ticket?
         maxScore: 2
       - id: t2
-        criterion: 相互依赖的工作是否放在同一张工单或以 blocked by 关联，依赖关系图与 plan 的顺序一致。
+        criterion: Is interdependent work in the same ticket or linked with blocked by, with a dependency graph that matches the order of the plan?
         maxScore: 3
       - id: t3
-        criterion: 每张工单是否有可验证的验收标准，且至少一张工单的验收标准包含老师的 10 道题。
+        criterion: Does every ticket have verifiable acceptance criteria, with the teacher's 10 questions in the acceptance criteria of at least one ticket?
         maxScore: 4
       - id: t4
-        criterion: 离线、不发起网络请求的要求是否出现在相关工单的验收标准中。
+        criterion: Does the offline, no-network-requests requirement appear in the acceptance criteria of the relevant tickets?
         maxScore: 4
       - id: t5
-        criterion: 每张工单是否有估算与推荐负责人，并各附一句理由。
+        criterion: Does every ticket have an estimate and a recommended assignee, each with a one-sentence reason?
         maxScore: 2
       - id: t6
-        criterion: Tickets 阶段是否停在 dispatch gate，没有派发任何 /ic。
+        criterion: Did the tickets stage stop at the dispatch gate without dispatching any /ic?
         maxScore: 3

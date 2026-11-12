@@ -30,7 +30,7 @@ export const runRoutes: FastifyPluginCallbackZod<{ runs: Runs; settings: Setting
           variantIds: z.array(z.string().min(1)).min(1),
           taskIds: z.array(z.string().min(1)).min(1),
           repeats: z.int().min(1).max(50).optional(),
-          // 作用于 batch 中全部 run；省略时取设置的 agentModel、agentEffort（Contracts 16.5）
+          // Applies to every run in the batch; defaults to the agentModel and agentEffort settings (Contracts 16.5)
           model: z.enum(modelAliases).optional(),
           effort: z.enum(efforts).optional(),
         }),
@@ -122,7 +122,7 @@ export const runRoutes: FastifyPluginCallbackZod<{ runs: Runs; settings: Setting
     {
       schema: {
         params: IdParams,
-        // 键为问题原文，值为选项 label（多选用 ", " 连接）或自由文本
+        // Key is the question text, value is the option label (multiple joined with ", ") or free text
         body: z.strictObject({ answers: z.record(z.string(), z.string().trim().min(1)) }),
         response: { 200: Ok },
       },
@@ -158,7 +158,7 @@ export const runRoutes: FastifyPluginCallbackZod<{ runs: Runs; settings: Setting
     },
   );
 
-  // Contracts 10：新 run 的摘要（queued）
+  // Contracts 10: summary of the new run (queued)
   app.post(
     '/api/runs/:id/rerun',
     { schema: { params: IdParams, response: { 201: RunSummary } } },

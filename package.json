@@ -1,5 +1,6 @@
 {
   "name": "wf-dashboard",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@12.10.1",
@@ -10,27 +11,18 @@
     "dev": "concurrently --kill-others --names server,web --prefix-colors blue,magenta \"pnpm --filter @wf-dashboard/server dev\" \"pnpm --filter @wf-dashboard/web dev\"",
     "build": "pnpm --recursive build",
     "start": "tsx start.ts",
-    "test": "pnpm --recursive test",
-    "test:real": "pnpm --filter @wf-dashboard/server test:real",
-    "test:slow": "pnpm --filter @wf-dashboard/server test:slow",
-    "test:external": "pnpm --filter @wf-dashboard/server test:external",
+    "test": "pnpm --filter @wf-dashboard/server test",
     "check": "taskpolicy -c utility tsx check.ts",
-    "e2e": "taskpolicy -c utility tsx e2e/run.ts basic",
-    "e2e:real": "taskpolicy -c utility tsx e2e/run.ts real",
-    "e2e:guide": "taskpolicy -c utility playwright test --config playwright.guide.config.ts",
     "typecheck": "taskpolicy -c utility sh -c 'tsc --project tsconfig.json && pnpm --recursive typecheck'",
-    "lint": "taskpolicy -c utility sh -c 'eslint . && prettier --check .'",
-    "format": "prettier --write ."
+    "lint": "taskpolicy -c utility sh -c 'eslint . && prettier --check . && tsx lint-cjk.ts'",
+    "format": "prettier --write .",
+    "release": "tsx release/release.ts"
   },
   "devDependencies": {
-    "@axe-core/playwright": "4.13.0",
     "@eslint/js": "10.0.1",
-    "@playwright/test": "1.64.0",
-    "@types/culori": "4.0.1",
     "@types/node": "26.6.4",
     "@types/proper-lockfile": "4.1.4",
     "concurrently": "10.0.6",
-    "culori": "4.0.2",
     "eslint": "10.12.0",
     "eslint-config-prettier": "10.1.8",
     "eslint-plugin-react-hooks": "7.1.1",
@@ -41,8 +33,6 @@
     "proper-lockfile": "4.1.2",
     "tsx": "4.23.15",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.71.1",
-    "yaml": "2.9.1",
-    "zod": "4.6.5"
+    "typescript-eslint": "8.71.1"
   }
 }

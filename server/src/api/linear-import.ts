@@ -8,14 +8,14 @@ import { ImportPreview, ImportPreviewRequest } from '../tasks/import-schema.js';
 import { previewLinearImport } from '../tasks/linear-import.js';
 import type { SettingsStore } from '../runs/settings.js';
 
-// Contracts 第 13 节：用户粘贴工单地址或编号，导入为 ic task。原工单与源仓库只读取
+// Contracts section 13: the user pastes a ticket URL or identifier, imported as an ic task. The ticket and source repo are only read
 export function linearImportRoutes({ settings }: { settings: SettingsStore }) {
   return (fastify: FastifyInstance, _options: unknown, done: () => void) => {
     fastify.setValidatorCompiler(validatorCompiler);
     fastify.setSerializerCompiler(serializerCompiler);
     const app = fastify.withTypeProvider<ZodTypeProvider>();
 
-    // 预览，不保存：保存走 POST /api/tasks（带 source 的 task 在保存时生成 bundle）
+    // Preview only, nothing saved: saving goes through POST /api/tasks (a task with source gets its bundle on save)
     app.post(
       '/api/tasks/from-linear',
       { schema: { body: ImportPreviewRequest, response: { 200: ImportPreview } } },

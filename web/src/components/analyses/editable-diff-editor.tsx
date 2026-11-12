@@ -3,8 +3,8 @@ import { useEffect, useRef } from 'react';
 import { languageOf } from '@/lib/language';
 import { monaco, useMonacoTheme } from '@/pages/variants-monaco';
 
-// 左侧为原文（只读），右侧为结果（可编辑）；右侧内容变化时回调。
-// model 的释放方式与 SkillDiffEditor 相同：等 DiffEditor 释放后再释放 model（monaco 0.57）
+// Left: original (read-only); right: result (editable); calls back when the right side changes.
+// Models are disposed like SkillDiffEditor: after the DiffEditor is disposed (monaco 0.57)
 export function EditableDiffEditor({
   path,
   original,
@@ -43,7 +43,7 @@ export function EditableDiffEditor({
       onMount={(editor) => {
         models.current = editor.getModel();
         editor.layout();
-        // 第一次出现改动（例如接受第一处修改）时把它滚动到视野中
+        // Scroll the first change into view when it appears (e.g. accepting the first hunk)
         const subscription = editor.onDidUpdateDiff(() => {
           if ((editor.getLineChanges() ?? []).length === 0) return;
           subscription.dispose();
@@ -57,7 +57,7 @@ export function EditableDiffEditor({
       options={{
         readOnly: false,
         originalEditable: false,
-        // 编辑 skill 的 markdown 时不弹出按单词补全，输入什么就是什么
+        // No word completion while editing skill markdown: what you type is what you get
         quickSuggestions: false,
         suggestOnTriggerCharacters: false,
         acceptSuggestionOnEnter: 'off',

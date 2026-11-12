@@ -34,9 +34,9 @@ import type { SessionEngine } from '@/lib/sessions-api';
 const SESSION_ORDER = ['claude', 'codex'] as const;
 const engineNames = { claude: 'Claude Code', codex: 'Codex' } as const;
 
-// Contracts 27：新建分析。左边直接从磁盘选择 session（与 Sessions 导入区相同的三列），右边固定的设置栏。
-// 一次分析只能是同一个配置、同一种引擎：已选了之后第一列的其他配置与另一种引擎灰显。
-// 从 Sessions、Runs、session 详情带着选择进入时已选好并选定它们所在的配置（?picked=、?batch=、?sessions=）
+// Contracts 27: new analysis. Left: pick sessions straight from disk (the same three columns as the Sessions import area); right: a fixed settings panel.
+// One analysis covers one config and one engine: once something is picked, other configs in the first column and the other engine are dimmed.
+// Arriving from Sessions, Runs or a session detail preselects the sessions and their config (?picked=, ?batch=, ?sessions=)
 export function AnalysisNewPage() {
   const [params] = useSearchParams();
   const [initial] = useState(() => preselection(params));
@@ -47,7 +47,7 @@ export function AnalysisNewPage() {
       ? initial.sessions.map((id) => ({ id, disk: null }))
       : [],
   );
-  // ?batch=：batch 的全部 run 的 session
+  // ?batch=: the sessions of every run in the batch
   const batch = initial !== null && initial !== 'missing' && 'batch' in initial ? initial : null;
   const batchScope = useQuery({
     ...scopeQuery(batch ?? { batch: '' }),
@@ -65,7 +65,7 @@ export function AnalysisNewPage() {
   });
   const scoped = new Map((scope.data?.sessions ?? []).map((s) => [s.id, s]));
   const lock = pickLock(picked, scoped);
-  // 带着选择进入时切到它们的引擎
+  // When arriving with a selection, switch to its engine
   if (lock !== null && lock.engine !== engine) setEngine(lock.engine);
   const pickedIds = new Set(picked.map((p) => p.id));
 
@@ -78,23 +78,25 @@ export function AnalysisNewPage() {
             value={engine}
             onChange={setEngine}
             order={SESSION_ORDER}
-            label="视图"
+            label="View"
             blocked={(e) => engineBlock(e, lock)}
           />
         </div>
         <p className="text-sm text-muted-foreground">
-          左边从磁盘选择 session，右边设置后开始分析。一次分析只能选同一个配置、同一种引擎的
-          session：本机配置的，或某一个 variant 的。
+          Pick sessions from disk on the left, then set up and start the analysis on the right. One
+          analysis takes sessions from one config and one engine: the local config or a single
+          variant.
         </p>
       </header>
       {initial === 'missing' && (
         <p role="alert" className="text-sm text-destructive">
-          这个标签页中没有带过来的 session（它们只保存在打开这个页面的标签页中），在左边重新选择。
+          This tab has no sessions passed to it (they are kept only in the tab that opened this
+          page). Pick them again on the left.
         </p>
       )}
       {batchScope.isError && (
         <p role="alert" className="text-sm text-destructive">
-          读取 batch 的 session 失败：{batchScope.error.message}
+          Couldn't load the batch's sessions: {batchScope.error.message}
         </p>
       )}
       <div className="grid grid-cols-[minmax(0,1fr)_300px] items-start gap-4 2xl:grid-cols-[minmax(0,1fr)_22rem]">
@@ -133,13 +135,13 @@ export function AnalysisNewPage() {
   );
 }
 
-// 右栏一项的标题与项目：从磁盘选的立即有，带着选择进入的读到范围之后才有
+// Title and project of a right-panel item: disk picks have them at once, preselected ones once the scope loads
 function itemText(p: Picked, s: ScopeSession | undefined) {
   if (p.disk !== null) return { title: p.disk.title, project: p.disk.project, known: true };
   return { title: s?.title ?? null, project: s?.project ?? null, known: s !== undefined };
 }
 
-// 右边固定的设置栏：已选的 session（可以移除与清空）、所在的配置与范围的检查结果、分析方法、引擎与模型、开始分析
+// Fixed settings panel on the right: picked sessions (remove and clear), their config and the scope check, method, engine and model, start
 function SettingsPanel({
   picked,
   scoped,
@@ -174,20 +176,20 @@ function SettingsPanel({
     },
   });
   const s = scope?.data;
-  // 范围是不是当前的选择（选择改了、新的范围还没读到时不能开始）
+  // Whether the scope matches the current picks (cannot start after the picks change until the new scope loads)
   const current =
     s !== undefined && !(scope?.isPlaceholderData ?? false) && s.sessions.length === picked.length;
   const toRead = s?.sessions.filter((x) => !x.inDashboard).length ?? 0;
 
   return (
     <aside
-      aria-label="分析设置"
+      aria-label="Analysis settings"
       className="sticky top-8 flex max-h-[calc(100svh-4rem)] flex-col rounded-lg border p-4"
       data-testid="analysis-settings"
     >
       <form
         className="flex min-h-0 flex-1 flex-col gap-4"
-        aria-label="新建分析"
+        aria-label="New analysis"
         onSubmit={(e) => {
           e.preventDefault();
           create.mutate();
@@ -195,7 +197,7 @@ function SettingsPanel({
       >
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-sm font-semibold" data-testid="picked-count">
-            已选 {picked.length} 个
+            {picked.length} selected
           </h2>
           <Button
             type="button"
@@ -206,7 +208,7 @@ function SettingsPanel({
             data-testid="picked-clear"
             onClick={onClear}
           >
-            清空
+            Clear
           </Button>
           <Button
             type="submit"
@@ -219,7 +221,7 @@ function SettingsPanel({
               create.isPending
             }
           >
-            {create.isPending ? '正在开始…' : '开始分析'}
+            {create.isPending ? 'Starting…' : 'Start analysis'}
           </Button>
         </div>
         {create.isError && (
@@ -229,12 +231,12 @@ function SettingsPanel({
         )}
         {scope?.isError === true && (
           <p role="alert" className="text-sm text-destructive">
-            读取范围失败：{scope.error.message}
+            Couldn't load the scope: {scope.error.message}
           </p>
         )}
         {picked.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            在左边点一个配置与项目，勾选其中的 session。
+            Click a config and a project on the left, then check its sessions.
           </p>
         ) : (
           s !== undefined && (
@@ -253,27 +255,28 @@ function SettingsPanel({
                 </p>
               ) : s.local ? (
                 <p className="text-muted-foreground" data-testid="scope-local">
-                  本机配置的 session：各个方面只分析 session 本身，最后只写报告，没有 skill
-                  的修改建议。
+                  Local config sessions: each aspect analyzes only the sessions themselves, and the
+                  result is a report with no suggested skill changes.
                 </p>
               ) : (
                 s.variant !== null && (
                   <p className="text-muted-foreground">
-                    按 variant{' '}
+                    Analyzed against the skills of variant{' '}
                     <Link
                       className="text-foreground underline"
                       to={`/variants/${s.variant.id}`}
                       data-testid="scope-variant"
                     >
                       {s.variant.name}
-                    </Link>{' '}
-                    的 skill 分析，可以把修改建议另存为新的 variant。
+                    </Link>
+                    . Suggested changes can be saved as a new variant.
                   </p>
                 )
               )}
               {s.problem === null && toRead > 0 && (
                 <p className="text-muted-foreground" data-testid="scope-read-in">
-                  其中 {toRead} 个还不在 dashboard 中，开始时读入，不加进 Sessions 的管理表格。
+                  {toRead} {toRead === 1 ? 'is' : 'are'} not in the dashboard yet. They are read in
+                  at the start and not added to the Sessions management table.
                 </p>
               )}
             </div>
@@ -281,9 +284,9 @@ function SettingsPanel({
         )}
         <div className="flex shrink-0 flex-col gap-3 border-t pt-4">
           <label className="flex flex-col gap-1 text-sm font-medium">
-            分析方法
+            Method
             <select
-              aria-label="分析方法"
+              aria-label="Method"
               data-testid="analysis-variant"
               className="h-9 w-full rounded-md border bg-background px-2 text-sm font-normal"
               value={analysisVariantId}
@@ -291,35 +294,35 @@ function SettingsPanel({
                 setChosenVariant(e.target.value);
               }}
             >
-              {analysisVariantId === '' && <option value="">没有构建通过的 variant</option>}
+              {analysisVariantId === '' && <option value="">No successfully built variant</option>}
               {(options.data?.analysisVariants ?? []).map((v) => (
                 <option key={v.id} value={v.id}>
                   {v.name}
-                  {v.id === options.data?.defaults.analysisVariantId ? '（默认）' : ''}
+                  {v.id === options.data?.defaults.analysisVariantId ? ' (default)' : ''}
                 </option>
               ))}
             </select>
             <span className="text-xs font-normal text-muted-foreground">
-              workflow{' '}
+              Variants of the workflow{' '}
               <Link className="underline" to="/workflows/session-analysis">
                 session-analysis
-              </Link>{' '}
-              的 variant，派生并构建后可以在这里选。
+              </Link>
+              . Derive and build one to choose it here.
             </span>
           </label>
           <div className="flex flex-col gap-1 text-sm font-medium">
-            引擎
+            Engine
             <EngineChoice
               value={engine}
               onChange={setEngine}
               order={['claude', 'codex']}
-              label="分析的引擎"
+              label="Analysis engine"
             />
           </div>
           <label className="flex flex-col gap-1 text-sm font-medium">
-            模型
+            Model
             <input
-              aria-label="模型"
+              aria-label="Model"
               className="h-9 w-full rounded-md border bg-background px-3 font-mono text-sm font-normal"
               value={model}
               onChange={(e) => {
@@ -327,7 +330,9 @@ function SettingsPanel({
               }}
             />
             <span className="text-xs font-normal text-muted-foreground">
-              {engine === 'claude' ? '默认为设置中的 judge' : '默认取 ~/.codex/config.toml'}
+              {engine === 'claude'
+                ? 'Defaults to the judge in Settings'
+                : 'Defaults to ~/.codex/config.toml'}
             </span>
           </label>
         </div>
@@ -338,7 +343,7 @@ function SettingsPanel({
           >
             {picked.map((p) => {
               const text = itemText(p, scoped.get(p.id));
-              const title = text.known ? (text.title ?? '（没有用户消息）') : '正在读取…';
+              const title = text.known ? (text.title ?? '(no user message)') : 'Loading…';
               return (
                 <li
                   key={p.id}
@@ -362,7 +367,7 @@ function SettingsPanel({
                     variant="ghost"
                     size="icon"
                     className="size-7 shrink-0"
-                    aria-label={`移除 ${title}`}
+                    aria-label={`Remove ${title}`}
                     onClick={() => {
                       onRemove(p.id);
                     }}

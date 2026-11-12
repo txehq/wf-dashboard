@@ -6,22 +6,22 @@ import { ingestFile } from '../src/ingest/ingest.js';
 import { readReport } from '../src/stages/report.js';
 import { dataLayout } from '../src/variants/layout.js';
 
-// 把另一个数据目录（例如 W4 worktree 的 data/）中一个已结束的 run 导入 db：
-// variant、batch、run、对话、产物与评分按行复制；session 从来源 variant 的 jsonl 重新导入，阶段离线重新判定。
-// 导入的 variant 没有安装目录，记为未构建，不能用来发起新的 batch；
-// 它的 skills 与基线导出复制到目标数据目录，Variants 页面的文件列表与 diff 读取它们。
+// Import a finished run from another data dir (e.g. data/ of the W4 worktree) into db:
+// variant, batch, run, messages, artifacts and grades are copied row by row; the session is re-imported from the source variant's jsonl and stages are re-determined offline.
+// The imported variant has no install dir, is recorded as unbuilt and cannot start a new batch;
+// its skills and baseline export are copied into the target data dir, where the Variants page's file list and diff read them.
 
 type Row = Record<string, unknown>;
 
 export interface ImportSource {
-  // 来源数据目录（其中有 variants/<id>/home/claude/projects/<run id>/<session>.jsonl）
+  // Source data dir (contains variants/<id>/home/claude/projects/<run id>/<session>.jsonl)
   dataDir: string;
-  // 来源数据库，默认为数据目录下的 db.sqlite
+  // Source database, defaults to db.sqlite in the data dir
   dbPath?: string;
 }
 
-// 复制 variant 的 src/skills/ 与 variant.json，以及基线 commit 的导出（目标中没有时）；
-// 不复制 home/、dist/ 与二进制。目标中已有的部分保持不变；返回复制了的路径
+// Copy the variant's src/skills/ and variant.json, plus the baseline commit's export (when missing in the target);
+// home/, dist/ and binaries are not copied. Parts already in the target stay unchanged; returns the copied paths
 export function copyVariantContent(
   sourceDataDir: string,
   targetDataDir: string,
@@ -38,22 +38,22 @@ export function copyVariantContent(
   const copied: string[] = [];
   for (const [source, target] of pairs) {
     if (fs.existsSync(target)) continue;
-    if (!fs.existsSync(source)) throw new Error(`来源中没有 ${source}`);
+    if (!fs.existsSync(source)) throw new Error(`Missing in source: ${source}`);
     fs.cpSync(source, target, { recursive: true, errorOnExist: true, force: false });
     copied.push(target);
   }
   return copied;
 }
 
-// 补齐目标数据库中全部导入的 variant（没有安装目录的行）的内容：从第一个含有该 variant skills 的来源数据目录复制。
-// 只读打开数据库，可以在服务运行中执行
+// Fill in the content of every imported variant (rows without an install dir) in the target database, copied from the first source data dir that has the variant's skills.
+// Opens the database read only, so it can run while the server is running
 export function repairImportedVariants(
   targetDbPath: string,
   targetDataDir: string,
   sourceDataDirs: string[],
 ): { variantId: string; from: string; copied: string[] }[] {
   const target = new Database(path.resolve(targetDbPath), { readonly: true, fileMustExist: true });
-  // 拆分出的 ic variant 与 lfg 的同名 variant 共用目录（Contracts 16.4）：按目录补齐，每个目录一次
+  // A split-off ic variant shares its directory with the lfg variant of the same name (Contracts 16.4): fill in per directory, once each
   const rows = target
     .prepare(
       'select distinct coalesce(storage_id, id) as id, base_commit from variants where install_dir is null',
@@ -65,7 +65,7 @@ export function repairImportedVariants(
       fs.existsSync(dataLayout(path.resolve(dir)).variant(id).skills),
     );
     if (from === undefined) {
-      throw new Error(`来源数据目录中都没有 variant ${id}：${sourceDataDirs.join('、')}`);
+      throw new Error(`No source data dir has variant ${id}: ${sourceDataDirs.join(', ')}`);
     }
     return {
       variantId: id,
@@ -83,7 +83,7 @@ export function importRun(
   db: Db,
   from: ImportSource,
   runId: string,
-  // 目标数据目录（当前的 config.dataDir）
+  // Target data dir (the current config.dataDir)
   targetDataDir: string,
 ) {
   const sourceDir = path.resolve(from.dataDir);
@@ -95,12 +95,12 @@ export function importRun(
 
   const one = (sql: string, ...params: unknown[]): Row => {
     const row = source.prepare(sql).get(...params) as Row | undefined;
-    if (row === undefined) throw new Error(`来源中没有：${sql} ${JSON.stringify(params)}`);
+    if (row === undefined) throw new Error(`Missing in source: ${sql} ${JSON.stringify(params)}`);
     return row;
   };
   const all = (sql: string, ...params: unknown[]): Row[] =>
     source.prepare(sql).all(...params) as Row[];
-  // 按列名插入；返回新行的 rowid
+  // Insert by column name; returns the new row's rowid
   const insert = (table: string, row: Row): number => {
     const columns = Object.keys(row);
     const statement = target.prepare(
@@ -110,14 +110,14 @@ export function importRun(
   };
   const exists = (table: string, column: string, value: unknown): boolean =>
     target.prepare(`select 1 from ${table} where "${column}" = ?`).get(value) !== undefined;
-  // 复制行时去掉自增 id，由目标库重新分配
+  // Drop the autoincrement id when copying rows; the target database assigns a new one
   const withoutId = (row: Row): Row =>
     Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'id'));
 
-  if (isImported(db, runId)) throw new Error(`run ${runId} 已经导入过`);
+  if (isImported(db, runId)) throw new Error(`Run ${runId} was already imported`);
   const run = one('select * from runs where id = ?', runId);
   if (run.status !== 'succeeded' && run.status !== 'failed' && run.status !== 'cancelled') {
-    throw new Error(`run ${runId} 还没有结束：${String(run.status)}`);
+    throw new Error(`Run ${runId} has not finished: ${String(run.status)}`);
   }
   const variantId = String(run.variant_id);
   const batchId = String(run.batch_id);
@@ -125,7 +125,7 @@ export function importRun(
     one('select base_commit from variants where id = ?', variantId).base_commit,
   );
   copyVariantContent(sourceDir, targetDataDir, variantId, baseCommit);
-  // 来源早于 Contracts 16.5 时模型与 effort 在 variant 上，run 取它所用 variant 当时的值（与迁移相同）
+  // When the source predates Contracts 16.5, model and effort live on the variant; the run takes its variant's values at the time (as the migration does)
   const {
     model: variantModel,
     effort: variantEffort,
@@ -136,20 +136,20 @@ export function importRun(
 
   target.transaction(() => {
     if (!exists('variants', 'id', variantId)) {
-      // variant 属于 run 的 task 的评测类型同名的内置 workflow（Contracts 16.4）
+      // The variant belongs to the built-in workflow named after the run's task kind (Contracts 16.4)
       const kind = target.prepare('select kind from tasks where id = ?').get(run.task_id) as
         { kind: string } | undefined;
       if (kind === undefined) {
-        throw new Error(`目标库中没有 run ${runId} 的 task ${String(run.task_id)}`);
+        throw new Error(`Target database has no task ${String(run.task_id)} for run ${runId}`);
       }
       insert('variants', {
         ...variant,
-        name: `${String(variant.name)}（导入 ${variantId.slice(0, 8)}）`,
+        name: `${String(variant.name)} (imported ${variantId.slice(0, 8)})`,
         workflow_id: kind.kind,
         install_dir: null,
         build_status: 'none',
         built_hash: null,
-        build_error: `从 ${sourceDir} 导入，没有安装目录`,
+        build_error: `Imported from ${sourceDir}, no install dir`,
       });
     }
     if (!exists('batches', 'id', batchId)) {
@@ -178,7 +178,7 @@ export function importRun(
         insert('grade_items', { ...withoutId(item), grade_id: gradeId });
       }
     }
-    // 来源数据库早于 Contracts 7.6 的评分状态时，有评分的 run 记为 done
+    // When the source database predates the grading status of Contracts 7.6, runs with grades are marked done
     if (all('select id from grades where run_id = ?', runId).length > 0) {
       target.prepare(`update runs set grading_status = 'done' where id = ?`).run(runId);
     }
@@ -198,7 +198,7 @@ export function importRun(
     ),
   );
   const report = readReport(db, sessionId);
-  if (report === null) throw new Error(`session ${sessionId} 没有导入`);
+  if (report === null) throw new Error(`Session ${sessionId} was not imported`);
   return {
     runId,
     sessionId,

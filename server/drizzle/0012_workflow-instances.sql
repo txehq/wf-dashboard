@@ -1,8 +1,11 @@
--- workflow 没有大阶段（Contracts 16，2026-10-12 重定）：lfg 与 ic 是两个 workflow，task 回到 kind，variant 可以共用目录。
--- drizzle-kit 生成后手工加入了数据步骤（DEFAULT、UPDATE、DELETE），重新生成时必须保留。
--- 变化：workflows 去掉 base_variant_id（它的外键要求重建这张表；没有其他表引用 workflows），加 eval_kind 与 copied_from；
--- W36 的 dev-workflow 一行删除，lfg 与 ic 由服务启动时写入；dev-workflow 的 variant 拆成 lfg 与 ic 两个、run 与绑定的对应
--- 要读 session 中的标记，在 openDatabase 中迁移之后由 workflows/split-dev-workflow.ts 完成。阶段结果清空，按新形状重算
+-- Workflows have no top-level stages (Contracts 16, revised 2026-10-12): lfg and ic are two workflows, tasks go back to
+-- kind, and variants can share a directory. Data steps (DEFAULT, UPDATE, DELETE) were added by hand after drizzle-kit
+-- and must be kept when regenerating.
+-- Changes: workflows drops base_variant_id (its foreign key requires rebuilding the table; no other table references
+-- workflows) and adds eval_kind and copied_from; W36's dev-workflow row is deleted and lfg and ic are written at service
+-- start; splitting dev-workflow's variants into lfg and ic and mapping runs and bindings needs markers from the
+-- sessions, so workflows/split-dev-workflow.ts does it after migrating in openDatabase. Stage results are cleared and
+-- recomputed in the new shape
 PRAGMA foreign_keys=OFF;--> statement-breakpoint
 CREATE TABLE `__new_workflows` (
 	`id` text PRIMARY KEY NOT NULL,

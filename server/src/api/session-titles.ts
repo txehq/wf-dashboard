@@ -3,12 +3,12 @@ import type { Db } from '../db/index.js';
 import { liveSessions, sessions, userMessages } from '../db/schema.js';
 import { sessionTitle } from './user-text.js';
 
-// session 的标题，所有显示 session 标题的地方（管理表格、导入的第三列、确认对话框、错误原文、分析）都按这个规则取：
-// 属于交互区某一项的取该项的名字（Contracts 14.1、14.3，改名后立即生效），否则取主 session 的首条用户消息
-// （sessionTitle：slash 命令显示为 "/lfg 做一个计算器"）。都没有的不在返回中
+// Session title, used everywhere a session title is shown (management table, third import column, confirm dialogs, error messages, analyses):
+// a session belonging to a Live item takes the item's name (Contracts 14.1, 14.3, renames apply at once), otherwise the main session's
+// first user message (sessionTitle: a slash command shows as "/lfg Build a calculator"). Sessions with neither are left out
 export function sessionTitles(db: Db, ids: readonly string[]): Map<string, string> {
   if (ids.length === 0) return new Map();
-  // SQLite 中与 min() 同行的裸列取自最小值所在的行
+  // In SQLite, bare columns next to min() come from the row holding the minimum
   const titles = new Map(
     db
       .select({

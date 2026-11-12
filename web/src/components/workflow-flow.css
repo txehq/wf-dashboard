@@ -1,5 +1,5 @@
-/* 设计与优化会话的面板（Contracts 26.2、26.3）：节点与文件树中新增、修改、删除（缺少）的标记，颜色与 diff 一致
-   （GitHub 的 success、attention、danger），明暗两种，文字在底色上都达到 4.5:1 */
+/* Panel of design and optimize sessions (Contracts 26.2, 26.3): added, modified and removed (missing) marks on nodes and
+   in the file tree, in the diff colors (GitHub success, attention, danger), light and dark, text at 4.5:1 on its background */
 :root {
   --wfd-mark-added: #1a7f37;
   --wfd-mark-added-bg: #dafbe1;

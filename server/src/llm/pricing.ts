@@ -1,5 +1,5 @@
-// 每百万 token 的美元价格，取 Anthropic 官方价格表（2026-10-06）。
-// cache write 按官方倍率：5 分钟 = 1.25 × input，1 小时 = 2 × input；cache read 取官方公布值。
+// USD per million tokens, from Anthropic's official price list (2026-10-06).
+// cache write uses the official multipliers: 5 minutes = 1.25 x input, 1 hour = 2 x input; cache read uses the published value.
 export interface Price {
   input: number;
   output: number;
@@ -12,15 +12,15 @@ function price(input: number, output: number, cacheRead: number): Price {
   return { input, output, cacheWrite5m: input * 1.25, cacheWrite1h: input * 2, cacheRead };
 }
 
-// 价格按单次请求的 prompt 大小分档：prompt（input 加 cache 读写）超过 above 时整次请求按 price 计
+// Prices are tiered by a single request's prompt size: when the prompt (input plus cache reads and writes) exceeds above, the whole request uses price
 interface LongContextTier {
   above: number;
   price: Price;
 }
 
-// 按模型族与版本号匹配，顺序从具体到一般。gateway 上的名称可以带提供方前缀（us.anthropic.）与后缀
-// （日期 -20251001、-cc、[1m]）；版本号之后不能再接一段版本号，未列出的版本（例如 claude-sonnet-5-7）直接抛错，
-// 不按同族的其他版本计价
+// Match by model family and version, most specific first. Gateway names may carry a provider prefix (us.anthropic.) and suffixes
+// (date -20251001, -cc, [1m]); no further version segment may follow the version, and unlisted versions (e.g. claude-sonnet-5-7) throw
+// instead of being priced as another version of the family
 const model = (name: string) => new RegExp(`^(?:[a-z]+\\.)*${name}(?!-\\d{1,2}(?:\\D|$))`);
 const table: { match: RegExp; price: Price; longContext?: LongContextTier }[] = [
   { match: model('claude-fable-5-1'), price: price(10, 50, 0.25) },
@@ -31,8 +31,8 @@ const table: { match: RegExp; price: Price; longContext?: LongContextTier }[] = 
   { match: model('claude-sonnet-5-5'), price: price(2, 10, 0.2) },
   { match: model('claude-sonnet-5'), price: price(2, 10, 0.2) },
   { match: model('claude-sonnet-4-6'), price: price(3, 15, 0.3) },
-  // Haiku 5.5：prompt 不超过 100K token 时 $0.10 / $0.50，超过时 $0.50 / $2.50（官方模型表）；
-  // cache 读写按同档 input 的倍率（读 0.1×，写 1.25× / 2×）
+  // Haiku 5.5: $0.10 / $0.50 for prompts up to 100K tokens, $0.50 / $2.50 above (official model table);
+  // cache reads and writes use the tier's input multipliers (read 0.1x, write 1.25x / 2x)
   {
     match: model('claude-haiku-5-5'),
     price: price(0.1, 0.5, 0.01),
@@ -41,15 +41,15 @@ const table: { match: RegExp; price: Price; longContext?: LongContextTier }[] = 
   { match: model('claude-haiku-4-5'), price: price(1, 5, 0.1) },
 ];
 
-// promptTokens：这次请求的 input 加 cache 读写的 token 总数，决定分档
+// promptTokens: this request's input plus cache read and write tokens, which picks the tier
 export function priceOf(model: string, promptTokens: number): Price {
   const entry = table.find((e) => e.match.test(model));
-  if (!entry) throw new Error(`价格表中没有模型 ${model}`);
+  if (!entry) throw new Error(`Model ${model} is not in the price list`);
   const long = entry.longContext;
   return long !== undefined && promptTokens > long.above ? long.price : entry.price;
 }
 
-// 价格表中有没有这个模型：Codex 的模型不在表中，只记 token（Contracts 25.2）
+// Whether the price list has this model: Codex models are not in it and only tokens are recorded (Contracts 25.2)
 export const hasPrice = (model: string) => table.some((e) => e.match.test(model));
 
 export interface TokenUsage {
@@ -74,8 +74,8 @@ export function costUsd(usage: TokenUsage, model: string): number {
   );
 }
 
-// Messages API 返回的 usage 转成 TokenUsage。有 cache write 时必须有 5 分钟 / 1 小时的细分，
-// 两种价格不同，缺失时无法计价，直接抛错
+// Convert the Messages API usage to TokenUsage. With cache writes the 5-minute / 1-hour split is required:
+// the two prices differ, so without it the cost cannot be computed and this throws
 export function fromApiUsage(u: {
   input_tokens: number;
   output_tokens: number;
@@ -92,7 +92,7 @@ export function fromApiUsage(u: {
   const write1h = split?.ephemeral_1h_input_tokens;
   if (written > 0 && (write5m === undefined || write1h === undefined)) {
     throw new Error(
-      `usage 有 ${String(written)} 个 cache write token，但没有 5 分钟 / 1 小时的细分`,
+      `usage has ${String(written)} cache write tokens but no 5-minute / 1-hour split`,
     );
   }
   return {

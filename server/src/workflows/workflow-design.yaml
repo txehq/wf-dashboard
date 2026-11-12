@@ -1,0 +1,10 @@
+# Built-in design workflow (Contracts 33.1): writes a new workflow, or a new variant of an existing workflow, together
+# with the agent in Live. It has one skill: the entry itself is the only stage. At startup the service writes this file
+# into the workflows table and the definition is read-only; the baseline variant's skills are in
+# workflow-design/skills/ and external-skills/. description is used only on the first write and edited on the page
+# afterwards (Contracts 18.3)
+id: workflow-design
+name: Design workflow
+description: Writes the skills of a new workflow from a one-sentence requirement, or a new variant of an existing workflow; its variant drives the sessions that generate workflows and variants.
+stages:
+  - id: workflow-design

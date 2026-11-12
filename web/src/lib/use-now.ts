@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-// 每秒刷新一次的当前时间；enabled 为假时不启动计时器
+// The current time, refreshed every second; no timer runs while enabled is false
 export function useNow(enabled: boolean): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {

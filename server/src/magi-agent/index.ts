@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { and, desc, eq, inArray, ne } from 'drizzle-orm';
+import type { Install } from '../config.js';
 import type { Db } from '../db/index.js';
 import {
   type LiveEngine,
@@ -37,29 +38,33 @@ import type {
 export interface MagiAgentDeps {
   db: Db;
   live: Live;
-  // variant 的配置要构建成功才能用（Contracts 23.3）
+  // A variant's configuration is usable only after a successful build (Contracts 23.3)
   variants: Variants;
-  // 主仓库：正在运行的 dashboard 所在的目录，MAGI.md 从这里读取，部署合并进它的 main
+  // The main repo: the directory of the running dashboard; MAGI.md is read from here and deploys merge into its main
   repoDir: string;
   worktree: string;
-  // 部署第 3 步在 worktree 中运行的检查
-  check: string[];
-  // data/：部署的日志在 data/magi-agent/，数据库备份在 data/backups/
+  // The check that deploy step 3 runs in the worktree
+  check: readonly string[];
+  // data/: deploy logs are in data/magi-agent/, database backups in data/backups/
   dataDir: string;
-  // 部署的最后一步：服务以退出码 75 结束，由 pnpm start 的守护进程重新构建并启动
+  // From an installed release package (Contracts 39.5): the worktree is the package's read-only sources and there is
+  // no deploy; null for a git checkout
+  install: Install | null;
+  // The last deploy step: the service exits with code 75 and the pnpm start supervisor rebuilds and restarts it
   restart: () => void;
 }
 
-// 部署第 3 步的端口（Contracts 23.5），与正在运行的 dashboard 和各 worker 的端口错开
+// Ports for deploy step 3 (Contracts 23.5), apart from those of the running dashboard and the workers
 const CHECK_PORTS = { WFD_PORT: '7398', WFD_WEB_PORT: '5298' };
 
-// 失败时返回的检查输出：日志的最后这么多行，完整输出在日志文件中
+// Check output returned on failure: this many last lines of the log; the full output is in the log file
 const CHECK_TAIL_LINES = 80;
 
-// 有这些状态的 run 时不部署（Contracts 23.5 第 2 步）
+// No deploy while runs have these statuses (Contracts 23.5 step 2)
 const ACTIVE_RUN_STATUSES = ['queued', 'preparing', 'running', 'grading'] as const;
 
-// 部署接口的响应发出后到服务结束之间的间隔（实测 Claude Code 在服务立即结束时来不及把 curl 的返回记进会话）
+// Delay between sending the deploy response and ending the service (measured: when the service ends at once, Claude
+// Code has no time to record curl's response in the session)
 const RESTART_DELAY_MS = 3000;
 
 function deployStep(id: string, label: string): MagiDeployStep {
@@ -72,7 +77,8 @@ const stamp = (at: Date) =>
     .replaceAll(':', '-')
     .replace(/\.\d+Z$/, 'Z');
 
-// worktree 与子进程不继承运行中的 dashboard 的 WFD_* 设置（数据目录、端口、替身命令），各自用默认值
+// The worktree and child processes do not inherit the running dashboard's WFD_* settings (data dir, ports); each uses
+// the defaults
 function cleanEnv(): Record<string, string> {
   return Object.fromEntries(
     Object.entries(process.env).filter(
@@ -88,13 +94,13 @@ export function createMagiAgent(deps: MagiAgentDeps) {
     steps: initialWorktreeSteps(),
   };
   let preparing: Promise<boolean> | null = null;
-  // worktree 准备完成后在后台启动失败的原文
+  // The error text when starting in the background after the worktree is ready fails
   let startError: string | null = null;
   let deploying = false;
 
-  // 上次服务退出时正在执行的部署
+  // The deploy that was running when the service last exited
   db.update(magiDeploys)
-    .set({ status: 'failed', error: '服务重启中断', endedAt: new Date() })
+    .set({ status: 'failed', error: 'Interrupted by a service restart', endedAt: new Date() })
     .where(eq(magiDeploys.status, 'running'))
     .run();
 
@@ -102,10 +108,16 @@ export function createMagiAgent(deps: MagiAgentDeps) {
     events.publish({ type: 'magi.updated' });
   };
 
-  // 每次启动与 resume 时读取主仓库中的这一份（Contracts 23.4）
-  const instructions = () => fs.readFileSync(path.join(deps.repoDir, 'agent/MAGI.md'), 'utf8');
+  // Read from the main repo at every start and resume (Contracts 23.4); an installed package adds what differs there
+  const instructions = () => {
+    const text = fs.readFileSync(path.join(deps.repoDir, 'agent/MAGI.md'), 'utf8');
+    if (deps.install === null) return text;
+    return `${text}\n\n## This installation\n\nThis dashboard runs from the release package ${deps.install.version} installed under ${deps.install.root}, not from a git checkout. Your working directory ${deps.worktree} holds the package's sources and is read-only: answer usage questions and discuss problems from them, and do not change or deploy the dashboard (POST /api/magi-agent/deploy refuses). The data directory is ${deps.dataDir}. The installation updates itself from the GitHub Releases of txehq/wf-dashboard; changes to the dashboard are made in its git repository.\n`;
+  };
+  // An installed package needs no worktree: its sources are ready as they are
+  const ready = () => deps.install !== null || worktreeReady(deps.worktree);
 
-  // 全部 Magi Agent 的会话（包括已关闭的），最近的在前（Contracts 23.6 弹出框的会话选择）
+  // All Magi Agent sessions (including closed ones), newest first (session choice in the Contracts 23.6 popover)
   function sessionsList(): MagiSessionView[] {
     return db
       .select({
@@ -120,7 +132,8 @@ export function createMagiAgent(deps: MagiAgentDeps) {
       .orderBy(desc(liveSessions.updatedAt))
       .all()
       .map((s) => {
-        if (s.config === null) throw new Error(`Magi Agent 的项 ${s.id} 没有记下配置`);
+        if (s.config === null)
+          throw new Error(`Magi Agent item ${s.id} has no recorded configuration`);
         return {
           ...s,
           config: s.config,
@@ -130,18 +143,20 @@ export function createMagiAgent(deps: MagiAgentDeps) {
       });
   }
 
-  // Codex 只有本机配置；variant 的配置要按当前内容构建成功（Contracts 23.3、23.6），不满足时以原文拒绝
+  // Codex has only the local machine configuration; a variant's configuration must build successfully from its current
+  // content (Contracts 23.3, 23.6); otherwise reject with the message
   function checkConfig(engine: LiveEngine, config: string) {
     if (config === 'local') return;
     if (engine === 'codex') {
-      throw new HttpError(400, 'Codex 的 Magi Agent 只有本机配置');
+      throw new HttpError(400, 'The Codex Magi Agent has only the local machine configuration');
     }
     deps.variants.runtimeEnv(config);
   }
 
-  // 第一次打开时建 worktree 并 pnpm install（Contracts 23.2），进度在 worktreeState 中；同时打开多次时共用一次准备
+  // On first open, create the worktree and run pnpm install (Contracts 23.2), with progress in worktreeState; several
+  // opens at once share one preparation
   function ensureWorktree(): Promise<boolean> {
-    if (worktreeReady(deps.worktree)) return Promise.resolve(true);
+    if (ready()) return Promise.resolve(true);
     if (preparing !== null) return preparing;
     preparing = prepareWorktree().finally(() => {
       preparing = null;
@@ -169,37 +184,38 @@ export function createMagiAgent(deps: MagiAgentDeps) {
     return true;
   }
 
-  // worktree 准备好之后启动或 resume；还在准备时先返回这一项，准备完成后在后台启动。后台启动失败的原文记在 startError
-  function startWhenReady(liveId: string, message: string | null): LiveDetail {
-    if (worktreeReady(deps.worktree) && preparing === null) {
+  // Start or resume once the worktree is ready; while it is still preparing, return the item first and start in the
+  // background when preparation is done. The error text of a failed background start goes into startError
+  function startWhenReady(liveId: string, message: string | null): Promise<LiveDetail> {
+    if (ready() && preparing === null) {
       return live.launchAgent(liveId, { instructions: instructions(), message });
     }
     startError = null;
     void ensureWorktree()
-      .then((ok) => {
+      .then(async (ok) => {
         if (ok && !live.running(liveId)) {
-          live.launchAgent(liveId, { instructions: instructions(), message });
+          await live.launchAgent(liveId, { instructions: instructions(), message });
         }
       })
       .then(
         () => undefined,
         (error: unknown) => {
-          startError = `启动 ${liveId} 失败：${error instanceof Error ? error.message : String(error)}`;
+          startError = `Starting ${liveId} failed: ${error instanceof Error ? error.message : String(error)}`;
           publish();
         },
       );
-    return live.get(liveId);
+    return Promise.resolve(live.get(liveId));
   }
 
   function requireAgent(liveId: string): LiveDetail {
     const item = live.get(liveId);
     if (item.purpose !== 'agent') {
-      throw new HttpError(400, `交互 ${liveId} 不是 Magi Agent 的会话`);
+      throw new HttpError(400, `Live item ${liveId} is not a Magi Agent session`);
     }
     return item;
   }
 
-  function createSession(engine: LiveEngine, config: string): LiveDetail {
+  function createSession(engine: LiveEngine, config: string): Promise<LiveDetail> {
     checkConfig(engine, config);
     const item = live.createAgentItem({ engine, config, cwd: deps.worktree });
     publish();
@@ -222,11 +238,12 @@ export function createMagiAgent(deps: MagiAgentDeps) {
 
   function deployRow(id: number) {
     const row = db.select().from(magiDeploys).where(eq(magiDeploys.id, id)).get();
-    if (row === undefined) throw new HttpError(404, `部署不存在：${String(id)}`);
+    if (row === undefined) throw new HttpError(404, `Deploy not found: ${String(id)}`);
     return row;
   }
 
-  // 第 2 步：除 Magi Agent 自己之外运行中的交互进程，与 queued、preparing、running、grading 的 run
+  // Step 2: running interactive processes other than the Magi Agent itself, and runs that are queued, preparing,
+  // running or grading
   function busy(): string[] {
     const items = db
       .select({ id: liveSessions.id, title: liveSessions.title })
@@ -240,22 +257,22 @@ export function createMagiAgent(deps: MagiAgentDeps) {
       .where(inArray(runs.status, [...ACTIVE_RUN_STATUSES]))
       .all();
     return [
-      ...items.map((i) => `交互「${i.title}」（${i.id}）有运行中的进程`),
-      ...active.map((r) => `run ${r.id} 的状态是 ${r.status}`),
+      ...items.map((i) => `Live item "${i.title}" (${i.id}) has a running process`),
+      ...active.map((r) => `Run ${r.id} is ${r.status}`),
     ];
   }
 
   async function runCheck(logFile: string): Promise<{ ok: boolean; output: string }> {
     const [file, ...args] = deps.check;
-    if (file === undefined) throw new Error('部署的检查命令为空');
+    if (file === undefined) throw new Error('The deploy check command is empty');
     const result = await exec(deps.worktree, file, args, { ...cleanEnv(), ...CHECK_PORTS });
-    fs.appendFileSync(logFile, `$ ${deps.check.join(' ')}（${deps.worktree}）\n${result.output}\n`);
+    fs.appendFileSync(logFile, `$ ${deps.check.join(' ')} (${deps.worktree})\n${result.output}\n`);
     const tail = result.output.split('\n').slice(-CHECK_TAIL_LINES).join('\n');
     return {
       ok: result.ok,
       output: result.ok
-        ? `通过，完整输出见 ${logFile}`
-        : `${deps.check.join(' ')} 失败（完整输出见 ${logFile}），最后 ${String(CHECK_TAIL_LINES)} 行：\n${tail}`,
+        ? `Passed, full output in ${logFile}`
+        : `${deps.check.join(' ')} failed (full output in ${logFile}), last ${String(CHECK_TAIL_LINES)} lines:\n${tail}`,
     };
   }
 
@@ -264,7 +281,7 @@ export function createMagiAgent(deps: MagiAgentDeps) {
     if (!head.ok || head.output.trim() !== MAIN_BRANCH) {
       return {
         ok: false,
-        output: `主仓库 ${deps.repoDir} 当前不在 ${MAIN_BRANCH} 分支上：${head.output.trim()}`,
+        output: `The main repo ${deps.repoDir} is not on branch ${MAIN_BRANCH}: ${head.output.trim()}`,
       };
     }
     const dirty = await exec(deps.repoDir, 'git', [
@@ -275,7 +292,7 @@ export function createMagiAgent(deps: MagiAgentDeps) {
     if (!dirty.ok || dirty.output.trim() !== '') {
       return {
         ok: false,
-        output: `主仓库 ${deps.repoDir} 有未提交的改动（未跟踪的文件除外）：\n${dirty.output}`,
+        output: `The main repo ${deps.repoDir} has uncommitted changes (untracked files excluded):\n${dirty.output}`,
       };
     }
     const tree = await exec(deps.repoDir, 'git', [
@@ -288,29 +305,36 @@ export function createMagiAgent(deps: MagiAgentDeps) {
     if (!tree.ok) {
       return {
         ok: false,
-        output: `合并进 ${MAIN_BRANCH} 有冲突，先把 ${MAIN_BRANCH} 合并进 ${MAGI_BRANCH} 分支并解决冲突。git merge-tree 的输出（第一行是合并结果的 tree，之后是有冲突的文件）：\n${tree.output}`,
+        output: `Merging into ${MAIN_BRANCH} has conflicts; first merge ${MAIN_BRANCH} into branch ${MAGI_BRANCH} and resolve them. Output of git merge-tree (the first line is the tree of the merge result, then the conflicting files):\n${tree.output}`,
       };
     }
-    return { ok: true, output: '没有冲突' };
+    return { ok: true, output: 'No conflicts' };
   }
 
-  // 部署（Contracts 23.5）：按顺序执行六步，任何一步失败都停下并以原文返回；每一步的进度经 SSE magi.deploy 推送
+  // Deploy (Contracts 23.5): runs six steps in order, stops at the first failing step and returns its message; the
+  // progress of each step is pushed through SSE magi.deploy
   async function deploy(liveId: string): Promise<MagiDeployView> {
+    if (deps.install !== null) {
+      throw new HttpError(
+        409,
+        `This dashboard runs from the release package ${deps.install.version} installed under ${deps.install.root}, which has no git repository to merge into: it cannot be modified and deployed, and it updates itself from the GitHub Releases of txehq/wf-dashboard. Modifying and deploying the dashboard needs a git checkout of wf-dashboard started with pnpm start.`,
+      );
+    }
     const item = requireAgent(liveId);
-    if (deploying) throw new HttpError(409, '已经有一次部署在进行');
+    if (deploying) throw new HttpError(409, 'A deploy is already in progress');
     deploying = true;
     const startedAt = new Date();
     const logFile = path.join(deps.dataDir, 'magi-agent', `deploy-${stamp(startedAt)}.log`);
-    // 日志从部署开始时就有：每一步的结果追加在后面，第 3 步另有检查的完整输出
+    // The log exists from the start of the deploy: each step's result is appended, and step 3 adds the check's full output
     fs.mkdirSync(path.dirname(logFile), { recursive: true });
-    fs.writeFileSync(logFile, `部署 ${item.title}（${liveId}），${startedAt.toISOString()}\n`);
+    fs.writeFileSync(logFile, `Deploy ${item.title} (${liveId}), ${startedAt.toISOString()}\n`);
     const steps = [
-      deployStep('clean', 'worktree 没有未提交的改动'),
-      deployStep('idle', '没有别的运行中的交互进程与 run'),
-      deployStep('check', `在 worktree 中运行 ${deps.check.join(' ')}`),
-      deployStep('merge-check', `检查合并进 ${MAIN_BRANCH} 有没有冲突`),
-      deployStep('merge', `在主仓库 git merge --no-ff ${MAGI_BRANCH}`),
-      deployStep('restart', '备份数据库并重新启动'),
+      deployStep('clean', 'The worktree has no uncommitted changes'),
+      deployStep('idle', 'No other running interactive processes or runs'),
+      deployStep('check', `Run ${deps.check.join(' ')} in the worktree`),
+      deployStep('merge-check', `Check whether merging into ${MAIN_BRANCH} has conflicts`),
+      deployStep('merge', `git merge --no-ff ${MAGI_BRANCH} in the main repo`),
+      deployStep('restart', 'Back up the database and restart'),
     ];
     const id = db
       .insert(magiDeploys)
@@ -337,19 +361,19 @@ export function createMagiAgent(deps: MagiAgentDeps) {
       if (stepId === 'clean') {
         const files = await uncommittedFiles(deps.worktree);
         return files.length === 0
-          ? { ok: true, output: '没有未提交的改动' }
+          ? { ok: true, output: 'No uncommitted changes' }
           : {
               ok: false,
-              output: `worktree ${deps.worktree} 有未提交的改动：\n${files.join('\n')}`,
+              output: `The worktree ${deps.worktree} has uncommitted changes:\n${files.join('\n')}`,
             };
       }
       if (stepId === 'idle') {
         const list = busy();
         return list.length === 0
-          ? { ok: true, output: '没有' }
+          ? { ok: true, output: 'None' }
           : {
               ok: false,
-              output: `有别的进程或 run 在运行，等它们结束后再部署：\n${list.join('\n')}`,
+              output: `Other processes or runs are running; deploy after they finish:\n${list.join('\n')}`,
             };
       }
       if (stepId === 'check') return runCheck(logFile);
@@ -360,7 +384,7 @@ export function createMagiAgent(deps: MagiAgentDeps) {
           '--no-ff',
           MAGI_BRANCH,
           '-m',
-          `Magi Agent 部署：合并 ${MAGI_BRANCH}`,
+          `Magi Agent deploy: merge ${MAGI_BRANCH}`,
         ]);
         if (!merged.ok) return merged;
         const head = await exec(deps.repoDir, 'git', ['rev-parse', 'HEAD']);
@@ -368,11 +392,12 @@ export function createMagiAgent(deps: MagiAgentDeps) {
         commit = head.output.trim();
         return { ok: true, output: commit };
       }
-      // 数据库备份用 SQLite 的 backup（.backup），之后记下部署后 resume，服务以退出码 75 结束
+      // The database backup uses SQLite's backup (.backup); then the resume after deploy is recorded and the service exits
+      // with code 75
       backupFile = path.join(deps.dataDir, 'backups', `db-${stamp(new Date())}.sqlite`);
       fs.mkdirSync(path.dirname(backupFile), { recursive: true });
       await db.$client.backup(backupFile);
-      return { ok: true, output: `数据库备份在 ${backupFile}` };
+      return { ok: true, output: `Database backed up to ${backupFile}` };
     };
     try {
       for (const step of steps) {
@@ -383,9 +408,9 @@ export function createMagiAgent(deps: MagiAgentDeps) {
         step.output = result.output;
         step.endedAt = Date.now();
         step.status = result.ok ? 'done' : 'failed';
-        fs.appendFileSync(logFile, `[${step.status}] ${step.label}：${result.output}\n`);
+        fs.appendFileSync(logFile, `[${step.status}] ${step.label}: ${result.output}\n`);
         if (!result.ok) {
-          const error = `${step.label}失败：${result.output}`;
+          const error = `Step failed: ${step.label}: ${result.output}`;
           save({ status: 'failed', error, endedAt: new Date() });
           throw new HttpError(409, error);
         }
@@ -400,15 +425,19 @@ export function createMagiAgent(deps: MagiAgentDeps) {
 
   return {
     view: async (): Promise<MagiAgentView> => {
-      const ready = worktreeReady(deps.worktree) && preparing === null;
-      const counts = ready ? await aheadBehind(deps.repoDir) : null;
-      const files = ready ? await uncommittedFiles(deps.worktree) : null;
+      const packaged = deps.install !== null;
+      const prepared = ready() && preparing === null;
+      // The branch status exists only in a git worktree
+      const git = prepared && !packaged;
+      const counts = git ? await aheadBehind(deps.repoDir) : null;
+      const files = git ? await uncommittedFiles(deps.worktree) : null;
       const latest = db.select().from(magiDeploys).orderBy(desc(magiDeploys.id)).get();
       return {
         worktree: {
+          source: packaged ? 'package' : 'git',
           path: deps.worktree,
           branch: MAGI_BRANCH,
-          state: ready ? 'ready' : (worktreeState.state ?? 'missing'),
+          state: prepared ? 'ready' : (worktreeState.state ?? 'missing'),
           steps: worktreeState.steps,
           ahead: counts?.ahead ?? null,
           behind: counts?.behind ?? null,
@@ -420,30 +449,31 @@ export function createMagiAgent(deps: MagiAgentDeps) {
       };
     },
 
-    // 打开（Contracts 23.6）：liveId 为空时新建一个会话；否则打开所选的会话（引擎与配置要与所选的相同），
-    // 没有运行中的进程时 resume
-    open(body: MagiOpenBody): LiveDetail {
+    // Open (Contracts 23.6): a null liveId creates a new session; otherwise open the chosen session (engine and
+    // configuration must match it), resuming it when it has no running process
+    open(body: MagiOpenBody): Promise<LiveDetail> {
       if (body.liveId === null) return createSession(body.engine, body.config);
       const item = requireAgent(body.liveId);
       if (item.engine !== body.engine || item.agentConfig !== body.config) {
         throw new HttpError(
           400,
-          `会话 ${item.id} 的引擎与配置是 ${item.engine}、${String(item.agentConfig)}，不是 ${body.engine}、${body.config}`,
+          `Session ${item.id} has engine and configuration ${item.engine}, ${String(item.agentConfig)}, not ${body.engine}, ${body.config}`,
         );
       }
-      if (live.running(item.id)) return live.get(item.id);
+      if (live.running(item.id)) return Promise.resolve(live.get(item.id));
       return startWhenReady(item.id, null);
     },
 
-    // resume 一个 Magi Agent 的会话，同样注入 MAGI.md
-    resume(liveId: string): LiveDetail {
+    // Resume a Magi Agent session, also injecting MAGI.md
+    resume(liveId: string): Promise<LiveDetail> {
       requireAgent(liveId);
       return startWhenReady(liveId, null);
     },
 
     deploy,
 
-    // 部署后的 restart：在部署接口的响应发出之后调用；等几秒，agent 的终端先把接口的返回记进会话
+    // Restart after a deploy: called after the deploy response is sent; waits a few seconds so the agent's terminal
+    // records the response in the session first
     restart: () => {
       setTimeout(deps.restart, RESTART_DELAY_MS);
     },
@@ -452,7 +482,8 @@ export function createMagiAgent(deps: MagiAgentDeps) {
       return fs.readFileSync(deployRow(id).logFile, 'utf8');
     },
 
-    // 服务启动后（监听端口之后，hook 需要服务的地址）：看到"部署后 resume"时 resume 这个会话，消息为"部署完成：<commit>"
+    // After the service starts (after listening, since hooks need the service address): on a "resume after deploy",
+    // resume that session with the message "Deploy complete: <commit>"
     resumeAfterDeploy() {
       const pending = db
         .select()
@@ -477,7 +508,15 @@ export function createMagiAgent(deps: MagiAgentDeps) {
         events.publish({ type: 'magi.deploy', deployId: row.id, status: 'done' });
       }
       const last = pending[0];
-      if (last !== undefined) startWhenReady(last.liveId, `部署完成：${last.commit ?? ''}`);
+      if (last !== undefined) {
+        startWhenReady(last.liveId, `Deploy complete: ${last.commit ?? ''}`).then(
+          () => undefined,
+          (error: unknown) => {
+            startError = `Starting ${last.liveId} failed: ${error instanceof Error ? error.message : String(error)}`;
+            publish();
+          },
+        );
+      }
     },
   };
 }

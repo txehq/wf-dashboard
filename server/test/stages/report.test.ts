@@ -36,7 +36,7 @@ const work = path.join(config.repoRoot, '.work', 'test-stage-report', randomUUID
 const { db, close } = openTestDb();
 syncTasks(db, config.tasksDir);
 insertVariant(db, 'stage-report-v');
-// 一次算出的划分同时按内置的 lfg 与 ic（Contracts 16.6）
+// A one-pass partition uses both built-in lfg and ic (Contracts 16.6)
 const builtins = () => [loadWorkflow(db, 'lfg'), loadWorkflow(db, 'ic')];
 const stageReport = (rows: SessionRows, finished: boolean) =>
   stageReportOf(builtins(), rows, finished);
@@ -62,7 +62,7 @@ async function stages(id: string) {
   return StageReport.parse(res.json());
 }
 
-// 已到终态的 run：导入 session 时 sessions.run_id 指向它
+// A run in a final state: sessions.run_id points to it when the session is imported
 function finishedRun(runId: string, sessionId: string, taskId: string) {
   db.insert(batches)
     .values({ id: `b-${runId}`, repeats: 1 })
@@ -92,11 +92,11 @@ type Expected = [
   evidence: { seq: number; kind: string; text: string } | null,
 ];
 
-// 内置的 lfg 与 ic：StageReport 按 lfg、ic 的顺序列出（Contracts 16.6）
+// Built-in lfg and ic: StageReport lists them in the order lfg, ic (Contracts 16.6)
 function cyclesOf(report: StageReport, workflow: string): WorkflowCycle[] {
   expect(report.workflows.map((w) => w.workflow)).toEqual(['lfg', 'ic']);
   const found = report.workflows.find((w) => w.workflow === workflow);
-  if (found === undefined) throw new Error(`没有 workflow ${workflow}`);
+  if (found === undefined) throw new Error(`No workflow ${workflow}`);
   return found.cycles;
 }
 const lfgCycles = (report: StageReport) => cyclesOf(report, 'lfg');
@@ -108,7 +108,7 @@ const views = (c: WorkflowCycle | undefined): Expected[] =>
 const skill = (seq: number, text: string) => ({ seq, kind: 'skill', text });
 const command = (seq: number, text: string) => ({ seq, kind: 'command', text });
 
-// 守恒：各阶段与 outside 的 mainRequests 之和等于主请求数；各阶段区间互不重叠
+// Conservation: the mainRequests of all stages plus outside equal the main request count; stage ranges do not overlap
 function expectConservation(sessionId: string, report: StageReport) {
   const rows = loadSessionRows(db, sessionId);
   const spans = [...lfgCycles(report), ...icCycles(report)].flatMap((c) => c.stages);
@@ -124,14 +124,14 @@ function expectConservation(sessionId: string, report: StageReport) {
   expect(all).toBe(rows.main.length + rows.subagent.length);
 }
 
-describe('真实样本的阶段划分', () => {
-  test('f0aca373：/interview 一轮 lfg，Skill open-pr 549、792、1143 各开一轮 ic', async () => {
+describe('stage partition of real samples', () => {
+  test('f0aca373: /interview opens one lfg cycle; Skill open-pr at 549, 792 and 1143 each opens an ic cycle', async () => {
     const started = performance.now();
     const { sessionId } = ingestFile(db, SAMPLES.icPrs);
     const ingestMs = performance.now() - started;
     const report = await stages(sessionId);
     console.log(
-      'f0aca373 导入耗时',
+      'f0aca373 import duration',
       JSON.stringify({
         ingestMs: Math.round(ingestMs),
         stagesMs: Math.round(performance.now() - started - ingestMs),
@@ -148,9 +148,9 @@ describe('真实样本的阶段划分', () => {
       ['ticketing', 'not-reached', null, null, 0, null],
     ]);
     expect(icCycles(report).map((c) => [c.index, c.label, c.startSeq, c.endSeq])).toEqual([
-      [1, '第 1 轮', 549, 791],
-      [2, '第 2 轮', 792, 1142],
-      [3, '第 3 轮', 1143, 1230],
+      [1, 'Round 1', 549, 791],
+      [2, 'Round 2', 792, 1142],
+      [3, 'Round 3', 1143, 1230],
     ]);
     const rows = loadSessionRows(db, sessionId);
     const skillText = (seq: number, name: string) => {
@@ -160,7 +160,7 @@ describe('真实样本的阶段划分', () => {
           (c) => c.name === 'Skill' && (c.input as { skill: string }).skill === name,
         );
       const args = (call?.input as { args: string } | undefined)?.args;
-      if (args === undefined) throw new Error(`#${String(seq)} 没有 Skill ${name}`);
+      if (args === undefined) throw new Error(`#${String(seq)} has no Skill ${name}`);
       return `Skill: ${name} ${args}`;
     };
     const skippedBefore = (s: number): Expected[] =>
@@ -172,34 +172,34 @@ describe('真实样本的阶段划分', () => {
         0,
         null,
       ]);
-    // PR #72：Skill fix-pr 557
+    // PR #72: Skill fix-pr at 557
     expect(views(icCycles(report)[0])).toEqual([
       ...skippedBefore(549),
       ['open-pr', 'done', 549, 556, 1, skill(549, skillText(549, 'open-pr'))],
       ['fix-pr', 'done', 557, 791, 1, skill(557, skillText(557, 'fix-pr'))],
       ['ready-for-review', 'not-reached', null, null, 0, null],
     ]);
-    // PR #77：没有调用 fix-pr，fix-pr 未到达
+    // PR #77: fix-pr was not called, so it is not reached
     expect(views(icCycles(report)[1])).toEqual([
       ...skippedBefore(792),
       ['open-pr', 'done', 792, 1142, 1, skill(792, skillText(792, 'open-pr'))],
       ['fix-pr', 'not-reached', null, null, 0, null],
       ['ready-for-review', 'not-reached', null, null, 0, null],
     ]);
-    // PR #78：离线 session 的最后一个阶段为 active
+    // PR #78: the last stage of an offline session is active
     expect(views(icCycles(report)[2])).toEqual([
       ...skippedBefore(1143),
       ['open-pr', 'done', 1143, 1153, 1, skill(1143, skillText(1143, 'open-pr'))],
       ['fix-pr', 'active', 1154, 1230, 1, skill(1154, skillText(1154, 'fix-pr'))],
       ['ready-for-review', 'not-reached', null, null, 0, null],
     ]);
-    // 第一个标记之前的 138 条请求
+    // The 138 requests before the first marker
     expect(report.outside.mainRequests).toBe(138);
     expectConservation(sessionId, report);
     expect(report).toEqual(stageReport(rows, false));
   }, 300_000);
 
-  test('lfg run dqva52：/lfg 开启的一轮，interview、research、plan、ticketing 依次 done', async () => {
+  test('lfg run dqva52: one cycle opened by /lfg, interview, research, plan and ticketing done in order', async () => {
     const runId = 'r-20261009-dqva52';
     const sessionId = '0188c133-3e7b-4592-a963-fc717cf283de';
     finishedRun(runId, sessionId, 'lfg-calculator');
@@ -207,7 +207,7 @@ describe('真实样本的阶段划分', () => {
     const report = await stages(sessionId);
     const lfg = lfgCycles(report)[0];
     expect(lfgCycles(report).map((c) => [c.index, c.label, c.startSeq, c.endSeq])).toEqual([
-      [1, '/lfg 做一个计算器', 0, 172],
+      [1, '/lfg build a calculator', 0, 172],
     ]);
     expect(icCycles(report)).toEqual([]);
     expect(
@@ -218,13 +218,15 @@ describe('真实样本的阶段划分', () => {
       ['plan', 'done', 87, 142, 1, 87],
       ['ticketing', 'done', 143, 172, 1, 143],
     ]);
-    expect(lfg?.stages[0]?.evidence?.text.startsWith('Skill: interview 做一个计算器')).toBe(true);
-    // /lfg 输入之后到 Skill interview 之前的 #0–#2
+    expect(lfg?.stages[0]?.evidence?.text.startsWith('Skill: interview build a calculator')).toBe(
+      true,
+    );
+    // #0-#2 between the /lfg input and Skill interview
     expect(report.outside.mainRequests).toBe(3);
     expectConservation(sessionId, report);
   }, 120_000);
 
-  test('ic run 27yz3d：claim、readiness、implement、open-pr，acceptance skipped', async () => {
+  test('ic run 27yz3d: claim, readiness, implement, open-pr; acceptance skipped', async () => {
     const runId = 'r-20261009-27yz3d';
     const sessionId = '70e7a9b6-fdad-44c3-9b65-015ee2a0499c';
     finishedRun(runId, sessionId, 'ic-money-format');
@@ -245,7 +247,7 @@ describe('真实样本的阶段划分', () => {
       ],
       ['implement', 'done', 9, 22, 1, skill(9, 'Skill: implement TXE-3767')],
       ['acceptance', 'skipped', 23, 22, 0, null],
-      // 终态的 run：最后一个阶段为 done；review-pr 不是标记
+      // A run in a final state: the last stage is done; review-pr is not a marker
       ['open-pr', 'done', 23, 33, 1, skill(23, 'Skill: open-pr TXE-3767')],
       ['fix-pr', 'not-reached', null, null, 0, null],
       ['ready-for-review', 'not-reached', null, null, 0, null],
@@ -255,7 +257,7 @@ describe('真实样本的阶段划分', () => {
   }, 120_000);
 });
 
-// 把 jsonl 按行分成若干段依次写出，每写一段导入一次（同一 message 的多条记录可能分在两段）
+// Writes the jsonl in several line chunks, importing after each (records of one message may fall into two chunks)
 function ingestInChunks(target: Db, source: string, dest: string, chunks: number): string {
   const sessionDir = source.replace(/\.jsonl$/, '');
   const file = path.join(dest, path.basename(source));
@@ -277,8 +279,9 @@ function ingestInChunks(target: Db, source: string, dest: string, chunks: number
   return sessionId;
 }
 
-describe('增量导入', () => {
-  // 同一 session 不能从两个路径导入：分段导入用另一个测试数据库，与一次导入（第一组测试）比较
+describe('incremental import', () => {
+  // One session cannot be imported from two paths: the chunked import uses another test database and is compared
+  // with the one-pass import (first group of tests)
   test.each([
     ['f0aca373', SAMPLES.icPrs, 37],
     [
@@ -287,7 +290,7 @@ describe('增量导入', () => {
       173,
     ],
   ])(
-    '%s 分 %i 段导入与一次导入的结果相同',
+    '%s imported in %i chunks gives the same result as one import',
     (_name, source, chunks) => {
       const other = openTestDb();
       const sessionId = ingestInChunks(other.db, source, path.join(work, 'chunks', _name), chunks);
@@ -295,8 +298,8 @@ describe('增量导入', () => {
       const pure = stageReport(loadSessionRows(other.db, sessionId), false);
       other.close();
       const once = readReport(db, sessionId);
-      if (once === null || incremental === null) throw new Error('session 没有导入');
-      // 分段导入的数据库中没有 run 行：最后一个阶段为 active，其余与一次导入相同
+      if (once === null || incremental === null) throw new Error('Session not imported');
+      // The chunked database has no run row: the last stage is active, everything else matches the one-pass import
       expect(incremental).toEqual(pure);
       const lastDone = (r: StageReport) =>
         JSON.stringify(r).replaceAll('"status":"active"', '"status":"done"');
@@ -306,18 +309,18 @@ describe('增量导入', () => {
   );
 });
 
-// 由真实请求行拼出的 session：在 27yz3d 的请求之后接上复制的 Skill 调用
-describe('fix-pr 与更前面的阶段', () => {
+// A session composed from real request rows: copied Skill calls appended after the 27yz3d requests
+describe('fix-pr and earlier stages', () => {
   const runSession = '70e7a9b6-fdad-44c3-9b65-015ee2a0499c';
   const compose = (skills: string[]): string => {
     const base = loadSessionRows(db, runSession).main;
     const template = base.find((r) => r.toolCalls.some((c) => c.name === 'Skill'));
     const last = base.at(-1);
-    if (template === undefined || last === undefined) throw new Error('27yz3d 没有 Skill 调用');
+    if (template === undefined || last === undefined) throw new Error('27yz3d has no Skill call');
     const extra = skills.flatMap((name, i): RequestRow[] => {
       const at = last.timestamp.getTime() + (i + 1) * 60_000;
       const call = template.toolCalls.find((c) => c.name === 'Skill');
-      if (call === undefined) throw new Error('模板没有 Skill 调用');
+      if (call === undefined) throw new Error('The template has no Skill call');
       return [
         {
           ...template,
@@ -340,12 +343,12 @@ describe('fix-pr 与更前面的阶段', () => {
     return sessionId;
   };
 
-  test('fix-pr 多次调用：entries 计数，不切新阶段；fix-pr 中的 acceptance 留在 fix-pr', async () => {
+  test('repeated fix-pr calls count entries without a new stage; acceptance inside fix-pr stays in fix-pr', async () => {
     const id = compose(['fix-pr', 'fix-pr', 'acceptance', 'fix-pr']);
     const report = await stages(id);
     expect(icCycles(report)).toHaveLength(1);
     const fix = icCycles(report)[0]?.stages.find((v) => v.stage === 'fix-pr');
-    // 34 + 8 条请求：fix-pr 从 #34 到最后一条
+    // 34 + 8 requests: fix-pr runs from #34 to the last one
     expect(fix).toMatchObject({ status: 'active', startSeq: 34, endSeq: 41, entries: 3 });
     expect(fix?.evidence).toEqual({ seq: 34, kind: 'skill', text: 'Skill: fix-pr' });
     expect(icCycles(report)[0]?.stages.find((v) => v.stage === 'open-pr')).toMatchObject({
@@ -356,13 +359,13 @@ describe('fix-pr 与更前面的阶段', () => {
     expectConservation(id, report);
   });
 
-  test('排在当前阶段之前的阶段开始新一轮，之前的阶段 skipped', async () => {
+  test('a stage before the current one starts a new cycle, with earlier stages skipped', async () => {
     const id = compose(['fix-pr', 'implement', 'open-pr']);
     const report = await stages(id);
-    // 拼出的 session 没有用户消息：第 1 轮由 Skill claim（#1）开启
+    // The composed session has no user messages: Skill claim (#1) opens cycle 1
     expect(icCycles(report).map((c) => [c.label, c.startSeq, c.endSeq])).toEqual([
-      ['第 1 轮', 1, 35],
-      ['第 2 轮', 36, 39],
+      ['Round 1', 1, 35],
+      ['Round 2', 36, 39],
     ]);
     expect(
       views(icCycles(report)[1]).map(([stage, status, s, e]) => [stage, status, s, e]),
@@ -384,8 +387,8 @@ describe('fix-pr 与更前面的阶段', () => {
   });
 });
 
-// 16.6：绑定到其他 workflow（myreview）的 variant 的 session 只按那个 workflow 的定义切块
-describe('myreview 的阶段划分', () => {
+// 16.6: a session whose variant is bound to another workflow (myreview) is split only by that workflow's definition
+describe('stage partition of myreview', () => {
   const myreview = parseDefinition(
     parse(
       fs.readFileSync(
@@ -400,13 +403,13 @@ describe('myreview 的阶段划分', () => {
     .run();
   insertVariant(db, 'myreview-v', 'myreview');
 
-  test('scan、fix 一轮；fix 中的 scan 不切换、再次 fix 计次；lfg 与 ic 的 Skill 不是标记', async () => {
+  test('one scan, fix cycle; scan inside fix does not switch, fix again is counted; lfg and ic Skills are not markers', async () => {
     const base = loadSessionRows(db, '70e7a9b6-fdad-44c3-9b65-015ee2a0499c').main;
     const template = base.find((r) => r.toolCalls.some((c) => c.name === 'Skill'));
     const call = template?.toolCalls.find((c) => c.name === 'Skill');
     const last = base.at(-1);
     if (template === undefined || call === undefined || last === undefined) {
-      throw new Error('27yz3d 没有 Skill 调用');
+      throw new Error('27yz3d has no Skill call');
     }
     const names = ['scan', 'fix', 'scan', 'fix', 'report'];
     const extra = names.flatMap((name, i): RequestRow[] => {
@@ -429,7 +432,7 @@ describe('myreview 的阶段划分', () => {
     });
     const id = randomUUID();
     insertSession(db, id, [...base, ...extra], null);
-    // 先按 lfg 与 ic 划分（未绑定），绑定后从头只按 myreview 重算
+    // First split by lfg and ic (unbound); after binding, recomputed from the start by myreview only
     updateStages(db, id);
     expect((await stages(id)).workflows.map((w) => w.workflow)).toEqual(['lfg', 'ic']);
     db.update(sessions)
@@ -439,7 +442,7 @@ describe('myreview 的阶段划分', () => {
     const report = await stages(id);
     expect(report.workflows.map((w) => [w.workflow, w.cycles.length])).toEqual([['myreview', 1]]);
     const cycle = report.workflows[0]?.cycles[0];
-    expect([cycle?.label, cycle?.startSeq, cycle?.endSeq]).toEqual(['第 1 轮', 34, 43]);
+    expect([cycle?.label, cycle?.startSeq, cycle?.endSeq]).toEqual(['Round 1', 34, 43]);
     expect(views(cycle).map(([stage, status, s, e, n]) => [stage, status, s, e, n])).toEqual([
       ['scan', 'done', 34, 35, 1],
       ['fix', 'done', 36, 41, 2],
@@ -449,7 +452,7 @@ describe('myreview 的阶段划分', () => {
     expect(report).toEqual(stageReportOf([myreview], loadSessionRows(db, id), false));
   });
 
-  test('交互的 session：取该项最近一次进程所用的 variant；本机配置的进程按 lfg 与 ic', () => {
+  test('interactive session: uses the variant of the latest process of its Live item; processes with the local machine configuration use lfg and ic', () => {
     const id = randomUUID();
     const liveId = `l-${id.slice(0, 8)}`;
     const now = new Date();
@@ -483,7 +486,7 @@ describe('myreview 的阶段划分', () => {
     expect(partition()).toEqual(['myreview']);
     processOf(null);
     expect(partition()).toEqual(['lfg', 'ic']);
-    // 内置 workflow 的 variant 同样按 lfg 与 ic 一起划分
+    // A variant of a built-in workflow is also split by lfg and ic together
     processOf('stage-report-v');
     expect(partition()).toEqual(['lfg', 'ic']);
   });

@@ -19,12 +19,12 @@ import {
   withHiddenTests,
 } from '../src/tasks/loader.js';
 
-// 用法：tsx scripts/build-ic-task.ts <task id>
-// 把 .work/ic-src/<id>/ 提交为起始仓库并打成 tasks/<id>/repo.bundle，
-// 在参考实现上运行隐藏测试生成清单，写回 task.yaml，再确认起始仓库上隐藏测试有失败。
+// Usage: tsx scripts/build-ic-task.ts <task id>
+// Commit .work/ic-src/<id>/ as the starting repo and bundle it as tasks/<id>/repo.bundle,
+// run the hidden tests on the reference solution to build the manifest, write it back to task.yaml, then confirm hidden tests fail on the starting repo.
 
 const id = process.argv[2];
-if (!id) throw new Error('用法：build-ic-task.ts <task id>');
+if (!id) throw new Error('Usage: build-ic-task.ts <task id>');
 
 const workDir = path.join(config.repoRoot, '.work');
 const srcDir = path.join(workDir, 'ic-src', id);
@@ -32,7 +32,7 @@ const buildDir = path.join(workDir, 'ic-build', id);
 const taskDir = path.join(config.tasksDir, id);
 const yamlFile = taskYamlPath(config.tasksDir, id);
 
-// 固定作者与时间，同样的源文件总是得到同样的 commit
+// Fixed author and time, so the same source files always give the same commit
 const gitEnv = {
   ...process.env,
   GIT_AUTHOR_NAME: 'Acme Developer',
@@ -47,17 +47,19 @@ function run(command: string, args: string[], cwd: string) {
   const proc = spawnSync(command, args, { cwd, encoding: 'utf8', env: gitEnv });
   if (proc.error) throw proc.error;
   if (proc.status !== 0) {
-    throw new Error(`${command} ${args.join(' ')} 退出码 ${String(proc.status)}\n${proc.stderr}`);
+    throw new Error(
+      `${command} ${args.join(' ')} exit code ${String(proc.status)}\n${proc.stderr}`,
+    );
   }
   return proc.stdout.trim();
 }
 
-// 1. 锁定依赖版本
+// 1. Lock dependency versions
 if (!existsSync(path.join(srcDir, 'package-lock.json'))) {
   run('npm', ['install', '--package-lock-only', '--no-audit', '--no-fund'], srcDir);
 }
 
-// 2. 提交起始仓库并打包
+// 2. Commit and bundle the starting repo
 const repoDir = path.join(buildDir, 'repo');
 rmSync(buildDir, { recursive: true, force: true });
 mkdirSync(repoDir, { recursive: true });
@@ -73,17 +75,17 @@ const bundle = path.join(taskDir, 'repo.bundle');
 rmSync(bundle, { force: true });
 run('git', ['bundle', 'create', '--quiet', bundle, 'main'], repoDir);
 
-// 3. 参考实现上运行隐藏测试，生成清单
+// 3. Run the hidden tests on the reference solution to build the manifest
 const definition = parseTaskYaml(readFileSync(yamlFile, 'utf8'), yamlFile);
 if (definition.kind !== 'ic' || definition.repo === undefined) {
-  throw new Error(`${id} 不是 ic task`);
+  throw new Error(`${id} is not an ic task`);
 }
 const task = withHiddenTests({ ...definition, repo: { ...definition.repo, commit }, dir: taskDir });
 const referenceCheckout = path.join(buildDir, 'reference');
 checkoutStartRepo(task, referenceCheckout);
 installDependencies(referenceCheckout);
 applyReference(task, referenceCheckout);
-// 仓库自己的测试在参考实现上也通过
+// The repo's own tests also pass on the reference solution
 run('npm', ['test'], referenceCheckout);
 const scripts = z
   .object({ scripts: z.record(z.string(), z.string()) })
@@ -103,11 +105,11 @@ const updated = {
 };
 writeFileSync(yamlFile, serializeTask(updated));
 
-// 4. 起始仓库上必须有失败
+// 4. The starting repo must have failures
 const startCheckout = path.join(buildDir, 'start');
 checkoutStartRepo(task, startCheckout);
 installDependencies(startCheckout);
-// 起始仓库自己的测试是绿的，CI 在 main 上通过
+// The starting repo's own tests are green, CI passes on main
 run('npm', ['test'], startCheckout);
 placeHiddenTests(task, startCheckout);
 const startRun = await runHiddenTestCases(
@@ -117,7 +119,7 @@ const startRun = await runHiddenTestCases(
 );
 const startScore = scoreAgainstManifest(startRun, manifest);
 if (startScore.passed === startScore.declared) {
-  throw new Error(`${id} 的起始仓库通过了全部隐藏测试`);
+  throw new Error(`The starting repo of ${id} passed all hidden tests`);
 }
 
 console.log(

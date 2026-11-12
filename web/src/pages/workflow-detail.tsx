@@ -32,14 +32,15 @@ import { DeleteButton } from '@/components/delete-dialog';
 
 type ConfigTab = 'form' | 'yaml';
 
-// 入口命令与小阶段的配置：表单与 YAML 编辑同一份定义，流程图随之更新（Contracts 18.4）；内置的只读
+// Config of the entry command and stages: the form and YAML edit the same definition and the flow chart follows
+// (Contracts 18.4); read-only for built-in workflows
 function ConfigSection({ workflow, variants }: { workflow: WorkflowRecord; variants: Variant[] }) {
   const client = useQueryClient();
   const [tab, setTab] = useState<ConfigTab>('form');
   const [text, setText] = useState(() => definitionYaml(workflow.definition));
   const parsed = parseDefinitionYaml(text);
   const readOnly = workflow.builtin;
-  // 加入小阶段时提示这个 workflow 各 variant 中已有的 skill 名；只读时不需要
+  // Skill names already in this workflow's variants, suggested when adding a stage; not needed when read-only
   const files = useQueries({
     queries: readOnly ? [] : variants.map((v) => filesQuery(v.id)),
   });
@@ -50,7 +51,7 @@ function ConfigSection({ workflow, variants }: { workflow: WorkflowRecord; varia
     .sort();
   const save = useMutation({
     mutationFn: () => {
-      if (!parsed.ok) throw new Error('定义有错误，不能保存');
+      if (!parsed.ok) throw new Error('The definition has errors and cannot be saved');
       return updateWorkflow(workflow.id, {
         name: parsed.definition.name,
         description: workflow.description ?? '',
@@ -58,7 +59,7 @@ function ConfigSection({ workflow, variants }: { workflow: WorkflowRecord; varia
       });
     },
     onSuccess: async (saved) => {
-      // 保存后的文本是服务端定义的标准写法
+      // After saving, the text is the server's canonical form of the definition
       setText(definitionYaml(saved.definition));
       await client.invalidateQueries({ queryKey: ['workflows'] });
     },
@@ -70,7 +71,7 @@ function ConfigSection({ workflow, variants }: { workflow: WorkflowRecord; varia
         <div role="tablist" className="flex gap-1 border-b">
           {(
             [
-              ['form', '表单'],
+              ['form', 'Form'],
               ['yaml', 'YAML'],
             ] as const
           ).map(([id, label]) => (
@@ -101,13 +102,14 @@ function ConfigSection({ workflow, variants }: { workflow: WorkflowRecord; varia
             }}
           >
             <Save />
-            {save.isPending ? '保存中…' : '保存'}
+            {save.isPending ? 'Saving…' : 'Save'}
           </Button>
         )}
       </div>
       {readOnly && (
         <p className="text-sm text-muted-foreground">
-          内置的 workflow 只能改描述；要换入口或小阶段，从空白新建一个 workflow。
+          Built-in workflows can only change their description. To use a different entry or stages,
+          create a new workflow from blank.
         </p>
       )}
       {tab === 'form' &&
@@ -121,7 +123,9 @@ function ConfigSection({ workflow, variants }: { workflow: WorkflowRecord; varia
             }}
           />
         ) : (
-          <p className="text-sm text-destructive">YAML 中有错误，修正后表单才能显示。</p>
+          <p className="text-sm text-destructive">
+            The YAML has errors. Fix them to show the form.
+          </p>
         ))}
       {tab === 'yaml' && (
         <DefinitionYamlEditor
@@ -136,33 +140,35 @@ function ConfigSection({ workflow, variants }: { workflow: WorkflowRecord; varia
         <ul className="flex flex-col gap-1 text-sm text-destructive" data-testid="workflow-issues">
           {parsed.issues.map((issue) => (
             <li key={`${String(issue.line)}:${issue.message}`}>
-              第 {issue.line} 行：{issue.message}
+              Line {issue.line}: {issue.message}
             </li>
           ))}
         </ul>
       )}
       {save.isError && (
         <Alert variant="destructive">
-          <AlertTitle>保存失败</AlertTitle>
+          <AlertTitle>Could not save</AlertTitle>
           <AlertDescription>{save.error.message}</AlertDescription>
         </Alert>
       )}
       {save.isSuccess && !changed && (
         <p className="text-sm text-muted-foreground" data-testid="workflow-saved">
-          已保存。
+          Saved.
         </p>
       )}
-      <h2 className="text-lg font-semibold">小阶段流程图</h2>
+      <h2 className="text-lg font-semibold">Stage flow</h2>
       {parsed.ok ? (
         <StageFlow definition={parsed.definition} />
       ) : (
-        <p className="text-sm text-muted-foreground">定义有错误，修正后显示流程图。</p>
+        <p className="text-sm text-muted-foreground">
+          The definition has errors. Fix them to show the flow chart.
+        </p>
       )}
     </section>
   );
 }
 
-// 从 txe-workflow 的 commit 导入一个基线：只属于内置的 lfg、ic（任意 workflow 的 variant 只有一组 skill）
+// Import a baseline from a txe-workflow commit: only for the built-in lfg and ic (a variant of any workflow has one set of skills)
 function ImportBaseline({ workflowId }: { workflowId: string }) {
   const client = useQueryClient();
   const navigate = useNavigate();
@@ -190,7 +196,7 @@ function ImportBaseline({ workflowId }: { workflowId: string }) {
       }}
     >
       <label className="flex flex-col gap-1 text-sm">
-        名称
+        Name
         <input
           className="h-9 w-56 rounded-md border px-3"
           value={name}
@@ -212,14 +218,15 @@ function ImportBaseline({ workflowId }: { workflowId: string }) {
         />
       </label>
       <Button type="submit" variant="outline" disabled={create.isPending || name.trim() === ''}>
-        {create.isPending ? '导入中…' : '导入基线'}
+        {create.isPending ? 'Importing…' : 'Import baseline'}
       </Button>
       {create.isError && <p className="text-sm text-destructive">{create.error.message}</p>}
     </form>
   );
 }
 
-// lfg、ic 的 txe-workflow 最新版（Contracts 29.1）：tag、它自动导入的 variant 与构建状态，检查失败时的原文
+// Latest txe-workflow release for lfg and ic (Contracts 29.1): the tag, the variant it auto-imported and its build
+// status, and the raw error when the check failed
 function ReleaseLine({ workflow, variants }: { workflow: WorkflowRecord; variants: Variant[] }) {
   const all = useQuery(allVariantsQuery);
   const release = workflow.release;
@@ -233,7 +240,8 @@ function ReleaseLine({ workflow, variants }: { workflow: WorkflowRecord; variant
   return (
     <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm" data-testid="release-line">
       <span>
-        txe-workflow 最新版 <span className="font-mono font-medium">{release.tag ?? '—'}</span>
+        Latest txe-workflow release{' '}
+        <span className="font-mono font-medium">{release.tag ?? '—'}</span>
       </span>
       {variant !== undefined && (
         <>
@@ -249,24 +257,26 @@ function ReleaseLine({ workflow, variants }: { workflow: WorkflowRecord; variant
         </>
       )}
       {variant === undefined && deleted && (
-        <span className="text-muted-foreground">· 它的 variant 已删除，不再自动导入</span>
+        <span className="text-muted-foreground">
+          · Its variant was deleted and will not be imported again
+        </span>
       )}
       {variant === undefined && !deleted && release.tag !== null && release.error === null && (
-        <span className="text-muted-foreground">· 正在导入</span>
+        <span className="text-muted-foreground">· Importing</span>
       )}
       <span className="text-xs text-muted-foreground">
-        检查于 {formatDateTime(new Date(release.checkedAt).toISOString())}
+        Checked {formatDateTime(new Date(release.checkedAt).toISOString())}
       </span>
       {release.error !== null && (
         <span className="basis-full break-words text-destructive" data-testid="release-error">
-          失败：{release.error}
+          Check failed: {release.error}
         </span>
       )}
     </p>
   );
 }
 
-// 这个 workflow 的 variant 列表，名字链接到 variant 页面（Contracts 18.3）；新建 variant 是从选中的一个派生
+// This workflow's variants, names linking to the variant page (Contracts 18.3); a new variant is derived from the selected one
 function VariantsSection({
   workflow,
   variants,
@@ -290,12 +300,12 @@ function VariantsSection({
   return (
     <section className="flex flex-col gap-3" data-testid="workflow-variants">
       <div className="flex flex-wrap items-center gap-2">
-        <h2 className="text-lg font-semibold">variant</h2>
+        <h2 className="text-lg font-semibold">Variants</h2>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {variants.length > 0 && (
             <select
               className="h-8 rounded-md border bg-background px-2 text-sm"
-              aria-label="派生自"
+              aria-label="Derive from"
               value={source?.id ?? ''}
               onChange={(event) => {
                 setSourceId(event.target.value);
@@ -313,14 +323,17 @@ function VariantsSection({
             disabled={source === undefined || derive.isPending}
             onClick={() => {
               if (source === undefined) return;
-              const name = window.prompt(`新 variant 名称（从 ${source.name} 派生）`, '');
+              const name = window.prompt(
+                `Name of the new variant (derived from ${source.name})`,
+                '',
+              );
               if (name !== null && name.trim() !== '') {
                 derive.mutate({ from: source.id, name: name.trim() });
               }
             }}
           >
             <Plus />
-            新建 variant
+            New variant
           </Button>
           <Button
             size="sm"
@@ -331,7 +344,7 @@ function VariantsSection({
             }}
           >
             <Sparkles />
-            生成 variant
+            Generate variant
           </Button>
         </div>
       </div>
@@ -352,37 +365,37 @@ function VariantsSection({
   );
 }
 
-// Contracts 16.7、18.4：Workflow 页面
+// Contracts 16.7, 18.4: the Workflow page
 export function WorkflowPage() {
   const { id } = useParams();
-  if (id === undefined) throw new Error('路由缺少 workflow id');
+  if (id === undefined) throw new Error('The route has no workflow id');
   const client = useQueryClient();
   const workflow = useQuery(workflowQuery(id));
   const variants = useQuery(variantsQuery);
   if (workflow.isPending || variants.isPending) {
-    return <p className="text-sm text-muted-foreground">加载中…</p>;
+    return <p className="text-sm text-muted-foreground">Loading…</p>;
   }
   if (workflow.isError || variants.isError) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>无法读取 workflow</AlertTitle>
+        <AlertTitle>Could not load the workflow</AlertTitle>
         <AlertDescription>{(workflow.error ?? variants.error)?.message}</AlertDescription>
       </Alert>
     );
   }
   const w = workflow.data;
   const own = variants.data.filter((v) => v.workflowId === w.id);
-  // 换到另一个 workflow 时整页按 id 重新挂载：描述与配置的编辑状态跟着换
+  // Switching to another workflow remounts the page by id, so description and config edits switch with it
   return (
     <div key={w.id} className="flex flex-col gap-6">
       <Button asChild variant="ghost" className="w-fit">
         <Link to="/workflows">
           <ArrowLeft />
-          全部 workflow
+          All workflows
         </Link>
       </Button>
       <div className="flex flex-col gap-1">
-        {/* 删除与标题在同一行（Contracts 24.6）；内置的 workflow 不能删除 */}
+        {/* Delete sits on the title row (Contracts 24.6); built-in workflows cannot be deleted */}
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold">{w.name}</h1>
           {!w.builtin && (
@@ -392,12 +405,12 @@ export function WorkflowPage() {
           )}
         </div>
         <p className="text-sm text-muted-foreground" data-testid="workflow-summary">
-          入口 <span className="font-mono text-foreground">/{w.id}</span> · 评测类型{' '}
+          Entry <span className="font-mono text-foreground">/{w.id}</span> · Eval kind{' '}
           {evalKindLabel(w.evalKind)}
         </p>
       </div>
       <DescriptionEditor
-        label="描述"
+        label="Description"
         value={w.description}
         onSave={async (description) => {
           await updateWorkflow(w.id, { name: w.name, description, definition: w.definition });

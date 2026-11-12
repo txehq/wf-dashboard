@@ -13,18 +13,18 @@ export interface DotValue {
 
 function marks(v: DotValue): string[] {
   return [
-    v.intervened ? '有人工干预' : null,
-    v.crossRef ? '参考了其他 run' : null,
-    v.sourceRef ? '读取了来源工单或仓库' : null,
-    v.cancelled ? '被取消，按已写出的产物评分' : null,
+    v.intervened ? 'human intervened' : null,
+    v.crossRef ? 'referenced other runs' : null,
+    v.sourceRef ? 'read the source ticket or repo' : null,
+    v.cancelled ? 'cancelled, graded on the output written so far' : null,
   ].filter((t) => t !== null);
 }
 
-// 两个点的横向距离小于这个比例时上下错开，避免重叠
+// When two dots are closer than this fraction horizontally, offset them vertically to avoid overlap
 const OVERLAP = 0.03;
 const ROW_PX = 14;
 
-// 按值从小到大逐个放入第一个不会重叠的行
+// Place each value, smallest first, in the first row where it does not overlap
 function stack(values: DotValue[]): { dot: DotValue; row: number }[] {
   const lastInRow: number[] = [];
   return [...values]
@@ -37,8 +37,8 @@ function stack(values: DotValue[]): { dot: DotValue; row: number }[] {
     });
 }
 
-// 一个格子里各次 run 的原始值：0 到 100% 的横轴上每次 run 一个点，竖线为均值，横线为 ± 标准差。
-// 点是指向 Runs 详情的链接；有人工干预的 run 画成空心，参考了其他 run 的画成菱形，被取消的画成三角形
+// Raw values of each run in a cell: one dot per run on a 0 to 100% axis, a vertical line for the mean, a horizontal line for ± standard deviation.
+// Dots link to the run detail; human-intervened runs are hollow, runs that referenced other runs are diamonds, cancelled runs are triangles
 export function DotStrip({
   values,
   mean,
@@ -60,7 +60,7 @@ export function DotStrip({
       className="relative mx-3"
       style={{ height: 24 + (rows - 1) * ROW_PX }}
       role="group"
-      aria-label={`${label}：各次 run`}
+      aria-label={`${label}: runs`}
     >
       <div className="pointer-events-none absolute inset-x-0 top-3 h-px bg-[var(--viz-grid)]" />
       {mean !== null && stdDev !== null && (
@@ -80,14 +80,14 @@ export function DotStrip({
           key={v.runId}
           to={`/runs/${v.runId}`}
           title={[`${v.runId} · ${percent(v.value, 1)}`, ...marks(v)].join(' · ')}
-          aria-label={[`run ${v.runId}：${percent(v.value, 1)}`, ...marks(v)].join('，')}
+          aria-label={[`run ${v.runId}: ${percent(v.value, 1)}`, ...marks(v)].join(', ')}
           data-testid="run-dot"
           data-cross-ref={v.crossRef}
           data-source-ref={v.sourceRef}
           data-cancelled={v.cancelled}
           className={cn(
             'group absolute flex size-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring',
-            // 读取了来源：点外加一圈红色
+            // Read the source: a red ring around the dot
             v.sourceRef && 'border border-destructive',
           )}
           style={{ left: x(v.value), top: 12 + row * ROW_PX }}

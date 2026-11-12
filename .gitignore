@@ -4,10 +4,10 @@ dist/
 .spikes/
 .work/
 data/
-# 用户自己的脚本（只是根目录的 scripts/，server/scripts/ 照常跟踪）
+# The user's own scripts (only the root scripts/; server/scripts/ is tracked as usual)
 /scripts/
 *.tsbuildinfo
 *.log
 .DS_Store
-# 生成 bundle 时的临时克隆（进程中途退出时可能留下）
+# Temporary clones made while building a bundle (left behind if the process exits midway)
 tasks/*/.bundle-tmp-*/

@@ -2,11 +2,13 @@ import { type QueryClient, type QueryKey, useQueryClient } from '@tanstack/react
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { refetchBuildLog } from '@/pages/variants-api';
 
-// 一个页面共用一个 /api/events 连接（W15 H11）：
-// - 每次连上（包括断开后重连）服务端先发 ready，这时刷新全部查询（已失败的除外），补上断开期间错过的变化；
-// - 连接被关闭（例如服务重启期间 Vite 代理返回 502，EventSource 不会再自己重试）时按退避重建连接；
-// - 连接状态供布局显示"实时连接已断开"。
-// 各页面用 useLiveEvent 订阅自己关心的事件
+// One /api/events connection shared by the page (W15 H11):
+// - on every connect (reconnects included) the server first sends ready, which refreshes all queries
+//   (except failed ones) to catch up on changes missed while disconnected;
+// - when the connection is closed (e.g. the Vite proxy returns 502 during a server restart and
+//   EventSource stops retrying by itself), it is rebuilt with backoff;
+// - the connection status lets the layout show that the live connection was lost.
+// Pages subscribe to the events they care about with useLiveEvent
 
 export type LiveStatus = 'connecting' | 'open' | 'lost';
 
@@ -25,10 +27,15 @@ const EVENT_TYPES = [
   'workflow.deleted',
   'workflow.release',
   'live.updated',
+  'orca.updated',
   'draft.updated',
   'analysis.updated',
   'magi.updated',
   'magi.deploy',
+  'ssh-hosts.updated',
+  'vscode.servers',
+  'team.sync',
+  'install.updated',
 ] as const;
 export type LiveEventType = (typeof EVENT_TYPES)[number];
 
@@ -46,13 +53,13 @@ function setStatus(next: LiveStatus) {
   for (const l of statusListeners) l();
 }
 
-// 整页刷新（SSE 的 ready、variant.updated）：已失败的查询不重新请求，只由页面上的「重试」恢复
-// （与 variants-api.ts 中失败后不自动重复请求的约定相同）
+// Full refresh (SSE ready, variant.updated): failed queries are not requested again; only the page's
+// "Retry" recovers them (same rule as variants-api.ts, which does not repeat failed requests automatically)
 export function refreshAllExceptFailed(client: QueryClient) {
   void client.invalidateQueries({ predicate: (query) => query.state.status !== 'error' });
 }
 
-// 建立连接；返回关闭函数。由布局挂载一次
+// Opens the connection and returns a close function. Mounted once by the layout
 export function connectLiveEvents(client: QueryClient, url = '/api/events'): () => void {
   let source: EventSource | null = null;
   let retry: ReturnType<typeof setTimeout> | undefined;
@@ -69,7 +76,7 @@ export function connectLiveEvents(client: QueryClient, url = '/api/events'): () 
     s.addEventListener('error', () => {
       if (closed) return;
       setStatus('lost');
-      // CONNECTING：浏览器自己重连；CLOSED：不会再重试，由这里重建
+      // CONNECTING: the browser reconnects by itself; CLOSED: it will not retry, so rebuild here
       if (s.readyState === EventSource.CLOSED) {
         s.close();
         retry = setTimeout(open, delay);
@@ -100,7 +107,7 @@ export function useLiveStatus(): LiveStatus {
   }, liveStatus);
 }
 
-// 订阅事件；handler 每次渲染可以不同，调用时取最新的一个
+// Subscribe to events; handler may differ on each render, the latest one is called
 export function useLiveEvent(handler: Handler) {
   const latest = useRef(handler);
   useEffect(() => {
@@ -117,11 +124,11 @@ export function useLiveEvent(handler: Handler) {
   }, []);
 }
 
-// 同一个查询键在 ms 内只刷新一次（窗口结束时刷新，取到窗口内最后的变化）：
-// 长时间运行中 session.updated 每秒数次，一个 batch 创建时 run.status 一次几十条
+// A query key refreshes at most once per ms window (at the end of the window, picking up its last change):
+// during long runs session.updated fires several times a second, and creating a batch sends dozens of run.status at once
 const pending = new Map<string, ReturnType<typeof setTimeout>>();
 
-// 同一个 key 在 ms 内只执行一次 work（窗口结束时执行）
+// Run work at most once per ms for the same key (at the end of the window)
 export function throttled(key: string, ms: number, work: () => void) {
   if (pending.has(key)) return;
   pending.set(
@@ -139,12 +146,16 @@ export function invalidateThrottled(client: QueryClient, queryKey: QueryKey, ms:
   });
 }
 
-// 布局挂载：建立连接；variant.build 刷新 variant 的列表与该 variant 的详情和构建日志（离开 Variants 页面再回来时
-// 状态是最新的，Runs 的发起列表在构建完成时可选）。文件内容不刷新，编辑中的修改不受影响。
-// variant.updated（改名、被覆盖或恢复，Contracts 16.4、17.4）：variant 的名字与状态出现在各个页面的查询中（Workflows、
-// Sessions 的绑定、Live、Runs、Compare、Analyses、草稿、历史），全部重新读取（已失败的除外）；编辑器只在打开文件时读内容，编辑中的修改不受影响
-// variant.deleted、workflow.deleted（Contracts 24.6）同样全部重新读取：已删除的从列表中消失，保留的记录显示「（已删除）」
-// workflow.release 重新读取 workflow 与 variant 的列表
+// Mounted by the layout: opens the connection. variant.build refreshes the variant list and that
+// variant's detail and build log (so the status is current when returning to Variants, and the Runs
+// start list offers the variant once built). File contents are not refreshed; unsaved edits are kept.
+// variant.updated (renamed, overwritten or restored, Contracts 16.4, 17.4): variant names and statuses
+// appear in queries on many pages (Workflows, Sessions bindings, Live, Runs, Compare, Analyses, drafts,
+// History), so everything is re-read (except failed queries); the editor reads content only when a file
+// opens, so unsaved edits are kept.
+// variant.deleted and workflow.deleted (Contracts 24.6) also re-read everything: deleted items leave the
+// lists, and kept records show them as deleted.
+// workflow.release re-reads the workflow and variant lists
 export function useLiveConnection() {
   const client = useQueryClient();
   useEffect(() => connectLiveEvents(client), [client]);
@@ -153,11 +164,21 @@ export function useLiveConnection() {
       refreshAllExceptFailed(client);
       return;
     }
-    // workflow.release（Contracts 29.1）：最新版的检查结果变了或自动导入了 variant
+    // workflow.release (Contracts 29.1): the latest release's check results changed or a variant was auto-imported
     if (type === 'workflow.release') {
       for (const queryKey of [['workflows'], ['variants']]) {
         void client.invalidateQueries({ queryKey });
       }
+      return;
+    }
+    // vscode.servers (Contracts 32.4): VS Code server progress, start and exit
+    if (type === 'vscode.servers') {
+      void client.invalidateQueries({ queryKey: ['vscode', 'servers'] });
+      return;
+    }
+    // install.updated (Contracts 39.4): the installed package's self-update changed
+    if (type === 'install.updated') {
+      void client.invalidateQueries({ queryKey: ['install'] });
       return;
     }
     if (type !== 'variant.build') return;

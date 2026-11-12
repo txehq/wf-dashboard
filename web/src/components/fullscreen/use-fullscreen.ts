@@ -4,8 +4,8 @@ import { isFullscreenShortcut } from './shortcut';
 
 const PARAM = 'fullscreen';
 
-// 页面内全屏的状态（Contracts 20.1）：写在地址的 ?fullscreen=1 中，刷新后保持；快捷键 ⌃⇧F 切换，Esc 不退出。
-// 进入时记下页面的滚动位置，退出后恢复
+// In-page full screen state (Contracts 20.1): kept in the address as ?fullscreen=1 so it survives a refresh; ⌃⇧F toggles it, Esc does not exit.
+// The page's scroll position is saved on entry and restored on exit
 export function useFullscreen() {
   const [params, setParams] = useSearchParams();
   const active = params.get(PARAM) === '1';
@@ -28,7 +28,7 @@ export function useFullscreen() {
     set(!active);
   };
 
-  // 快捷键在捕获阶段处理，编辑器与终端收不到这个组合
+  // The shortcut is handled in the capture phase, so editors and terminals never receive it
   const toggleRef = useRef(toggle);
   useLayoutEffect(() => {
     toggleRef.current = toggle;
@@ -46,7 +46,7 @@ export function useFullscreen() {
     };
   }, []);
 
-  // 全屏时页面本身不滚动；退出后回到进入前的滚动位置
+  // The page itself does not scroll in full screen; on exit it returns to the scroll position from before
   useLayoutEffect(() => {
     if (!active) {
       window.scrollTo(0, scrollY.current);
@@ -73,7 +73,7 @@ export function useFullscreen() {
 
 export type Fullscreen = ReturnType<typeof useFullscreen>;
 
-// 全屏区域内的子组件据此在进入与退出后重新计算尺寸（Monaco 的 layout、xterm 的 fit 与 PTY resize）
+// Children of the full screen area use this to recompute their size after entering and exiting (Monaco layout, xterm fit and PTY resize)
 export const FullscreenContext = createContext<{ active: boolean }>({ active: false });
 
 export function useFullscreenLayout(relayout: () => void) {
@@ -88,7 +88,7 @@ export function useFullscreenLayout(relayout: () => void) {
       first.current = false;
       return;
     }
-    // 等新的布局生效（class 变化后的下一帧）再量尺寸
+    // Measure once the new layout applies (the frame after the class change)
     const frame = requestAnimationFrame(() => {
       relayoutRef.current();
     });

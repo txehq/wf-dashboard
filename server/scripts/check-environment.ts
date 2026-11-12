@@ -3,7 +3,7 @@ import { runEnvironmentChecks } from '../src/environment.js';
 import { closeLinearClient } from '../src/external/linear.js';
 import { models } from '../src/llm/client.js';
 
-// 在本机执行一次 GET /api/environment 的全部检查并打印结果（不经过服务与缓存）：tsx scripts/check-environment.ts
+// Run every GET /api/environment check once on this machine and print the result (bypassing the server and cache): tsx scripts/check-environment.ts
 const report = await runEnvironmentChecks({
   models: () => models,
   vaultDir: config.vaultDir,

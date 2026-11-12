@@ -14,9 +14,9 @@ const Effort = z.enum(efforts);
 const Variant = z.object({
   id: z.string(),
   name: z.string(),
-  // 基本描述（Contracts 18.3）
+  // Basic description (Contracts 18.3)
   description: z.string().nullable(),
-  // 所属 workflow（Contracts 16.4）；页面显示为 名字 (workflow)
+  // The workflow it belongs to (Contracts 16.4); the page shows name (workflow)
   workflowId: z.string(),
   parentId: z.string().nullable(),
   baseCommit: z.string(),
@@ -24,7 +24,7 @@ const Variant = z.object({
   version: z.string(),
   status: z.enum(['draft', 'frozen']),
   installDir: z.string().nullable(),
-  // 与另一个 variant 共用的目录（迁移拆出的 lfg 与 ic，Contracts 16.4）；为空时是自己的目录
+  // A directory shared with another variant (the migrated lfg and ic, Contracts 16.4); empty when it is its own
   storageId: z.string().nullable(),
   buildStatus: z.enum(['none', 'building', 'built', 'failed']),
   builtHash: z.string().nullable(),
@@ -34,12 +34,15 @@ const Variant = z.object({
   frozenAt: z.date().nullable(),
   analysisId: z.string().nullable(),
   sourceSessionId: z.string().nullable(),
-  // 由 Codex 草稿保存出时的草稿 id（Contracts 17.4）
+  // The draft id when saved from a Codex draft (Contracts 17.4)
   draftId: z.string().nullable(),
-  // 删除的时间（Contracts 24.3）；没有删除时为空
+  // When it was deleted (Contracts 24.3); empty when not deleted
   deletedAt: z.date().nullable(),
-  // 自动导入的 txe-workflow release 的 tag（Contracts 29.1）；其他为空
+  // The tag of an automatically imported txe-workflow release (Contracts 29.1); empty otherwise
   releaseTag: z.string().nullable(),
+  // "Include Orca's skills" (Contracts 35.5) and the Orca version the latest build put in
+  orcaSkills: z.boolean(),
+  orcaVersion: z.string().nullable(),
 });
 
 const IdParams = z.object({ id: z.string() });
@@ -81,7 +84,7 @@ export const variantRoutes: FastifyPluginCallbackZod<{ variants: Variants }> = (
     '/api/variants',
     {
       schema: {
-        // includeDeleted：也列出已删除的（Compare 显示保留的 run，Contracts 24.3）
+        // includeDeleted: list deleted ones too (Compare shows kept runs, Contracts 24.3)
         querystring: z.object({ includeDeleted: z.enum(['1']).optional() }),
         response: { 200: z.array(Variant.extend({ boundSessions: z.number() })) },
       },
@@ -94,7 +97,7 @@ export const variantRoutes: FastifyPluginCallbackZod<{ variants: Variants }> = (
     },
   );
 
-  // 从 txe-workflow 的 commit（默认 HEAD）导入基线，属于内置的 workflowId（默认 lfg）
+  // Import a baseline from a txe-workflow commit (HEAD by default) into a built-in workflowId (lfg by default)
   app.post(
     '/api/variants',
     {
@@ -113,14 +116,14 @@ export const variantRoutes: FastifyPluginCallbackZod<{ variants: Variants }> = (
     },
   );
 
-  // 包括已删除的 variant：只用于显示名字（parent、run 等保留的记录，Contracts 24.3）
+  // Deleted variants included: only to show names (kept records such as parent and runs, Contracts 24.3)
   app.get(
     '/api/variants/:id',
     { schema: { params: IdParams, response: { 200: Variant } } },
     (request) => variants.record(request.params.id),
   );
 
-  // 派生只能在同一 workflow 内：给出与来源不同的 workflowId 时 400
+  // Derive only within the same workflow: a workflowId different from the source's is a 400
   app.post(
     '/api/variants/:id/derive',
     {
@@ -178,7 +181,7 @@ export const variantRoutes: FastifyPluginCallbackZod<{ variants: Variants }> = (
     (request) => variants.deleteFile(request.params.id, request.query.path),
   );
 
-  // skill 目录的新增、重命名与删除（Contracts 16.4）
+  // Adding, renaming and deleting skill directories (Contracts 16.4)
   app.post(
     '/api/variants/:id/skills',
     {
@@ -232,7 +235,7 @@ export const variantRoutes: FastifyPluginCallbackZod<{ variants: Variants }> = (
     (request) => variants.diff(request.params.id, request.query.against),
   );
 
-  // 同步完成构建与安装；进度通过事件与 build-log 查看
+  // Build and install synchronously; progress via events and build-log
   app.post(
     '/api/variants/:id/build',
     { schema: { params: IdParams, response: { 200: Variant } } },
@@ -246,7 +249,7 @@ export const variantRoutes: FastifyPluginCallbackZod<{ variants: Variants }> = (
       reply.type('text/plain; charset=utf-8').send(variants.buildLog(request.params.id)),
   );
 
-  // 基本描述（Contracts 18.3）与改名（16.4）：一次改其中一项或两项
+  // Basic description (Contracts 18.3), rename (16.4) and "Include Orca's skills" (35.5): change one or several at once
   app.patch(
     '/api/variants/:id',
     {
@@ -256,24 +259,36 @@ export const variantRoutes: FastifyPluginCallbackZod<{ variants: Variants }> = (
           .strictObject({
             description: z.string().max(2000).optional(),
             name: z.string().optional(),
+            orcaSkills: z.boolean().optional(),
           })
-          .refine((b) => b.description !== undefined || b.name !== undefined, {
-            message: '要改 description 或 name',
-          }),
+          .refine(
+            (b) =>
+              b.description !== undefined || b.name !== undefined || b.orcaSkills !== undefined,
+            { message: 'Change description, name or orcaSkills' },
+          ),
         response: { 200: Variant },
       },
     },
     (request) => {
       const { id } = request.params;
-      const { description, name } = request.body;
+      const { description, name, orcaSkills } = request.body;
       if (name !== undefined) variants.rename(id, name);
+      if (orcaSkills !== undefined) variants.setOrcaSkills(id, orcaSkills);
       return description === undefined
         ? variants.get(id)
         : variants.setDescription(id, description);
     },
   );
 
-  // variant 的历史（Contracts 16.4、17.4）：改名、被 Codex 草稿覆盖、恢复，按时间先后
+  // The current Orca version (Contracts 35.5): the variant page compares it with the version from its build and
+  // suggests rebuilding when they differ
+  app.get(
+    '/api/variants/orca-version',
+    { schema: { response: { 200: z.object({ version: z.string().nullable() }) } } },
+    async () => ({ version: await variants.orcaVersion() }),
+  );
+
+  // A variant's history (Contracts 16.4, 17.4): renames, overwrites by Codex drafts, restores, in time order
   app.get(
     '/api/variants/:id/history',
     { schema: { params: IdParams, response: { 200: z.array(VariantHistoryEntry) } } },
@@ -282,21 +297,22 @@ export const variantRoutes: FastifyPluginCallbackZod<{ variants: Variants }> = (
 
   const EventParams = IdParams.extend({ eventId: z.coerce.number().int().positive() });
 
-  // 查看历史中存下的 src/：现在的内容恢复成它时逐文件的改动
+  // View a src/ kept in history: the per-file changes if the current content were restored to it
   app.get(
     '/api/variants/:id/history/:eventId/diff',
     { schema: { params: EventParams, response: { 200: z.array(FileDiff) } } },
     (request) => variants.historyDiff(request.params.id, request.params.eventId),
   );
 
-  // 恢复历史中存下的 src/：恢复前的 src/ 同样存进历史；导入的与已冻结的 409
+  // Restore a src/ kept in history: the src/ before restoring goes into history too; imported and frozen ones are
+  // a 409
   app.post(
     '/api/variants/:id/history/:eventId/restore',
     { schema: { params: EventParams, response: { 200: Variant } } },
     (request) => variants.restore(request.params.id, request.params.eventId),
   );
 
-  // 安装到本机（Contracts 18.6）：没有装时 installed 为 null
+  // Install on this machine (Contracts 18.6): installed is null when not installed
   app.get(
     '/api/variants/:id/install',
     {
@@ -308,7 +324,7 @@ export const variantRoutes: FastifyPluginCallbackZod<{ variants: Variants }> = (
     (request) => ({ installed: variants.localInstall(request.params.id) }),
   );
 
-  // 同一 workflow 已装的 variant 先卸载，replaced 列出这些
+  // Variants of the same workflow already installed are uninstalled first; replaced lists them
   app.post(
     '/api/variants/:id/install',
     {

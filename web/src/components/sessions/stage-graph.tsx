@@ -15,7 +15,7 @@ import { StatusLabel } from '@/components/sessions/status-label';
 import { formatCount, formatDuration, formatInteger, formatUsd } from '@/lib/format';
 import type { StageStatus, StageView } from '@/lib/sessions-api';
 
-// 跳过：虚线边框加斜纹；未到达：点线边框、淡色文字
+// Skipped: dashed border with stripes; not reached: dotted border, faded text
 const statusBox: Record<StageStatus, string> = {
   done: 'border-foreground/25 bg-card border-l-4 border-l-[var(--viz-status-good)]',
   active: 'border-2 border-[var(--viz-series-1)] bg-card',
@@ -27,13 +27,14 @@ const statusBox: Record<StageStatus, string> = {
 const NODE_WIDTH = 158;
 const NODE_GAP = 26;
 const NODE_Y = 44;
-// 阶段框最高时（调用次数加子代理行）约 190px
+// A stage box is about 190px at its tallest (call count plus the subagent row)
 const NODE_HEIGHT = 200;
-// 一行的高度：上方留出 fix-pr 自环的位置
+// Row height: leaves room above for the fix-pr self-loop
 const ROW_HEIGHT = NODE_Y + NODE_HEIGHT;
 const VIEWPORT_X = 4;
 
-// 容器宽度放不下一行时换成多行，各行的列数尽量相等；节点大小不变
+// Wrap into several rows when one row does not fit the container, with rows as even as possible; node size
+// stays the same
 function gridOf(columns: number, width: number): { perRow: number; rows: number } {
   const fit = Math.max(
     1,
@@ -47,7 +48,7 @@ function useWidth(ref: RefObject<HTMLDivElement | null>): number | null {
   const [width, setWidth] = useState<number | null>(null);
   useLayoutEffect(() => {
     const el = ref.current;
-    if (el === null) throw new Error('阶段图容器尚未挂载');
+    if (el === null) throw new Error('Stage graph container is not mounted yet');
     setWidth(el.clientWidth);
     const observer = new ResizeObserver(() => {
       setWidth(el.clientWidth);
@@ -60,11 +61,11 @@ function useWidth(ref: RefObject<HTMLDivElement | null>): number | null {
   return width;
 }
 
-// @xyflow/react 要求节点数据可索引
+// @xyflow/react requires indexable node data
 interface StageNodeData extends Record<string, unknown> {
   view: StageView;
   selected: boolean;
-  // 实时运行中：进行中的阶段带脉动标记与"当前"字样
+  // Live run: the in-progress stage gets a pulsing marker and "Current"
   live: boolean;
   onSelect: (stage: string) => void;
 }
@@ -77,7 +78,7 @@ function StageHandles({ loop }: { loop: boolean }) {
     <>
       <Handle type="target" position={Position.Left} id="in" className={hiddenHandle} />
       <Handle type="source" position={Position.Right} id="out" className={hiddenHandle} />
-      {/* 换行时：行末的框从底部指向下一行行首的框顶部 */}
+      {/* When wrapping: the last box of a row points from its bottom to the top of the next row's first box */}
       <Handle type="target" position={Position.Top} id="up" className={hiddenHandle} />
       <Handle type="source" position={Position.Bottom} id="down" className={hiddenHandle} />
       {loop && (
@@ -143,35 +144,44 @@ function StageNodeView({ data }: NodeProps<StageNode>) {
                   <span className="absolute inline-flex size-full animate-ping rounded-full bg-[var(--viz-series-1)] opacity-75" />
                   <span className="relative inline-flex size-2 rounded-full bg-[var(--viz-series-1)]" />
                 </span>
-                当前
+                Current
               </span>
             )}
           </span>
         </span>
         {empty ? (
           <span className="py-3 text-xs text-muted-foreground">
-            {view.status === 'skipped' ? '没有请求，直接进入下一阶段' : '没有进入这个阶段'}
+            {view.status === 'skipped'
+              ? 'No requests; went straight to the next stage'
+              : 'Not reached'}
           </span>
         ) : (
           <dl className="grid grid-cols-[auto_1fr] gap-x-2 text-xs">
-            <dt className="text-muted-foreground">{view.stage === 'fix-pr' ? '修复' : '调用'}</dt>
+            <dt className="text-muted-foreground">{view.stage === 'fix-pr' ? 'Fixes' : 'Calls'}</dt>
             <dd className="text-right tabular-nums" data-testid="stage-entries">
-              {formatInteger(view.entries)} {view.stage === 'fix-pr' ? '轮' : '次'}
+              {formatInteger(view.entries)}{' '}
+              {view.stage === 'fix-pr'
+                ? view.entries === 1
+                  ? 'round'
+                  : 'rounds'
+                : view.entries === 1
+                  ? 'time'
+                  : 'times'}
             </dd>
-            <Stat label="请求" value={formatInteger(s.requests)} />
-            {s.subagents > 0 && <Stat label="子代理" value={formatInteger(s.subagents)} />}
+            <Stat label="Requests" value={formatInteger(s.requests)} />
+            {s.subagents > 0 && <Stat label="Subagents" value={formatInteger(s.subagents)} />}
             <Stat
-              label="tool"
+              label="Tools"
               value={formatInteger(Object.values(s.toolCalls).reduce((a, b) => a + b, 0))}
             />
             <Stat
-              label="token"
+              label="Tokens"
               value={formatCount(
                 s.inputTokens + s.outputTokens + s.cacheReadTokens + s.cacheCreationTokens,
               )}
             />
-            <Stat label="花费" value={formatUsd(s.costUsd)} />
-            <Stat label="耗时" value={formatDuration(s.durationMs)} />
+            <Stat label="Cost" value={formatUsd(s.costUsd)} />
+            <Stat label="Duration" value={formatDuration(s.durationMs)} />
           </dl>
         )}
       </button>
@@ -179,7 +189,7 @@ function StageNodeView({ data }: NodeProps<StageNode>) {
   );
 }
 
-// fix-pr 指向自己的环：从框顶右侧出发，弧线回到框顶左侧
+// fix-pr's loop to itself: leaves from the top right of the box and arcs back to the top left
 function LoopEdge({ sourceX, sourceY, targetX, targetY, markerEnd, style }: EdgeProps) {
   const lift = 34;
   const path = `M ${String(sourceX)} ${String(sourceY)} C ${String(sourceX + 18)} ${String(sourceY - lift)}, ${String(targetX - 18)} ${String(targetY - lift)}, ${String(targetX)} ${String(targetY)}`;
@@ -206,7 +216,7 @@ export function StageGraph({
   onSelect,
   live = false,
 }: {
-  // workflow id（Contracts 16.6）
+  // workflow id (Contracts 16.6)
   workflow: string;
   views: StageView[];
   selected: string | null;
@@ -220,7 +230,8 @@ export function StageGraph({
     x: (i % perRow) * (NODE_WIDTH + NODE_GAP),
     y: Math.floor(i / perRow) * ROW_HEIGHT + NODE_Y,
   });
-  // 同一行内从右侧指向下一个框的左侧；换行处从行末框的底部指向下一行行首框的顶部
+  // Within a row, right side to the next box's left side; at a wrap, from the bottom of the row's last box to
+  // the top of the next row's first box
   const link = (i: number) =>
     i % perRow === 0
       ? { type: 'smoothstep', sourceHandle: 'down', targetHandle: 'up' }
@@ -233,7 +244,7 @@ export function StageGraph({
     data: { view, selected: selected === view.stage, live, onSelect },
     draggable: false,
     selectable: false,
-    // 不可选中的节点默认不接收指针事件，框内按钮需要点击
+    // Non-selectable nodes ignore pointer events by default; the button inside needs clicks
     style: { pointerEvents: 'all' },
   }));
   const edges: Edge[] = [];
@@ -263,14 +274,15 @@ export function StageGraph({
   }
   const width = perRow * (NODE_WIDTH + NODE_GAP) - NODE_GAP + VIEWPORT_X * 2;
   return (
-    // contain: inline-size 让容器宽度只取决于页面，不被图的宽度撑开，窗口变窄时才能重新换行
+    // contain: inline-size makes the container width depend only on the page, not the graph, so it can rewrap
+    // when the window narrows
     <div
       ref={containerRef}
       className="overflow-x-auto [contain:inline-size]"
       data-testid={`stage-graph-${workflow}`}
       data-rows={rows}
       role="group"
-      aria-label={`/${workflow} 阶段图`}
+      aria-label={`/${workflow} stage graph`}
     >
       {containerWidth !== null && (
         <div style={{ width, height: rows * ROW_HEIGHT }}>
@@ -280,7 +292,7 @@ export function StageGraph({
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
             defaultViewport={{ x: VIEWPORT_X, y: 0, zoom: 1 }}
-            // 署名按 React Flow 的 MIT 许可可以去掉（THIRD_PARTY_NOTICES.md）
+            // The MIT license of React Flow allows removing the attribution (THIRD_PARTY_NOTICES.md)
             proOptions={{ hideAttribution: true }}
             nodesDraggable={false}
             nodesConnectable={false}

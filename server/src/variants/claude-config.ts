@@ -6,8 +6,8 @@ import { z } from 'zod';
 import { config } from '../config.js';
 import { claudeSettingsEnv } from '../llm/client.js';
 
-// dashboard 所有的 Claude Code 配置目录（CLAUDE_CONFIG_DIR）：variant 的隔离配置（7.10、14.2）与
-// 设计、分析优化会话自己的 claude-config/（Contracts 22.2）共用的写法
+// Shared writers for every Claude Code config directory the dashboard owns (CLAUDE_CONFIG_DIR): the variant's isolated
+// config (7.10, 14.2) and the design and analysis-optimisation sessions' own claude-config/ (Contracts 22.2)
 
 const IsolatedSettings = z.looseObject({
   env: z.record(z.string(), z.unknown()).optional(),
@@ -17,21 +17,21 @@ export type IsolatedSettings = z.infer<typeof IsolatedSettings>;
 
 const ClaudeState = z.looseObject({
   hasCompletedOnboarding: z.boolean().optional(),
-  // 按目录记录的状态；信任确认记在 projects[<目录>].hasTrustDialogAccepted（Reports/W39 实测，祖先目录的信任也覆盖子目录）
+  // Per-directory state; trust is recorded in projects[<dir>].hasTrustDialogAccepted (measured in Reports/W39: an ancestor's trust covers subdirectories)
   projects: z
     .record(z.string(), z.looseObject({ hasTrustDialogAccepted: z.boolean().optional() }))
     .optional(),
 });
 
 function writeAtomic(file: string, value: unknown) {
-  // 先写临时文件再 rename：并发启动的进程不会读到写了一半的文件
+  // Write a temporary file, then rename it: processes starting concurrently never read a half-written file
   const tmp = `${file}.${randomUUID()}.tmp`;
   fs.writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
   fs.renameSync(tmp, file);
 }
 
-// 把 settings 源的 env 块（认证与 gateway 模型别名）合并进 <claudeDir>/settings.json，其他字段原样保留；
-// 返回合并的键
+// Merges the settings source's env block (auth and gateway model aliases) into <claudeDir>/settings.json, keeping other
+// fields; returns the merged keys
 export function writeIsolatedSettings(
   claudeDir: string,
   settingsPath: string | undefined,
@@ -46,13 +46,13 @@ export function writeIsolatedSettings(
   return Object.keys(sourceEnv);
 }
 
-// cwd 在 $HOME 之下时，真实 ~/.claude/CLAUDE.md 会被当作祖先目录的文件读入
+// With cwd under $HOME, the real ~/.claude/CLAUDE.md would be read as an ancestor directory's file
 export function realClaudeMdExcludes(home = os.homedir()): string[] {
   return [path.join(home, '.claude/CLAUDE.md'), path.join(home, '.claude/rules/**')];
 }
 
-// Claude Code 的首次引导（主题、安全提示）只在交互启动时出现，状态记在 <CLAUDE_CONFIG_DIR>/.claude.json；
-// 配置目录由 dashboard 所有，写入引导已完成（Contracts 14.2）。已经写过时不改动文件
+// Claude Code's first-run onboarding (theme, safety notice) appears only on interactive start and is stored in
+// <CLAUDE_CONFIG_DIR>/.claude.json; the dashboard owns the directory and marks onboarding done (Contracts 14.2). No change when already written
 export function markOnboardingDone(claudeDir: string) {
   const file = path.join(claudeDir, '.claude.json');
   const state = fs.existsSync(file)
@@ -62,8 +62,8 @@ export function markOnboardingDone(claudeDir: string) {
   writeAtomic(file, { ...state, hasCompletedOnboarding: true });
 }
 
-// 启动与 resume 前把 cwd 记为已信任（Contracts 14.2），Claude Code 不再询问；已信任时不改动文件。
-// cwd 经过符号链接时，原路径与真实路径都记上
+// Before start and resume, marks cwd as trusted (Contracts 14.2) so Claude Code does not ask; no change when already trusted.
+// When cwd goes through a symlink, both the given and the real path are recorded
 export function trustDirectory(claudeDir: string, cwd: string) {
   const file = path.join(claudeDir, '.claude.json');
   const state = ClaudeState.parse(JSON.parse(fs.readFileSync(file, 'utf8')));
@@ -74,9 +74,10 @@ export function trustDirectory(claudeDir: string, cwd: string) {
   writeAtomic(file, { ...state, projects });
 }
 
-// 父进程是 Claude Code 或 Orca 时，这些变量会覆盖子进程的隔离设置。
-// agent 的 wf obsidian 按 MAGI_VAULT 写 vault（Contracts 第 30 节）：一律设为 dashboard 读到的位置，
-// HOME 换成别的目录时位置也不变
+// When the parent is Claude Code or Orca these variables would override the child's isolation; variables of the Orca
+// terminal running the dashboard (ORCA_*) never reach the child, Live sets a Live item's Orca identity itself (Contracts 35.2).
+// The agent's wf obsidian writes the vault at MAGI_VAULT (Contracts section 30): always set to the location the dashboard
+// read, so it stays the same when HOME points elsewhere
 export function isolatedBaseEnv(): Record<string, string> {
   return {
     ...Object.fromEntries(
@@ -85,16 +86,17 @@ export function isolatedBaseEnv(): Record<string, string> {
           entry[1] !== undefined &&
           !entry[0].startsWith('CLAUDE') &&
           !entry[0].startsWith('ANTHROPIC') &&
-          !entry[0].startsWith('ORCA_AGENT'),
+          !entry[0].startsWith('ORCA_'),
       ),
     ),
     MAGI_VAULT: config.vaultDir,
   };
 }
 
-// 设计与分析优化会话的配置目录（Contracts 22.2）：每次启动与 resume 前写一遍——凭据与模型配置（认证可能变了）、
-// 不读真实的 CLAUDE.md、引导已完成、工作目录已信任，以及 variant 的 src/mcp.json 中的 MCP 服务器（28.1，
-// 用户范围的 mcpServers，整个替换）。模型不写，取 settings 源 env 中本机 Claude Code 的默认模型
+// Config directory of design and analysis-optimisation sessions (Contracts 22.2), rewritten before every start and resume:
+// credentials and model config (auth may have changed), no real CLAUDE.md, onboarding done, working directory trusted, and
+// the MCP servers of the variant's src/mcp.json (28.1, user-scope mcpServers, replaced whole). No model is written: the
+// local machine's Claude Code default from the settings source env applies
 export function writeSessionClaudeConfig(
   claudeDir: string,
   cwd: string,

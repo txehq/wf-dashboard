@@ -9,10 +9,13 @@ import { RunsPage } from '@/pages/runs';
 import { RunDetailPage } from '@/pages/runs-detail';
 import { SessionsPage } from '@/pages/sessions';
 import { SessionDetailPage } from '@/pages/sessions-detail';
+import { SettingsPage } from '@/pages/settings';
 import { TasksPage } from '@/pages/tasks';
 import { TaskDetailPage } from '@/pages/tasks-detail';
 import { TaskNewPage } from '@/pages/tasks-new';
+import { TeamPage } from '@/pages/team';
 import { VariantPage, VariantsRedirect } from '@/pages/variants';
+import { VscodeOpenPage } from '@/pages/vscode-open';
 import { WorkflowPage } from '@/pages/workflow-detail';
 import { WorkflowsPage } from '@/pages/workflows';
 
@@ -38,6 +41,10 @@ export const router = createBrowserRouter([
       { path: 'analyses', element: <AnalysesPage /> },
       { path: 'analyses/new', element: <AnalysisNewPage /> },
       { path: 'analyses/:id', element: <AnalysisDetailPage /> },
+      { path: 'settings', element: <SettingsPage /> },
+      { path: 'team', element: <TeamPage /> },
     ],
   },
+  // The "Open in VS Code" tab (Contracts 32.4): no navigation; becomes VS Code once ready
+  { path: '/vscode-open/:liveId', element: <VscodeOpenPage /> },
 ]);

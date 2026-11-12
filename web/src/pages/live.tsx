@@ -1,12 +1,16 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
+  Bot,
   ChevronDown,
+  ChevronRight,
   ChevronsLeftRight,
   Hand,
+  Network,
   PanelLeftClose,
   Plus,
   Power,
   RotateCcw,
+  Server,
   Undo2,
   X,
 } from 'lucide-react';
@@ -16,6 +20,10 @@ import { useSearchParams } from 'react-router';
 import { type DraftControls, useDraftControls } from '@/components/live/draft-controls';
 import { FullscreenArea, FullscreenButton, useFullscreen } from '@/components/fullscreen';
 import { FinderMenu } from '@/components/live/finder-menu';
+import { OpenInVscode } from '@/components/live/open-in-vscode';
+import { LOCAL_SERVER_ID } from '@/lib/vscode-api';
+import { RemoteCopyMenu } from '@/components/live/remote-copy-menu';
+import { HostLabel } from '@/components/ssh/ssh-parts';
 import { ImportSessionsButton } from '@/components/live/import-sessions';
 import { HideButton, ItemMenu, UnhideButton } from '@/components/live/item-actions';
 import {
@@ -25,11 +33,15 @@ import {
   PurposeFilterBar,
 } from '@/components/live/live-identity';
 import { purposeLabel, usePurposeFilter } from '@/lib/live-purpose';
+import { type Branch, treeRows } from '@/lib/live-tree';
 import { LiveTerminal } from '@/components/live/live-terminal';
 import { LiveTitle } from '@/components/live/live-title';
 import { BranchStatus, DeployStatus, WorktreePreparation } from '@/components/live/magi-parts';
 import { NewLiveForm } from '@/components/live/new-live-form';
+import { OrcaTopologyPanel } from '@/components/live/orca-topology';
+import { WorkerConversation } from '@/components/live/worker-conversation';
 import { ResumeButton } from '@/components/live/resume-dialog';
+import { GoalButton, GoalDialog } from '@/components/live/simulated-goal';
 import { DRAWER_WIDTH, SideDrawer } from '@/components/live/side-drawer';
 import { CompactLiveList } from '@/components/live/compact-list';
 import { DesignWork } from '@/components/live/workflow-panel';
@@ -39,7 +51,7 @@ import { StageBars } from '@/components/sessions/stage-bars';
 import { UNPRICED } from '@/components/sessions/session-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { formatDateTime, formatUsd } from '@/lib/format';
+import { formatDateTime, formatNoun, formatUsd } from '@/lib/format';
 import { resumeMagi, useMagiWorktree } from '@/lib/magi-api';
 import { MagiRobot } from '@/components/magi-robot';
 import {
@@ -58,12 +70,13 @@ import { cn } from '@/lib/utils';
 import { allVariantsQuery } from '@/pages/variants-api';
 
 const environmentLabel = { isolated: 'isolated', real: 'real' } as const;
-const driverLabel = { human: '人', simulated: '模拟用户' } as const;
+const driverLabel = { human: 'Human', simulated: 'Simulated user' } as const;
 const engineName = { claude: 'Claude Code', codex: 'Codex' } as const;
 
-// 全屏中切换交互项的快捷键（Contracts 20.3）：⌃⇧[ 上一项、⌃⇧] 下一项（macOS 上的 Control，不是 Command）。
-// 与全屏的 ⌃⇧F 一样在 window 的捕获阶段拦下，终端收不到。终端本来就发不出这个组合（Control+[ 即 Esc，
-// 加 Shift 也一样），Claude Code 与 Codex 都不会用到它；macOS 上的 Chrome 没有 Control+Shift+[ 与 ]
+// Shortcuts to switch interaction items in full screen (Contracts 20.3): ⌃⇧[ previous, ⌃⇧] next
+// (Control on macOS, not Command). Like ⌃⇧F for full screen, caught in the window capture phase so the
+// terminal never gets them. A terminal can't send this combination anyway (Control+[ is Esc, with
+// Shift too), Claude Code and Codex never use it, and Chrome on macOS has no Control+Shift+[ or ]
 const SWITCH_SHORTCUT_LABEL = '⌃⇧[ / ⌃⇧]';
 function switchDirection(event: KeyboardEvent): -1 | 1 | null {
   if (!event.ctrlKey || !event.shiftKey || event.metaKey || event.altKey) return null;
@@ -72,41 +85,90 @@ function switchDirection(event: KeyboardEvent): -1 | 1 | null {
   return null;
 }
 
-// 最近一次运行所用的配置；还没有运行过的项（从本机导入）没有
+// Config used by the latest run; items never run (imported locally) have none. On an SSH host with no
+// variant chosen it is the remote machine's config
 const variantLabel = (live: LiveSummary) =>
-  live.process === null ? '—' : (live.variantName ?? '本机配置');
+  live.process === null
+    ? '—'
+    : (live.variantName ??
+      (live.host === null ? 'Local config' : `${live.host.label ?? 'Deleted host'} config`));
 
-// 列表项第二行的配置与环境：Magi Agent 的项是它的配置（环境总是 real，不写）
+// Config and environment on a list item's second line: for Magi Agent items its config (the
+// environment is always real, so omitted); items on an SSH host always use the remote real directory,
+// and the host is shown separately
 const metaLabel = (live: LiveSummary) =>
   live.purpose === 'agent'
     ? (live.agentConfigName ?? '')
-    : `${variantLabel(live)} · ${environmentLabel[live.environment]}`;
+    : live.host !== null
+      ? variantLabel(live)
+      : `${variantLabel(live)} · ${environmentLabel[live.environment]}`;
 
-function StatusBadge({ live }: { live: LiveSummary }) {
+// Who ended an exited item (stop event, Contracts 14.3): shown on hovering the status; absent when the
+// process exited by itself or ended automatically
+const stopSourceLabel = { page: 'Stopped from the page', api: 'Stopped via the API' } as const;
+function stoppedBy(live: LiveDetail): string | undefined {
+  const stop = live.events.findLast(
+    (e) => e.kind === 'stop' && e.processId !== null && e.processId === live.process?.id,
+  );
+  if (stop === undefined) return undefined;
+  const source = stop.payload.source as keyof typeof stopSourceLabel;
+  return `${stopSourceLabel[source]} (${formatDateTime(new Date(stop.at).toISOString())})`;
+}
+
+// Orca-hosted items (Contracts 35.4): status is the one Orca reports
+const orcaStateLabel = {
+  working: 'Working',
+  idle: 'Idle',
+  waiting: 'Waiting for answer',
+  succeeded: 'Succeeded',
+  failed: 'Failed',
+  exited: 'Exited',
+} as const;
+
+function StatusBadge({ live }: { live: LiveSummary | LiveDetail }) {
+  // A running Orca-hosted item shows the status Orca reports
+  if (live.orca.hosted && live.status === 'running' && live.orca.state !== null) {
+    return (
+      <Badge
+        data-testid="live-status"
+        data-status="running"
+        data-orca-state={live.orca.state}
+        variant={live.orca.state === 'working' ? 'default' : 'secondary'}
+      >
+        {orcaStateLabel[live.orca.state]}
+      </Badge>
+    );
+  }
   if (live.status === 'running') {
     return (
       <Badge data-testid="live-status" data-status="running">
-        运行中
+        Running
       </Badge>
     );
   }
   if (live.status === 'idle') {
     return (
       <Badge variant="secondary" data-testid="live-status" data-status="idle">
-        未运行
+        Not running
       </Badge>
     );
   }
   const code = live.process?.exitCode ?? null;
   return (
-    <Badge variant="outline" data-testid="live-status" data-status="exited">
-      已退出{code === null ? '' : `（${String(code)}）`}
+    <Badge
+      variant="outline"
+      data-testid="live-status"
+      data-status="exited"
+      title={'events' in live ? stoppedBy(live) : undefined}
+    >
+      Exited{code === null ? '' : ` (${String(code)})`}
     </Badge>
   );
 }
 
-// 左侧列表：有运行中进程的在前，其余按最近更新；每项显示名字、状态、variant、环境与 resume 次数。
-// 每项可以"×"关闭（只隐藏）或从菜单删除；底部的开关列出已关闭的项（Contracts 14.5）
+// Left list: items with a running process first, the rest by most recent update; each shows name,
+// status, variant, environment and resume count. Each can be closed with "×" (hidden only) or deleted
+// from its menu; the switch at the bottom lists closed items (Contracts 14.5)
 function LiveList({
   onOpen,
   onGone,
@@ -114,17 +176,19 @@ function LiveList({
   onCollapse,
 }: {
   onOpen: (id: string) => void;
-  // 关闭或删除后：关掉它的标签页
+  // After closing or deleting: close its tab
   onGone: (id: string) => void;
   active: string | null;
-  // 用户可以把列表收成窄条，把宽度让给终端（Contracts 26.1）
+  // The user can collapse the list to a strip to give the terminal the width (Contracts 26.1)
   onCollapse: () => void;
 }) {
   const [showHidden, setShowHidden] = useState(false);
   const [filter, setFilter] = usePurposeFilter();
+  // Main agents whose workers are collapsed
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const list = useQuery(liveListQuery(showHidden));
   const all = list.data ?? [];
-  // Magi Agent 的项与其他项一样排列，用途筛选的第五项（Contracts 23.6）
+  // Magi Agent items are ordered like the others, the fifth purpose filter (Contracts 23.6)
   const shown = filter === 'all' ? all : all.filter((l) => l.purpose === filter);
   const counts = {
     all: all.length,
@@ -132,17 +196,29 @@ function LiveList({
     design: all.filter((l) => l.purpose === 'design').length,
     optimize: all.filter((l) => l.purpose === 'optimize').length,
     agent: all.filter((l) => l.purpose === 'agent').length,
+    orca: all.filter((l) => l.purpose === 'orca').length,
   };
-  const item = (live: LiveSummary) => {
+  // The list as a tree (Contracts 35.4): workers indented under the main agent that dispatched them,
+  // deeper levels indent further; when the main agent is not shown (e.g. filtered out), the worker is its own row
+  const rows = treeRows(shown, collapsed, (id) => {
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  });
+  const item = (live: LiveSummary, branch: Branch | null) => {
     const hidden = live.hiddenAt !== null;
     return (
-      <li key={live.id}>
+      <li key={live.id} style={branch === null ? undefined : { marginLeft: branch.depth * 12 }}>
         <div
           role="button"
           tabIndex={0}
           data-live={live.id}
           data-hidden={hidden}
           data-purpose={live.purpose}
+          data-depth={branch?.depth ?? 0}
           aria-current={active === live.id}
           className="magi-robot-host flex w-full cursor-pointer gap-2 rounded-md border py-2 pr-3 pl-1.5 text-left hover:bg-muted/50 aria-[current=true]:border-foreground data-[hidden=true]:border-dashed data-[hidden=true]:opacity-70"
           onClick={() => {
@@ -154,8 +230,29 @@ function LiveList({
         >
           <PurposeBand purpose={live.purpose} />
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-            {/* 名字一行，超出时截断，悬停显示全文；Magi Agent 的项以色带与小机器人标出用途，不再加用途标签 */}
+            {/* Name on one line, truncated with the full text on hover; Magi Agent items show their
+                purpose by color band and little robot, without a purpose tag */}
             <span className="flex items-center gap-1">
+              {/* Items that dispatched workers: collapse and expand their workers (Contracts 35.4) */}
+              {branch !== null && branch.workers > 0 && (
+                <button
+                  type="button"
+                  className="shrink-0 rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                  aria-label={branch.collapsed ? 'Expand workers' : 'Collapse workers'}
+                  aria-expanded={!branch.collapsed}
+                  data-testid="live-tree-toggle"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    branch.onToggle();
+                  }}
+                >
+                  {branch.collapsed ? (
+                    <ChevronRight className="size-4" />
+                  ) : (
+                    <ChevronDown className="size-4" />
+                  )}
+                </button>
+              )}
               {live.purpose === 'agent' && <MagiRobot className="size-4" label="Magi Agent" />}
               <EngineLogo engine={live.engine} className="size-4" />
               <span className="min-w-0 flex-1">
@@ -180,15 +277,28 @@ function LiveList({
                 />
               )}
             </span>
-            {/* 用途、状态与配置一行，配置等超出时截断，悬停显示全文 */}
+            {/* Purpose, status and config on one line; config etc. truncate with the full text on hover */}
             <span className="flex min-w-0 items-center gap-1.5 text-xs whitespace-nowrap text-muted-foreground">
               {live.purpose !== 'agent' && <PurposeBadge live={live} />}
               <StatusBadge live={live} />
+              {live.host !== null && (
+                <HostLabel label={live.host.label} className="max-w-28 shrink-0" />
+              )}
               <span className="min-w-0 truncate" title={metaLabel(live)}>
                 {metaLabel(live)} ·{' '}
-                <span data-testid="live-resume-count">resume {live.resumeCount} 次</span>
+                <span data-testid="live-resume-count">
+                  {live.resumeCount === 1
+                    ? 'resumed once'
+                    : `resumed ${String(live.resumeCount)} times`}
+                </span>
               </span>
             </span>
+            {/* When collapsed, show how many workers there are and how many are working (Contracts 35.4) */}
+            {branch !== null && branch.collapsed && branch.workers > 0 && (
+              <span className="text-xs text-muted-foreground" data-testid="live-tree-summary">
+                {formatNoun(branch.workers, 'worker')}, {branch.working} working
+              </span>
+            )}
             <span className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
               {formatDateTime(new Date(live.updatedAt).toISOString())}
               {hidden && <UnhideButton live={live} />}
@@ -199,7 +309,7 @@ function LiveList({
     );
   };
   let body;
-  if (list.isPending) body = <p className="text-sm text-muted-foreground">加载中…</p>;
+  if (list.isPending) body = <p className="text-sm text-muted-foreground">Loading…</p>;
   else if (list.isError) {
     body = (
       <p role="alert" className="text-sm text-destructive">
@@ -207,24 +317,24 @@ function LiveList({
       </p>
     );
   } else if (list.data.length === 0) {
-    body = <p className="text-sm text-muted-foreground">还没有交互 session。</p>;
+    body = <p className="text-sm text-muted-foreground">No Live sessions yet.</p>;
   } else if (shown.length === 0) {
-    body = <p className="text-sm text-muted-foreground">没有这种用途的项。</p>;
+    body = <p className="text-sm text-muted-foreground">No items with this purpose.</p>;
   } else {
     body = (
-      <ul className="flex flex-col gap-1" aria-label="交互 session" data-testid="live-list">
-        {shown.map((live) => item(live))}
+      <ul className="flex flex-col gap-1" aria-label="Live sessions" data-testid="live-list">
+        {rows.map(({ live, branch }) => item(live, branch))}
       </ul>
     );
   }
   return (
     <>
-      {/* 列表上方一行：用途筛选与"显示已关闭的项" */}
+      {/* Row above the list: purpose filter and "Show closed items" */}
       <div className="flex items-center gap-2">
         <PurposeFilterBar value={filter} onChange={setFilter} counts={counts} />
         <label
           className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground"
-          title="显示已关闭的项"
+          title="Show closed items"
         >
           <input
             type="checkbox"
@@ -234,13 +344,13 @@ function LiveList({
               setShowHidden(event.target.checked);
             }}
           />
-          已关闭的
+          Closed
         </label>
         <button
           type="button"
           className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-          aria-label="收起交互列表"
-          title="收起交互列表"
+          aria-label="Collapse list"
+          title="Collapse list"
           data-testid="live-list-collapse"
           onClick={onCollapse}
         >
@@ -252,7 +362,8 @@ function LiveList({
   );
 }
 
-// 设计与优化会话的花费（Contracts 28.4，含子代理）；session 还没有导入时不显示，模型不在价格表中时与 Sessions 表格相同写"—"
+// Cost of design and optimize sessions (Contracts 28.4, subagents included); hidden until the session
+// is imported, and "—" like the Sessions table when the model is not in the price list
 function SessionCost({ sessionId }: { sessionId: string }) {
   const session = useQuery(sessionQuery(sessionId));
   if (session.data === undefined) return null;
@@ -260,17 +371,20 @@ function SessionCost({ sessionId }: { sessionId: string }) {
   return (
     <span
       className="text-sm text-muted-foreground tabular-nums"
-      title={priced ? '这个会话的花费（含子代理）' : UNPRICED}
+      title={priced ? 'Cost of this session (subagents included)' : UNPRICED}
       data-testid="live-session-cost"
     >
-      花费 {priced ? formatUsd(costUsd) : '—'}
+      <span data-toolbar-label>Cost </span>
+      {priced ? formatUsd(costUsd) : '—'}
     </span>
   );
 }
 
-// 终端旁边的阶段条与请求明细（复用 Sessions 详情的组件）。session 还没有写出第一条记录时（设计与优化的项在第一次
-// 启动前没有 session id）说明还没有导入。还没有进入阶段的说明：交互项按划分所用的 workflow 写，设计与优化的项
-// （designFlow 不为 undefined）按草稿的 workflow 写，草稿还没有读到时不写
+// Stage bars and request details beside the terminal (reusing the Sessions detail components). Until
+// the session writes its first record (design and optimize items have no session id before first
+// start), says it isn't imported yet. The "no stage yet" note names, for interaction items, the
+// workflows used for splitting, and for design and optimize items (designFlow not undefined) the
+// draft's workflow; nothing while the draft is still loading
 function SessionSide({
   sessionId,
   engine,
@@ -282,7 +396,7 @@ function SessionSide({
 }) {
   const notImported = (
     <p className="text-sm text-muted-foreground" data-testid="live-side-pending">
-      session 还没有导入（{engineName[engine]} 写出第一条记录后出现）。
+      Session not imported yet (appears after {engineName[engine]} writes its first record).
     </p>
   );
   if (sessionId === null) return notImported;
@@ -302,7 +416,7 @@ function ImportedSide({
   const stages = useQuery(stagesQuery(sessionId));
   if (session.data === undefined || stages.data === undefined) {
     return session.isPending || stages.isPending ? (
-      <p className="text-sm text-muted-foreground">正在读取 session…</p>
+      <p className="text-sm text-muted-foreground">Loading session…</p>
     ) : (
       notImported
     );
@@ -310,13 +424,13 @@ function ImportedSide({
   const workflows = stages.data.workflows.filter((w) => w.cycles.length > 0);
   let names: string | null;
   if (designFlow === undefined) {
-    names = stages.data.workflows.map((w) => `/${w.workflow}`).join(' 或 ');
+    names = stages.data.workflows.map((w) => `/${w.workflow}`).join(' or ');
   } else names = designFlow === null ? null : `/${designFlow}`;
   return (
     <div className="flex min-w-0 flex-col gap-4" data-testid="live-side">
       {workflows.length === 0 && names !== null && names !== '' && (
         <p className="text-sm text-muted-foreground" data-testid="live-side-no-stage">
-          还没有进入 {names} 的阶段。
+          No {names} stage reached yet.
         </p>
       )}
       {workflows.flatMap(({ workflow, cycles }) =>
@@ -330,7 +444,7 @@ function ImportedSide({
         )),
       )}
       <section className="flex flex-col gap-2">
-        <h3 className="text-sm font-semibold">请求明细</h3>
+        <h3 className="text-sm font-semibold">Requests</h3>
         <RequestTimeline
           sessionId={sessionId}
           range={{}}
@@ -342,23 +456,121 @@ function ImportedSide({
   );
 }
 
+// Driver switch and "Hand back" (Contracts 34.2): available for every purpose, both engines, local and
+// SSH host items. An item without a task records this time's goal first (prefilled with the first
+// request) the first time it is handed to the simulated user
+function DriverControls({
+  data,
+  onDriver,
+  driverPending,
+}: {
+  data: LiveDetail;
+  onDriver: (next: LiveDriver, goal?: string) => void;
+  driverPending: boolean;
+}) {
+  const [asking, setAsking] = useState(false);
+  const running = data.status === 'running';
+  const needGoal = data.taskId === null && data.simulatedGoal === null;
+  const toSimulated = () => {
+    if (needGoal) setAsking(true);
+    else onDriver('simulated');
+  };
+  return (
+    <>
+      <div
+        role="radiogroup"
+        aria-label="Driver"
+        className="flex rounded-md border p-0.5"
+        data-testid="driver-switch"
+        data-driver={data.driver}
+      >
+        {(['human', 'simulated'] as const).map((d) => (
+          <button
+            key={d}
+            type="button"
+            role="radio"
+            aria-checked={data.driver === d}
+            data-driver={d}
+            title={driverLabel[d]}
+            disabled={!running || data.starting || driverPending || data.driver === d}
+            className="flex items-center gap-1 rounded px-2.5 py-0.5 text-sm aria-checked:bg-foreground aria-checked:text-background disabled:cursor-not-allowed"
+            onClick={() => {
+              if (d === 'simulated') toSimulated();
+              else onDriver('human');
+            }}
+          >
+            {d === 'human' ? <Hand className="size-3.5" /> : <Bot className="size-3.5" />}
+            <span data-driver-label>{driverLabel[d]}</span>
+          </button>
+        ))}
+      </div>
+      <Button
+        size="sm"
+        variant="outline"
+        data-testid="hand-back"
+        title="Hand back to the simulated user"
+        disabled={!running || data.starting || data.driver === 'simulated' || driverPending}
+        onClick={toSimulated}
+      >
+        <Undo2 />
+        <span data-toolbar-label>Hand back</span>
+      </Button>
+      {data.taskId === null && <GoalButton live={data} />}
+      {asking && (
+        <GoalDialog
+          heading="Goal for the simulated user"
+          initial={data.simulatedGoal ?? data.simulatedGoalDefault}
+          pending={driverPending}
+          error={null}
+          onSave={(goal) => {
+            setAsking(false);
+            onDriver('simulated', goal);
+          }}
+          onClose={() => {
+            setAsking(false);
+          }}
+        />
+      )}
+    </>
+  );
+}
+
 function Notices({ live }: { live: LiveDetail }) {
   const notice = 'rounded-md border px-3 py-1 text-sm';
   return (
     <>
       {live.starting && (
         <p role="status" className={notice} data-testid="live-starting">
-          启动中，终端中的确认由你回答。
+          Starting. Answer any confirmations in the terminal.
+        </p>
+      )}
+      {/* On an SSH host the process keeps running in tmux when the connection drops (Contracts 31.4) */}
+      {live.connected === false && (
+        <p
+          role="status"
+          className={cn(notice, 'border-warning-border bg-warning text-warning-foreground')}
+          data-testid="live-disconnected"
+        >
+          Lost connection to {live.host?.label ?? 'the remote'}. The remote process keeps running in
+          tmux while reconnecting; the simulated user doesn't drive while disconnected.
+        </p>
+      )}
+      {live.handedBack === 'disconnected' && live.connected !== false && (
+        <p role="status" className={notice}>
+          The connection dropped, so the driver switched to you. Hand back to the simulated user
+          when needed.
         </p>
       )}
       {live.handedBack === 'done' && (
         <p role="status" className={notice} data-testid="live-done">
-          模拟用户认为已结束。
+          {live.doneReason === null
+            ? 'The simulated user considers it finished.'
+            : `The simulated user considers it done: ${live.doneReason}`}
         </p>
       )}
       {live.handedBack === 'max-turns' && (
         <p role="status" className={notice}>
-          模拟用户回答次数达到上限，已交给你。
+          The simulated user reached its answer limit and handed control to you.
         </p>
       )}
       {live.error !== null && (
@@ -366,11 +578,29 @@ function Notices({ live }: { live: LiveDetail }) {
           {live.error}
         </p>
       )}
+      {/* Remote session sync failure (Contracts 31.6): disappears on the next successful sync */}
+      {live.syncFailure !== null && (
+        <p
+          role="alert"
+          className={cn(notice, 'border-destructive text-destructive')}
+          data-testid="live-sync-failure"
+        >
+          Last sync failed ({formatDateTime(new Date(live.syncFailure.at).toISOString())}):{' '}
+          {live.syncFailure.message}
+        </p>
+      )}
+      {/* The Orca pane is gone while the process is still running (Contracts 35.3) */}
+      {live.orca.paneGone !== null && (
+        <p role="status" className={notice} data-testid="live-pane-gone">
+          {live.orca.paneGone}
+        </p>
+      )}
     </>
   );
 }
 
-// 终端（或还没运行过的项的对话）与右侧的抽屉占一行，占满工具栏以下的空间（不全屏时为页面剩下的高度）
+// The terminal (or the conversation of an item never run) and the right drawer share a row that fills
+// the space below the toolbar (the rest of the page height outside full screen)
 function WorkRow({ fullscreen, children }: { fullscreen: boolean; children: ReactNode }) {
   return (
     <div
@@ -385,19 +615,23 @@ function WorkRow({ fullscreen, children }: { fullscreen: boolean; children: Reac
 function LivePanel({
   liveId,
   onResumed,
+  onOpen,
   fullscreen,
   extra,
 }: {
   liveId: string;
-  // resume 落在同一项（Contracts 14.5）：交互区选中它的标签页
+  // resume lands on the same item (Contracts 14.5): the workspace selects its tab
   onResumed: (live: LiveDetail) => void;
+  // Open another item's tab (clicking a node in the topology, Contracts 35.4)
+  onOpen: (liveId: string) => void;
   fullscreen: boolean;
-  // 工具栏最右边：全屏中切换交互项的下拉与全屏按钮
+  // Far right of the toolbar: the full-screen item switcher and the full-screen button
   extra: ReactNode;
 }) {
   const live = useQuery(liveQuery(liveId));
   const driver = useMutation({
-    mutationFn: (next: LiveDriver) => setLiveDriver(liveId, next),
+    mutationFn: ({ next, goal }: { next: LiveDriver; goal?: string }) =>
+      setLiveDriver(liveId, next, goal),
   });
   const stopping = useMutation({ mutationFn: () => stopLive(liveId) });
   if (live.data === undefined) {
@@ -406,7 +640,7 @@ function LivePanel({
         {live.error.message}
       </p>
     ) : (
-      <p className="text-sm text-muted-foreground">加载中…</p>
+      <p className="text-sm text-muted-foreground">Loading…</p>
     );
   }
   const data = live.data;
@@ -415,13 +649,13 @@ function LivePanel({
       size="sm"
       variant="outline"
       disabled={stopping.isPending}
-      title="结束进程"
+      title="Stop process"
       onClick={() => {
         stopping.mutate();
       }}
     >
       <Power />
-      <span data-toolbar-label>结束进程</span>
+      <span data-toolbar-label>Stop process</span>
     </Button>
   );
   const errors = (driver.isError || stopping.isError) && (
@@ -429,18 +663,6 @@ function LivePanel({
       {(driver.error ?? stopping.error)?.message}
     </p>
   );
-  if (data.purpose === 'agent') {
-    return (
-      <AgentPanel
-        data={data}
-        stopButton={stopButton}
-        errors={errors}
-        fullscreen={fullscreen}
-        extra={extra}
-        onResumed={onResumed}
-      />
-    );
-  }
   const common = {
     data,
     stopButton,
@@ -448,11 +670,13 @@ function LivePanel({
     fullscreen,
     extra,
     onResumed,
-    onDriver: (next: LiveDriver) => {
-      driver.mutate(next);
+    onOpen,
+    onDriver: (next: LiveDriver, goal?: string) => {
+      driver.mutate({ next, ...(goal === undefined ? {} : { goal }) });
     },
     driverPending: driver.isPending,
   };
+  if (data.purpose === 'agent') return <AgentPanel {...common} />;
   if (data.purpose === 'design' || data.purpose === 'optimize') return <DesignPanel {...common} />;
   return <ItemPanel {...common} draft={null} />;
 }
@@ -464,30 +688,86 @@ interface PanelProps {
   fullscreen: boolean;
   extra: ReactNode;
   onResumed: (live: LiveDetail) => void;
-  onDriver: (next: LiveDriver) => void;
+  onOpen: (liveId: string) => void;
+  onDriver: (next: LiveDriver, goal?: string) => void;
   driverPending: boolean;
 }
 
-// 设计 workflow 或 variant、分析优化的会话（Contracts 17.3、22、26.1）：与交互项同一个面板，只有人驾驶，
-// 多出草稿的保存与花费、workflow 面板
+// The item takes part in an Orca collaboration (Contracts 35.4): it dispatched workers, or it is a worker in some Run
+function useInOrcaRun(data: LiveSummary): boolean {
+  const list = useQuery(liveListQuery(false));
+  return data.orca.runId !== null || (list.data ?? []).some((l) => l.orca.parentLiveId === data.id);
+}
+
+// The toolbar's "Topology" button (Contracts 35.4): opens a drawer the same way as "Stages and requests"
+function TopologyButton({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return (
+    <Button
+      size="sm"
+      variant={open ? 'secondary' : 'ghost'}
+      aria-pressed={open}
+      data-testid="toggle-topology"
+      title="Topology"
+      onClick={onToggle}
+    >
+      <Network />
+      <span data-toolbar-label>Topology</span>
+    </Button>
+  );
+}
+
+// Orca notes (Contracts 35.2, 35.4): hosted items say the terminal is Orca's rendered screen; items
+// started by the dashboard without an Orca identity say why
+const ORCA_HOSTED_NOTE =
+  'Hosted by Orca: the terminal shows the screen Orca renders, refreshed every second, without colors or scrollback; input is sent to it as is.';
+const ORCA_STRUCTURED_NOTE =
+  'Orca runs this worker without a terminal: its transcript is read from Orca every 2 seconds, and a message you send reaches it as a message to its Dispatch.';
+function OrcaNotice({ live }: { live: LiveSummary }) {
+  if (live.orca.structured) {
+    return (
+      <p className="text-xs text-muted-foreground" data-testid="live-orca-structured">
+        {ORCA_STRUCTURED_NOTE}
+      </p>
+    );
+  }
+  if (live.orca.hosted) {
+    return (
+      <p className="text-xs text-muted-foreground" data-testid="live-orca-hosted">
+        {ORCA_HOSTED_NOTE}
+      </p>
+    );
+  }
+  if (live.status === 'running' && live.orca.identityReason !== null) {
+    return (
+      <p className="text-xs text-muted-foreground" data-testid="live-orca-identity">
+        No Orca identity, so the agent can't dispatch workers with Orca: {live.orca.identityReason}
+      </p>
+    );
+  }
+  return null;
+}
+
+// Sessions designing a workflow or variant, and analysis optimize sessions (Contracts 17.3, 22, 26.1):
+// the same panel as interaction items, plus draft save, cost and the workflow panel
 function DesignPanel(props: PanelProps) {
   const draft = useDraftControls(props.data, props.onResumed);
   return <ItemPanel {...props} draft={draft} />;
 }
 
-// 设计的底子 variant 的名字（Contracts 26.1）：空白新建没有底子；底子已删除时标出（Contracts 24.3）
+// Name of the design's base variant (Contracts 26.1): blank designs have no base; a deleted base is
+// marked (Contracts 24.3)
 function BaseVariantName({ draft }: { draft: DraftControls['draft'] }) {
   const variants = useQuery(allVariantsQuery);
   if (draft === undefined) return <>—</>;
   const id = draft.baseVariantId;
-  if (id === null) return <>空白</>;
+  if (id === null) return <>Blank</>;
   const found = variants.data?.find((v) => v.id === id);
   if (found === undefined) return <>{id}</>;
-  return <>{found.deletedAt === null ? found.name : `${found.name}（已删除）`}</>;
+  return <>{found.deletedAt === null ? found.name : `${found.name} (deleted)`}</>;
 }
 
-// 交互项的面板（Contracts 14.3、20.3）；设计与优化的项（draft 不为空）用同一个工具栏与下面一行，按 26.1 多出
-// 草稿的部分与 workflow 面板
+// Panel of an interaction item (Contracts 14.3, 20.3); design and optimize items (draft not null) use
+// the same toolbar and line below, plus the draft parts and the workflow panel per 26.1
 function ItemPanel({
   data,
   stopButton,
@@ -495,21 +775,30 @@ function ItemPanel({
   fullscreen,
   extra,
   onResumed,
+  onOpen,
   onDriver,
   driverPending,
   draft,
 }: PanelProps & { draft: DraftControls | null }) {
-  const [side, setSide] = useState(false);
+  // Right drawer: stages and requests, or the Orca topology (Contracts 35.4), one at a time
+  const [drawer, setDrawer] = useState<'side' | 'topology' | null>(null);
+  const side = drawer === 'side';
+  const setSide = (open: boolean) => {
+    setDrawer(open ? 'side' : null);
+  };
+  const inOrca = useInOrcaRun(data);
   const [drawerWidth, setDrawerWidth] = useState(DRAWER_WIDTH);
   const liveId = data.id;
   const running = data.status === 'running';
   const codex = data.engine === 'codex';
-  // 交互的项建出时就有 session id；设计与优化的项在第一次启动前为空
+  // A worker Orca runs without a pane: no terminal and no driver, Orca's Dispatch carries its output and input
+  const structured = data.orca.structured;
+  // Interaction items have a session id from creation; design and optimize items have none before first start
   const sessionId = data.claudeSessionId;
-  if (draft === null && sessionId === null) throw new Error(`交互 ${liveId} 没有 session id`);
+  if (draft === null && sessionId === null)
+    throw new Error(`Interaction ${liveId} has no session id`);
   const model = data.process?.model ?? null;
   const effort = data.process?.effort ?? null;
-  const humanOnly = draft !== null;
   let resume: ReactNode = null;
   if (draft !== null) resume = draft.resume;
   else if (data.process !== null && sessionId !== null) {
@@ -517,13 +806,15 @@ function ItemPanel({
   }
   const finder =
     draft === null
-      ? [
-          { label: '工作目录', target: { kind: 'live-cwd', id: liveId } } as const,
-          { label: '配置目录', target: { kind: 'live-config', id: liveId } } as const,
-        ]
+      ? structured
+        ? [{ label: 'Worktree', target: { kind: 'live-cwd', id: liveId } } as const]
+        : [
+            { label: 'Working directory', target: { kind: 'live-cwd', id: liveId } } as const,
+            { label: 'Config directory', target: { kind: 'live-config', id: liveId } } as const,
+          ]
       : [
           {
-            label: data.purpose === 'optimize' ? '分析目录' : '草稿目录',
+            label: data.purpose === 'optimize' ? 'Analysis directory' : 'Draft directory',
             target: { kind: 'live-cwd', id: liveId },
           } as const,
           {
@@ -533,28 +824,35 @@ function ItemPanel({
         ];
   const workflow = draft === null ? data.workflow : (draft.draft?.workflowId ?? null);
   const closeSide = () => {
-    setSide(false);
+    setDrawer(null);
   };
-  const sideContent = (
-    <SessionSide
-      sessionId={sessionId}
-      engine={data.engine}
-      designFlow={draft === null ? undefined : workflow}
-    />
-  );
+  const drawerTitle = drawer === 'topology' ? 'Topology' : 'Stages and requests';
+  const sideContent =
+    drawer === 'topology' ? (
+      <OrcaTopologyPanel live={data} onOpen={onOpen} />
+    ) : (
+      <SessionSide
+        sessionId={sessionId}
+        engine={data.engine}
+        designFlow={draft === null ? undefined : workflow}
+      />
+    );
   let work: ReactNode;
-  if (data.process !== null) {
-    // resume 在同一项上起新进程：按进程重建终端，重新连接并回放这一项的输出
+  if (structured) {
+    // A worker Orca runs without a pane (Contracts 35.4): its transcript and an input box in the terminal's place
+    work = <WorkerConversation liveId={liveId} running={running} />;
+  } else if (data.process !== null) {
+    // resume starts a new process on the same item: rebuild the terminal per process, reconnect and replay the item's output
     work = <LiveTerminal key={data.process.id} liveId={liveId} />;
   } else if (draft !== null || sessionId === null) {
-    // 设计与优化的项在草稿准备完成后第一次启动
+    // Design and optimize items start for the first time once the draft is prepared
     work = (
       <p className="flex flex-1 items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
-        准备完成后在这里启动 {engineName[data.engine]}。
+        {engineName[data.engine]} starts here once preparation finishes.
       </p>
     );
   } else {
-    // 从本机导入、还没有运行过（Contracts 14.5）：显示这个 session 的对话与 resume 按钮
+    // Imported locally and never run (Contracts 14.5): show the session's conversation and the resume button
     work = (
       <div
         className="flex min-w-0 flex-1 flex-col gap-3 overflow-y-auto rounded-md border p-4"
@@ -562,7 +860,8 @@ function ItemPanel({
       >
         <div className="flex items-center gap-3">
           <span className="text-sm text-muted-foreground">
-            这个 session 还没有在交互区运行过，resume 后在这里接着对话。
+            This session hasn't run in the workspace yet. Resume it to continue the conversation
+            here.
           </span>
           <ResumeButton sessionId={sessionId} onResumed={onResumed} />
         </div>
@@ -582,59 +881,23 @@ function ItemPanel({
       data-live={liveId}
       data-purpose={data.purpose}
     >
-      {/* 工具栏（Contracts 20.3、26.1）：全部按钮在同一行，全屏时同样保留。设计与优化的项多出保存与花费，
-          面板窄时（1280 宽的窗口加上展开的列表）结束进程、resume、阶段与请求、全屏只留图标，悬停显示名字 */}
+      {/* Toolbar (Contracts 20.3, 26.1): all buttons on one row, kept in full screen. When the panel is
+          too narrow for every label (72rem for interaction items, 81rem for design and optimize items,
+          which add Save and Cost), the driver switch, Hand back, Goal, Stop process, resume, Stages and
+          requests, Topology and Full screen show only icons with the name on hover, and cost shows only
+          its number */}
       <div
         className={cn(
           'flex flex-wrap items-center gap-2',
-          draft !== null && '@max-[54rem]:[&_[data-toolbar-label]]:sr-only',
+          draft === null
+            ? '@max-[72rem]:[&_[data-toolbar-label]]:sr-only @max-[72rem]:[&_[data-driver-label]]:sr-only'
+            : '@max-[81rem]:[&_[data-toolbar-label]]:sr-only @max-[81rem]:[&_[data-driver-label]]:sr-only',
         )}
         data-testid="live-toolbar"
       >
         <StatusBadge live={data} />
-        <div
-          role="radiogroup"
-          aria-label="驾驶者"
-          className="flex rounded-md border p-0.5"
-          data-testid="driver-switch"
-          data-driver={data.driver}
-        >
-          {(['human', 'simulated'] as const).map((d) => {
-            const locked = humanOnly && d === 'simulated';
-            return (
-              <button
-                key={d}
-                type="button"
-                role="radio"
-                aria-checked={data.driver === d}
-                data-driver={d}
-                title={locked ? '设计与优化的会话只由人驾驶' : undefined}
-                disabled={locked || !running || data.starting || driverPending || data.driver === d}
-                className="rounded px-2.5 py-0.5 text-sm aria-checked:bg-foreground aria-checked:text-background disabled:cursor-not-allowed"
-                onClick={() => {
-                  onDriver(d);
-                }}
-              >
-                {d === 'human' ? <Hand className="mr-1 inline size-3.5" /> : null}
-                {driverLabel[d]}
-              </button>
-            );
-          })}
-        </div>
-        {!humanOnly && (
-          <Button
-            size="sm"
-            variant="outline"
-            data-testid="hand-back"
-            title="交还给模拟用户"
-            disabled={!running || data.starting || data.driver === 'simulated' || driverPending}
-            onClick={() => {
-              onDriver('simulated');
-            }}
-          >
-            <Undo2 />
-            交还
-          </Button>
+        {!structured && (
+          <DriverControls data={data} onDriver={onDriver} driverPending={driverPending} />
         )}
         {running ? stopButton : resume}
         {model !== null && (
@@ -642,20 +905,37 @@ function ItemPanel({
             {model} · {effort}
           </span>
         )}
-        <FinderMenu items={finder} />
+        {/* Items on an SSH host: copy ssh <target> and the working directory instead of Open in Finder (Contracts 31.3) */}
+        {data.host === null ? (
+          <FinderMenu items={finder} />
+        ) : (
+          <RemoteCopyMenu target={data.host.target} cwd={data.cwd} />
+        )}
+        <OpenInVscode
+          liveId={liveId}
+          serverId={data.host === null ? LOCAL_SERVER_ID : `ssh:${data.host.id}`}
+        />
         <Button
           size="sm"
           variant={side ? 'secondary' : 'ghost'}
           aria-pressed={side}
           data-testid="toggle-side"
-          title="阶段与请求"
+          title="Stages and requests"
           onClick={() => {
             setSide(!side);
           }}
         >
           <ChevronsLeftRight />
-          <span data-toolbar-label>阶段与请求</span>
+          <span data-toolbar-label>Stages and requests</span>
         </Button>
+        {inOrca && (
+          <TopologyButton
+            open={drawer === 'topology'}
+            onToggle={() => {
+              setDrawer(drawer === 'topology' ? null : 'topology');
+            }}
+          />
+        )}
         {draft !== null && (
           <>
             {draft.save}
@@ -664,7 +944,7 @@ function ItemPanel({
         )}
         <span className="ml-auto flex items-center gap-2">{extra}</span>
       </div>
-      {/* 下面一行：放不下时工作目录截断（悬停看全文），保持一行 */}
+      {/* The line below: the working directory truncates when it doesn't fit (full text on hover), staying on one line */}
       <p
         className="flex min-w-0 items-center gap-x-3 text-xs whitespace-nowrap text-muted-foreground"
         data-testid="live-meta"
@@ -674,20 +954,22 @@ function ItemPanel({
             /{workflow}
           </span>
         ) : (
-          // 不加命令的交互与从已有 session 开始的项（Contracts 29.2）
+          // Interactions without a command and items started from an existing session (Contracts 29.2)
           data.purpose === 'interaction' && (
-            <span data-testid="live-workflow-name" title="没有初始命令">
+            <span data-testid="live-workflow-name" title="No initial command">
               —
             </span>
           )
         )}
         <span>
-          {draft === null ? 'variant' : '底子 variant'}{' '}
+          {draft === null ? 'Variant' : 'Base variant'}{' '}
           <span data-testid="live-variant-name">
             {draft === null ? variantLabel(data) : <BaseVariantName draft={draft.draft} />}
           </span>
         </span>
-        {draft === null ? (
+        {data.host !== null ? (
+          <HostLabel label={data.host.label} className="shrink-0" />
+        ) : draft === null ? (
           <span>{environmentLabel[data.environment]}</span>
         ) : (
           <span className="inline-flex items-center gap-1" data-testid="live-engine">
@@ -708,19 +990,21 @@ function ItemPanel({
         )}
       </p>
       {draft?.below}
+      <OrcaNotice live={data} />
       {errors}
       <Notices live={data} />
       <WorkRow fullscreen={fullscreen}>
         {draft !== null && data.draftId !== null ? (
-          // 终端在左、workflow 面板在右、抽屉在最右，三者的宽度由 DesignWork 分配（Contracts 26.1）；草稿还在准备时
-          // 终端的位置是说明，面板照样显示
+          // Terminal on the left, workflow panel on the right, drawer far right, widths allotted by
+          // DesignWork (Contracts 26.1); while the draft is still preparing, the terminal spot shows a
+          // note and the panel still shows
           <DesignWork
             liveId={liveId}
             terminal={work}
             drawer={
-              side
+              drawer !== null
                 ? {
-                    title: '阶段与请求',
+                    title: drawerTitle,
                     onClose: closeSide,
                     width: drawerWidth,
                     onResize: setDrawerWidth,
@@ -732,9 +1016,9 @@ function ItemPanel({
         ) : (
           <>
             {work}
-            {side && (
+            {drawer !== null && (
               <SideDrawer
-                title="阶段与请求"
+                title={drawerTitle}
                 onClose={closeSide}
                 width={drawerWidth}
                 onResize={setDrawerWidth}
@@ -749,8 +1033,9 @@ function ItemPanel({
   );
 }
 
-// Magi Agent 的会话（Contracts 23.6）：只有人驾驶；工具栏是引擎、配置、结束进程或 resume、worktree 与分支状态、
-// 部署的进度与上一次部署的结果；终端可以全屏。第一次打开时终端的位置显示 worktree 的准备进度
+// Magi Agent sessions (Contracts 23.6, 34.2): the toolbar has engine, config, driver and Hand back,
+// Stop process or resume, worktree and branch status, deploy progress and the last deploy's result;
+// the terminal can go full screen. On first open the terminal spot shows worktree preparation progress
 function AgentPanel({
   data,
   stopButton,
@@ -758,26 +1043,30 @@ function AgentPanel({
   fullscreen,
   extra,
   onResumed,
-}: {
-  data: LiveDetail;
-  stopButton: ReactNode;
-  errors: ReactNode;
-  fullscreen: boolean;
-  extra: ReactNode;
-  onResumed: (live: LiveDetail) => void;
-}) {
+  onOpen,
+  onDriver,
+  driverPending,
+}: PanelProps) {
   const magi = useMagiWorktree();
   const resume = useMutation({ mutationFn: () => resumeMagi(data.id), onSuccess: onResumed });
   const running = data.status === 'running';
   const state = magi.data;
+  // Magi Agent can also dispatch workers with Orca (Contracts 35.4): the topology is in the right drawer
+  const inOrca = useInOrcaRun(data);
+  const [topology, setTopology] = useState(false);
+  const [drawerWidth, setDrawerWidth] = useState(DRAWER_WIDTH);
   return (
     <div
-      className="flex min-h-0 min-w-0 flex-1 flex-col gap-2"
+      className="@container flex min-h-0 min-w-0 flex-1 flex-col gap-2"
       data-testid="live-panel"
       data-live={data.id}
       data-purpose="agent"
     >
-      <div className="flex items-center gap-2 whitespace-nowrap" data-testid="live-toolbar">
+      {/* When the panel is narrow, Hand back, Goal and Stop process show only icons with the name on hover; the toolbar stays on one row */}
+      <div
+        className="flex items-center gap-2 whitespace-nowrap @max-[54rem]:[&_[data-toolbar-label]]:sr-only"
+        data-testid="live-toolbar"
+      >
         <StatusBadge live={data} />
         <span
           className="magi-robot-host inline-flex items-center gap-1 text-sm font-medium"
@@ -794,6 +1083,7 @@ function AgentPanel({
         >
           {data.agentConfigName}
         </span>
+        <DriverControls data={data} onDriver={onDriver} driverPending={driverPending} />
         {running
           ? stopButton
           : data.process !== null && (
@@ -811,7 +1101,16 @@ function AgentPanel({
               </Button>
             )}
         <FinderMenu items={[{ label: 'worktree', target: { kind: 'live-cwd', id: data.id } }]} />
-        {/* 分支状态在窄的窗口中缩短（悬停看全文），工具栏保持一行 */}
+        <OpenInVscode liveId={data.id} />
+        {inOrca && (
+          <TopologyButton
+            open={topology}
+            onToggle={() => {
+              setTopology(!topology);
+            }}
+          />
+        )}
+        {/* Branch status shortens in narrow windows (full text on hover); the toolbar stays on one row */}
         <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
           {state !== undefined && <BranchStatus worktree={state.worktree} />}
         </span>
@@ -837,6 +1136,7 @@ function AgentPanel({
           {state.worktree.startError}
         </p>
       )}
+      <OrcaNotice live={data} />
       <Notices live={data} />
       <WorkRow fullscreen={fullscreen}>
         {data.process === null ? (
@@ -844,12 +1144,24 @@ function AgentPanel({
         ) : (
           <LiveTerminal key={data.process.id} liveId={data.id} />
         )}
+        {topology && (
+          <SideDrawer
+            title="Topology"
+            onClose={() => {
+              setTopology(false);
+            }}
+            width={drawerWidth}
+            onResize={setDrawerWidth}
+          >
+            <OrcaTopologyPanel live={data} onOpen={onOpen} />
+          </SideDrawer>
+        )}
       </WorkRow>
     </div>
   );
 }
 
-// 标签页标题：用途的颜色与引擎的 logo 在名字前面；Magi Agent 的项另有小机器人
+// Tab title: purpose color and engine logo before the name; Magi Agent items also get the little robot
 function TabLabel({ liveId }: { liveId: string }) {
   const live = useQuery(liveQuery(liveId));
   if (live.data === undefined) return <>{liveId}</>;
@@ -861,12 +1173,18 @@ function TabLabel({ liveId }: { liveId: string }) {
       <PurposeBand purpose={live.data.purpose} className="h-4" />
       {live.data.purpose === 'agent' && <MagiRobot className="size-3.5" label="Magi Agent" />}
       <EngineLogo engine={live.data.engine} className="size-3.5" />
+      {live.data.host !== null && (
+        <Server
+          className="size-3.5 shrink-0"
+          aria-label={`SSH host ${live.data.host.label ?? ''}`}
+        />
+      )}
       <LiveTitle liveId={liveId} title={live.data.title} className="truncate" />
     </span>
   );
 }
 
-// 全屏中切换交互项的下拉（Contracts 20.3）：列出左侧列表中的项，每项同样显示用途的颜色与引擎的 logo
+// Item switcher in full screen (Contracts 20.3): lists the items of the left list, each with its purpose color and engine logo
 function ItemSwitcher({
   items,
   active,
@@ -884,8 +1202,8 @@ function ItemSwitcher({
           size="sm"
           variant="outline"
           className="max-w-[18rem]"
-          aria-label="切换交互项"
-          title={`切换交互项（${SWITCH_SHORTCUT_LABEL}）`}
+          aria-label="Switch item"
+          title={`Switch item (${SWITCH_SHORTCUT_LABEL})`}
           data-testid="live-switcher"
         >
           {current !== undefined && (
@@ -926,7 +1244,8 @@ function ItemSwitcher({
   );
 }
 
-// 交互区（Contracts 14.3）：左侧列表，右侧每个打开的 session 一个标签页；终端可以全屏（Contracts 20.3）
+// The workspace (Contracts 14.3): list on the left, one tab per open session on the right; the terminal
+// can go full screen (Contracts 20.3)
 const LIST_COLLAPSED_KEY = 'wfd.live.listCollapsed';
 
 export function LivePage() {
@@ -937,10 +1256,10 @@ export function LivePage() {
   const [creating, setCreating] = useState(false);
   const items = useQuery(liveListQuery(false));
   const open = (params.get('tabs') ?? '').split(',').filter((id) => id !== '');
-  // ?item=<liveId>：选中这一项的标签页（Sessions 页面的"Live"按钮、resume 与导入都跳到这里）
+  // ?item=<liveId>: selects that item's tab (the Sessions page "Live" button, resume and import all land here)
   const active = params.get('item') ?? open.at(-1) ?? null;
   const tabs = active !== null && !open.includes(active) ? [...open, active] : open;
-  // 只改标签页与选中的项，保留地址中的其他参数（?fullscreen=1）
+  // Change only the tabs and selected item, keeping other URL params (?fullscreen=1)
   const update = (nextTabs: string[], nextActive: string | null) => {
     setParams(
       (current) => {
@@ -963,13 +1282,14 @@ export function LivePage() {
     update(rest, active === id ? (rest.at(-1) ?? null) : active);
   };
 
-  // 没有选中的项时没有可以全屏的终端
+  // With no selected item there is no terminal to show full screen
   const { active: isFullscreen, exit } = fullscreen;
   useEffect(() => {
     if (isFullscreen && active === null) exit();
   }, [isFullscreen, active, exit]);
 
-  // 左侧列表只在用户点"收起交互列表"时收成窄条，所有用途的项一样（Contracts 26.1）；选择记在 localStorage
+  // The left list collapses to a strip only when the user clicks "Collapse list", the same for items of
+  // every purpose (Contracts 26.1); the choice is kept in localStorage
   const [listCompact, setListCompact] = useState(
     () => localStorage.getItem(LIST_COLLAPSED_KEY) === '1',
   );
@@ -978,7 +1298,7 @@ export function LivePage() {
     setListCompact(compact);
   };
 
-  // 全屏中的 ⌃⇧[ 与 ⌃⇧]：按左侧列表的顺序切换到上一项或下一项，保持全屏
+  // ⌃⇧[ and ⌃⇧] in full screen: switch to the previous or next item in left-list order, staying full screen
   const switchRef = useRef<(direction: -1 | 1) => void>(() => undefined);
   useLayoutEffect(() => {
     switchRef.current = (direction) => {
@@ -1014,8 +1334,9 @@ export function LivePage() {
   );
 
   return (
-    // 高度固定为窗口的高度（main 上下各 2rem 的边距），终端占其中剩下的部分（Contracts 20.4）。
-    // 高度必须是定值：xterm.js 按容器大小算行数，容器随内容长高会让行数不断增加
+    // Height is fixed to the window height (main has 2rem margins top and bottom); the terminal takes
+    // what's left (Contracts 20.4). The height must be fixed: xterm.js computes rows from the container
+    // size, and a container that grows with content keeps adding rows
     <div className="flex h-[calc(100vh-4rem)] flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="mr-auto text-xl font-semibold">Live</h1>
@@ -1034,7 +1355,7 @@ export function LivePage() {
           }}
         >
           <Plus />
-          新建交互
+          New interaction
         </Button>
       </div>
       {creating && (
@@ -1079,11 +1400,15 @@ export function LivePage() {
         <section className="flex min-h-0 min-w-0 flex-col gap-2 overflow-y-auto">
           {tabs.length === 0 ? (
             <p className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-              从左侧打开一个交互 session，或新建一个。
+              Open a Live session from the list on the left, or start a new interaction.
             </p>
           ) : (
             <>
-              <div role="tablist" aria-label="打开的交互" className="flex flex-wrap gap-1 border-b">
+              <div
+                role="tablist"
+                aria-label="Open interactions"
+                className="flex flex-wrap gap-1 border-b"
+              >
                 {tabs.map((id) => (
                   <div
                     key={id}
@@ -1108,7 +1433,7 @@ export function LivePage() {
                     </div>
                     <button
                       type="button"
-                      aria-label="关闭标签页"
+                      aria-label="Close tab"
                       className="px-1.5 text-muted-foreground hover:text-foreground"
                       onClick={() => {
                         closeTab(id);
@@ -1120,7 +1445,7 @@ export function LivePage() {
                 ))}
               </div>
               {active !== null && (
-                // 全屏与不全屏是同一个元素：终端不重新挂载，内容与光标不变
+                // Full screen and normal are the same element: the terminal isn't remounted, content and cursor stay
                 <FullscreenArea
                   active={isFullscreen}
                   className="flex min-h-0 min-w-0 flex-1 flex-col"
@@ -1135,6 +1460,7 @@ export function LivePage() {
                     onResumed={(live) => {
                       openTab(live.id);
                     }}
+                    onOpen={openTab}
                   />
                 </FullscreenArea>
               )}

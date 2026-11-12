@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-// claude -p --output-format stream-json 的 stdout 事件；只声明 Runner 读取的字段，其余原样保留
+// stdout events of claude -p --output-format stream-json; only the fields the Runner reads are declared, the rest pass through
 
 export const AskQuestionSchema = z.looseObject({
   question: z.string(),
@@ -62,7 +62,7 @@ export type UserEvent = z.infer<typeof UserEvent>;
 export type ResultEvent = z.infer<typeof ResultEvent>;
 export type ControlRequestEvent = z.infer<typeof ControlRequestEvent>;
 export type ControlResponseEvent = z.infer<typeof ControlResponseEvent>;
-// 其他类型（如 rate_limit_event）只写入事件日志
+// Other types (such as rate_limit_event) only go to the event log
 export type OtherEvent = { type: string } & Record<string, unknown>;
 
 export type StreamEvent =
@@ -85,7 +85,7 @@ const byType = {
 
 const AnyEvent = z.looseObject({ type: z.string() });
 
-// stdout 的一行 JSON；已知类型按各自的 schema 校验
+// One JSON line of stdout; known types are validated by their own schema
 export function parseStreamEvent(raw: unknown): StreamEvent {
   const base = AnyEvent.parse(raw);
   if (!Object.hasOwn(byType, base.type)) return base;

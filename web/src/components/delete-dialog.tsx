@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { formatNoun } from '@/lib/format';
 import { requestJson } from '@/lib/http';
 import { variantsQuery } from '@/pages/variants-api';
 
@@ -15,7 +16,7 @@ type Kind = 'variant' | 'workflow';
 const base = (kind: Kind, id: string) =>
   `/api/${kind === 'variant' ? 'variants' : 'workflows'}/${encodeURIComponent(id)}`;
 
-// 删除 variant 或 workflow（Contracts 24.6）：按钮放在已有的按钮组中；icon 为 true 时只显示图标（列表的行）
+// Delete a variant or workflow (Contracts 24.6): the button sits in an existing button group; icon shows only the icon (list rows)
 export function DeleteButton({
   kind,
   id,
@@ -27,11 +28,11 @@ export function DeleteButton({
   id: string;
   name: string;
   icon?: boolean;
-  // 删除后去哪里；不给时留在当前页面
+  // Where to go after deleting; stays on the current page when not given
   after?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const label = `删除${kind === 'variant' ? ' variant' : ' workflow'} ${name}`;
+  const label = `Delete ${kind} ${name}`;
   return (
     <>
       {icon ? (
@@ -58,7 +59,7 @@ export function DeleteButton({
           }}
         >
           <Trash2 />
-          删除
+          Delete
         </Button>
       )}
       {open && (
@@ -161,14 +162,14 @@ function DeleteDialog({
         >
           <div className="flex items-center gap-3">
             <Dialog.Title className="text-base font-semibold">
-              删除 {kind} {name}
+              Delete {kind} {name}
             </Dialog.Title>
             <Button size="sm" variant="ghost" className="ml-auto" onClick={onClose}>
               <X />
-              取消
+              Cancel
             </Button>
           </div>
-          {plan.isPending && <p className="text-sm text-muted-foreground">读取中…</p>}
+          {plan.isPending && <p className="text-sm text-muted-foreground">Loading…</p>}
           {plan.isError && (
             <p role="alert" className="text-sm whitespace-pre-wrap text-destructive">
               {plan.error.message}
@@ -178,7 +179,7 @@ function DeleteDialog({
             <div className="flex min-h-0 flex-col gap-4 overflow-auto pr-1">
               {blocked && (
                 <Alert variant="destructive" data-testid="delete-blockers">
-                  <AlertTitle>现在不能删除</AlertTitle>
+                  <AlertTitle>Can't delete right now</AlertTitle>
                   <AlertDescription>
                     <ul className="list-disc pl-4">
                       {p.blockers.map((b) => (
@@ -190,30 +191,32 @@ function DeleteDialog({
               )}
               {kind === 'workflow' && (
                 <p className="text-sm">
-                  一起删除它的 {p.variants.length} 个 variant
-                  {p.drafts.length > 0 && `、${String(p.drafts.length)} 个草稿与草稿的 Live 项`}。
+                  Also deletes its {formatNoun(p.variants.length, 'variant')}
+                  {p.drafts.length > 0 &&
+                    `, ${formatNoun(p.drafts.length, 'draft')} and the drafts' Live items`}
+                  .
                 </p>
               )}
-              <Section title="删除的目录">
+              <Section title="Directories to delete">
                 {p.dirs.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    没有要删除的目录（与其他 variant 共用）。
+                    No directories to delete (shared with other variants).
                   </p>
                 ) : (
                   <Paths paths={p.dirs} testId="delete-dirs" />
                 )}
                 {p.installs.length > 0 && (
                   <>
-                    <p className="text-sm">装在本机，先按清单卸载：</p>
+                    <p className="text-sm">Installed on this machine; uninstalled first from:</p>
                     <Paths paths={p.installs.flatMap((i) => i.dirs)} testId="delete-installs" />
                   </>
                 )}
               </Section>
-              <Section title={`关联的 session（${String(p.sessions.count)} 个）`}>
+              <Section title={`Linked sessions (${String(p.sessions.count)})`}>
                 <div
                   className="flex flex-col gap-2 text-sm"
                   role="radiogroup"
-                  aria-label="关联的 session"
+                  aria-label="Linked sessions"
                 >
                   <label className="flex items-center gap-2">
                     <input
@@ -225,10 +228,10 @@ function DeleteDialog({
                         setChoice('rebind');
                       }}
                     />
-                    改绑到
+                    Rebind to
                     <select
                       className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2"
-                      aria-label="改绑到"
+                      aria-label="Rebind to"
                       data-testid="delete-rebind-target"
                       value={rebindTo}
                       disabled={choice !== 'rebind'}
@@ -236,7 +239,7 @@ function DeleteDialog({
                         setRebindTo(event.target.value);
                       }}
                     >
-                      <option value="">本机配置（不绑定）</option>
+                      <option value="">Local config (unbound)</option>
                       {workflows.map((w) => (
                         <optgroup key={w} label={w}>
                           {targets
@@ -260,28 +263,31 @@ function DeleteDialog({
                         setChoice('delete');
                       }}
                     />
-                    一起删除：session 与它们在磁盘上的原始文件
+                    Delete them too: the sessions and their original files on disk
                     {p.sessions.liveItems.length > 0 &&
-                      `，以及 ${String(p.sessions.liveItems.length)} 个 Live 项`}
+                      `, plus ${formatNoun(p.sessions.liveItems.length, 'Live item')}`}
                   </label>
                   {choice === 'delete' && p.sessions.files.length > 0 && (
                     <Paths paths={p.sessions.files} testId="delete-session-files" />
                   )}
                   {p.sessions.agent > 0 && (
                     <p className="text-muted-foreground" data-testid="delete-agent-sessions">
-                      另有本机配置的 Magi Agent 的 session {p.sessions.agent} 个（用的是本机的
-                      ~/.claude）：不删除，Live 中的这些项也不删除；选一起删除时改为本机配置。
+                      Plus {formatNoun(p.sessions.agent, 'Magi Agent session')} on the local config
+                      (~/.claude): not deleted, and neither are their Live items; with "Delete them
+                      too" they move to the local config.
                     </p>
                   )}
                 </div>
               </Section>
-              <Section title="保留的记录（显示为「名字（已删除）」）">
+              <Section title='Records kept (shown as "name (deleted)")'>
                 <p className="text-sm text-muted-foreground" data-testid="delete-retained">
-                  run {p.retained.runs} 个（其中 session {p.retained.runSessions} 个随 run 保留）·
-                  分析 {p.retained.analyses} 个 · Live 项 {p.retained.liveItems} 个 · 草稿{' '}
-                  {p.retained.drafts} 个
+                  {formatNoun(p.retained.runs, 'run')} (
+                  {formatNoun(p.retained.runSessions, 'session')} kept with the runs) ·{' '}
+                  {formatNoun(p.retained.analyses, 'analysis', 'analyses')} ·{' '}
+                  {formatNoun(p.retained.liveItems, 'Live item')} ·{' '}
+                  {formatNoun(p.retained.drafts, 'draft')}
                   {p.retained.children.length > 0 &&
-                    ` · 派生出的 variant：${p.retained.children.map((c) => c.name).join('、')}`}
+                    ` · Derived variants: ${p.retained.children.map((c) => c.name).join(', ')}`}
                 </p>
               </Section>
             </div>
@@ -293,7 +299,7 @@ function DeleteDialog({
           )}
           <div className="flex items-center gap-2 border-t pt-3">
             <label className="flex min-w-0 flex-1 items-center gap-2 text-sm">
-              输入名字确认
+              Type the name to confirm
               <Input
                 className="h-8 min-w-0 flex-1"
                 placeholder={name}
@@ -314,7 +320,7 @@ function DeleteDialog({
               }}
             >
               <Trash2 />
-              {remove.isPending ? '删除中…' : '删除'}
+              {remove.isPending ? 'Deleting…' : 'Delete'}
             </Button>
           </div>
         </Dialog.Content>

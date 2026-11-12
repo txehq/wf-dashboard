@@ -2,7 +2,11 @@ import { Link } from 'react-router';
 import { type Finding, stageName } from '@/lib/analyses-api';
 import { cn } from '@/lib/utils';
 
-const severityLabel: Record<Finding['severity'], string> = { high: '高', medium: '中', low: '低' };
+const severityLabel: Record<Finding['severity'], string> = {
+  high: 'High',
+  medium: 'Medium',
+  low: 'Low',
+};
 const severityClass: Record<Finding['severity'], string> = {
   high: 'border-critical-muted-border bg-critical-muted text-critical-muted-foreground',
   medium: 'border-warning-border bg-warning text-warning-foreground',
@@ -20,12 +24,12 @@ export function SeverityBadge({ severity }: { severity: Finding['severity'] }) {
   );
 }
 
-// 一个方面中按阶段与 skill 分组，组内按严重程度
+// Within an aspect, group by stage and skill; sort each group by severity
 function groups(findings: Finding[]): { label: string; items: Finding[] }[] {
   const order = { high: 0, medium: 1, low: 2 };
   const map = new Map<string, Finding[]>();
   for (const f of findings) {
-    const label = [f.stage ?? '不限阶段', f.skill === null ? null : `skill ${f.skill}`]
+    const label = [f.stage ?? 'Any stage', f.skill === null ? null : `skill ${f.skill}`]
       .filter((x) => x !== null)
       .join(' · ');
     map.set(label, [...(map.get(label) ?? []), f]);
@@ -67,7 +71,7 @@ function FindingCard({ finding, sessionCount }: { finding: Finding; sessionCount
   );
 }
 
-// Contracts 15.3、19.2：发现按方面（session-analysis 的小阶段）、被分析 workflow 的阶段、skill 分组
+// Contracts 15.3, 19.2: findings grouped by aspect (session-analysis stage), analyzed workflow stage, and skill
 export function FindingsReport({
   findings,
   aspects,
@@ -78,8 +82,8 @@ export function FindingsReport({
   sessionCount: number;
 }) {
   return (
-    <section aria-label="发现" className="flex flex-col gap-4" data-testid="findings">
-      <h2 className="text-lg font-semibold">发现</h2>
+    <section aria-label="Findings" className="flex flex-col gap-4" data-testid="findings">
+      <h2 className="text-lg font-semibold">Findings</h2>
       {aspects.map((aspect) => {
         const items = findings.filter((f) => f.aspect === aspect);
         return (
@@ -95,11 +99,11 @@ export function FindingsReport({
                 {aspect}
               </span>
               <span className="ml-2 text-xs font-normal text-muted-foreground">
-                {items.length} 条
+                {items.length} {items.length === 1 ? 'finding' : 'findings'}
               </span>
             </h3>
             {items.length === 0 ? (
-              <p className="text-sm text-muted-foreground">没有发现。</p>
+              <p className="text-sm text-muted-foreground">No findings.</p>
             ) : (
               groups(items).map((g) => (
                 <div key={g.label} className="flex flex-col gap-2">

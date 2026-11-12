@@ -1,0 +1,23 @@
+#!/usr/bin/env node
+// gh for the Linear stats tests: replays, by arguments, the gh api output WFD_TEAM_GH_REPLAY points to (real output
+// recorded by scripts/record-team-fixtures.ts: { commands: [{ args, exitCode, stdout, stderr }] }), with the
+// recorded exit code. WFD_TEAM_GH_LOG, when set, gets one JSON line per call. A command with no recording fails with
+// its text
+import fs from 'node:fs';
+
+const file = process.env.WFD_TEAM_GH_REPLAY;
+if (file === undefined)
+  throw new Error('WFD_TEAM_GH_REPLAY is not set: this gh only replays recorded output');
+const args = process.argv.slice(2);
+if (process.env.WFD_TEAM_GH_LOG !== undefined) {
+  fs.appendFileSync(process.env.WFD_TEAM_GH_LOG, `${JSON.stringify(args)}\n`);
+}
+const { commands } = JSON.parse(fs.readFileSync(file, 'utf8'));
+const recorded = commands.find((c) => JSON.stringify(c.args) === JSON.stringify(args));
+if (recorded === undefined) {
+  process.stderr.write(`${file} has no recording of gh ${args.join(' ')}\n`);
+  process.exit(1);
+}
+process.stdout.write(recorded.stdout);
+process.stderr.write(recorded.stderr);
+process.exitCode = recorded.exitCode;

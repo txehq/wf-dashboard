@@ -4,7 +4,7 @@ import { formatInteger } from '@/lib/format';
 
 const pageCount = (total: number, pageSize: number) => Math.max(1, Math.ceil(total / pageSize));
 
-// 分页：显示这一页的序号范围与总数，前后翻页的图标按钮；与搜索框等放在同一行
+// Pagination: the index range of this page and the total, with previous and next icon buttons; sits on one row with the search box and similar controls
 export function Pager({
   page,
   pageSize,
@@ -17,9 +17,9 @@ export function Pager({
   page: number;
   pageSize: number;
   total: number;
-  // 计数的单位，例如"个 session"
+  // Noun after the total, already pluralised for it, for example "sessions"
   unit: string;
-  // 读屏用的名字，例如"session 的分页"
+  // Accessible name, for example "Session pages"
   label: string;
   onPage: (page: number) => void;
   testId: string;
@@ -35,16 +35,16 @@ export function Pager({
     >
       <span className="text-muted-foreground tabular-nums" data-testid={`${testId}-range`}>
         {total > pageSize
-          ? `${formatInteger(from)}–${formatInteger(to)}，共 ${formatInteger(total)} ${unit}`
-          : `共 ${formatInteger(total)} ${unit}`}
+          ? `${formatInteger(from)}–${formatInteger(to)} of ${formatInteger(total)} ${unit}`
+          : `${formatInteger(total)} ${unit}`}
       </span>
       {total > pageSize && (
         <>
           <Button
             variant="ghost"
             size="icon-sm"
-            aria-label="上一页"
-            title="上一页"
+            aria-label="Previous page"
+            title="Previous page"
             disabled={page <= 1}
             onClick={() => {
               onPage(page - 1);
@@ -58,8 +58,8 @@ export function Pager({
           <Button
             variant="ghost"
             size="icon-sm"
-            aria-label="下一页"
-            title="下一页"
+            aria-label="Next page"
+            title="Next page"
             disabled={page >= last}
             onClick={() => {
               onPage(page + 1);

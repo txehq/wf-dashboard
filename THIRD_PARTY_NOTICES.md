@@ -2,9 +2,9 @@
 
 ## Fluent Emoji
 
-- 出处：[microsoft/fluentui-emoji](https://github.com/microsoft/fluentui-emoji)，commit `1ffb34c752ecf5d402f04cfb4b392c77f57c54bc`
-- 使用的文件：`assets/Robot/Flat/robot_flat.svg`，原样存放在 `web/src/assets/fluent-emoji/robot_flat.svg`；`web/src/components/magi-robot.tsx` 用它的路径画 Magi Agent 的标志，身体与两侧天线的颜色改为 Magi Agent 的颜色
-- 许可：MIT
+- Source: [microsoft/fluentui-emoji](https://github.com/microsoft/fluentui-emoji), commit `1ffb34c752ecf5d402f04cfb4b392c77f57c54bc`
+- Files used: `assets/Robot/Flat/robot_flat.svg`, stored unchanged at `web/src/assets/fluent-emoji/robot_flat.svg`; `web/src/components/magi-robot.tsx` draws the Magi Agent logo from its paths, with the body and both antennas recolored in the Magi Agent color
+- License: MIT
 
 ```text
 MIT License
@@ -32,9 +32,9 @@ SOFTWARE.
 
 ## React Flow
 
-- 出处：[xyflow/xyflow](https://github.com/xyflow/xyflow)，npm 包 `@xyflow/react` 12.12.0
-- 使用方式：作为依赖安装，`web/src/components/workflow-flow.tsx`（小阶段流程图）与 `web/src/components/sessions/stage-graph.tsx`（阶段图）用它画图；两处以 `proOptions.hideAttribution` 去掉画布角上的署名，署名与许可写在这里
-- 许可：MIT
+- Source: [xyflow/xyflow](https://github.com/xyflow/xyflow), npm package `@xyflow/react` 12.12.0
+- Use: installed as a dependency; `web/src/components/workflow-flow.tsx` (stage flowchart) and `web/src/components/sessions/stage-graph.tsx` (stage graph) draw with it. Both remove the attribution in the canvas corner with `proOptions.hideAttribution`; the attribution and license are given here
+- License: MIT
 
 ```text
 MIT License
@@ -59,3 +59,22 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Three skills in the design and optimization baselines
+
+The baseline variants of the built-in "Design workflow" and "Optimize" workflows (Contracts 33.1) carry three third-party skills, stored unchanged in `server/src/workflows/external-skills/<name>/`. Each directory has its license and a `SOURCE.md` (source and commit).
+
+### find-skills
+
+- Source: [vercel-labs/skills](https://github.com/vercel-labs/skills), commit `13e4063a1cf913f5606d57d42ab83a86f5001e04`, `skills/find-skills/`
+- License: MIT, full text in `server/src/workflows/external-skills/find-skills/LICENSE` (the copy from the repository root, Copyright (c) 2026 Vercel, Inc.)
+
+### skill-creator
+
+- Source: [anthropics/skills](https://github.com/anthropics/skills), commit `dbd4588f9e1033efb41dad4bef2f7947c8993d44`, `skills/skill-creator/`
+- License: Apache License 2.0, full text in `server/src/workflows/external-skills/skill-creator/LICENSE.txt` (the copy shipped with this skill)
+
+### writing-for-agents
+
+- Source: [mattpocock/skills](https://github.com/mattpocock/skills), commit `49dd158d1076134a641b33efb035946536778336`, `skills/productivity/writing-for-agents/`
+- License: MIT, full text in `server/src/workflows/external-skills/writing-for-agents/LICENSE` (the copy from the repository root, Copyright (c) 2026 Matt Pocock)

@@ -8,7 +8,7 @@ import type { SessionAction, SessionActionPlan } from '@wf-dashboard/server/dele
 import { requestJson } from '@/lib/http';
 import { invalidateThrottled, throttled, useLiveEvent } from '@/lib/live-events';
 
-// 与 Contracts.md 第 2、5、25 节的 Sessions API 对应
+// The Sessions API of Contracts.md sections 2, 5 and 25
 
 export type SessionEngine = 'claude' | 'codex';
 
@@ -22,9 +22,9 @@ export interface Tokens {
 export interface SessionSummary {
   id: string;
   engine: SessionEngine;
-  // 所属的配置（Contracts 25.1）：local、variant:<目录>、design；不在这些目录中的为空
+  // The config it belongs to (Contracts 25.1, 33.3): local, variant:<id>; null outside these directories
   config: string | null;
-  // 设计与优化下的 session 的用途
+  // Purpose of a design or optimize session (Contracts 33.3)
   purpose: 'design' | 'optimize' | null;
   archivedAt: string | null;
   cwd: string | null;
@@ -34,18 +34,25 @@ export interface SessionSummary {
   requestCount: number;
   tokens: Tokens;
   costUsd: number;
-  // 全部请求的模型都在价格表中；false 时不显示花费（Contracts 25.5）
+  // Every request's model is in the price table; when false, no cost is shown (Contracts 25.5)
   priced: boolean;
-  // dashboard 记录的 workflow 配置（Contracts 25.4）：variant 配置下的 session 为它所属 variant 的 workflow
+  // Workflow config the dashboard records (Contracts 25.4): for a variant-config session, its variant's workflow
   workflows: string[];
   runId: string | null;
-  // 交互产生或被交互 resume 的 session
+  // Session created or resumed by a Live interaction
   liveId: string | null;
-  // 所属的交互项已关闭
+  // Its Live item is closed
   liveHidden: boolean;
-  // deleted：绑定的 variant 已删除（Contracts 24.3），名字后有「（已删除）」，不能点进 variant 页面
+  // deleted: the bound variant was deleted (Contracts 24.3); the server appends its deleted suffix to the name
+  // and the variant page cannot be opened
   variant: { id: string; name: string; deleted: boolean } | null;
   variantBinding: 'run' | 'auto' | 'manual' | null;
+  // Session from an SSH host (Contracts 31.6): the host (label null once deleted) and the remote original file;
+  // null for local ones
+  host: { id: string; label: string | null; remotePath: string | null } | null;
+  // Incremental import problem: failed carries the original error (retried on the next incremental import),
+  // waiting means a referenced spill file has not appeared yet
+  importProblem: { kind: 'failed' | 'waiting'; message: string; at: string } | null;
 }
 
 export interface SubagentInfo {
@@ -101,9 +108,9 @@ export type TimelineItem = RequestItem | MessageItem;
 export type StageStatus = 'done' | 'active' | 'skipped' | 'not-reached';
 
 export interface StageStats {
-  // 含子代理的请求
+  // Requests including subagents
   requests: number;
-  // 只计主 session 的请求：各轮与流程外的 mainRequests 之和等于主 agent 请求总数
+  // Main-session requests only: mainRequests of all cycles plus outside equals the main agent's request total
   mainRequests: number;
   toolCalls: Record<string, number>;
   inputTokens: number;
@@ -115,7 +122,7 @@ export interface StageStats {
   subagents: number;
 }
 
-// 进入阶段的那次调用：主 agent 的 Skill 调用或用户输入的 slash 命令
+// The call that entered a stage: a Skill call by the main agent or a slash command the user typed
 export interface StageEvidence {
   seq: number;
   kind: 'skill' | 'command';
@@ -127,7 +134,7 @@ export interface StageView {
   status: StageStatus;
   startSeq: number | null;
   endSeq: number | null;
-  // 这个阶段被调用的次数（fix-pr 的修复轮数）
+  // How many times this stage was called (fix rounds for fix-pr)
   entries: number;
   evidence: StageEvidence | null;
   stats: StageStats;
@@ -135,14 +142,15 @@ export interface StageView {
 
 export interface WorkflowCycle {
   index: number;
-  // 开启这一轮的输入（例如 "/ic TXE-3767"），由 Skill 调用开启时为"第 N 轮"
+  // The input that opened this cycle (e.g. "/ic TXE-3767"); a cycle opened by a Skill call has the server's
+  // default ordinal label
   label: string;
   startSeq: number;
   endSeq: number;
   stages: StageView[];
 }
 
-// 一个 workflow 的全部轮次；session 中没有这个 workflow 时 cycles 为空
+// All cycles of a workflow; cycles is empty when the session has none of this workflow
 export interface WorkflowCycles {
   workflow: string;
   cycles: WorkflowCycle[];
@@ -150,9 +158,9 @@ export interface WorkflowCycles {
 
 export interface StageReport {
   sessionId: string;
-  // 划分所用的 workflow，按 lfg、ic、其他的顺序（Contracts 16.6）
+  // Workflows used for partitioning, in the order lfg, ic, others (Contracts 16.6)
   workflows: WorkflowCycles[];
-  // 不属于任何阶段的请求
+  // Requests outside every stage
   outside: StageStats;
 }
 
@@ -160,13 +168,17 @@ const getJson = (url: string) => requestJson('GET', url);
 const sendJson = (method: 'PUT' | 'POST', url: string, body?: unknown) =>
   requestJson(method, url, body);
 
-// 上面的三列（Contracts 25.1、25.5）：磁盘上的配置、项目与 session，只读元数据
+// The three columns above (Contracts 25.1, 25.5): configs, projects and sessions on disk, read-only metadata
 export interface ImportConfig {
   id: string;
   label: string;
-  // variant 的配置所属的 workflow（第一列按它分组）；本机配置、设计与优化为 null
+  // Workflow of a variant config (the first column groups by it); null for the local config
   workflow: { id: string; name: string } | null;
   sessionCount: number;
+  // Config of an SSH host (Contracts 31.6, id ssh:<hostId>): when unreachable, error is ssh's original text and
+  // the item is grayed out
+  hostId: string | null;
+  error: string | null;
 }
 
 export interface ImportProject {
@@ -187,7 +199,7 @@ export interface DiskSession {
   liveHidden: boolean;
 }
 
-// 三列中改动的 session，带它所在的配置与项目（第二列的计数用）
+// A changed session in the three columns, with its config and project (for the second column's counts)
 export interface PickedSession extends DiskSession {
   config: string;
   cwd: string;
@@ -199,7 +211,7 @@ interface ColumnPage {
   pageSize: number;
 }
 
-// 第二、三列每页的个数
+// Page size of columns two and three
 export const IMPORT_PAGE_SIZE = 50;
 
 export function importConfigsQuery(engine: SessionEngine) {
@@ -267,7 +279,7 @@ export function diskSessionsQuery(
   });
 }
 
-// "导入 N 个"：files 为第三列中勾选的文件
+// "Import N": files are the checked files in the third column
 export async function importSessions(
   engine: SessionEngine,
   files: string[],
@@ -278,7 +290,7 @@ export async function importSessions(
   };
 }
 
-// 管理表格的范围：引擎、配置（为空时是全部）、是否只看已归档的、搜索与页码
+// Scope of the manage table: engine, config (null for all), archived only or not, search and page
 export interface SessionFilter {
   engine: SessionEngine;
   config: string | null;
@@ -308,14 +320,15 @@ export function sessionsQuery(filter: SessionFilter) {
         sessions: SessionSummary[];
         total: number;
       };
-      // 结果带上它是哪一页、哪个搜索与范围：新的结果到达之前，分页与空结果的说明仍对应列出的这一份
+      // The result carries its page, search and scope: until new results arrive, the pager and empty-state text
+      // still match the list shown
       return { ...body, page: filter.page, q: filter.q, archived: filter.archived };
     },
     placeholderData: keepPreviousData,
   });
 }
 
-// 范围与搜索内全部的 id（"选择全部 N 个"），顺序与表格相同
+// Every id in the scope and search ("Select all N"), in table order
 export function sessionIdsQuery(filter: Omit<SessionFilter, 'page'>) {
   return queryOptions({
     queryKey: ['sessions', 'ids', filter],
@@ -330,10 +343,10 @@ export function sessionIdsQuery(filter: Omit<SessionFilter, 'page'>) {
   });
 }
 
-// 删除、归档与恢复（Contracts 25.3、25.5）
+// Delete, archive and restore (Contracts 25.3, 25.5)
 export type { SessionAction, SessionActionPlan };
 
-// ids 放在请求体中（POST）：选中全部时 id 很多
+// ids go in the request body (POST): there are many with all selected
 export function actionPlanQuery(action: SessionAction, ids: string[]) {
   return queryOptions({
     queryKey: ['session-action-plan', action, ids],
@@ -356,7 +369,7 @@ export function sessionQuery(id: string) {
   });
 }
 
-// "绑定的对象"（Contracts 18.2）
+// "Linked items" (Contracts 18.2)
 export interface SessionLinks {
   github: { label: string; url: string }[];
   linear: { label: string; url: string }[];
@@ -370,7 +383,7 @@ export function sessionLinksQuery(id: string) {
   });
 }
 
-// 阶段在导入时划分，已导入的 session 总是有结果
+// Stages are partitioned at import, so an imported session always has a result
 export function stagesQuery(id: string) {
   return queryOptions({
     queryKey: ['stages', id],
@@ -401,9 +414,10 @@ export function requestsQuery(id: string, range: RequestRange) {
   });
 }
 
-// session 有新请求写入时刷新请求明细（Medium 25）：完整的明细只拉取最后一条请求起的行——最后一条在一轮结束前
-// 还会追加内容，连同它之后的用户消息一起替换——接在已有的列表后面，长 session 不再整份重拉；
-// 带区间的明细（阶段筛选）与还没有请求的明细整段重新拉取
+// Refresh Requests when a session gets new requests (Medium 25): the full list fetches only the rows from the
+// last request on (the last one still grows until its turn ends, so it is replaced along with the user messages
+// after it) and appends them, so long sessions are not refetched whole; ranged lists (stage filter) and lists
+// with no requests yet are refetched whole
 export async function refreshRequests(client: QueryClient, sessionId: string) {
   for (const query of client.getQueryCache().findAll({ queryKey: ['requests', sessionId] })) {
     const range = query.queryKey[2] as RequestRange;
@@ -414,27 +428,27 @@ export async function refreshRequests(client: QueryClient, sessionId: string) {
       continue;
     }
     const fresh = await fetchRequests(sessionId, { ...range, fromSeq: last.seq });
-    // 服务端返回 #(last-1) 之后的用户消息与 #last 起的请求：保留到 #(last-1) 为止
+    // The server returns user messages after #(last-1) and requests from #last: keep up to #(last-1)
     const current = client.getQueryData<TimelineItem[]>(query.queryKey);
     if (current === undefined)
-      throw new Error(`请求明细 ${JSON.stringify(query.queryKey)} 已被移除`);
+      throw new Error(`Request list ${JSON.stringify(query.queryKey)} was removed`);
     const previous = current.findIndex((i) => i.kind === 'request' && i.seq === last.seq - 1);
     if (last.seq > 0 && previous === -1) {
-      throw new Error(`请求明细中没有请求 #${String(last.seq - 1)}`);
+      throw new Error(`Request list has no request #${String(last.seq - 1)}`);
     }
     const kept = last.seq === 0 ? [] : current.slice(0, previous + 1);
     client.setQueryData<TimelineItem[]>(query.queryKey, [...kept, ...fresh]);
   }
 }
 
-// 同一 session 每秒最多刷新一次请求明细
+// Refresh Requests at most once a second per session
 export function refreshRequestsThrottled(client: QueryClient, sessionId: string) {
   throttled(`requests:${sessionId}`, 1_000, () => {
     void refreshRequests(client, sessionId);
   });
 }
 
-// 同一查询在窗口内只刷新一次：长时间运行的 session 每秒数次 session.updated
+// Each query refreshes once per window: a long-running session emits session.updated several times a second
 function invalidateSession(client: QueryClient, sessionId: string) {
   invalidateThrottled(client, ['sessions'], 1_000);
   invalidateThrottled(client, ['session', sessionId], 1_000);
@@ -442,7 +456,7 @@ function invalidateSession(client: QueryClient, sessionId: string) {
   invalidateThrottled(client, ['stages', sessionId], 1_000);
 }
 
-// Contracts 第 11 节：session 主 agent 的对话；seq 指向请求明细中的那一行
+// Contracts section 11: the main agent's conversation in a session; seq points at the row in Requests
 export interface ConversationQuestion {
   question: string;
   header?: string;
@@ -462,7 +476,7 @@ export type ConversationItem =
       seq: number;
     };
 
-// 键在 ['session', id] 之下：session.updated 时随 session 一起刷新
+// Keyed under ['session', id]: refreshes with the session on session.updated
 export function conversationQuery(id: string) {
   return queryOptions({
     queryKey: ['session', id, 'conversation'],
@@ -471,7 +485,7 @@ export function conversationQuery(id: string) {
   });
 }
 
-// session 有新请求写入或阶段变化时刷新相关查询
+// Refresh related queries when a session gets new requests or its stages change
 export function useSessionEvents() {
   const client = useQueryClient();
   useLiveEvent((type, data) => {

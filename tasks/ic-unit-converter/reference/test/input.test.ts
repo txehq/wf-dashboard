@@ -11,18 +11,18 @@ describe('readValue', () => {
     expect(readValue(' 12 ', 'm')).toEqual({ kind: 'valid', value: 12 });
     expect(readValue('-1.5', 'c')).toEqual({ kind: 'valid', value: -1.5 });
     for (const text of ['abc', '12abc', '1.2.3', '-', '.']) {
-      expect(readValue(text, 'm')).toEqual({ kind: 'invalid', message: '请输入数字' });
+      expect(readValue(text, 'm')).toEqual({ kind: 'invalid', message: 'Enter a number' });
     }
   });
 
   it('rejects negative lengths and weights', () => {
-    const message = '长度和重量不能为负数';
+    const message = 'Length and weight cannot be negative';
     expect(readValue('-5', 'cm')).toEqual({ kind: 'invalid', message });
     expect(readValue('-0.5', 'kg')).toEqual({ kind: 'invalid', message });
   });
 
   it('rejects temperatures below absolute zero', () => {
-    const message = '温度不能低于绝对零度';
+    const message = 'Temperature cannot be below absolute zero';
     expect(readValue('-300', 'c')).toEqual({ kind: 'invalid', message });
     expect(readValue('-460', 'f')).toEqual({ kind: 'invalid', message });
     expect(readValue('-1', 'k')).toEqual({ kind: 'invalid', message });

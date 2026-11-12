@@ -1,7 +1,8 @@
 import type { SessionEngine } from '@/lib/sessions-api';
 
-// 管理表格的多选（Contracts 25.1）：逐个选的（可以跨页），或选中当前搜索与配置筛选下的全部。
-// 选中全部时操作按服务端返回的这个范围内的全部 id 执行（GET /api/sessions?idsOnly=true）
+// Multi-select in the manage table (Contracts 25.1): rows picked one by one (across pages), or everything under
+// the current search and config filter. With all selected, operations run on every id the server returns for
+// this scope (GET /api/sessions?idsOnly=true)
 export interface SelectedSession {
   id: string;
   engine: SessionEngine;
@@ -17,7 +18,7 @@ export function isRowSelected(selection: SessionSelection, id: string): boolean 
   return selection.kind === 'all' || selection.picked.has(id);
 }
 
-// 表头勾选框：本页全选、部分选中（半选）或没有选
+// Header checkbox: whole page selected, partly selected (indeterminate) or none
 export function pageState(
   selection: SessionSelection,
   pageIds: readonly string[],
@@ -27,7 +28,7 @@ export function pageState(
   return n === pageIds.length ? 'all' : 'some';
 }
 
-// 切换一行；选中全部时取消一行，得到全部中除它以外的（all 为这个范围内的全部）
+// Toggle one row; with all selected, unchecking a row leaves all the others (all is everything in this scope)
 export function toggledRow(
   selection: SessionSelection,
   row: SelectedSession,
@@ -41,7 +42,8 @@ export function toggledRow(
   return { kind: 'some', picked };
 }
 
-// 表头勾选框：本页全部选中时取消本页（选中全部时取消全部），否则选中本页
+// Header checkbox: clears this page when it is fully selected (clears everything with all selected), otherwise
+// selects this page
 export function toggledPage(
   selection: SessionSelection,
   page: readonly SelectedSession[],
@@ -54,25 +56,28 @@ export function toggledPage(
   return { kind: 'some', picked };
 }
 
-// 表格上方一行的文字；offerAll：本页全部选中、还有没选的，提供"选择全部 N 个"
+// Text of the row above the table; offerAll: the whole page is selected and more remain, so offer "Select all N"
 export function selectionSummary(
   selection: SessionSelection,
   pageIds: readonly string[],
   total: number,
 ): { text: string; offerAll: boolean } | null {
-  if (selection.kind === 'all') return { text: `已选全部 ${String(total)} 个`, offerAll: false };
+  if (selection.kind === 'all') return { text: `All ${String(total)} selected`, offerAll: false };
   const size = selection.picked.size;
   if (size === 0) return null;
   const pageFull = pageIds.length > 0 && pageState(selection, pageIds) === 'all';
-  if (!pageFull) return { text: `已选 ${String(size)} 个`, offerAll: false };
+  if (!pageFull) return { text: `${String(size)} selected`, offerAll: false };
   const n = String(pageIds.length);
   return {
-    text: size === pageIds.length ? `已选本页 ${n} 个` : `已选 ${String(size)} 个（本页 ${n} 个）`,
+    text:
+      size === pageIds.length
+        ? `${n} selected on this page`
+        : `${String(size)} selected (${n} on this page)`,
     offerAll: total > size,
   };
 }
 
-// 操作的对象：选中全部时为这个范围内的全部（all 还没读到时为 undefined）
+// Targets of an operation: with all selected, everything in this scope (undefined until all has loaded)
 export function selectedTargets(
   selection: SessionSelection,
   all: readonly SelectedSession[] | undefined,

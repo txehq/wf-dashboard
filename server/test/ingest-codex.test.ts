@@ -14,15 +14,15 @@ import { readReport } from '../src/stages/report.js';
 import { createVariants } from '../src/variants/index.js';
 import { createWorkflows } from '../src/workflows/index.js';
 
-// Contracts 25.2：Codex rollout 的导入。样本是本机一个 codex exec 的真实 rollout（29 行，3 次请求，exec 脚本中
-// cat 读取 history 的 SKILL.md、调用 wf-history 的两个 MCP 工具），去掉了用户名与注入的 AGENTS.md
-// （.work/w62/sanitize-rollout.mjs）。复制进测试自己建的 CODEX_HOME，不读写用户的 ~/.codex
+// Contracts 25.2: importing a Codex rollout. The sample is a real rollout of a codex exec on this machine (29 lines, 3 requests; the exec script
+// cats the history SKILL.md and calls two wf-history MCP tools), with the user name and the injected AGENTS.md removed
+// (.work/w62/sanitize-rollout.mjs). Copied into a CODEX_HOME the test creates itself; the user's ~/.codex is never read or written
 const fixture = path.join(
   import.meta.dirname,
   'fixtures/codex-rollouts/rollout-2026-10-04T20-22-00-01a106dd-2ba7-7e71-8490-0e170a634111.jsonl',
 );
 const sessionId = '01a106dd-2ba7-7e71-8490-0e170a634111';
-// 样本中唯一的一条用户输入
+// The only user input in the sample
 const prompt =
   "Call the status tool of the wf-history MCP server, then its search tool with query 'wf install' and limit 1. Report the number of sources and whether search returned a hit.";
 const work = path.join(config.repoRoot, '.work', 'test-ingest-codex', randomUUID());
@@ -39,7 +39,7 @@ function openTestDb() {
   return db;
 }
 
-// 样本复制到 <CODEX_HOME>/sessions/2026/10/04/
+// Copy the sample to <CODEX_HOME>/sessions/2026/10/04/
 function copyRollout(content = fs.readFileSync(fixture, 'utf8')) {
   const file = path.join(work, randomUUID(), 'sessions/2026/10/04', path.basename(fixture));
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -66,7 +66,7 @@ function snapshot(db: Db) {
       .where(eq(requests.sessionId, sessionId))
       .orderBy(asc(requests.seq))
       .all()
-      // 自增 id 在不同的数据库中不同，比较时去掉
+      // Autoincrement ids differ between databases; drop them for comparison
       .map((r) => ({ ...r, id: 0 })),
     users: db
       .select({ kind: userMessages.kind, text: userMessages.text })
@@ -77,7 +77,7 @@ function snapshot(db: Db) {
   };
 }
 
-// 样本中 history 的 SKILL.md 全文（exec 脚本中 cat 的输出）
+// The full history SKILL.md in the sample (the output of cat in the exec script)
 function skillFile(): string {
   for (const line of fs.readFileSync(fixture, 'utf8').split('\n')) {
     if (!line.includes('"CommandExecution"')) continue;
@@ -87,16 +87,16 @@ function skillFile(): string {
     if (record.payload.item.command.at(-1)?.endsWith('history/SKILL.md') === true)
       return record.payload.item.aggregated_output;
   }
-  throw new Error('样本中没有读取 history 的 SKILL.md');
+  throw new Error('The sample does not read the history SKILL.md');
 }
 
-describe('导入 Codex rollout', () => {
+describe('importing a Codex rollout', () => {
   const db = openTestDb();
   const file = copyRollout();
   ingestCodexFile(db, file);
   const snap = snapshot(db);
 
-  test('session_meta：session id、工作目录、开始时间；标题是第一条用户输入', () => {
+  test('session_meta: session id, working directory, start time; the title is the first user input', () => {
     expect(readSessionMeta(file)).toEqual({
       id: sessionId,
       cwd: '/Users/tester/install-test2/.install/codex-probe',
@@ -107,11 +107,11 @@ describe('导入 Codex rollout', () => {
       cwd: '/Users/tester/install-test2/.install/codex-probe',
     });
     expect(snap.session?.title).toBe(Array.from(prompt).slice(0, 80).join(''));
-    // 注入的 AGENTS.md 与环境说明不是用户输入
+    // The injected AGENTS.md and environment notes are not user input
     expect(snap.users).toEqual([{ kind: 'user', text: prompt }]);
   });
 
-  test('每个 token_usage_record 是一次请求：模型、token（input 去掉 cache 读写）、价格表中没有的模型只记 token', () => {
+  test('each token_usage_record is one request: model, tokens (input minus cache reads and writes); models missing from the price table record only tokens', () => {
     expect(snap.requests.map((r) => r.seq)).toEqual([0, 1, 2]);
     expect(snap.requests.map((r) => r.model)).toEqual([
       'gpt-6-astra',
@@ -139,7 +139,7 @@ describe('导入 Codex rollout', () => {
     );
   });
 
-  test('tool 调用：模型的 exec 调用带输出；exec 脚本中执行的命令与 MCP 工具另记在同一次请求中', () => {
+  test("tool calls: the model's exec call carries its output; commands and MCP tools run inside the exec script are recorded separately in the same request", () => {
     const calls = snap.requests.map((r) => r.toolCalls.map((c) => c.name));
     expect(calls).toEqual([
       ['exec', 'exec_command'],
@@ -156,7 +156,7 @@ describe('导入 Codex rollout', () => {
     expect(cat?.isError).toBe(false);
   });
 
-  test('cat 读取 SKILL.md 是一次 skill 加载：名字为目录名，正文去掉 frontmatter', () => {
+  test('cat of a SKILL.md is a skill load: named after the directory, body without frontmatter', () => {
     expect(snap.skills).toMatchObject([
       {
         name: 'history',
@@ -168,7 +168,7 @@ describe('导入 Codex rollout', () => {
     expect(snap.skills[0]?.text.startsWith('---')).toBe(false);
   });
 
-  test('再次导入没有变化；分两次增量导入（在第 N 行切开）与一次导入完全相同', () => {
+  test('importing again changes nothing; two incremental imports (cut at line N) equal one import', () => {
     expect(ingestCodexFile(db, file).changed).toBe(false);
     expect(snapshot(db)).toEqual(snap);
     const lines = fs.readFileSync(fixture, 'utf8').split('\n');
@@ -178,12 +178,12 @@ describe('导入 Codex rollout', () => {
       ingestCodexFile(incremental, partial);
       fs.writeFileSync(partial, fs.readFileSync(fixture, 'utf8'));
       ingestCodexFile(incremental, partial);
-      expect(snapshot(incremental), `第 ${String(cut)} 行切开`).toEqual(snap);
+      expect(snapshot(incremental), `cut at line ${String(cut)}`).toEqual(snap);
     }
   });
 
-  // 每段比最长的一行多 1 字节：一行比一段长时这一段读到文件末尾（readCompleteLines）
-  test('分段导入（每段比最长的一行多 1 字节）与一次导入完全相同', () => {
+  // Each chunk is 1 byte longer than the longest line: when a line is longer than a chunk, that chunk reads to the end of the file (readCompleteLines)
+  test('a chunked import (each chunk 1 byte longer than the longest line) equals one import', () => {
     const chunked = openTestDb();
     const copy = copyRollout();
     const longest = Math.max(
@@ -199,8 +199,8 @@ describe('导入 Codex rollout', () => {
   });
 });
 
-describe('Codex session 的绑定与阶段', { timeout: 300_000 }, () => {
-  test('加载的 skill 与 variant 的 SKILL.md 逐字节一致时自动绑定，并按这个 workflow 划分阶段（cat 读取 SKILL.md 为标记）', () => {
+describe('binding and stages of a Codex session', { timeout: 300_000 }, () => {
+  test('auto-binds when the loaded skill matches the variant SKILL.md byte for byte, and splits stages by that workflow (cat of SKILL.md is the marker)', () => {
     const db = openTestDb();
     const variants = createVariants({
       db,
@@ -212,12 +212,12 @@ describe('Codex session 的绑定与阶段', { timeout: 300_000 }, () => {
     const id = `w62probe${randomUUID().slice(0, 6)}`;
     workflows.create({
       id,
-      name: 'W62 测量',
+      name: 'W62 probe',
       description: '',
-      definition: { id, name: 'W62 测量', stages: [{ id: 'history' }] },
+      definition: { id, name: 'W62 probe', stages: [{ id: 'history' }] },
     });
     const variant = variants.list().find((v) => v.workflowId === id);
-    if (variant === undefined) throw new Error(`${id} 没有 variant`);
+    if (variant === undefined) throw new Error(`${id} has no variant`);
     variants.writeFile(variant.id, 'skills/history/SKILL.md', skillFile());
 
     const file = copyRollout();
@@ -238,7 +238,7 @@ describe('Codex session 的绑定与阶段', { timeout: 300_000 }, () => {
       evidence: { seq: 0, kind: 'skill', text: 'Skill: history' },
     });
 
-    // 分析的导出（Contracts 25.2）：格式与 Claude Code 的 session 相同
+    // The analysis export (Contracts 25.2): same format as a Claude Code session
     const exported = exportSessionRows(db, sessionId);
     expect(exported.rows.map((r) => [r.seq, r.agent, r.parentSeq, r.model])).toEqual([
       [0, null, 0, 'gpt-6-astra'],
@@ -254,7 +254,7 @@ describe('Codex session 的绑定与阶段', { timeout: 300_000 }, () => {
       spilledOutput: null,
     });
     expect(exported.rows.map((r) => r.thinking)).toEqual([null, null, null]);
-    // 样本中注入的全局 AGENTS.md：在这个 rollout 所在的 CODEX_HOME 下
+    // The global AGENTS.md injected in the sample: under the CODEX_HOME holding this rollout
     expect(exported.instructions).toEqual([
       {
         timestamp: '2026-10-04T12:22:01.682Z',
@@ -262,7 +262,7 @@ describe('Codex session 的绑定与阶段', { timeout: 300_000 }, () => {
           {
             path: path.join(codexHomeOf(file), 'AGENTS.md'),
             type: 'User',
-            content: '测试样本中删去了本机的全局说明。',
+            content: 'Global instructions for this machine were removed from the test sample.',
           },
         ],
       },
@@ -271,10 +271,10 @@ describe('Codex session 的绑定与阶段', { timeout: 300_000 }, () => {
   });
 });
 
-describe('Codex session 的分析导出', () => {
-  // 在样本上改两处，得到本机较大的 rollout 中常见的两种情形：第一次 exec 的输出超过保存的长度（截断，导出时读回原文），
-  // 第一次请求之前有一个只有加密内容的推理块（reasoning_output_tokens 为 120）
-  test('截断的 tool 结果从 rollout 读回原文；推理块为 redacted_thinking，token 数取 reasoning_output_tokens', () => {
+describe('analysis export of a Codex session', () => {
+  // Two edits to the sample give two cases common in larger rollouts on this machine: the first exec output exceeds the stored length (truncated, read back verbatim on export),
+  // and an encrypted-only reasoning block precedes the first request (reasoning_output_tokens 120)
+  test('truncated tool results are read back verbatim from the rollout; the reasoning block is redacted_thinking with tokens from reasoning_output_tokens', () => {
     const long = `Script completed\n${'0123456789'.repeat(3000)}`;
     const lines = fs.readFileSync(fixture, 'utf8').trimEnd().split('\n');
     const changed = lines.flatMap((line, i) => {
@@ -318,8 +318,8 @@ describe('Codex session 的分析导出', () => {
   });
 });
 
-describe('Codex session 的 session.updated', () => {
-  test('只有 session_meta 与 task_started 时建出 session 也发出事件；没有新内容时不再发', () => {
+describe('session.updated for a Codex session', () => {
+  test('a session created from only session_meta and task_started also publishes the event; nothing new publishes nothing', () => {
     const lines = fs.readFileSync(fixture, 'utf8').split('\n');
     const db = openTestDb();
     const file = copyRollout(`${lines.slice(0, 2).join('\n')}\n`);

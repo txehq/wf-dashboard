@@ -1,9 +1,10 @@
-# 内置的分析 workflow（Contracts 19.2）：分析的方面就是小阶段，每个阶段一个 skill，最后一个阶段 synthesize 综合。
-# 服务启动时以本文件为准写入 workflows 表，定义只读；基线 variant 的 skill 在 session-analysis/skills/。
-# description 只在第一次写入时使用，之后在页面中编辑（Contracts 18.3）
+# Built-in analysis workflow (Contracts 19.2): the analysis aspects are the stages, one skill per stage, and the last
+# stage, synthesize, combines them. At startup the service writes this file into the workflows table and the definition
+# is read-only; the baseline variant's skills are in session-analysis/skills/.
+# description is used only on the first write and edited on the page afterwards (Contracts 18.3)
 id: session-analysis
-name: session 分析
-description: 分析 coding agent 的 session：九个方面各找出问题与证据（流程、计划、失败、重复、token、时间、交互、产物、冲突），最后综合出报告与 skill 的修改建议。
+name: Session analysis
+description: 'Analyzes coding agent sessions: each of nine aspects finds problems with evidence (process, plan, failures, repetition, tokens, time, interaction, output, conflicts), then a synthesis produces the report and suggested skill changes.'
 stages:
   - id: process-adherence
   - id: plan-adherence

@@ -19,15 +19,15 @@ import {
 } from '@/pages/variants-api';
 
 const entryLabel = (e: HistoryEntry): string => {
-  if (e.kind === 'rename') return `改名：${e.from} → ${e.to}`;
+  if (e.kind === 'rename') return `Renamed: ${e.from} → ${e.to}`;
   if (e.kind === 'overwrite') {
-    const draft = e.draftEngine === null ? '草稿' : ` ${engineNames[e.draftEngine]} 草稿`;
-    return `被${draft} ${e.draftId} 覆盖前${e.analysisId === null ? '' : `（分析 ${e.analysisId}）`}`;
+    const draft = e.draftEngine === null ? 'draft' : `${engineNames[e.draftEngine]} draft`;
+    return `Before overwrite by ${draft} ${e.draftId}${e.analysisId === null ? '' : ` (analysis ${e.analysisId})`}`;
   }
-  return `恢复 #${String(e.restoredEventId)} 前`;
+  return `Before restoring #${String(e.restoredEventId)}`;
 };
 
-// variant 的历史（Contracts 17.4）：被覆盖与恢复前存下的 src/ 可以查看与恢复；改名只记一行
+// A variant's history (Contracts 17.4): the src/ kept before each overwrite or restore can be viewed and restored; a rename is one line
 export function VariantHistoryButton({ variant }: { variant: Variant }) {
   const history = useQuery(historyQuery(variant.id));
   const [open, setOpen] = useState(false);
@@ -39,13 +39,13 @@ export function VariantHistoryButton({ variant }: { variant: Variant }) {
         size="sm"
         variant="outline"
         data-testid="variant-history"
-        title="被覆盖与恢复前的内容，可以查看与恢复"
+        title="Content kept before overwrites and restores; view or restore it"
         onClick={() => {
           setOpen(true);
         }}
       >
         <History />
-        历史（{entries.length}）
+        History ({entries.length})
       </Button>
       {open && (
         <HistoryDialog
@@ -80,16 +80,16 @@ function HistoryDialog({
     mutationFn: (eventId: number) =>
       request<Variant>('POST', `/api/variants/${variant.id}/history/${String(eventId)}/restore`),
     onSuccess: async () => {
-      // 文件树与文件内容都换了
+      // Both the file tree and file contents changed
       await client.invalidateQueries({ queryKey: ['variants', variant.id] });
       await client.invalidateQueries({ queryKey: ['variants'], exact: true });
       onClose();
     },
   });
   const blocked = isImported(variant)
-    ? '导入的 variant 不能恢复'
+    ? 'Imported variants cannot be restored'
     : variant.status === 'frozen'
-      ? '已冻结（用于 batch），内容只读'
+      ? 'Frozen (used by a batch); read-only'
       : null;
   return (
     <Dialog.Root
@@ -106,7 +106,7 @@ function HistoryDialog({
           aria-describedby={undefined}
         >
           <div className="flex flex-wrap items-center gap-3">
-            <Dialog.Title className="text-base font-semibold">{variant.name} 的历史</Dialog.Title>
+            <Dialog.Title className="text-base font-semibold">{variant.name} history</Dialog.Title>
             <div className="ml-auto flex items-center gap-2">
               {diff.isSuccess && <SourceDiffSummary files={diff.data} />}
               <DiffViewTypeToggle />
@@ -114,23 +114,26 @@ function HistoryDialog({
                 size="sm"
                 data-testid="variant-history-restore"
                 disabled={selected === null || blocked !== null || restore.isPending}
-                title={blocked ?? '把 src 恢复成选中的这一份；恢复前的内容同样存进历史'}
+                title={
+                  blocked ??
+                  'Restore src to the selected version; the current content is also kept in history'
+                }
                 onClick={() => {
                   if (selected !== null) restore.mutate(selected);
                 }}
               >
                 <RotateCcw />
-                {restore.isPending ? '恢复中…' : '恢复这一份'}
+                {restore.isPending ? 'Restoring…' : 'Restore this version'}
               </Button>
               <Button size="sm" variant="ghost" onClick={onClose}>
                 <X />
-                关闭
+                Close
               </Button>
             </div>
           </div>
           {restore.isError && (
             <Alert variant="destructive">
-              <AlertTitle>恢复失败</AlertTitle>
+              <AlertTitle>Restore failed</AlertTitle>
               <AlertDescription className="whitespace-pre-wrap">
                 {restore.error.message}
               </AlertDescription>
@@ -173,14 +176,18 @@ function HistoryDialog({
             </ol>
             <div className="min-w-0 flex-1 overflow-auto" data-testid="variant-history-diff">
               <p className="mb-2 text-xs text-muted-foreground">
-                {selected === null ? '只有改名记录，没有存下的内容。' : '恢复成这一份时的改动'}
+                {selected === null
+                  ? 'Only renames; no saved content.'
+                  : 'Changes if restored to this version'}
               </p>
               {diff.isError && (
                 <pre role="alert" className="text-xs whitespace-pre-wrap text-destructive">
                   {diff.error.message}
                 </pre>
               )}
-              {diff.isSuccess && <SourceDiff files={diff.data} empty="与现在的内容相同。" />}
+              {diff.isSuccess && (
+                <SourceDiff files={diff.data} empty="Same as the current content." />
+              )}
             </div>
           </div>
         </Dialog.Content>

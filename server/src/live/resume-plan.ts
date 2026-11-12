@@ -2,11 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 
-// resume 前比较 session 的两份 jsonl（Contracts 14.5）：最新那份（sessions.file_path）与目标配置中的那份
+// Before resume, compare a session's two jsonl copies (Contracts 14.5): the latest (sessions.file_path) and the target config's
 
-// 目标中的那份相对最新那份：
-// same：同一个文件或逐字节相同；behind：目标是最新那份的开头（前一段）；ahead：最新那份是目标的开头（目标接着写过）；
-// diverged：两份分叉
+// The target copy relative to the latest:
+// same: same file or byte-identical; behind: target is a prefix of the latest; ahead: latest is a prefix of the target (target kept writing);
+// diverged: the two copies diverged
 export type CopyRelation = 'same' | 'behind' | 'ahead' | 'diverged';
 
 export function relationOf(latest: string, target: string): CopyRelation {
@@ -19,7 +19,7 @@ export function relationOf(latest: string, target: string): CopyRelation {
   return 'diverged';
 }
 
-// jsonl 的一行：只取判断最后一条消息需要的字段
+// One jsonl line: only the fields needed to find the last message
 const Line = z.looseObject({
   type: z.string().optional(),
   isSidechain: z.boolean().optional(),
@@ -36,14 +36,14 @@ const Line = z.looseObject({
 
 export const SUMMARY_CHARS = 120;
 
-// 一份 jsonl 中主 agent 最后一条有文字的消息：时间、谁说的与内容摘要。没有换行结尾的最后一行是正在写的，不读
+// The main agent's last message with text in a jsonl: time, speaker and summary. A last line without a newline is still being written and is skipped
 export function lastMessage(file: string): {
   at: string | null;
   role: 'user' | 'assistant' | null;
   text: string | null;
 } {
   const lines = fs.readFileSync(file, 'utf8').split('\n');
-  // 以换行结尾时最后一段为空；否则最后一段写了一半
+  // Empty when the file ends with a newline; otherwise a half-written line
   lines.pop();
   for (let i = lines.length - 1; i >= 0; i--) {
     const raw = lines[i];
@@ -69,7 +69,7 @@ export function lastMessage(file: string): {
   return { at: null, role: null, text: null };
 }
 
-// 分叉时保留目标中的那份：<id>.jsonl.diverged-<时间>
+// On divergence the target copy is kept as <id>.jsonl.diverged-<time>
 export function divergedName(file: string, now: Date): string {
   const stamp = now
     .toISOString()
@@ -78,7 +78,7 @@ export function divergedName(file: string, now: Date): string {
   return `${file}.diverged-${stamp}`;
 }
 
-// 子代理目录（与 jsonl 同名的目录）以最新的为准：最新中有的文件覆盖过去，目标中多出、最新中没有的保留
+// The subagent directory (named like the jsonl) follows the latest: its files overwrite, extra files only in the target are kept
 export function syncSessionDir(fromJsonl: string, toJsonl: string) {
   const id = path.basename(fromJsonl, '.jsonl');
   const from = path.join(path.dirname(fromJsonl), id);

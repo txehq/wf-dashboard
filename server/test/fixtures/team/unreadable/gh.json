@@ -1,0 +1,26 @@
+{
+  "commands": [
+    {
+      "args": [
+        "api",
+        "repos/txehq/action-runner-ops/pulls/114",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 1,
+      "stdout": "{\"message\":\"Not Found\",\"documentation_url\":\"https://docs.github.com/rest/pulls/pulls#get-a-pull-request\",\"status\":\"404\"}",
+      "stderr": "gh: Not Found (HTTP 404)"
+    },
+    {
+      "args": [
+        "api",
+        "repos/txehq/action-runner-ops/pulls/113",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 1,
+      "stdout": "{\"message\":\"Not Found\",\"documentation_url\":\"https://docs.github.com/rest/pulls/pulls#get-a-pull-request\",\"status\":\"404\"}",
+      "stderr": "gh: Not Found (HTTP 404)"
+    }
+  ]
+}

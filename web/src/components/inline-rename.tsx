@@ -3,8 +3,8 @@ import { Pencil } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { cn } from '@/lib/utils';
 
-// 直接改名（Contracts 14.3，交互项与 variant 共用）：双击名字或点铅笔图标，回车保存，Esc 取消；
-// 保存失败时输入框保留，显示服务端的原文
+// Inline rename (Contracts 14.3, shared by interactions and variants): double-click the name or click the pencil;
+// Enter saves, Esc cancels. When saving fails the input stays and shows the server's error
 export function InlineRename({
   value,
   label,
@@ -15,14 +15,14 @@ export function InlineRename({
   link,
 }: {
   value: string;
-  // 输入框的 aria-label，例如"交互的名字"
+  // The input's aria-label, e.g. "Interaction name"
   label: string;
-  // data-testid 的前缀：<testId>、<testId>-input 与 <testId>-rename
+  // data-testid prefix: <testId>, <testId>-input and <testId>-rename
   testId: string;
   onSave: (next: string) => Promise<unknown>;
   className?: string;
   inputClassName?: string;
-  // 名字本身是链接时（单击即打开）：显示这个链接，只用铅笔图标改名
+  // When the name itself is a link (a click opens it): show the link and rename only through the pencil
   link?: (name: string) => ReactNode;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
@@ -41,7 +41,7 @@ export function InlineRename({
     return (
       <span className="flex min-w-0 flex-col gap-1">
         <input
-          // 打开时直接可以输入
+          // Ready for typing when opened
           autoFocus
           aria-label={label}
           data-testid={`${testId}-input`}
@@ -54,7 +54,7 @@ export function InlineRename({
           onChange={(event) => {
             setDraft(event.target.value);
           }}
-          // 外层可能是按钮或链接：输入框中的点击与按键不触发它们
+          // The parent may be a button or link: clicks and keys in the input must not trigger it
           onClick={(event) => {
             event.stopPropagation();
           }}
@@ -98,7 +98,7 @@ export function InlineRename({
       <span
         role="button"
         tabIndex={0}
-        aria-label="改名"
+        aria-label="Rename"
         data-testid={`${testId}-rename`}
         className="shrink-0 rounded p-0.5 text-muted-foreground opacity-60 group-hover:opacity-100 hover:bg-muted hover:text-foreground"
         onClick={(event) => {

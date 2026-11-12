@@ -5,10 +5,12 @@ import type {
   MagiDeployStatus,
   RunStatus,
   StageStatus,
+  TeamSyncProgress,
+  TeamSyncStatus,
 } from './db/schema.js';
 import type { ArtifactView, Pending, RunMessageView } from './runs/views.js';
 
-// 进程内事件；run.* 由 runs 模块发布（Contracts 7.6）；workflow 为 workflow id（Contracts 16.6）
+// In-process events; run.* are published by the runs module (Contracts 7.6); workflow is the workflow id (Contracts 16.6)
 export type AppEvent =
   | { type: 'session.updated'; sessionId: string }
   | {
@@ -18,19 +20,19 @@ export type AppEvent =
       stage: string;
       status: StageStatus;
     }
-  // step 为正在执行的构建步骤；构建开始、完成与失败时为 null
+  // step is the build step in progress; null when the build starts, finishes or fails
   | {
       type: 'variant.build';
       variantId: string;
       status: 'building' | 'built' | 'failed';
       step: string | null;
     }
-  // variant 改了名字、被覆盖或恢复（Contracts 16.4、17.4）；各处都按 id 取名字，页面重新读取
+  // A variant was renamed, overwritten or restored (Contracts 16.4, 17.4); names are looked up by id, pages reload
   | { type: 'variant.updated'; variantId: string }
-  // variant 或 workflow 删除后（Contracts 24.6），已打开的页面重新读取
+  // After a variant or workflow is deleted (Contracts 24.6), open pages reload
   | { type: 'variant.deleted'; variantId: string }
   | { type: 'workflow.deleted'; workflowId: string }
-  // lfg、ic 检查 txe-workflow 最新版的结果变化或自动导入了 variant（Contracts 29.1），页面重新读取 workflow 与 variant
+  // The txe-workflow latest-release check for lfg or ic changed or auto-imported a variant (Contracts 29.1); pages reload workflows and variants
   | { type: 'workflow.release'; workflowId: string }
   | { type: 'run.status'; runId: string; status: RunStatus }
   | { type: 'run.message'; runId: string; message: RunMessageView }
@@ -44,33 +46,49 @@ export type AppEvent =
     }
   | { type: 'run.artifact'; runId: string; artifact: ArtifactView }
   | { type: 'run.cost'; runId: string; costUsd: number }
-  // 交互 session 的状态、驾驶者、等待的输入或 hook 有变化（Contracts 14），页面重新读取详情
+  // An interactive session's status, driver, awaited input or hooks changed (Contracts 14); pages reload the details
   | { type: 'live.updated'; liveId: string }
-  // Codex 草稿的状态或准备的进度变化（Contracts 17.1）
+  // Orca's orchestration topology changed (Contracts 35.3); pages reload /api/live/orca
+  | { type: 'orca.updated' }
+  // A Codex draft's status or preparation progress changed (Contracts 17.1)
   | { type: 'draft.updated'; draftId: string; status: DraftStatus }
-  // 分析的状态或步骤进度变化（Contracts 15.2）
+  // An analysis's status or step progress changed (Contracts 15.2)
   | { type: 'analysis.updated'; analysisId: string; status: AnalysisStatus }
-  // Magi Agent 的 worktree 准备进度或当前会话变化（Contracts 23.1、23.2），页面重新读取 /api/magi-agent
+  // Magi Agent worktree preparation progress or current session changed (Contracts 23.1, 23.2); pages reload /api/magi-agent
   | { type: 'magi.updated' }
-  // 部署的每一步开始与结束（Contracts 23.5）
-  | { type: 'magi.deploy'; deployId: number; status: MagiDeployStatus };
+  // Each deploy step starts and ends (Contracts 23.5)
+  | { type: 'magi.deploy'; deployId: number; status: MagiDeployStatus }
+  // The self-update of an installed package changed step, found a version, waits or failed (Contracts 39.4); pages
+  // reload /api/install
+  | { type: 'install.updated' }
+  // An SSH host was added, renamed, checked or deleted (Contracts 31.1); pages reload /api/ssh-hosts
+  | { type: 'ssh-hosts.updated' }
+  // VS Code for the Web server preparation progress, start and stop (Contracts 32.4); pages reload /api/vscode/servers
+  | { type: 'vscode.servers' }
+  // Linear stats sync progress and its end (Contracts 37.2); pages reload /api/team/* when it ends
+  | {
+      type: 'team.sync';
+      syncId: number;
+      status: TeamSyncStatus;
+      progress: TeamSyncProgress;
+    };
 
 const emitter = new EventEmitter();
-// 每个 SSE 连接一个监听者
+// One listener per SSE connection
 emitter.setMaxListeners(0);
 
 export const events = {
   publish(event: AppEvent) {
     emitter.emit('event', event);
   },
-  // 返回取消订阅的函数
+  // Returns the unsubscribe function
   subscribe(listener: (event: AppEvent) => void) {
     emitter.on('event', listener);
     return () => {
       emitter.off('event', listener);
     };
   },
-  // 当前的订阅数（GET /api/diagnostics）
+  // Current subscriber count (GET /api/diagnostics)
   subscribers() {
     return emitter.listenerCount('event');
   },

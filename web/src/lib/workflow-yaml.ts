@@ -1,7 +1,7 @@
 import { WorkflowDefinition } from '@wf-dashboard/server/workflows/schema';
 import { LineCounter, parseDocument, stringify } from 'yaml';
 
-// 定义的一处问题：行号从 1 开始，没有对应位置时为 1
+// One problem in a definition: lines start at 1; 1 when there is no matching position
 export interface DefinitionIssue {
   line: number;
   message: string;
@@ -13,7 +13,7 @@ export type ParsedDefinition =
 export const definitionYaml = (definition: WorkflowDefinition) =>
   stringify(definition, { lineWidth: 0 });
 
-// YAML 文本 → 定义：语法错误与 zod 的问题都带上 YAML 中对应的行（Contracts 16.7）
+// YAML text -> definition: syntax errors and zod issues both carry their line in the YAML (Contracts 16.7)
 export function parseDefinitionYaml(text: string): ParsedDefinition {
   const lineCounter = new LineCounter();
   const doc = parseDocument(text, { lineCounter });
@@ -28,14 +28,14 @@ export function parseDefinitionYaml(text: string): ParsedDefinition {
   return {
     ok: false,
     issues: result.error.issues.map((issue) => {
-      // 取问题路径上最深的、在 YAML 中存在的节点
+      // The deepest node on the issue path that exists in the YAML
       let range: [number, number, number] | undefined;
       for (let n = issue.path.length; n >= 0 && range === undefined; n--) {
         const node = doc.getIn(issue.path.slice(0, n) as (string | number)[], true) as
           { range?: [number, number, number] } | undefined;
         range = node?.range;
       }
-      const where = issue.path.length === 0 ? '' : `${issue.path.join('.')}：`;
+      const where = issue.path.length === 0 ? '' : `${issue.path.join('.')}: `;
       return {
         line: range === undefined ? 1 : lineCounter.linePos(range[0]).line,
         message: `${where}${issue.message}`,

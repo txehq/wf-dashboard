@@ -2,7 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { InlineRename } from '@/components/inline-rename';
 import { renameLive } from '@/lib/live-api';
 
-// 交互项的名字（Contracts 14.3）：改名后刷新 Live 与 Sessions 中显示它的地方
+// Name of an interaction item (Contracts 14.3): after a rename, refresh where Live and Sessions show it
 export function LiveTitle({
   liveId,
   title,
@@ -16,7 +16,7 @@ export function LiveTitle({
   return (
     <InlineRename
       value={title}
-      label="交互的名字"
+      label="Interaction name"
       testId="live-title"
       {...(className === undefined ? {} : { className })}
       onSave={async (next) => {

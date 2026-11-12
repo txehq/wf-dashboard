@@ -3,14 +3,16 @@ import { type ReactNode, useRef } from 'react';
 import { cn } from '@/lib/utils';
 
 const MIN_WIDTH = 280;
-// 抽屉最宽占它所在一行的这个比例，终端至少留下其余部分
+// The drawer takes at most this share of its row; the terminal keeps the rest
 const MAX_SHARE = 0.7;
-// 打开时的宽度；拖动后由使用者记下
+// Width when opened; the caller remembers it after dragging
 export const DRAWER_WIDTH = 480;
 
-// 终端右侧的抽屉（Contracts 20.3）：左边缘可以拖动宽度，关上后终端恢复原宽度。只占终端这一行，不影响其他布局。
-// width 是显示的宽度，拖动时把想要的宽度交给 onResize；maxWidth 是这一行留给抽屉的宽度（设计项的终端先保证
-// 560 px，Contracts 26.1）。resizable 为 false 时没有拖动的把手（设计项覆盖在终端上的抽屉）
+// Drawer to the right of the terminal (Contracts 20.3): its left edge drags to resize, and the terminal
+// returns to its width when closed. It occupies only the terminal's row and leaves other layout alone.
+// width is the displayed width; dragging passes the wanted width to onResize; maxWidth is the width the
+// row leaves for the drawer (design items guarantee the terminal 560 px first, Contracts 26.1).
+// With resizable false there is no drag handle (the drawer that overlays a design item's terminal)
 export function SideDrawer({
   title,
   onClose,
@@ -34,8 +36,8 @@ export function SideDrawer({
 
   const startDrag = (event: React.PointerEvent<HTMLDivElement>) => {
     const row = drawer.current?.parentElement;
-    if (row === null || row === undefined) throw new Error('抽屉不在终端这一行中');
-    if (onResize === undefined) throw new Error('可以拖动的抽屉没有 onResize');
+    if (row === null || row === undefined) throw new Error('The drawer is not in the terminal row');
+    if (onResize === undefined) throw new Error('A resizable drawer has no onResize');
     event.preventDefault();
     const handle = event.currentTarget;
     handle.setPointerCapture(event.pointerId);
@@ -67,7 +69,7 @@ export function SideDrawer({
         <div
           role="separator"
           aria-orientation="vertical"
-          aria-label="拖动调整宽度"
+          aria-label="Drag to resize"
           className="absolute inset-y-0 -left-1.5 z-10 w-3 cursor-col-resize hover:bg-primary/10"
           data-testid="side-drawer-handle"
           onPointerDown={startDrag}
@@ -77,7 +79,7 @@ export function SideDrawer({
         <h2 className="truncate text-sm font-medium">{title}</h2>
         <button
           type="button"
-          aria-label="关闭"
+          aria-label="Close"
           className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
           onClick={onClose}
         >

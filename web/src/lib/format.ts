@@ -11,9 +11,14 @@ export function formatInteger(n: number): string {
   return integer.format(n);
 }
 
+// A count with its noun: 1 run, 3 runs
+export function formatNoun(n: number, noun: string, plural = `${noun}s`): string {
+  return `${integer.format(n)} ${n === 1 ? noun : plural}`;
+}
+
 const byteUnits = ['byte', 'kilobyte', 'megabyte', 'gigabyte'] as const;
 
-// 文件大小：1024 进位，取一位小数
+// File size: steps of 1024, one decimal place
 export function formatBytes(n: number): string {
   let value = n;
   let unit = 0;
@@ -42,27 +47,27 @@ export function formatUsd(n: number): string {
 
 export function formatDuration(ms: number): string {
   const s = Math.round(ms / 1000);
-  if (s < 60) return `${String(s)} 秒`;
+  if (s < 60) return `${String(s)}s`;
   const m = Math.floor(s / 60);
-  if (m < 60) return `${String(m)} 分 ${String(s % 60)} 秒`;
+  if (m < 60) return `${String(m)}m ${String(s % 60)}s`;
   const h = Math.floor(m / 60);
-  if (h < 24) return `${String(h)} 小时 ${String(m % 60)} 分`;
-  return `${String(Math.floor(h / 24))} 天 ${String(h % 24)} 小时`;
+  if (h < 24) return `${String(h)}h ${String(m % 60)}m`;
+  return `${String(Math.floor(h / 24))}d ${String(h % 24)}h`;
 }
 
-const dateTime = new Intl.DateTimeFormat('zh-CN', {
+const dateTime = new Intl.DateTimeFormat('en-US', {
   month: '2-digit',
   day: '2-digit',
   hour: '2-digit',
   minute: '2-digit',
-  hour12: false,
+  hourCycle: 'h23',
 });
 
-const time = new Intl.DateTimeFormat('zh-CN', {
+const time = new Intl.DateTimeFormat('en-US', {
   hour: '2-digit',
   minute: '2-digit',
   second: '2-digit',
-  hour12: false,
+  hourCycle: 'h23',
 });
 
 export function formatDateTime(iso: string): string {

@@ -17,11 +17,11 @@ import {
 import { cn } from '@/lib/utils';
 
 const outcomeLabel = {
-  passed: '通过',
-  failed: '失败',
-  errored: '出错',
-  skipped: '跳过',
-  'not-run': '未运行',
+  passed: 'Passed',
+  failed: 'Failed',
+  errored: 'Errored',
+  skipped: 'Skipped',
+  'not-run': 'Not run',
 } as const;
 
 function RunSelect({
@@ -55,7 +55,7 @@ function RunSelect({
               .map((r) => (
                 <option key={r.id} value={r.id}>
                   {v.name} · {r.id}
-                  {r.humanIntervened ? ' · 有人工干预' : ''}
+                  {r.humanIntervened ? ' · human intervened' : ''}
                 </option>
               ))}
           </optgroup>
@@ -67,7 +67,7 @@ function RunSelect({
 
 function RunHeading({ run, variants }: { run: CompareRun; variants: SelectedVariant[] }) {
   const variant = variants.find((v) => v.id === run.variantId);
-  if (variant === undefined) throw new Error(`run ${run.id} 的 variant 未选中`);
+  if (variant === undefined) throw new Error(`The variant of run ${run.id} is not selected`);
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm">
       <span className="font-medium">{variant.name}</span>
@@ -75,7 +75,9 @@ function RunHeading({ run, variants }: { run: CompareRun; variants: SelectedVari
         {run.id}
       </Link>
       {run.humanIntervened && (
-        <span className="rounded border px-1.5 text-xs text-muted-foreground">有人工干预</span>
+        <span className="rounded border px-1.5 text-xs text-muted-foreground">
+          Human intervened
+        </span>
       )}
     </div>
   );
@@ -83,18 +85,20 @@ function RunHeading({ run, variants }: { run: CompareRun; variants: SelectedVari
 
 function groupOf(grades: RunGrades, artifact: string) {
   const group = grades.rubric?.artifacts.find((a) => a.artifact === artifact);
-  if (group === undefined) throw new Error(`run ${grades.runId} 没有 ${artifact} 的评分`);
+  if (group === undefined) throw new Error(`run ${grades.runId} has no grade for ${artifact}`);
   return group;
 }
 
 function MarkdownPane({ runId, artifact }: { runId: string; artifact: string }) {
   const data = useQuery(runArtifactsQuery(runId));
-  if (data.isPending) return <p className="text-sm text-muted-foreground">加载中…</p>;
+  if (data.isPending) return <p className="text-sm text-muted-foreground">Loading…</p>;
   if (data.isError) return <p className="text-sm text-destructive">{data.error.message}</p>;
   const found = data.data.artifacts.find((a) => a.kind === artifact);
   if (found?.snapshot == null) {
     return (
-      <p className="text-sm text-muted-foreground">这次 run 没有产出 {artifactLabel(artifact)}。</p>
+      <p className="text-sm text-muted-foreground">
+        This run produced no {artifactLabel(artifact)}.
+      </p>
     );
   }
   return (
@@ -120,7 +124,7 @@ function LfgSideBySide({
   right: RunGrades;
   runs: [CompareRun, CompareRun];
   variants: SelectedVariant[];
-  // task 的 rubric 分组，即评测类型 rubric 积木的产物
+  // The task's rubric groups, i.e. the outputs of the eval type's rubric block
   artifacts: string[];
   artifact: string;
   onArtifact: (a: string) => void;
@@ -129,7 +133,7 @@ function LfgSideBySide({
   const rightGroup = groupOf(right, artifact);
   return (
     <div className="flex flex-col gap-4">
-      <div role="tablist" aria-label="产物" className="flex gap-1 border-b">
+      <div role="tablist" aria-label="Output" className="flex gap-1 border-b">
         {artifacts.map((a) => (
           <button
             key={a}
@@ -151,7 +155,7 @@ function LfgSideBySide({
       <table className="w-full table-fixed text-sm" data-testid="rubric-side-by-side">
         <thead>
           <tr className="border-b text-left text-xs text-muted-foreground">
-            <th className="w-1/4 py-1.5 pr-3 font-medium">rubric 条目</th>
+            <th className="w-1/4 py-1.5 pr-3 font-medium">Rubric item</th>
             <th className="px-3 py-1.5 font-medium">
               <RunHeading run={runs[0]} variants={variants} />
             </th>
@@ -196,7 +200,7 @@ function LfgSideBySide({
             );
           })}
           <tr className="border-t font-medium">
-            <td className="py-2 pr-3">合计</td>
+            <td className="py-2 pr-3">Total</td>
             <td className="px-3 py-2 tabular-nums">
               {leftGroup.score} / {leftGroup.maxScore}
             </td>
@@ -223,7 +227,7 @@ function IcSummary({
   run: CompareRun;
   variants: SelectedVariant[];
 }) {
-  if (grades.hiddenTests === null) throw new Error(`run ${grades.runId} 没有隐藏测试评分`);
+  if (grades.hiddenTests === null) throw new Error(`run ${grades.runId} has no hidden test grade`);
   const { detail, testsPassed, testsDeclared } = grades.hiddenTests;
   const reachedEnd = grades.endpoint?.reached ?? null;
   const endpoint = detail.endpoint;
@@ -231,7 +235,7 @@ function IcSummary({
     <div className="flex flex-col gap-2 rounded-lg border p-4 text-sm" data-testid="ic-summary">
       <RunHeading run={run} variants={variants} />
       {detail.pr === null ? (
-        <p className="text-muted-foreground">没有 PR</p>
+        <p className="text-muted-foreground">No PR</p>
       ) : (
         <a
           href={detail.pr.url}
@@ -244,32 +248,32 @@ function IcSummary({
         </a>
       )}
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
-        <dt className="text-muted-foreground">隐藏测试</dt>
+        <dt className="text-muted-foreground">Hidden tests</dt>
         <dd className="tabular-nums">
-          {testsPassed} / {testsDeclared} 通过
+          {testsPassed} / {testsDeclared} passed
         </dd>
         {reachedEnd !== null && (
           <>
-            <dt className="text-muted-foreground">终点</dt>
-            <dd>{reachedEnd ? '已到达（ready for review 且 CI 全绿）' : '未到达'}</dd>
+            <dt className="text-muted-foreground">Endpoint</dt>
+            <dd>{reachedEnd ? 'Reached (ready for review, CI all green)' : 'Not reached'}</dd>
           </>
         )}
         {endpoint !== null && (
           <>
             <dt className="text-muted-foreground">CI</dt>
             <dd>
-              {endpoint.ciGreen ? '全绿' : '未全绿'}
+              {endpoint.ciGreen ? 'All green' : 'Not all green'}
               {endpoint.missingRequired.length > 0 &&
-                `，缺少必需检查：${endpoint.missingRequired.join('、')}`}
+                `, missing required checks: ${endpoint.missingRequired.join(', ')}`}
             </dd>
-            <dt className="text-muted-foreground">PR 状态</dt>
-            <dd>{endpoint.isDraft ? '草稿' : 'ready for review'}</dd>
+            <dt className="text-muted-foreground">PR status</dt>
+            <dd>{endpoint.isDraft ? 'Draft' : 'Ready for review'}</dd>
           </>
         )}
       </dl>
       {detail.fileErrors.map((e) => (
         <p key={e.file} className="text-destructive">
-          <span className="font-mono text-xs">{e.file}</span>：{e.message}
+          <span className="font-mono text-xs">{e.file}</span>: {e.message}
         </p>
       ))}
     </div>
@@ -299,9 +303,9 @@ function IcSideBySide({
       <table className="w-full text-sm" data-testid="ic-tests">
         <thead>
           <tr className="border-b text-left text-xs text-muted-foreground">
-            <th className="py-1.5 pr-3 font-medium">隐藏测试</th>
-            <th className="w-28 px-3 py-1.5 font-medium">左</th>
-            <th className="w-28 px-3 py-1.5 font-medium">右</th>
+            <th className="py-1.5 pr-3 font-medium">Hidden tests</th>
+            <th className="w-28 px-3 py-1.5 font-medium">Left</th>
+            <th className="w-28 px-3 py-1.5 font-medium">Right</th>
           </tr>
         </thead>
         <tbody>
@@ -346,7 +350,7 @@ export function ArtifactSideBySide({
 }) {
   const withRuns = tasks.filter((t) => runs.some((r) => r.taskId === t.task.id));
   const [taskId, setTaskId] = useState<string | null>(null);
-  // 产物的选择在换 run 时保留；不在当前 task 的分组中时取第一组
+  // The output choice survives changing runs; when it is not among the current task's groups, take the first group
   const [chosenArtifact, setArtifact] = useState<string | null>(null);
   const task = withRuns.find((t) => t.task.id === taskId) ?? withRuns[0];
   const rubricArtifacts = task?.task.rubric?.map((g) => g.artifact) ?? null;
@@ -355,12 +359,12 @@ export function ArtifactSideBySide({
       ? chosenArtifact
       : (rubricArtifacts?.[0] ?? '');
   const taskRuns = runs.filter((r) => r.taskId === task?.task.id);
-  // 默认左边是基线的第一次 run，右边是另一个 variant 的第一次 run
+  // By default, left is the baseline's first run and right is another variant's first run
   const [picked, setPicked] = useState<{ taskId: string; left: string; right: string } | null>(
     null,
   );
   if (task === undefined) {
-    return <p className="text-sm text-muted-foreground">选中的 task 没有已评分的 run。</p>;
+    return <p className="text-sm text-muted-foreground">The selected tasks have no graded runs.</p>;
   }
   const defaults = () => {
     const [baseline, ...others] = variants;
@@ -369,7 +373,7 @@ export function ArtifactSideBySide({
       taskRuns.find((r) => others.some((v) => v.id === r.variantId)) ??
       taskRuns.find((r) => r.id !== left?.id) ??
       left;
-    if (left === undefined || right === undefined) throw new Error('task 没有 run');
+    if (left === undefined || right === undefined) throw new Error('The task has no runs');
     return { left: left.id, right: right.id };
   };
   const current =
@@ -384,7 +388,7 @@ export function ArtifactSideBySide({
         <label className="flex items-center gap-2 text-sm">
           task
           <select
-            aria-label="产物并排的 task"
+            aria-label="Task for output side by side"
             className="h-8 rounded-md border bg-background px-2"
             value={task.task.id}
             onChange={(event) => {
@@ -400,7 +404,7 @@ export function ArtifactSideBySide({
           </select>
         </label>
         <RunSelect
-          label="左"
+          label="Left"
           value={current.left}
           runs={taskRuns}
           variants={variants}
@@ -409,7 +413,7 @@ export function ArtifactSideBySide({
           }}
         />
         <RunSelect
-          label="右"
+          label="Right"
           value={current.right}
           runs={taskRuns}
           variants={variants}
@@ -438,7 +442,7 @@ function Pair({
   artifact,
   onArtifact,
 }: {
-  // task 的 rubric 分组；没有 rubric 的 task 为空
+  // The task's rubric groups; null for tasks without a rubric
   artifacts: string[] | null;
   runs: [CompareRun, CompareRun];
   variants: SelectedVariant[];
@@ -448,7 +452,7 @@ function Pair({
   const left = useQuery(runGradesQuery(runs[0].id));
   const right = useQuery(runGradesQuery(runs[1].id));
   if (left.isPending || right.isPending) {
-    return <p className="text-sm text-muted-foreground">加载中…</p>;
+    return <p className="text-sm text-muted-foreground">Loading…</p>;
   }
   if (left.isError) return <p className="text-sm text-destructive">{left.error.message}</p>;
   if (right.isError) return <p className="text-sm text-destructive">{right.error.message}</p>;
@@ -481,7 +485,7 @@ function Pair({
   return <IcSideBySide left={left.data} right={right.data} runs={runs} variants={variants} />;
 }
 
-// 没有隐藏测试的 task：两次 run 的验收标准逐条得分与理由；reached 为两次 run 的终点判定（没选 pr-endpoint 时为空）
+// Tasks without hidden tests: per-criterion scores and reasoning of both runs' acceptance criteria; reached is each run's endpoint verdict (null without pr-endpoint)
 function CriteriaSideBySide({
   left,
   right,
@@ -500,14 +504,14 @@ function CriteriaSideBySide({
       <div className="grid grid-cols-2 gap-4">
         {[left, right].map((g, i) => {
           const run = runs[i];
-          if (run === undefined) throw new Error('缺少对比的 run');
+          if (run === undefined) throw new Error('Missing a run to compare');
           const end = reached[i] ?? null;
           return (
             <div key={run.id} className="flex flex-col gap-2 rounded-lg border p-4 text-sm">
               <RunHeading run={run} variants={variants} />
               <p className="tabular-nums">
-                验收标准 {g.score} / {g.maxScore}
-                {end === null ? '' : ` · ${end ? '已到达终点' : '未到达终点'}`}
+                Acceptance criteria {g.score} / {g.maxScore}
+                {end === null ? '' : ` · ${end ? 'Endpoint reached' : 'Endpoint not reached'}`}
               </p>
               {g.detail.pr !== null && (
                 <a
@@ -527,9 +531,9 @@ function CriteriaSideBySide({
       <table className="w-full table-fixed text-sm">
         <thead>
           <tr className="border-b text-left text-xs text-muted-foreground">
-            <th className="w-1/4 py-1.5 pr-3 font-medium">验收标准</th>
-            <th className="px-3 py-1.5 font-medium">左</th>
-            <th className="px-3 py-1.5 font-medium">右</th>
+            <th className="w-1/4 py-1.5 pr-3 font-medium">Acceptance criteria</th>
+            <th className="px-3 py-1.5 font-medium">Left</th>
+            <th className="px-3 py-1.5 font-medium">Right</th>
           </tr>
         </thead>
         <tbody>

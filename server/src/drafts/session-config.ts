@@ -8,16 +8,16 @@ import { type LiveEngine, type LivePurpose, liveProcesses, liveSessions } from '
 import { events } from '../events.js';
 import { type DraftLayout, draftLayout, sessionSkillsDir } from './dir.js';
 
-// 设计与优化会话的工作目录：优化会话的 src/ 在 optimize/ 下（Contracts 19.3）
+// Working dir of design and optimize sessions: an optimize session's src/ is under optimize/ (Contracts 19.3)
 export const sessionLayoutOf = (item: { cwd: string; purpose: LivePurpose }) =>
   draftLayout(item.cwd, item.purpose === 'optimize' ? 'optimize' : 'workflow');
 
-// src/skills 装进会话自己的配置（Contracts 28.2）：Claude Code 为 claude-config/skills/（用户范围），
-// Codex 为工作目录的 .agents/skills/，与三个工具 skill 并列
+// src/skills is installed into the session's own config (Contracts 28.2): claude-config/skills/ (user scope) for Claude Code,
+// the working dir's .agents/skills/ for Codex, next to the three tool skills
 export const sessionSrcSkillsDir = (layout: DraftLayout, engine: LiveEngine) =>
   engine === 'codex' ? layout.agentSkills : path.join(layout.claudeDir, 'skills');
 
-// 工作目录中记下哪些 skill 是从 src/skills 装的：只删除、覆盖这些
+// Records in the working dir which skills were installed from src/skills: only those are deleted or overwritten
 const SYNCED_FILE = '.session-src-skills.json';
 
 const dirNames = (dir: string) =>
@@ -29,7 +29,7 @@ const dirNames = (dir: string) =>
         .sort()
     : [];
 
-// 两个目录的文件、符号链接与内容都相同
+// Both dirs have the same files, symlinks and contents
 function sameTree(a: string, b: string): boolean {
   if (!fs.existsSync(b)) return false;
   const entries = (dir: string) =>
@@ -57,9 +57,9 @@ function sameTree(a: string, b: string): boolean {
   });
 }
 
-// 让会话配置中的 src skill 与 src/skills 一致：新增与改动的整个目录重新复制，src/skills 中删除的从配置中删除。
-// 三个工具 skill、platform-mcp、optimize-from-report 与 agent 用 find-skills 装的不是从 src/skills 装的，
-// 同名的 src skill 不装，也不删除它们。返回装着的 src skill
+// Make the src skills in the session config match src/skills: added and changed dirs are copied again whole, ones deleted from src/skills are removed.
+// Skills put in by the chosen variant and ones the agent installed with find-skills are not from src/skills;
+// same-named src skills are not installed and those are not deleted. Returns the installed src skills
 export function syncSessionSkills(layout: DraftLayout, engine: LiveEngine): string[] {
   const target = sessionSrcSkillsDir(layout, engine);
   fs.mkdirSync(target, { recursive: true });
@@ -90,10 +90,10 @@ export function syncSessionSkills(layout: DraftLayout, engine: LiveEngine): stri
   return names;
 }
 
-// 比较 src/skills 的间隔，与 workflow 面板的监视相同（Contracts 26.4）
+// Interval for comparing src/skills, the same as the workflow panel's watching (Contracts 26.4)
 const POLL_MS = 250;
 
-// src/skills 下每一项（文件、目录、符号链接）的 mtime、大小与 inode
+// mtime, size and inode of each entry (file, dir, symlink) under src/skills
 function signatureOf(dir: string): string {
   if (!fs.existsSync(dir)) return '';
   return fs
@@ -114,8 +114,8 @@ interface Poller {
   timer: ReturnType<typeof setInterval>;
 }
 
-// 设计与优化会话的进程运行时随写随装（Contracts 28.2）：每 250 ms 比较 src/skills，有变化就同步进会话配置。
-// 启动与 resume 前由 Live 同步一次，这里只管进程运行期间；进程结束、项关闭或删除时停止
+// Install-as-you-write while a design or optimize session's process runs (Contracts 28.2): compare src/skills every 250 ms and sync changes into the session config.
+// Live syncs once before start and resume; this covers only the running process, and stops when the process ends or the item is closed or deleted
 export function createSessionSync({ db }: { db: Db }) {
   const pollers = new Map<string, Poller>();
 
@@ -152,10 +152,10 @@ export function createSessionSync({ db }: { db: Db }) {
     if (pollers.has(liveId)) return;
     const layout = sessionLayoutOf(item);
     const poller: Poller = {
-      // 第一次比较时同步一次：Live 启动前的同步之后到这里的改动（不在发布事件的调用中同步，出错时不影响启动）
+      // Sync once at the first comparison: changes since Live's pre-start sync (not synced inside the event publish, so an error does not affect starting)
       signature: '',
-      // 不能从定时器中抛出（成为 uncaught exception，整个服务退出）：出错时记下原文并停止，下次启动或 resume 前
-      // Live 再同步一次（出错时在那里抛出）
+      // Must not throw from the timer (an uncaught exception would exit the whole server): on error log the original text and stop; Live syncs again
+      // before the next start or resume (throwing there on error)
       timer: setInterval(() => {
         try {
           const next = signatureOf(layout.skills);
@@ -164,7 +164,7 @@ export function createSessionSync({ db }: { db: Db }) {
           syncSessionSkills(layout, item.engine);
         } catch (error) {
           console.error(
-            `[session-skills] 交互 ${liveId} 的 src/skills 同步失败，停止随写随装：${error instanceof Error ? error.message : String(error)}`,
+            `[session-skills] Syncing src/skills of Live item ${liveId} failed; install-as-you-write stopped: ${error instanceof Error ? error.message : String(error)}`,
           );
           stop(liveId);
         }
@@ -178,7 +178,7 @@ export function createSessionSync({ db }: { db: Db }) {
   });
 
   return {
-    // 正在随写随装的项
+    // Items currently installing as they are written
     active: () => [...pollers.keys()],
     shutdown() {
       unsubscribe();

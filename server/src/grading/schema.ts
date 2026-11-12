@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-// 本文件只依赖 zod，web 也直接引用这里的 schema
+// This file depends only on zod; web imports these schemas directly
 
 export const Outcome = z.object({
   file: z.string(),
@@ -18,9 +18,9 @@ export const IcEndpoint = z.object({
   missingRequired: z.array(z.string()),
 });
 
-// ic 评分的明细；没有 PR 时 pr 与 endpoint 为空，清单中的测试全部为 not-run；
-// agent 的代码让 checkout 内的步骤失败或超时时写在 error 中（测试全部为 not-run，记 0 分，评分照常完成，Contracts 7.9），
-// 没有该字段的明细读出为 null
+// Detail of an ic grade; without a PR, pr and endpoint are null and all manifest tests are not-run;
+// when the agent's code makes a checkout step fail or time out, error records it (all tests not-run, score 0, grading completes as usual, Contracts 7.9);
+// details without this field read as null
 export const IcDetail = z.object({
   pr: z
     .object({ number: z.number(), url: z.string(), branch: z.string(), head: z.string() })
@@ -41,13 +41,13 @@ export const GradeItem = z.object({
 });
 export type GradeItem = z.infer<typeof GradeItem>;
 
-// 没有隐藏测试的 ic task 的评分明细（Contracts 第 13 节）：没有 PR 时 pr、endpoint 为空，每条验收标准记 0 分，不调用 judge
+// Grade detail of an ic task without hidden tests (Contracts section 13): without a PR, pr and endpoint are null, every criterion scores 0 and no judge is called
 export const IcCriteriaDetail = z.object({
   pr: z
     .object({ number: z.number(), url: z.string(), branch: z.string(), head: z.string() })
     .nullable(),
   endpoint: IcEndpoint.nullable(),
-  // 交给 judge 的 CI 结果：PR head 上各 check 的名字与结论
+  // CI results given to the judge: name and conclusion of each check on the PR head
   checks: z.array(z.object({ name: z.string(), bucket: z.string(), state: z.string() })),
   diffChars: z.number(),
 });
@@ -66,9 +66,9 @@ export const IcCriteriaGrade = z.object({
 export type IcCriteriaGrade = z.infer<typeof IcCriteriaGrade>;
 
 export const ArtifactGrade = z.object({
-  // rubric 分组 id（评测类型 rubric 积木的产物 id）
+  // rubric group id (artifact id of the eval kind's rubric block)
   artifact: z.string(),
-  // 评分时产物是否存在；不存在时每条记 0 分，没有 judge 调用
+  // Whether the artifact existed at grading; if not, every item scores 0 with no judge call
   present: z.boolean(),
   artifactId: z.number().nullable(),
   judgeModel: z.string().nullable(),
@@ -81,10 +81,10 @@ export const ArtifactGrade = z.object({
 });
 export type ArtifactGrade = z.infer<typeof ArtifactGrade>;
 
-// 按评分积木分别记录（Contracts 16.2）；为空表示评测类型没有这项评分
+// Recorded per grading block (Contracts 16.2); null means the eval kind has no such grading
 export const RunGrades = z.object({
   runId: z.string(),
-  // judge 调用的花费合计，计入 run 成本的评分一项
+  // Total cost of judge calls, counted as the grading part of the run's cost
   costUsd: z.number(),
   rubric: z
     .object({ artifacts: z.array(ArtifactGrade), score: z.number(), maxScore: z.number() })
@@ -96,14 +96,14 @@ export const RunGrades = z.object({
       detail: IcDetail,
     })
     .nullable(),
-  // 没有隐藏测试时：验收标准逐条的得分与理由
+  // Without hidden tests: score and reasoning per acceptance criterion
   criteria: IcCriteriaGrade.nullable(),
-  // pr-endpoint：PR 不是 draft 且 requiredChecks 通过；没有 PR 时 detail 为空
+  // pr-endpoint: PR is not a draft and requiredChecks pass; detail is null without a PR
   endpoint: z.object({ reached: z.boolean(), detail: IcEndpoint.nullable() }).nullable(),
 });
 export type RunGrades = z.infer<typeof RunGrades>;
 
-// 一组 run 上某个数值的分布：离散程度为样本标准差（n − 1），不足两个 run 时为空；values 供页面画分布
+// Distribution of a value over a group of runs: spread is the sample standard deviation (n - 1), null with fewer than two runs; values let the page draw the distribution
 export const Distribution = z.object({
   n: z.number(),
   mean: z.number().nullable(),
@@ -122,7 +122,7 @@ export const CostBreakdown = z.object({
 });
 export type CostBreakdown = z.infer<typeof CostBreakdown>;
 
-// 每个阶段在一组 run 上的均值；未到达该阶段的 run 按 0 计入，reached 为到达的 run 数
+// Mean of each stage over a group of runs; runs that did not reach the stage count as 0, reached is the number that did
 export const StageCost = z.object({
   stage: z.string(),
   reached: z.number(),
@@ -136,7 +136,7 @@ export const StageCost = z.object({
 });
 export type StageCost = z.infer<typeof StageCost>;
 
-// Contracts 7.10：被测 agent 提的 friction issue（artifacts 中 kind friction），perRun 为每次 run 的平均数量
+// Contracts 7.10: friction issues filed by the agent under test (artifacts of kind friction); perRun is the average count per run
 export const FrictionStats = z.object({
   perRun: z.number(),
   issues: z.array(z.object({ runId: z.string(), url: z.string(), title: z.string() })),
@@ -144,7 +144,7 @@ export const FrictionStats = z.object({
 export type FrictionStats = z.infer<typeof FrictionStats>;
 
 export const RubricQuality = z.object({
-  // 得分率：得分 / 满分
+  // Score rate: score / max score
   total: Distribution,
   artifacts: z.array(z.object({ artifact: z.string(), rate: Distribution })),
 });
@@ -154,19 +154,19 @@ export const ReachedEnd = z.object({
   values: z.array(z.object({ runId: z.string(), reached: z.boolean() })),
 });
 
-// 质量按评测类型的评分积木分项；为空表示这个 task 没有这项评分
+// Quality per grading block of the eval kind; null means this task has no such grading
 export const Quality = z.object({
   rubric: RubricQuality.nullable(),
-  // 隐藏测试：通过数 / 声明数
+  // Hidden tests: passed / declared
   passRate: Distribution.nullable(),
-  // 按验收标准评分：得分 / 满分
+  // Acceptance criteria grading: score / max score
   criteriaRate: Distribution.nullable(),
-  // pr-endpoint：到达终点的比例
+  // pr-endpoint: share of runs that reached the endpoint
   reachedEnd: ReachedEnd.nullable(),
 });
 export type Quality = z.infer<typeof Quality>;
 
-// 每条验收标准在一组 run 上的得分
+// Score of each acceptance criterion over a group of runs
 export const CriterionMean = z.object({
   itemId: z.string(),
   criterion: z.string(),
@@ -186,12 +186,12 @@ export const compareGroupings = ['variant', 'model'] as const;
 
 export const CompareCell = z.object({
   variantId: z.string(),
-  // groupBy=model 时为这一格的模型；groupBy=variant 时为空（不分模型）
+  // With groupBy=model, this cell's model; with groupBy=variant, null (no split by model)
   model: z.string().nullable(),
   taskId: z.string(),
   runIds: z.array(z.string()),
   quality: Quality,
-  // run 数为 0 时为空
+  // null when there are 0 runs
   cost: z
     .object({ stages: z.array(StageCost), total: CostBreakdown, friction: FrictionStats })
     .nullable(),
@@ -203,7 +203,7 @@ export type CompareCell = z.infer<typeof CompareCell>;
 export const CompareResult = z.object({
   variants: z.array(z.string()),
   tasks: z.array(z.string()),
-  // 所选 variant 共同的 workflow 与它的评测类型（Contracts 16.5）
+  // The workflow shared by the chosen variants and its eval kind (Contracts 16.5)
   workflowId: z.string(),
   kind: z.enum(['lfg', 'ic']),
   groupBy: z.enum(compareGroupings),
@@ -215,46 +215,46 @@ export const CompareResult = z.object({
 });
 export type CompareResult = z.infer<typeof CompareResult>;
 
-// Contracts 7.11：run 的 requests 中指向其他评估 run 的引用（runs.cross_run_refs 的元素）
+// Contracts 7.11: references in a run's requests to other eval runs (elements of runs.cross_run_refs)
 export const CrossRunRef = z.object({
-  // 被引用的 run
+  // The referenced run
   runId: z.string(),
   kind: z.enum(['repo', 'vault', 'ticket', 'other']),
-  // 主 session 的 seq；子代理中的调用取发起该子代理的主 session 请求
+  // seq in the main session; calls in a subagent take the main session request that started the subagent
   requestSeq: z.number(),
   toolCallId: z.string(),
   excerpt: z.string(),
 });
 export type CrossRunRef = z.infer<typeof CrossRunRef>;
 
-// Contracts 第 13 节：从 Linear 导入的 task 的 run 读取了来源工单、来源仓库或来源仓库的 PR（runs.source_refs 的元素）
+// Contracts section 13: a run of a task imported from Linear read the source ticket, source repo or a PR of the source repo (elements of runs.source_refs)
 export const SourceRef = z.object({
   kind: z.enum(['ticket', 'pr', 'repo']),
-  // 主 session 的 seq；子代理中的调用取发起该子代理的主 session 请求
+  // seq in the main session; calls in a subagent take the main session request that started the subagent
   requestSeq: z.number(),
   toolCallId: z.string(),
   excerpt: z.string(),
 });
 export type SourceRef = z.infer<typeof SourceRef>;
 
-// Compare 页面可选的 run：已评分（succeeded）与取消后评分过的 run，未标为无效
+// Runs selectable on the Compare page: graded (succeeded) and cancelled-then-graded runs not marked invalid
 export const CompareRun = z.object({
   id: z.string(),
   variantId: z.string(),
   taskId: z.string(),
-  // 被取消的 run 默认不参与对比，页面上用单独的点形状标出
+  // Cancelled runs are left out of the comparison by default and drawn with a separate point shape
   cancelled: z.boolean(),
   humanIntervened: z.boolean(),
   crossRunRefs: z.array(CrossRunRef),
   sourceRefs: z.array(SourceRef),
-  // ISO 时间，web 用同一个 schema 解析响应
+  // ISO time; web parses the response with the same schema
   createdAt: z.iso.datetime(),
-  // 发起 batch 时选的模型（Contracts 16.5），Compare 按模型分组用它
+  // Model chosen when the batch started (Contracts 16.5); Compare groups by it
   model: z.string(),
 });
 export type CompareRun = z.infer<typeof CompareRun>;
 
-// kind 为 rubric 产物 id 或 db/schema 的 fixedArtifactKinds
+// kind is a rubric artifact id or one of db/schema's fixedArtifactKinds
 export const RunArtifact = z.object({
   kind: z.string(),
   location: z.string(),

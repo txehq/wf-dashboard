@@ -7,11 +7,12 @@ import {
   DraftView,
   type SaveDraftBody,
   SavePlanView,
+  SessionVariantsView,
 } from '@wf-dashboard/server/drafts/views';
 import type { LiveDetail } from '@/lib/live-api';
 import { requestJson } from '@/lib/http';
 
-// 与 Contracts 第 17 节、19.3、22（生成 workflow 或 variant、分析优化，引擎为 Codex 或 Claude Code）的 API 对应
+// Matches the API of Contracts section 17, 19.3 and 22 (generating a workflow or variant, analysis optimization, with Codex or Claude Code as the engine)
 export type { CreateDraftBody, DraftEngine, DraftStepView, SaveDraftBody };
 export type Draft = DraftView;
 export type SavePlan = SavePlanView;
@@ -22,7 +23,14 @@ export const draftQuery = (id: string) =>
     queryFn: async () => DraftView.parse(await requestJson('GET', `/api/workflow-drafts/${id}`)),
   });
 
-// 发起：服务端建草稿目录、装 skill、在 Live 中建 Codex 会话，返回草稿与交互项
+// The workflow-design and workflow-optimize variants selectable in the start dialog (Contracts 33.2); baseline by default
+export const sessionVariantsQuery = queryOptions({
+  queryKey: ['drafts', 'session-variants'],
+  queryFn: async () =>
+    SessionVariantsView.parse(await requestJson('GET', '/api/workflow-drafts/session-variants')),
+});
+
+// Start: the server creates the draft directory, adds the chosen variant's skills and creates a Live session; returns the draft and the item
 export async function createDraft(
   body: CreateDraftBody,
 ): Promise<{ draft: Draft; live: LiveDetail }> {
@@ -32,8 +40,8 @@ export async function createDraft(
   };
 }
 
-// 保存前的改动预览（Contracts 17.4、21.3）：相对被覆盖的 variant（against），不传时相对底子。
-// 每次打开都重新读取，Codex 可能刚改过文件
+// Preview of changes before saving (Contracts 17.4, 21.3): against the variant being overwritten (against), or the
+// base when omitted. Reloaded on every open, since Codex may have just changed files
 export const draftDiffQuery = (id: string, against: string | null) =>
   queryOptions({
     queryKey: ['drafts', id, 'diff', against],
@@ -48,7 +56,8 @@ export const draftDiffQuery = (id: string, against: string | null) =>
     gcTime: 0,
   });
 
-// 保存对话框的内容：新 workflow 的预填，或同一 workflow 中可以覆盖的 variant；workflow.yaml 不合法时以原文报错
+// Save dialog content: prefill for a new workflow, or the variants of the same workflow that can be overwritten; an
+// invalid workflow.yaml fails with the raw error
 export const savePlanQuery = (id: string) =>
   queryOptions({
     queryKey: ['drafts', id, 'save-plan'],
@@ -59,17 +68,17 @@ export const savePlanQuery = (id: string) =>
     retry: false,
   });
 
-// 保存：新建 variant 或覆盖已有 variant，不构建；校验失败时服务端以原文报错
+// Save: a new variant or overwrite an existing one, without building; validation failures come back as the server's raw error
 export async function saveDraft(id: string, body: SaveDraftBody): Promise<Draft> {
   return DraftView.parse(await requestJson('POST', `/api/workflow-drafts/${id}/save`, body));
 }
 
-// 设计与分析优化会话的 resume（Contracts 17.3、22.2）：codex resume 或 claude --resume，接着同一个会话
+// Resume a design or analysis optimization session (Contracts 17.3, 22.2): codex resume or claude --resume, continuing the same session
 export async function resumeDraft(liveId: string): Promise<LiveDetail> {
   return (await requestJson('POST', `/api/live/${liveId}/draft-resume`)) as LiveDetail;
 }
 
-// 重试准备：从失败的那一步接着做（Contracts 17.1）
+// Retry preparation: continue from the step that failed (Contracts 17.1)
 export async function retryDraft(id: string): Promise<Draft> {
   return DraftView.parse(await requestJson('POST', `/api/workflow-drafts/${id}/retry`));
 }

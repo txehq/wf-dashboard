@@ -29,7 +29,7 @@ import {
 } from '@/pages/variants-api';
 import { DefinitionForm } from '@/pages/workflow-config';
 
-// 从空白新建（Contracts 18.5）：id、名字、描述与小阶段；没有评测类型。同时建出第一个 variant"初稿"
+// New from blank (Contracts 18.5): id, name, description and stages; no eval kind. Also creates the first variant
 function BlankWorkflowForm({ onCancel }: { onCancel: () => void }) {
   const client = useQueryClient();
   const navigate = useNavigate();
@@ -64,9 +64,9 @@ function BlankWorkflowForm({ onCancel }: { onCancel: () => void }) {
         create.mutate();
       }}
     >
-      <h2 className="text-base font-semibold">从空白新建 workflow</h2>
+      <h2 className="text-base font-semibold">New workflow from blank</h2>
       <label className="flex flex-col gap-1.5 text-sm">
-        <span className="font-medium">id（入口命令 /id，也是入口 skill 的名字）</span>
+        <span className="font-medium">id (entry command /id, also the entry skill's name)</span>
         <input
           className="h-9 w-56 rounded-md border bg-background px-3 font-mono"
           value={id}
@@ -77,11 +77,11 @@ function BlankWorkflowForm({ onCancel }: { onCancel: () => void }) {
         />
       </label>
       <label className="flex flex-col gap-1.5 text-sm">
-        <span className="font-medium">描述</span>
+        <span className="font-medium">Description</span>
         <textarea
           className="min-h-16 max-w-3xl rounded-md border bg-background px-3 py-2"
           value={description}
-          placeholder="写一句这是做什么的"
+          placeholder="One sentence on what it does"
           onChange={(event) => {
             setDescription(event.target.value);
           }}
@@ -97,13 +97,13 @@ function BlankWorkflowForm({ onCancel }: { onCancel: () => void }) {
         <StageFlow definition={{ ...definition, id }} />
       )}
       <p className="text-sm text-muted-foreground">
-        新建后有一个 variant「初稿」：入口与每个小阶段各一个只有 frontmatter 与一行说明的
-        SKILL.md，在 variant 页面中写成完整的 skill。新 workflow 没有评测类型，用于
-        Live、阶段划分与分析。
+        The new workflow starts with one variant: a SKILL.md with only frontmatter and one line of
+        description for the entry and for each stage; write them into full skills on the variant
+        page. A new workflow has no eval kind; use it for Live, stage tracking and analysis.
       </p>
       {create.isError && (
         <Alert variant="destructive">
-          <AlertTitle>新建失败</AlertTitle>
+          <AlertTitle>Could not create the workflow</AlertTitle>
           <AlertDescription className="whitespace-pre-wrap">
             {create.error.message}
           </AlertDescription>
@@ -111,17 +111,17 @@ function BlankWorkflowForm({ onCancel }: { onCancel: () => void }) {
       )}
       <div className="flex gap-2">
         <Button type="submit" disabled={!ready || create.isPending}>
-          {create.isPending ? '新建中…' : '新建'}
+          {create.isPending ? 'Creating…' : 'Create'}
         </Button>
         <Button type="button" variant="ghost" onClick={onCancel}>
-          取消
+          Cancel
         </Button>
       </div>
     </form>
   );
 }
 
-// 自动导入的 variant 的标签（Contracts 29.1）：当前最新版写"最新版"，其他写它的 tag
+// Badge of an auto-imported variant (Contracts 29.1): "Latest" for the current latest release, otherwise its tag
 export function ReleaseBadge({
   variant,
   latestTag,
@@ -132,33 +132,33 @@ export function ReleaseBadge({
   if (variant.releaseTag === null) return null;
   return (
     <Badge variant="secondary" className="shrink-0" data-testid="release-badge">
-      {variant.releaseTag === latestTag ? '最新版' : variant.releaseTag}
+      {variant.releaseTag === latestTag ? 'Latest' : variant.releaseTag}
     </Badge>
   );
 }
 
-// 一个 workflow 的 variant（Contracts 18.3）：名字链接到 variant 页面
+// A workflow's variants (Contracts 18.3): names link to the variant page
 export function VariantRows({
   variants,
   latestTag,
 }: {
   variants: (Variant & { boundSessions: number })[];
-  // lfg、ic 当前的最新版（Contracts 29.1）；其他 workflow 为空
+  // Current latest release of lfg and ic (Contracts 29.1); null for other workflows
   latestTag: string | null;
 }) {
   if (variants.length === 0) {
-    return <p className="text-sm text-muted-foreground">这个 workflow 还没有 variant。</p>;
+    return <p className="text-sm text-muted-foreground">This workflow has no variants yet.</p>;
   }
   return (
     <table className="w-full text-sm" data-testid="variant-table">
       <thead className="text-left text-muted-foreground">
         <tr className="border-b">
-          <th className="py-1.5 font-medium">名字</th>
-          <th className="font-medium">描述</th>
-          <th className="font-medium">状态</th>
-          <th className="font-medium">构建</th>
-          <th className="font-medium">构建时间</th>
-          <th className="font-medium">绑定的 session</th>
+          <th className="py-1.5 font-medium">Name</th>
+          <th className="font-medium">Description</th>
+          <th className="font-medium">Status</th>
+          <th className="font-medium">Build</th>
+          <th className="font-medium">Built at</th>
+          <th className="font-medium">Bound sessions</th>
         </tr>
       </thead>
       <tbody>
@@ -178,7 +178,7 @@ export function VariantRows({
                   )}
                 />
                 <ReleaseBadge variant={v} latestTag={latestTag} />
-                {/* 与改名的铅笔放在一起（Contracts 24.6）；一个 workflow 的最后一个 variant 在对话框中写明不能单独删除 */}
+                {/* Next to the rename pencil (Contracts 24.6); for a workflow's last variant the dialog says it cannot be deleted on its own */}
                 <DeleteButton kind="variant" id={v.id} name={v.name} icon />
               </span>
             </td>
@@ -213,7 +213,7 @@ function WorkflowRow({
               size="icon-xs"
               variant="ghost"
               aria-expanded={open}
-              aria-label={`${open ? '收起' : '展开'} ${workflow.name} 的 variant`}
+              aria-label={`${open ? 'Collapse' : 'Expand'} variants of ${workflow.name}`}
               onClick={() => {
                 setOpen(!open);
               }}
@@ -227,7 +227,7 @@ function WorkflowRow({
               {workflow.name}
             </Link>
             {workflow.builtin ? (
-              <span className="ml-1 text-xs text-muted-foreground">内置</span>
+              <span className="ml-1 text-xs whitespace-nowrap text-muted-foreground">Built-in</span>
             ) : (
               <DeleteButton kind="workflow" id={workflow.id} name={workflow.name} icon />
             )}
@@ -236,9 +236,9 @@ function WorkflowRow({
         <td className="max-w-md truncate text-muted-foreground" title={workflow.description ?? ''}>
           {workflow.description ?? ''}
         </td>
-        <td className="font-mono">/{workflow.id}</td>
-        <td>{evalKindLabel(workflow.evalKind)}</td>
-        <td>{workflow.definition.stages.length}</td>
+        <td className="pr-4 font-mono">/{workflow.id}</td>
+        <td className="pr-4 whitespace-nowrap">{evalKindLabel(workflow.evalKind)}</td>
+        <td className="pr-4">{workflow.definition.stages.length}</td>
         <td>{workflow.variants}</td>
       </tr>
       {open && (
@@ -252,7 +252,7 @@ function WorkflowRow({
   );
 }
 
-// Contracts 16.7、18.3、22.1：Workflows 列表与新建（从空白新建，或用 Codex、Claude Code 生成）
+// Contracts 16.7, 18.3, 22.1: the Workflows list and creation (from blank, or generated with Codex or Claude Code)
 export function WorkflowsPage() {
   const list = useQuery(workflowsQuery);
   const variants = useQuery(variantsQuery);
@@ -262,7 +262,7 @@ export function WorkflowsPage() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <PageShell
           title="Workflows"
-          description="workflow 是一个入口命令加一串小阶段；variant 是它的实例。内置的 lfg、ic 只读（描述可改），新的 workflow 从空白新建。"
+          description="A workflow is an entry command followed by a series of stages; a variant is one version of it. The built-in lfg and ic are read-only (except their descriptions); create new workflows from blank."
         />
         <div className="flex gap-2">
           <Button
@@ -271,7 +271,7 @@ export function WorkflowsPage() {
             }}
           >
             <Plus />
-            从空白新建
+            New from blank
           </Button>
           <Button
             variant="outline"
@@ -281,7 +281,7 @@ export function WorkflowsPage() {
             }}
           >
             <Sparkles />
-            生成 workflow
+            Generate workflow
           </Button>
         </div>
       </div>
@@ -300,10 +300,10 @@ export function WorkflowsPage() {
           }}
         />
       )}
-      {list.isPending && <p className="text-sm text-muted-foreground">加载中…</p>}
+      {list.isPending && <p className="text-sm text-muted-foreground">Loading…</p>}
       {(list.isError || variants.isError) && (
         <Alert variant="destructive">
-          <AlertTitle>无法读取 workflow 列表</AlertTitle>
+          <AlertTitle>Could not load workflows</AlertTitle>
           <AlertDescription>{(list.error ?? variants.error)?.message}</AlertDescription>
         </Alert>
       )}
@@ -311,12 +311,12 @@ export function WorkflowsPage() {
         <table className="w-full text-sm" data-testid="workflows-table">
           <thead className="text-left text-muted-foreground">
             <tr className="border-b">
-              <th className="py-2 font-medium">名字</th>
-              <th className="font-medium">描述</th>
-              <th className="font-medium">入口命令</th>
-              <th className="font-medium">评测类型</th>
-              <th className="font-medium">小阶段数</th>
-              <th className="font-medium">variant 数</th>
+              <th className="py-2 font-medium">Name</th>
+              <th className="font-medium">Description</th>
+              <th className="pr-4 font-medium">Entry command</th>
+              <th className="pr-4 font-medium">Eval kind</th>
+              <th className="pr-4 font-medium">Stages</th>
+              <th className="font-medium">Variants</th>
             </tr>
           </thead>
           <tbody>

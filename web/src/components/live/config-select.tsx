@@ -2,23 +2,26 @@ import { useQuery } from '@tanstack/react-query';
 import { workflowsQuery } from '@/lib/workflows-api';
 import { type Variant, variantLabel } from '@/pages/variants-api';
 
-// 选择框中"本机配置"的值
+// Value of "Local config" in the select
 export const LOCAL_CONFIG = 'local';
 
-// 交互的配置（Contracts 14.5、29.2）：本机配置，或构建成功的 variant（名字 (workflow)，按 workflow 分组）。
-// 新建交互与 resume 对话框共用
+// Config of an interaction (Contracts 14.5, 29.2): local config, or a successfully built variant
+// (name (workflow), grouped by workflow). Shared by the new interaction form and the resume dialog
 export function ConfigSelect({
   value,
   onChange,
   variants,
   testId,
+  localLabel = 'Local config (~/.claude)',
 }: {
-  // LOCAL_CONFIG 或 variant id
+  // LOCAL_CONFIG or a variant id
   value: string;
   onChange: (value: string) => void;
-  // 构建成功的 variant
+  // Successfully built variants
   variants: Variant[];
   testId: string;
+  // Text of LOCAL_CONFIG: "<label> config" on an SSH host (Contracts 31.3)
+  localLabel?: string;
 }) {
   const workflows = useQuery(workflowsQuery);
   const groups = (workflows.data ?? []).flatMap((w) => {
@@ -35,7 +38,7 @@ export function ConfigSelect({
           onChange(event.target.value);
         }}
       >
-        <option value={LOCAL_CONFIG}>本机配置（~/.claude）</option>
+        <option value={LOCAL_CONFIG}>{localLabel}</option>
         {groups.map((g) => (
           <optgroup key={g.workflow.id} label={g.workflow.name}>
             {g.variants.map((v) => (
@@ -48,7 +51,7 @@ export function ConfigSelect({
       </select>
       {workflows.isError && (
         <span role="alert" className="text-destructive">
-          读取 workflow 失败：{workflows.error.message}
+          Couldn't load workflows: {workflows.error.message}
         </span>
       )}
     </>

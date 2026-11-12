@@ -1,0 +1,15 @@
+{
+  "commands": [
+    {
+      "args": [
+        "api",
+        "repos/txehq/txe/pulls/3105",
+        "--jq",
+        "{id, state, draft, merged_at, closed_at, additions, deletions, created_at, user: {login: .user.login}}"
+      ],
+      "exitCode": 0,
+      "stdout": "{\"additions\":28,\"closed_at\":\"2026-10-05T17:47:36Z\",\"created_at\":\"2026-10-05T16:51:35Z\",\"deletions\":3,\"draft\":false,\"id\":4748203465,\"merged_at\":null,\"state\":\"closed\",\"user\":{\"login\":\"connorwang\"}}",
+      "stderr": ""
+    }
+  ]
+}

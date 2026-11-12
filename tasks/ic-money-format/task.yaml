@@ -1,32 +1,32 @@
 id: ic-money-format
 kind: ic
-title: 金额格式化：按币种小数位、负数与大金额
+title: "Money formatting: per-currency decimals, negative and large amounts"
 persona: |-
-  何静，@acme/money 这个内部库的维护者，后端工程师，同时负责公司结算服务。
-  关心：日元、韩元和科威特第纳尔的账单在客户邮件里显示错了，财务已经投诉；修复不能改动美元、欧元等现有输出。
-  说话方式：简短直接，用中文，习惯给出具体的输入和期望输出；不确定的事会说"按工单来"。
+  He Jing, maintainer of the internal @acme/money library, a backend engineer who also owns the company's billing service.
+  Cares about: invoices in Japanese yen, Korean won and Kuwaiti dinar show wrong amounts in customer emails and finance has already complained; the fix must not change the existing output for US dollars, euros and the like.
+  How she talks: short and direct, in English, usually gives concrete inputs and expected outputs; on anything she is unsure of she says "follow the ticket".
 hiddenRequirements: |-
-  - 小数位一律取 src/currencies.js 中该币种的 decimals：JPY、KRW 不显示小数点；KWD 显示三位小数；表中以后新增的币种也按它自己的 decimals 显示，不能写死币种名单。
-  - 负数：负号放在货币符号之前，例如 -1999 USD 显示为 -$19.99；-0 按 0 显示，不带负号。
-  - 金额在 Number.MAX_SAFE_INTEGER 以内必须精确，不能经过浮点除法（900719925474099 USD 必须显示为 $9,007,199,254,740.99）。
-  - 不支持的币种（包括 toString 这类对象继承来的键）抛出 RangeError，消息中包含币种代码。
-  - amountMinor 不是安全整数（小数、字符串、NaN、超过 MAX_SAFE_INTEGER）时抛出 TypeError。
-  - 千分位一律用逗号、小数点一律用点，不做本地化；货币符号与数字之间没有空格；保持函数签名 formatMoney(amountMinor, currency) 不变。
-  - 不新增依赖，不改 package.json 的版本号；为修复补充单元测试。
+  - Decimals always come from the currency's decimals in src/currencies.js: JPY and KRW show no decimal point; KWD shows three decimals; currencies added to the table later also use their own decimals, so no hard-coded list of currencies.
+  - Negative amounts: the minus sign goes before the currency symbol, for example -1999 USD shows as -$19.99; -0 shows as 0 without a minus sign.
+  - Amounts within Number.MAX_SAFE_INTEGER must be exact and must not go through floating point division (900719925474099 USD must show as $9,007,199,254,740.99).
+  - Unsupported currencies (including keys inherited from objects such as toString) throw a RangeError whose message contains the currency code.
+  - When amountMinor is not a safe integer (a fraction, a string, NaN, above MAX_SAFE_INTEGER) a TypeError is thrown.
+  - Thousands separators are always commas and the decimal point is always a dot, with no localisation; there is no space between the currency symbol and the number; the function signature formatMoney(amountMinor, currency) stays the same.
+  - No new dependencies and no change to the version in package.json; add unit tests for the fix.
 ticket:
-  title: formatMoney 对零位与三位小数币种显示错误，负数格式不对
+  title: formatMoney shows zero- and three-decimal currencies wrongly, and negative amounts in the wrong format
   body: |-
-    `formatMoney` 把所有币种都按两位小数处理：`formatMoney(1234, 'JPY')` 显示为 `¥12.34`，实际应为 `¥1,234`；`formatMoney(1234567, 'KWD')` 显示为 `KD12,345.67`，应为 `KD1,234.567`。客户邮件中的日元、韩元与科威特第纳尔金额都是错的。
+    `formatMoney` treats every currency as having two decimals: `formatMoney(1234, 'JPY')` shows `¥12.34` but should be `¥1,234`; `formatMoney(1234567, 'KWD')` shows `KD12,345.67` but should be `KD1,234.567`. Every yen, won and Kuwaiti dinar amount in customer emails is wrong.
 
-    另外负数显示为 `$-19.99`，财务要求 `-$19.99`；不支持的币种会抛出 `Cannot destructure property 'symbol'`，看不出是哪个币种。
+    Also, negative amounts show as `$-19.99` while finance requires `-$19.99`; an unsupported currency throws `Cannot destructure property 'symbol'`, which does not say which currency it was.
 
-    请修复 `src/format.js`，币种的小数位以 `src/currencies.js` 为准。
+    Please fix `src/format.js`; the currency decimals are defined by `src/currencies.js`.
   acceptanceCriteria:
-    - 小数位取 `src/currencies.js` 中该币种的 `decimals`：`formatMoney(1234, 'JPY')` 为 `¥1,234`，`formatMoney(1234567, 'KWD')` 为 `KD1,234.567`，`formatMoney(5, 'KWD')` 为 `KD0.005`；两位小数币种的现有输出不变。
-    - 负数的负号在货币符号之前：`formatMoney(-1999, 'USD')` 为 `-$19.99`。
-    - 金额在 `Number.MAX_SAFE_INTEGER` 以内精确显示：`formatMoney(900719925474099, 'USD')` 为 `$9,007,199,254,740.99`。
-    - 不支持的币种抛出 `RangeError`，消息包含币种代码；`amountMinor` 不是安全整数时抛出 `TypeError`。
-    - 新增的单元测试覆盖以上行为，`npm test` 通过。
+    - "Decimals come from the currency's `decimals` in `src/currencies.js`: `formatMoney(1234, 'JPY')` is `¥1,234`, `formatMoney(1234567, 'KWD')` is `KD1,234.567`, `formatMoney(5, 'KWD')` is `KD0.005`; existing output for two-decimal currencies is unchanged."
+    - "The minus sign of a negative amount goes before the currency symbol: `formatMoney(-1999, 'USD')` is `-$19.99`."
+    - "Amounts within `Number.MAX_SAFE_INTEGER` are shown exactly: `formatMoney(900719925474099, 'USD')` is `$9,007,199,254,740.99`."
+    - An unsupported currency throws a `RangeError` whose message contains the currency code; a `TypeError` is thrown when `amountMinor` is not a safe integer.
+    - New unit tests cover the behaviour above and `npm test` passes.
 repo:
   path: repo.bundle
   commit: cad4548c12c622f8f01e5761b74f013adab71ab3

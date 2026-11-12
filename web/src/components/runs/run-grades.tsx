@@ -5,22 +5,22 @@ import { artifactLabel, type RunGrades, runGradesQuery } from '@/lib/compare';
 import { cn } from '@/lib/utils';
 
 const outcomeLabel = {
-  passed: '通过',
-  failed: '失败',
-  errored: '出错',
-  skipped: '跳过',
-  'not-run': '未运行',
+  passed: 'Passed',
+  failed: 'Failed',
+  errored: 'Errored',
+  skipped: 'Skipped',
+  'not-run': 'Not run',
 } as const;
 
 type Endpoint = RunGrades['endpoint'];
 
-// pr-endpoint 的结果；评测类型没有 pr-endpoint 时不显示
+// pr-endpoint result; hidden when the evaluation kind has no pr-endpoint
 function EndpointRow({ endpoint, reachedText }: { endpoint: Endpoint; reachedText: string }) {
   if (endpoint === null) return null;
   return (
     <>
-      <dt className="text-muted-foreground">终点</dt>
-      <dd>{endpoint.reached ? reachedText : '未到达'}</dd>
+      <dt className="text-muted-foreground">Endpoint</dt>
+      <dd>{endpoint.reached ? reachedText : 'Not reached'}</dd>
     </>
   );
 }
@@ -29,7 +29,7 @@ function LfgGrades({ grades }: { grades: NonNullable<RunGrades['rubric']> }) {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm">
-        合计{' '}
+        Total{' '}
         <span className="text-lg font-semibold tabular-nums">
           {grades.score} / {grades.maxScore}
         </span>
@@ -48,7 +48,7 @@ function LfgGrades({ grades }: { grades: NonNullable<RunGrades['rubric']> }) {
             <span className="text-xs font-normal text-muted-foreground">
               {group.present
                 ? `${group.judgeModel ?? ''} · ${formatUsd(group.costUsd)}`
-                : '产物不存在，每条记 0 分'}
+                : 'Output missing, every item scores 0'}
             </span>
           </h3>
           <table className="w-full table-fixed text-sm">
@@ -86,30 +86,33 @@ function IcGrades({
   return (
     <div className="flex flex-col gap-3">
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-        <dt className="text-muted-foreground">隐藏测试</dt>
+        <dt className="text-muted-foreground">Hidden tests</dt>
         <dd className="tabular-nums">
           <span className="text-lg font-semibold">
             {grades.testsPassed} / {grades.testsDeclared}
           </span>{' '}
-          通过
+          passed
         </dd>
-        <EndpointRow endpoint={endpoint} reachedText="已到达（ready for review 且 CI 全绿）" />
+        <EndpointRow
+          endpoint={endpoint}
+          reachedText="Reached (ready for review and CI all green)"
+        />
         {detail.endpoint !== null && (
           <>
             <dt className="text-muted-foreground">CI</dt>
             <dd>
-              {detail.endpoint.ciGreen ? '全绿' : '未全绿'}
+              {detail.endpoint.ciGreen ? 'All green' : 'Not all green'}
               {detail.endpoint.missingRequired.length > 0 &&
-                `，缺少必需检查：${detail.endpoint.missingRequired.join('、')}`}
+                `; missing required checks: ${detail.endpoint.missingRequired.join(', ')}`}
             </dd>
-            <dt className="text-muted-foreground">PR 状态</dt>
-            <dd>{detail.endpoint.isDraft ? '草稿' : 'ready for review'}</dd>
+            <dt className="text-muted-foreground">PR status</dt>
+            <dd>{detail.endpoint.isDraft ? 'Draft' : 'Ready for review'}</dd>
           </>
         )}
         <dt className="text-muted-foreground">PR</dt>
         <dd>
           {detail.pr === null ? (
-            '没有 PR'
+            'No PR'
           ) : (
             <a
               href={detail.pr.url}
@@ -123,14 +126,16 @@ function IcGrades({
           )}
         </dd>
       </dl>
-      {/* agent 的代码让隐藏测试没能运行（npm ci 失败、超时、没有写出 JUnit）：测试记 0，原因与原文 */}
+      {/* The agent's code kept the hidden tests from running (npm ci failed, timeout, no JUnit written): tests score 0; show the cause and raw text */}
       {detail.error !== null && (
         <div
           role="alert"
           className="rounded-md border border-destructive/40 px-3 py-2 text-sm"
           data-testid="grade-error"
         >
-          <p className="font-medium text-destructive">隐藏测试没有正常运行，测试记 0 分</p>
+          <p className="font-medium text-destructive">
+            Hidden tests did not run properly; tests score 0
+          </p>
           <pre className="mt-1 max-h-60 overflow-auto text-xs whitespace-pre-wrap">
             {detail.error}
           </pre>
@@ -138,14 +143,14 @@ function IcGrades({
       )}
       {detail.fileErrors.map((e) => (
         <p key={e.file} className="text-sm text-destructive">
-          <span className="font-mono text-xs">{e.file}</span>：{e.message}
+          <span className="font-mono text-xs">{e.file}</span>: {e.message}
         </p>
       ))}
       <table className="w-full text-sm" data-testid="grade-tests">
         <thead>
           <tr className="border-b text-left text-xs text-muted-foreground">
-            <th className="py-1.5 pr-3 font-medium">隐藏测试</th>
-            <th className="w-20 py-1.5 font-medium">结果</th>
+            <th className="py-1.5 pr-3 font-medium">Hidden test</th>
+            <th className="w-20 py-1.5 font-medium">Result</th>
           </tr>
         </thead>
         <tbody>
@@ -174,7 +179,7 @@ function IcGrades({
   );
 }
 
-// 没有隐藏测试的 ic task：judge 对照验收标准逐条评分（0 未满足、1 部分满足、2 满足）
+// ic task without hidden tests: the judge scores each acceptance criterion (0 not met, 1 partly met, 2 met)
 function CriteriaGrades({
   grades,
   endpoint,
@@ -186,28 +191,31 @@ function CriteriaGrades({
   return (
     <div className="flex flex-col gap-3" data-testid="grade-criteria">
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-        <dt className="text-muted-foreground">验收标准</dt>
+        <dt className="text-muted-foreground">Acceptance criteria</dt>
         <dd className="tabular-nums">
           <span className="text-lg font-semibold">
             {grades.score} / {grades.maxScore}
           </span>{' '}
           <span className="text-xs text-muted-foreground">
             {grades.judgeModel === null
-              ? '没有 PR，每条记 0 分'
+              ? 'No PR, every item scores 0'
               : `${grades.judgeModel} · ${formatUsd(grades.costUsd)}`}
           </span>
         </dd>
-        <EndpointRow endpoint={endpoint} reachedText="已到达（PR 不是草稿且必需检查通过）" />
+        <EndpointRow
+          endpoint={endpoint}
+          reachedText="Reached (PR is not a draft and required checks passed)"
+        />
         {detail.endpoint !== null && detail.endpoint.missingRequired.length > 0 && (
           <>
             <dt className="text-muted-foreground">CI</dt>
-            <dd>未通过的必需检查：{detail.endpoint.missingRequired.join('、')}</dd>
+            <dd>Required checks not passed: {detail.endpoint.missingRequired.join(', ')}</dd>
           </>
         )}
         <dt className="text-muted-foreground">PR</dt>
         <dd>
           {detail.pr === null ? (
-            '没有 PR'
+            'No PR'
           ) : (
             <a
               href={detail.pr.url}
@@ -250,9 +258,9 @@ export function RunGradesPanel({ runId }: { runId: string }) {
       data-testid="run-grades"
     >
       <h2 id="grades-title" className="text-sm font-medium">
-        评分
+        Grade
       </h2>
-      {grades.isPending && <p className="text-sm text-muted-foreground">加载中…</p>}
+      {grades.isPending && <p className="text-sm text-muted-foreground">Loading…</p>}
       {grades.isError && <p className="text-sm text-destructive">{grades.error.message}</p>}
       {grades.data?.rubric != null && <LfgGrades grades={grades.data.rubric} />}
       {grades.data?.hiddenTests != null && (
@@ -267,7 +275,7 @@ export function RunGradesPanel({ runId }: { runId: string }) {
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
             <EndpointRow
               endpoint={grades.data.endpoint}
-              reachedText="已到达（PR 不是草稿且必需检查通过）"
+              reachedText="Reached (PR is not a draft and required checks passed)"
             />
           </dl>
         )}

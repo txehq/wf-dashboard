@@ -20,9 +20,9 @@ import { sessionConversation } from '../src/ingest/conversation.js';
 import { watchSession } from '../src/ingest/watch.js';
 import { samplesDir } from './stages/samples.js';
 
-// 真实样本（test/fixtures/samples，解压到 .work/samples）。
-// 分两次增量导入的用例要把整个文件再导入两次：d93c4511（2 MB，3 个子代理）与 9f4adf2d（4 MB，多个子代理）
-// 已经覆盖主 jsonl 与子代理中途切开的情形，37 MB 的 f0aca373 不再重复这一项
+// Real samples (test/fixtures/samples, unpacked to .work/samples).
+// The two-step incremental cases import the whole file twice more: d93c4511 (2 MB, 3 subagents) and 9f4adf2d (4 MB, several subagents)
+// already cover cuts through the main jsonl and subagents, so the 37 MB f0aca373 does not repeat it
 const samples = [
   {
     slug: '-Users-linhaoz-Project-txe-txe-workflow',
@@ -55,7 +55,7 @@ afterAll(() => {
   rmSync(workDir, { recursive: true, force: true });
 });
 
-// 样本复制到 .work/ 下，增量测试会改写其中的文件
+// Copy the sample under .work/; incremental tests rewrite its files
 function copySample(sample: { slug: string; id: string }) {
   const target = path.join(workDir, randomUUID(), sample.slug);
   const source = path.join(samplesDir, sample.slug);
@@ -97,7 +97,7 @@ function assistantRecords(file: string): RawAssistant[] {
     .filter((r) => r.message.model !== '<synthetic>');
 }
 
-// 直接对 jsonl 按 message.id 去重求和：每个 message 取最后一条记录的 usage（流式写入时最后一条最完整）
+// Sum directly over the jsonl, deduplicated by message.id: each message takes the usage of its last record (the most complete when streamed)
 function expectedOf(files: string[]) {
   let messages = 0;
   const tokens = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
@@ -119,10 +119,10 @@ function expectedOf(files: string[]) {
   return { messages, tokens, toolUseIds };
 }
 
-// 一个 session 的全部导入结果（自增 id 与写入时间置空）
+// Everything imported for a session (autoincrement ids and write times cleared)
 function snapshot(db: Db, sessionId: string) {
   const session = db.select().from(schema.sessions).where(eq(schema.sessions.id, sessionId)).get();
-  if (session === undefined) throw new Error(`session ${sessionId} 未导入`);
+  if (session === undefined) throw new Error(`Session ${sessionId} not imported`);
   return {
     session: { ...session, createdAt: null },
     requests: db
@@ -148,7 +148,7 @@ function snapshot(db: Db, sessionId: string) {
   };
 }
 
-// 切分点取在同一 message 的两条记录之间，并在下一行中间截断，覆盖"跨两次读取的 message"与"半行"
+// The cut falls between two records of the same message and truncates the next line midway, covering "a message across two reads" and "half a line"
 function splitPoint(file: string) {
   const lines = readFileSync(file, 'utf8').split('\n');
   const ids = lines.map((l) => {
@@ -159,7 +159,7 @@ function splitPoint(file: string) {
   const middle = Math.floor(lines.length / 2);
   for (let i = middle; i < lines.length; i++)
     if (ids[i] !== null && ids[i] === ids[i - 1]) return { lines, at: i };
-  throw new Error(`${file} 中点之后没有跨两行的 message`);
+  throw new Error(`${file} has no message spanning two lines after its midpoint`);
 }
 
 function writePrefix(file: string, lines: string[], at: number) {
@@ -171,9 +171,9 @@ function writePrefix(file: string, lines: string[], at: number) {
 }
 
 describe('watchSession', () => {
-  test('文件追加写入后增量导入并发出 session.updated', async () => {
+  test('imports incrementally after appends and publishes session.updated', async () => {
     const sample = samples[1];
-    if (sample === undefined) throw new Error('缺少样本');
+    if (sample === undefined) throw new Error('Missing sample');
     const db = openTestDb();
     const watched = copySample(sample);
     const full = readFileSync(watched, 'utf8');
@@ -200,7 +200,7 @@ describe('watchSession', () => {
     await watcher.close();
     expect(errors).toEqual([]);
 
-    // 对同一个文件一次导入作为对照
+    // A single import of the same file as reference
     const reference = openTestDb();
     ingestFile(reference, watched);
     const expected = snapshot(reference, sample.id);
@@ -220,13 +220,13 @@ describe.each(samples)('ingest $id', (sample) => {
   const snap = snapshot(db, sample.id);
   const expected = expectedOf([main, ...subs]);
 
-  test('request 行数等于去重后的 message.id 数', () => {
+  test('request rows equal the deduplicated message.id count', () => {
     expect(result.changed).toBe(true);
     expect(snap.requests.length).toBe(expected.messages);
     expect(snap.requests.length).toBeGreaterThan(0);
   });
 
-  test('token 合计与直接按 message.id 去重求和一致', () => {
+  test('token totals match a direct sum deduplicated by message.id', () => {
     const sum = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
     for (const r of snap.requests) {
       sum.input += r.inputTokens;
@@ -238,7 +238,7 @@ describe.each(samples)('ingest $id', (sample) => {
     expect(snap.requests.every((r) => r.costUsd > 0)).toBe(true);
   });
 
-  test('每个 tool_use 都配上了 result', () => {
+  test('every tool_use is paired with its result', () => {
     const calls = snap.requests.flatMap((r) => r.toolCalls);
     expect(new Set(calls.map((c) => c.id))).toEqual(expected.toolUseIds);
     expect(calls.filter((c) => c.result === null)).toEqual([]);
@@ -249,7 +249,7 @@ describe.each(samples)('ingest $id', (sample) => {
     expect(snap.session.parseState.pending).toEqual({});
   });
 
-  test('子代理关联到父 ToolCall', () => {
+  test('subagents are linked to the parent ToolCall', () => {
     expect(snap.subagents.length).toBe(subs.length);
     const calls = snap.requests.filter((r) => r.agentId === null).flatMap((r) => r.toolCalls);
     for (const sub of snap.subagents) {
@@ -259,7 +259,7 @@ describe.each(samples)('ingest $id', (sample) => {
       expect(sub.parentToolUseId).toBe(meta.toolUseId);
       const parent = calls.find((c) => c.id === meta.toolUseId);
       expect(parent?.subagentId).toBe(sub.agentId);
-      // 被中断的子代理可能没有任何模型请求，按各自文件去重后的 message 数核对
+      // An interrupted subagent may have no model requests; check against each file's deduplicated message count
       expect(snap.requests.filter((r) => r.agentId === sub.agentId).length).toBe(
         expectedOf([sub.filePath]).messages,
       );
@@ -267,7 +267,7 @@ describe.each(samples)('ingest $id', (sample) => {
     expect(calls.filter((c) => c.subagentId !== null).length).toBe(subs.length);
   });
 
-  test('溢出到 tool-results/ 的结果记录了本地路径', () => {
+  test('results spilled to tool-results/ record the local path', () => {
     const spilled = snap.requests.flatMap((r) => r.toolCalls).filter((c) => c.spillPath !== null);
     const raw = [main, ...subs].map((f) => readFileSync(f, 'utf8')).join('\n');
     expect(spilled.length).toBe(raw.split('"content":"<persisted-output>').length - 1);
@@ -280,7 +280,7 @@ describe.each(samples)('ingest $id', (sample) => {
     }
   });
 
-  test('后台任务通知、本地命令输出与其他会话发来的消息记为 notice，不作为标题', () => {
+  test('background task notifications, local command output and messages from other sessions are notices, never the title', () => {
     const expectedNotices = [main, ...subs].flatMap((file) =>
       readFileSync(file, 'utf8')
         .split('\n')
@@ -325,36 +325,39 @@ describe.each(samples)('ingest $id', (sample) => {
     }
   });
 
-  test('发出 session.updated；再次导入没有变化', () => {
+  test('publishes session.updated; importing again changes nothing', () => {
     expect(published).toContainEqual({ type: 'session.updated', sessionId: sample.id });
     expect(ingestFile(db, main).changed).toBe(false);
     expect(snapshot(db, sample.id)).toEqual(snap);
   });
 
-  test.runIf(sample.incremental)('前 N 行与其余行分两次增量导入，与一次导入完全相同', () => {
-    const incremental = openTestDb();
-    const full = readFileSync(main, 'utf8');
-    const { lines, at } = splitPoint(main);
-    const subFull = subs.map((f) => readFileSync(f, 'utf8'));
-    writePrefix(main, lines, at);
-    subs.forEach((f, i) => {
-      const subLines = (subFull[i] ?? '').split('\n');
-      writePrefix(f, subLines, Math.floor(subLines.length / 2));
-    });
-    expect(ingestFile(incremental, main).changed).toBe(true);
-    const partial = snapshot(incremental, sample.id);
-    expect(partial.requests.length).toBeLessThan(snap.requests.length);
+  test.runIf(sample.incremental)(
+    'importing the first N lines and the rest incrementally equals one import',
+    () => {
+      const incremental = openTestDb();
+      const full = readFileSync(main, 'utf8');
+      const { lines, at } = splitPoint(main);
+      const subFull = subs.map((f) => readFileSync(f, 'utf8'));
+      writePrefix(main, lines, at);
+      subs.forEach((f, i) => {
+        const subLines = (subFull[i] ?? '').split('\n');
+        writePrefix(f, subLines, Math.floor(subLines.length / 2));
+      });
+      expect(ingestFile(incremental, main).changed).toBe(true);
+      const partial = snapshot(incremental, sample.id);
+      expect(partial.requests.length).toBeLessThan(snap.requests.length);
 
-    writeFileSync(main, full);
-    subs.forEach((f, i) => {
-      writeFileSync(f, subFull[i] ?? '');
-    });
-    expect(ingestFile(incremental, main).changed).toBe(true);
-    expect(snapshot(incremental, sample.id)).toEqual(snap);
-  });
+      writeFileSync(main, full);
+      subs.forEach((f, i) => {
+        writeFileSync(f, subFull[i] ?? '');
+      });
+      expect(ingestFile(incremental, main).changed).toBe(true);
+      expect(snapshot(incremental, sample.id)).toEqual(snap);
+    },
+  );
 
-  // 导入时按段读（importFiles 与增量导入）：每段 256 KB，段的边界落在行中间时停在上一个换行
-  test.runIf(sample.incremental)('分段导入（每段 256 KB）与一次导入完全相同', () => {
+  // Imports read in chunks (importFiles and incremental import): 256 KB each, stopping at the previous newline when a chunk boundary falls inside a line
+  test.runIf(sample.incremental)('a chunked import (256 KB chunks) equals one import', () => {
     const chunked = openTestDb();
     let passes = 0;
     for (let more = true; more; passes++) more = ingestFile(chunked, main, 256 * 1024).more;
@@ -363,7 +366,7 @@ describe.each(samples)('ingest $id', (sample) => {
   });
 });
 
-// fork 子代理（meta isFork）的 jsonl 以父代理对话的副本开头，直到派生它的 Agent 调用的 tool_result
+// A fork subagent's (meta isFork) jsonl starts with a copy of the parent conversation, up to the tool_result of the Agent call that spawned it
 const forkSample = {
   slug: '-Users-linhaoz-Project-txe-txe-workflow',
   id: 'd70a6a0e-ddef-4989-8f2a-f2a5adea7abd',
@@ -375,7 +378,7 @@ interface ForkMeta {
   parentAgentId?: string;
 }
 
-// fork 自己的部分：派生调用的 tool_result 之后的 message.id 与 tool_use.id
+// The fork's own part: message.id and tool_use.id after the spawning call's tool_result
 function forkOwn(file: string, meta: ForkMeta) {
   const records = readFileSync(file, 'utf8')
     .split('\n')
@@ -403,7 +406,7 @@ function forkOwn(file: string, meta: ForkMeta) {
   return { messages: own, inherited: start };
 }
 
-describe('ingest fork 子代理', () => {
+describe('ingest fork subagents', () => {
   const db = openTestDb();
   const main = copySample(forkSample);
   ingestFile(db, main);
@@ -417,7 +420,7 @@ describe('ingest fork 子代理', () => {
     }))
     .filter((f) => f.meta.isFork === true);
 
-  test('同一行内没有重复的 tool 调用，每个 message.id 只属于一个 agent', () => {
+  test('no duplicate tool calls within a row; each message.id belongs to one agent', () => {
     expect(forks).toHaveLength(3);
     for (const r of snap.requests) {
       const ids = r.toolCalls.map((c) => c.id);
@@ -427,7 +430,7 @@ describe('ingest fork 子代理', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  test('fork 的请求作为它自己的行存在，seq 从 0 开始，继承的父代理记录不导入', () => {
+  test('fork requests are their own rows with seq from 0; inherited parent records are not imported', () => {
     for (const { sub, meta } of forks) {
       const rows = snap.requests.filter((r) => r.agentId === sub.agentId);
       const own = forkOwn(sub.filePath, meta);
@@ -436,17 +439,17 @@ describe('ingest fork 子代理', () => {
       expect(rows.flatMap((r) => r.toolCalls).filter((c) => c.result === null)).toEqual([]);
       expect(sub.parseState.pending).toEqual({});
       expect(sub.parseState.forkToolUseId).toBeUndefined();
-      // fork 的用户消息只有派生时的 fork 指令
+      // The fork's only user message is the fork instruction from spawning
       const messages = snap.userMessages.filter((m) => m.agentId === sub.agentId);
       expect(messages).toHaveLength(1);
       expect(messages[0]?.text.startsWith('<fork-boilerplate>')).toBe(true);
     }
   });
 
-  test('父代理的行与它的 jsonl 一致，派生 fork 的 Agent 调用指向 fork', () => {
+  test('the parent agent rows match its jsonl; the Agent calls spawning forks point to the forks', () => {
     const parentId = forks[0]?.meta.parentAgentId;
     const parent = snap.subagents.find((s) => s.agentId === parentId);
-    if (parent === undefined) throw new Error(`没有父代理 ${String(parentId)}`);
+    if (parent === undefined) throw new Error(`No parent agent ${String(parentId)}`);
     const expected = expectedOf([parent.filePath]);
     const rows = snap.requests.filter((r) => r.agentId === parent.agentId);
     expect(rows).toHaveLength(expected.messages);
@@ -456,7 +459,7 @@ describe('ingest fork 子代理', () => {
       expect(calls.find((c) => c.id === meta.toolUseId)?.subagentId).toBe(sub.agentId);
   });
 
-  test('fork 文件在继承部分中间切开、分两次增量导入，与一次导入完全相同', () => {
+  test('fork files cut inside the inherited part and imported in two steps equal one import', () => {
     const incremental = openTestDb();
     const contents = forks.map(({ sub }) => readFileSync(sub.filePath, 'utf8'));
     const cuts = forks.map(({ sub, meta }) =>
@@ -477,8 +480,8 @@ describe('ingest fork 子代理', () => {
   });
 });
 
-// W15 Low 17：以前按 UTF-16 单元直接截断，可能留下半个代理对
-test('tool 结果截断不切开代理对', () => {
+// W15 Low 17: truncating by UTF-16 units used to leave half a surrogate pair
+test('tool result truncation does not split a surrogate pair', () => {
   const emoji = '😀';
   const text = `${'a'.repeat(19_999)}${emoji}b`;
   const cut = truncateResult(text);
@@ -487,10 +490,10 @@ test('tool 结果截断不切开代理对', () => {
   expect(truncateResult('short')).toBe('short');
 });
 
-// W15 Medium 1：其他 Claude session 发来的 peer 消息（origin.kind peer、isMeta）开始一轮；
-// 以前不更新触发时间，之后第一条请求的 duration_ms 为空或从几小时前的上一条用户消息算起
-describe('peer 消息', () => {
-  test('peer 消息以 notice 返回并保留发送方，之后的第一条请求从它算起', () => {
+// W15 Medium 1: a peer message from another Claude session (origin.kind peer, isMeta) starts a turn;
+// the trigger time used not to be updated, so the next request's duration_ms was empty or counted from a user message hours earlier
+describe('peer messages', () => {
+  test('a peer message is returned as a notice keeping the sender; the next request is timed from it', () => {
     const db = openTestDb();
     const id = 'b7199c56-42d6-4dda-ac96-117d3937ebdd';
     ingestFile(db, path.join(import.meta.dirname, 'fixtures/peer', `${id}.jsonl`));
@@ -509,13 +512,13 @@ describe('peer 消息', () => {
       .from(schema.userMessages)
       .where(eq(schema.userMessages.sessionId, id))
       .all();
-    // Contracts 2：peer 消息以 notice 返回，保留发送方；不是用户消息，不参与标题
+    // Contracts 2: a peer message is returned as a notice keeping the sender; it is not a user message and does not feed the title
     const peer = messages.filter((m) => m.text.includes('cross-session-message'));
     expect(peer.map((m) => m.kind)).toEqual(['notice']);
     expect(peer[0]?.text).toContain('from-name="hi-46"');
     const session = db.select().from(schema.sessions).where(eq(schema.sessions.id, id)).get();
     expect(session?.title ?? '').not.toContain('cross-session-message');
-    // 对话视图同样按 notice 显示
+    // The conversation view shows it as a notice too
     const conversation = sessionConversation(db, id) ?? [];
     const item = conversation.find((c) => c.kind !== 'question' && c.text.includes('hi-46'));
     expect(item?.kind).toBe('notice');

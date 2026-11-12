@@ -24,14 +24,14 @@ import {
 import type { TaskDefinition, TaskDraft } from './schema.js';
 import { analyzeWorkflows } from './workflow-checks.js';
 
-// 页面据此提示用户选择仓库
+// The page uses this to ask the user to pick a repo
 export const RepoRequired = createError<[string]>(
   'REPO_REQUIRED',
-  '工单 %s 没有关联已合并的 GitHub PR，需要指定仓库',
+  'Ticket %s has no linked merged GitHub PR, so a repo must be given',
   400,
 );
 
-// 合并的在前（按合并时间），未合并的在后
+// Merged first (by merge time), unmerged after
 const byMerge = (a: LinkedPr, b: LinkedPr) =>
   a.mergedAt === null
     ? b.mergedAt === null
@@ -41,7 +41,7 @@ const byMerge = (a: LinkedPr, b: LinkedPr) =>
       ? -1
       : a.mergedAt.localeCompare(b.mergedAt);
 
-// 工单详情：正文原文与附件中的 GitHub PR（只读）
+// Ticket details: the original body and the GitHub PRs among its attachments (read only)
 export async function readLinearIssue(identifier: string): Promise<LinearIssueDetail> {
   const issue = await readIssueForImport(identifier);
   const prRefs = issue.attachmentUrls.flatMap((url) => {
@@ -61,8 +61,8 @@ export async function readLinearIssue(identifier: string): Promise<LinearIssueDe
   };
 }
 
-// 默认 commit（Contracts 第 13 节）：仓库中最早合并的关联 PR 的 base commit（这张工单的改动开始之前），
-// 没有已合并的 PR 时取默认分支的最新 commit
+// Default commit (Contracts section 13): the base commit of the repo's earliest merged linked PR (before this ticket's changes began),
+// or the latest commit of the default branch when there is no merged PR
 async function defaultCommit(issue: LinearIssueDetail, repo: string) {
   const merged = issue.linkedPrs.find((p) => p.repo === repo && p.baseCommit !== null);
   if (merged?.baseCommit != null) {
@@ -76,19 +76,19 @@ async function defaultCommit(issue: LinearIssueDetail, repo: string) {
 const slug = (identifier: string) => `ic-${identifier.toLowerCase()}`;
 
 function persona(issue: LinearIssueDetail) {
-  return `提出 Linear 工单 ${issue.identifier}（${issue.title}）的人，熟悉 ${issue.team} team 的这个仓库。只依据工单正文回答；工单没有写到的事，回答"按工单来"。`;
+  return `The person who filed Linear ticket ${issue.identifier} (${issue.title}), familiar with this repo of the ${issue.team} team. Answers only from the ticket body; for anything the ticket does not mention, answers "follow the ticket".`;
 }
 
-const HIDDEN_REQUIREMENTS = '除工单正文外没有额外的需求；被问到工单没有写到的事时，回答"按工单来"。';
+const HIDDEN_REQUIREMENTS = 'There are no requirements beyond the ticket body; when asked about anything the ticket does not mention, answer "follow the ticket".';
 
-// POST /api/tasks/from-linear：读工单、选仓库与 commit、分析 workflow，返回可编辑的 task 草稿，不写任何文件。
-// copyRunnerLabels 取设置中副本可用的自托管 runner 标签
+// POST /api/tasks/from-linear: reads the ticket, picks the repo and commit, analyses the workflows and returns an editable task draft without writing any file.
+// copyRunnerLabels are the self-hosted runner labels available to copies, from Settings
 export async function previewLinearImport(
   request: ImportPreviewRequest,
   copyRunnerLabels: string[],
 ): Promise<ImportPreview> {
   const identifier = issueIdentifier(request.issue);
-  if (identifier === null) throw new Error(`不是 Linear 工单地址或工单编号：${request.issue}`);
+  if (identifier === null) throw new Error(`Not a Linear ticket URL or identifier: ${request.issue}`);
   const issue = await readLinearIssue(identifier);
   const repo = request.repo ?? issue.linkedPrs.find((p) => p.mergedAt !== null)?.repo;
   if (repo === undefined) throw new RepoRequired(issue.identifier);
@@ -102,7 +102,7 @@ export async function previewLinearImport(
     readRemoteWorkflow,
     copyRunnerLabels,
   );
-  // 验收标准由 judge 读工单标题与完整正文确定（Contracts 第 13 节）
+  // The judge reads the ticket title and full body to determine the acceptance criteria (Contracts section 13)
   const criteria =
     request.criteria === false ? null : await draftCriteria(issue.title, issue.description);
   const task: TaskDraft = {
@@ -113,7 +113,7 @@ export async function previewLinearImport(
     hiddenRequirements: HIDDEN_REQUIREMENTS,
     source: {
       linear: { identifier: issue.identifier, url: issue.url },
-      // 来源工单关联的、属于这个仓库的 PR；读取来源的记录只匹配这些编号
+      // PRs linked to the source ticket that belong to this repo; reading the source's history matches only these numbers
       github: {
         repo,
         prs: issue.linkedPrs.filter((p) => p.repo === repo).map((p) => p.number),
@@ -121,7 +121,7 @@ export async function previewLinearImport(
     },
     ticket: {
       title: issue.title,
-      // 正文原样保存；正文为空的工单由用户在表单中填写
+      // The body is stored as is; for a ticket with an empty body the user fills it in on the form
       body: issue.description,
       acceptanceCriteria: criteria?.criteria.map((c) => c.text) ?? [],
     },
@@ -141,10 +141,10 @@ export async function previewLinearImport(
   };
 }
 
-// 保存从 Linear 导入的 task 之前：task 目录中没有 bundle、或 bundle 的 main 不是 repo.commit 时，从源仓库重新生成
+// Before saving a task imported from Linear: rebuilds the bundle from the source repo when the task directory has none or its main is not repo.commit
 export async function ensureImportedBundle(task: TaskDefinition, tasksDir: string) {
   if (task.source === undefined) return;
-  if (task.repo === undefined) throw new Error(`导入的 task ${task.id} 没有 repo`);
+  if (task.repo === undefined) throw new Error(`Imported task ${task.id} has no repo`);
   const bundle = path.join(tasksDir, task.id, task.repo.path);
   if (fs.existsSync(bundle) && (await bundleHead(bundle)) === task.repo.commit) return;
   await createRepoBundle(task.source.github.repo, task.repo.commit, bundle);

@@ -7,15 +7,16 @@ import { Readable } from 'node:stream';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { z } from 'zod';
+import { config } from '../config.js';
 import type { TicketTask } from '../tasks/schema.js';
 
-// 与 txe-workflow 的 workflow/mcps/linear.yaml 相同的启动方式；OAuth token 由 mcp-remote 从 ~/.mcp-auth 读取
+// Launched the same way as txe-workflow's workflow/mcps/linear.yaml; mcp-remote reads the OAuth token from ~/.mcp-auth
 export const LINEAR_MCP_URL = 'https://mcp.linear.app/mcp';
 export const EVAL_TEAM = 'TXE';
 export const EVAL_PROJECT = 'Workflow Eval';
 export const EVAL_LABEL = 'eval';
 
-// mcp-remote 以服务器 URL 的 md5 命名 token 文件
+// mcp-remote names the token file after the md5 of the server URL
 const tokensPath = path.join(
   os.homedir(),
   '.mcp-auth/mcp-remote-v1',
@@ -28,27 +29,25 @@ export function linearLoggedIn(): boolean {
 
 interface Connection {
   client: Promise<Client>;
-  // 没有登录时不启动 mcp-remote
+  // mcp-remote is not started when not logged in
   transport: StdioClientTransport | null;
 }
 
 function connect(onLost: () => void): Connection {
-  // 未登录时 mcp-remote 会打开浏览器等待授权，进程会一直挂起
-  if (!linearLoggedIn()) {
+  // When not logged in, mcp-remote opens a browser to wait for authorization and the process hangs forever
+  if (config.linearMcp === null && !linearLoggedIn()) {
     return {
-      client: Promise.reject(new Error(`Linear 未登录：${tokensPath} 不存在`)),
+      client: Promise.reject(new Error(`Linear not logged in: ${tokensPath} does not exist`)),
       transport: null,
     };
   }
-  const transport = new StdioClientTransport({
-    command: 'npx',
-    args: ['-y', 'mcp-remote', LINEAR_MCP_URL],
-    stderr: 'pipe',
-  });
-  // mcp-remote 对每次调用打印 [pid] [Local→Remote] 一类的跟踪行；其余（授权提示、错误）照常转发，
-  // 并记下来：连接没有建立时（例如 npx 找不到、mcp-remote 启动即退出）它们是失败的原文
+  const [command, ...args] = config.linearMcp ?? ['npx', '-y', 'mcp-remote', LINEAR_MCP_URL];
+  if (command === undefined) throw new Error('The Linear MCP command is empty');
+  const transport = new StdioClientTransport({ command, args, stderr: 'pipe' });
+  // mcp-remote prints trace lines like [pid] [Local→Remote] for every call; the rest (auth prompts, errors) are
+  // forwarded and kept: when the connection is not established (e.g. npx missing, mcp-remote exits at once) they are the failure text
   const stderr = transport.stderr;
-  if (!(stderr instanceof Readable)) throw new Error('mcp-remote 的 stderr 没有建立管道');
+  if (!(stderr instanceof Readable)) throw new Error('mcp-remote stderr is not piped');
   const output: string[] = [];
   readline.createInterface({ input: stderr }).on('line', (line) => {
     if (!/^\[\d+\] \[(Local→Remote|Remote→Local)\]/.test(line)) {
@@ -57,15 +56,15 @@ function connect(onLost: () => void): Connection {
     }
   });
   const c = new Client({ name: 'wf-dashboard', version: '0.0.0' });
-  // mcp-remote 子进程退出、stdio 管道出错
+  // The mcp-remote child process exited, or a stdio pipe failed
   c.onclose = onLost;
   c.onerror = onLost;
-  // 子进程退出时 stderr 已经读完（Node 在全部 stdio 关闭后才发出 close），记下的输出是完整的
+  // When the child exits stderr is fully read (Node emits close only after all stdio closes), so the kept output is complete
   const client = c.connect(transport).then(
     () => c,
     (error: unknown) => {
       throw new Error(
-        `${error instanceof Error ? error.message : String(error)}；mcp-remote 的输出：${output.join('\n') || '（无）'}`,
+        `${error instanceof Error ? error.message : String(error)}; mcp-remote output: ${output.join('\n') || '(none)'}`,
         { cause: error },
       );
     },
@@ -73,10 +72,10 @@ function connect(onLost: () => void): Connection {
   return { client, transport };
 }
 
-// 进程内单例：一个 mcp-remote 子进程，所有 run 共用。连接断开时丢弃这个连接，下一次调用新建：
-// 连接失败（例如还没有登录）、mcp-remote 子进程退出、transport 出错、调用抛出 transport 层的错误
-// （网络中断后 mcp-remote 对每次调用返回 -32001 fetch failed，子进程本身不退出）。
-// 不重试：当次调用以原文失败。被丢弃的连接在进行中的调用结束后关闭；旧连接迟到的事件不影响新连接
+// Process-wide singleton: one mcp-remote child shared by all runs. A lost connection is dropped and the next call opens a new one:
+// connect failure (e.g. not logged in yet), mcp-remote child exit, transport error, or a call throwing a transport-level error
+// (after a network outage mcp-remote returns -32001 fetch failed for every call while the child keeps running).
+// No retry: that call fails with the original error. A dropped connection closes after its in-flight calls; late events of the old one do not affect the new one
 interface Entry {
   connection: Connection;
   calls: number;
@@ -90,7 +89,7 @@ function open(): Entry {
     drop(entry);
   });
   const entry: Entry = { connection, calls: 0, dropped: false };
-  // 连接失败的错误由等待这个连接的调用抛出
+  // A connect failure is thrown by the calls waiting on this connection
   entry.connection.client.then(undefined, () => {
     drop(entry);
   });
@@ -109,7 +108,7 @@ function closeWhenIdle(entry: Entry) {
   if (!entry.dropped || entry.calls > 0) return;
   void entry.connection.client.then(
     (c) => c.close(),
-    // 连接没有建立，没有可关闭的子进程
+    // Never connected, so there is no child process to close
     () => undefined,
   );
 }
@@ -118,18 +117,18 @@ export function linearClient(): Promise<Client> {
   return (current ?? open()).connection.client;
 }
 
-// 环境检查的"重新检查"：之后的调用都用新建的连接；旧连接在进行中的调用结束后关闭
+// The environment check's "Recheck": later calls use a new connection; the old one closes after its in-flight calls
 export function renewLinearClient() {
   if (current !== undefined) drop(current);
   open();
 }
 
-// 是否有给调用使用的连接（建立中或已建立）
+// Whether there is a connection for calls to use (connecting or connected)
 export function hasLinearConnection(): boolean {
   return current !== undefined;
 }
 
-// 当前连接的 mcp-remote 子进程（npx）的 pid；还没有连接时为 null
+// pid of the current connection's mcp-remote child (npx); null when there is no connection yet
 export async function linearConnectionPid(): Promise<number | null> {
   const entry = current;
   if (entry === undefined) return null;
@@ -151,8 +150,8 @@ const ToolResult = z.object({
   content: z.array(z.object({ type: z.string(), text: z.string().optional() }).loose()),
 });
 
-// Linear MCP 的 tool 结果是一段 JSON 文本；isError 由 SDK 原样返回，不会抛出。
-// callTool 抛出的是 transport 层的错误：丢弃这个连接后照常抛出
+// A Linear MCP tool result is a JSON text; the SDK returns isError as is and does not throw.
+// callTool throws transport-level errors: drop the connection, then rethrow
 export async function callLinear<T>(
   name: string,
   args: Record<string, unknown>,
@@ -178,12 +177,12 @@ export async function callLinear<T>(
     .filter((c) => c.type === 'text')
     .map((c) => c.text)
     .join('\n');
-  if (result.isError === true) throw new Error(`Linear ${name} 失败：${text}`);
+  if (result.isError === true) throw new Error(`Linear ${name} failed: ${text}`);
   return schema.parse(JSON.parse(text));
 }
 
-// 列表类 tool 的分页：{ <key>: [...], hasNextPage, cursor }
-async function listAll<T>(
+// Pagination of list tools: { <key>: [...], hasNextPage, cursor }
+export async function listAll<T>(
   name: string,
   args: Record<string, unknown>,
   key: string,
@@ -197,7 +196,7 @@ async function listAll<T>(
     items.push(...z.array(item).parse(page[key]));
     if (!page.hasNextPage) return items;
     if (page.cursor === undefined)
-      throw new Error(`Linear ${name} hasNextPage 为 true 但没有 cursor`);
+      throw new Error(`Linear ${name} hasNextPage is true but there is no cursor`);
     cursor = page.cursor;
   }
 }
@@ -210,7 +209,7 @@ export type Status = z.infer<typeof Status>;
 
 export interface EvalContainer {
   teamId: string;
-  // project identifier（P-TXE-17）
+  // project identifier (P-TXE-17)
   projectId: string;
   projectUuid: string;
   labelId: string;
@@ -218,14 +217,14 @@ export interface EvalContainer {
 }
 
 function single<T extends { name: string }>(items: T[], name: string, kind: string): T | undefined {
-  // list 的 query / name 是模糊搜索，按名字精确比较
+  // list query / name is a fuzzy search, so compare names exactly
   const exact = items.filter((i) => i.name === name);
   if (exact.length > 1)
-    throw new Error(`Linear 中有 ${String(exact.length)} 个名为 ${name} 的 ${kind}`);
+    throw new Error(`Linear has ${String(exact.length)} ${kind}s named ${name}`);
   return exact[0];
 }
 
-// 不带缓存：按名字查找 project 与 label，不存在则创建
+// Uncached: find the project and label by name, creating them when missing
 export async function findOrCreateEvalContainer(): Promise<EvalContainer> {
   const team = await callLinear('get_team', { query: EVAL_TEAM }, Team);
   const projects = await listAll(
@@ -241,7 +240,7 @@ export async function findOrCreateEvalContainer(): Promise<EvalContainer> {
       {
         name: EVAL_PROJECT,
         setTeams: [EVAL_TEAM],
-        summary: 'Magi workflow dashboard 评估运行创建的工单',
+        summary: 'Tickets created by Magi workflow dashboard eval runs',
       },
       Project,
     ));
@@ -251,7 +250,7 @@ export async function findOrCreateEvalContainer(): Promise<EvalContainer> {
     'labels',
     Label,
   );
-  // team 级 label 必须传 team 的 UUID，team key 不被接受
+  // A team label needs the team UUID; the team key is not accepted
   const label =
     single(labels, EVAL_LABEL, 'label') ??
     (await callLinear(
@@ -260,7 +259,7 @@ export async function findOrCreateEvalContainer(): Promise<EvalContainer> {
         name: EVAL_LABEL,
         teamId: team.id,
         color: '#8B5CF6',
-        description: 'Magi workflow dashboard 评估运行创建',
+        description: 'Created by Magi workflow dashboard eval runs',
       },
       Label,
     ));
@@ -276,7 +275,7 @@ export async function findOrCreateEvalContainer(): Promise<EvalContainer> {
 
 let container: Promise<EvalContainer> | undefined;
 
-// TXE team 下的 "Workflow Eval" project 与 eval label；进程内只解析一次
+// The "Workflow Eval" project and eval label under the TXE team; resolved once per process
 export function ensureEvalContainer(): Promise<EvalContainer> {
   container ??= findOrCreateEvalContainer();
   return container;
@@ -291,8 +290,8 @@ export interface RunTicket {
 const SavedIssue = z.object({ id: z.string(), uuid: z.string(), url: z.string() }).loose();
 
 export function runTicketDescription(task: TicketTask, runId: string): string {
-  // 从 Linear 导入的 task：副本正文是 ticket.body 的全部内容（其中已有验收标准一节）加 run id；
-  // 不出现来源工单编号、来源仓库与来源 PR（Contracts 第 13 节），来源只记在 task.yaml 与 run 记录
+  // Task imported from Linear: the copy's body is all of ticket.body (which already has the acceptance criteria) plus the run id;
+  // the source ticket id, repo and PR never appear (Contracts section 13); the source is only in task.yaml and the run record
   if (task.source !== undefined) {
     return [task.ticket.body, '', `run id: \`${runId}\``].join('\n');
   }
@@ -301,7 +300,7 @@ export function runTicketDescription(task: TicketTask, runId: string): string {
     '',
     '## Acceptance criteria',
     '',
-    // 多行的验收标准（例如带嵌套列表）续行缩进到清单项之内
+    // Continuation lines of a multi-line criterion (e.g. a nested list) are indented inside the checklist item
     ...task.ticket.acceptanceCriteria.map((c) => `- [ ] ${c.replaceAll('\n', '\n  ')}`),
     '',
     `run id: \`${runId}\``,
@@ -310,13 +309,13 @@ export function runTicketDescription(task: TicketTask, runId: string): string {
 
 export async function createRunTicket(task: TicketTask, runId: string): Promise<RunTicket> {
   const { projectId } = await ensureEvalContainer();
-  // get_issue / save_issue 返回的 id 就是 identifier（TXE-N），数据库 id 在 uuid
+  // The id returned by get_issue / save_issue is the identifier (TXE-N); the database id is in uuid
   const issue = await callLinear(
     'save_issue',
     {
       team: EVAL_TEAM,
       project: projectId,
-      // 导入的 task 的 id 默认由来源工单编号得出（ic-txe-3635），副本标题中不放
+      // An imported task's id defaults to one derived from the source ticket id (ic-txe-3635), so it stays out of the copy's title
       title:
         task.source === undefined
           ? `[eval] ${task.id} ${runId} ${task.ticket.title}`
@@ -386,14 +385,14 @@ export async function readTicket(identifier: string): Promise<Ticket> {
 const IssueContent = z.object({
   id: z.string(),
   title: z.string(),
-  // 显式请求的字段没有值时为 null
+  // An explicitly requested field with no value is null
   description: z.string().nullable(),
   url: z.string(),
   createdAt: z.string(),
 });
 export type IssueContent = z.infer<typeof IssueContent>;
 
-// 工单的标题与正文，供 tickets 产物的评分使用
+// A ticket's title and body, for grading the tickets artifact
 export async function readIssueContent(identifier: string): Promise<IssueContent> {
   return callLinear(
     'get_issue',
@@ -402,7 +401,7 @@ export async function readIssueContent(identifier: string): Promise<IssueContent
   );
 }
 
-// 以下供从 Linear 导入 ic task（Contracts 第 13 节）：只读取，不改动原工单；评论不导入
+// The following import ic tasks from Linear (Contracts section 13): read-only, the original ticket is untouched; comments are not imported
 
 const IssueForImport = z.object({
   id: z.string(),
@@ -418,7 +417,7 @@ const IssueForImport = z.object({
 export interface IssueForImport {
   identifier: string;
   title: string;
-  // Linear 返回的 markdown 原文；正文为空时为空字符串
+  // The raw markdown Linear returns; an empty string when the body is empty
   description: string;
   url: string;
   status: string;
@@ -427,7 +426,7 @@ export interface IssueForImport {
   attachmentUrls: string[];
 }
 
-// 导入用的工单：标题、正文原文、状态与附件链接。工单不存在时 get_issue 的原文即错误
+// The ticket for import: title, raw body, status and attachment links. For a missing ticket, get_issue's own text is the error
 export async function readIssueForImport(identifier: string): Promise<IssueForImport> {
   const issue = await callLinear(
     'get_issue',

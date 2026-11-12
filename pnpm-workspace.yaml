@@ -3,9 +3,9 @@ packages:
   - web
 allowBuilds:
   esbuild: true
-  # 安装脚本只检查包内 darwin 的 prebuild 并整理 build/，不在本机编译
+  # The install script only checks the bundled darwin prebuild and arranges build/; nothing is compiled locally
   node-pty: true
-  # 只用包内的 tree-sitter-bash.wasm（web-tree-sitter 加载），不编译 node 原生绑定
+  # Only the bundled tree-sitter-bash.wasm is used (loaded by web-tree-sitter); the native node binding is not compiled
   tree-sitter-bash: false
 minimumReleaseAgeExclude:
   - '@fastify/sse@0.6.1'

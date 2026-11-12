@@ -26,7 +26,7 @@ type Decision = 'accepted' | 'rejected';
 
 interface FileState {
   decisions: Record<number, Decision>;
-  // 在编辑器中改过之后的内容；与按选择生成的结果相同时为空
+  // Content after editing in the editor; null when it equals the result of the selections
   edited: string | null;
 }
 
@@ -37,7 +37,7 @@ const resultOf = (file: FileProposal, state: FileState) =>
     file.hunks.filter((h) => state.decisions[h.index] === 'accepted'),
   );
 
-// 一处修改上方的一行：位置、增删行数、对应的发现、接受与拒绝
+// The row above a hunk: position, added/removed lines, related findings, accept and reject
 function HunkHeader({
   hunk,
   decision,
@@ -61,7 +61,7 @@ function HunkHeader({
       data-decision={decision ?? 'pending'}
       data-dimmed={decision === 'rejected'}
     >
-      <span className="shrink-0 font-medium">第 {hunk.start + 1} 行</span>
+      <span className="shrink-0 font-medium">Line {hunk.start + 1}</span>
       <DiffCounts additions={hunk.insert.length} deletions={hunk.remove.length} />
       <ul className="flex min-w-0 flex-1 flex-wrap gap-x-3">
         {findings.map((f) => (
@@ -82,7 +82,7 @@ function HunkHeader({
             onDecide('accepted');
           }}
         >
-          接受
+          Accept
         </Button>
         <Button
           size="xs"
@@ -92,14 +92,14 @@ function HunkHeader({
             onDecide('rejected');
           }}
         >
-          拒绝
+          Reject
         </Button>
       </div>
     </div>
   );
 }
 
-// 挂载时已有的编辑作为编辑器的初始内容；之后编辑期间 hunk 的选择被锁定，fromHunks 不变
+// Edits present at mount become the editor's initial content; while editing, hunk choices are locked and fromHunks does not change
 function FileEditor({
   file,
   fromHunks,
@@ -125,13 +125,13 @@ function FileEditor({
 type Mode = 'hunks' | 'rendered' | 'edit';
 
 const modeLabels: Record<Mode, string> = {
-  hunks: '逐处修改',
-  rendered: '渲染后的对比',
-  edit: '编辑结果',
+  hunks: 'Hunks',
+  rendered: 'Rendered',
+  edit: 'Edit result',
 };
 
-// Contracts 15.3、21.3：每个文件的修改建议以红绿 diff 显示，按 hunk 逐处接受或拒绝；.md 文件可以看渲染后的对比；
-// 接受后的结果可以在 Monaco 对比视图中继续编辑；另存为草稿 variant
+// Contracts 15.3, 21.3: each file's suggested changes shown as a red/green diff, accepted or rejected hunk by hunk;
+// .md files have a rendered comparison; the accepted result can be edited further in a Monaco diff view; saved as a draft variant
 export function PatchReview({
   analysisId,
   files,
@@ -148,11 +148,11 @@ export function PatchReview({
   const fullscreen = useFullscreen();
   const [viewType] = useDiffViewType();
   const [states, setStates] = useState<Record<string, FileState>>({});
-  // 每个文件的编辑器重建次数：撤销编辑时加一
+  // Editor rebuild count per file: incremented when edits are discarded
   const [revisions, setRevisions] = useState<Record<string, number>>({});
   const [current, setCurrent] = useState(files[0]?.path ?? '');
   const [selectedMode, setMode] = useState<Mode>('hunks');
-  const [name, setName] = useState(`来自分析 ${analysisId}`);
+  const [name, setName] = useState(`From analysis ${analysisId}`);
   const [description, setDescription] = useState('');
   const stateOf = (path: string): FileState => states[path] ?? { decisions: {}, edited: null };
   const changed = files
@@ -185,8 +185,8 @@ export function PatchReview({
   if (file === undefined || diff === null) {
     return (
       <section className="flex flex-col gap-2">
-        <h2 className="text-lg font-semibold">修改建议</h2>
-        <p className="text-sm text-muted-foreground">综合步骤没有提出修改建议。</p>
+        <h2 className="text-lg font-semibold">Suggested changes</h2>
+        <p className="text-sm text-muted-foreground">The synthesis step suggested no changes.</p>
       </section>
     );
   }
@@ -195,8 +195,8 @@ export function PatchReview({
   const update = (next: FileState) => {
     setStates((prev) => ({ ...prev, [file.path]: next }));
   };
-  // 编辑器内容变化（包括按选择更新内容时 Monaco 发出的变化）：与按当前选择生成的结果比较，
-  // 用最新的状态计算，不受回调闭包中旧状态的影响
+  // Editor content changed (including changes Monaco emits when selections update the content): compare with
+  // the result of the current selections, computed from the latest state, not the stale state in the callback closure
   const edit = (value: string) => {
     setStates((prev) => {
       const now = prev[file.path] ?? { decisions: {}, edited: null };
@@ -217,8 +217,8 @@ export function PatchReview({
       activeClassName="p-3"
     >
       <div className="flex flex-wrap items-center gap-2">
-        <h2 className="text-lg font-semibold">修改建议</h2>
-        <div className="flex flex-wrap gap-1" role="tablist" aria-label="修改的文件">
+        <h2 className="text-lg font-semibold">Suggested changes</h2>
+        <div className="flex flex-wrap gap-1" role="tablist" aria-label="Changed files">
           {files.map((f) => {
             const decided = Object.keys(stateOf(f.path).decisions).length;
             return (
@@ -244,7 +244,7 @@ export function PatchReview({
           {mode === 'hunks' && <DiffViewTypeToggle />}
           <div
             role="group"
-            aria-label="显示方式"
+            aria-label="View"
             className="inline-flex overflow-hidden rounded-md border text-xs"
             data-testid="patch-mode"
             data-mode={mode}
@@ -273,7 +273,7 @@ export function PatchReview({
       ))}
       {state.edited !== null && (
         <div className="flex items-center gap-2 rounded-md border border-warning-border bg-warning px-3 py-1.5 text-xs text-warning-foreground">
-          已在编辑器中修改；撤销编辑后才能重新选择各处修改。
+          Edited in the editor. Discard the edits to choose hunks again.
           <Button
             size="xs"
             variant="outline"
@@ -283,7 +283,7 @@ export function PatchReview({
               setRevisions({ ...revisions, [file.path]: (revisions[file.path] ?? 0) + 1 });
             }}
           >
-            撤销编辑
+            Discard edits
           </Button>
         </div>
       )}
@@ -304,7 +304,7 @@ export function PatchReview({
               className="rounded-none border-0"
               renderHunkHeader={(_, i) => {
                 const hunk = file.hunks[i];
-                if (hunk === undefined) throw new Error(`${file.path} 没有第 ${String(i)} 处修改`);
+                if (hunk === undefined) throw new Error(`${file.path} has no hunk ${String(i)}`);
                 return (
                   <HunkHeader
                     hunk={hunk}
@@ -327,13 +327,14 @@ export function PatchReview({
             original={file.original}
             modified={file.proposed}
             changes={file.hunks}
-            labels={['原文', '全部建议应用后']}
+            labels={['Original', 'With all suggestions']}
           />
         )}
         {mode === 'edit' && (
           <div className="h-full" data-testid="patch-editor">
-            {/* 编辑器自己保存输入：传入的内容只随接受与拒绝变化，不把每次编辑的内容再传回去（快速输入时旧的值会覆盖新的输入）。
-                切换文件或显示方式后回来时以挂载时已有的编辑为准；撤销编辑时换 key 重建编辑器 */}
+            {/* The editor keeps its own input: the content passed in changes only with accept/reject, and edits are not passed back
+                (with fast typing an old value would overwrite new input). Returning after switching file or view uses the edits
+                present at mount; discarding edits changes the key to rebuild the editor */}
             <FileEditor
               key={`${file.path}:${String(revisions[file.path] ?? 0)}`}
               file={file}
@@ -346,9 +347,9 @@ export function PatchReview({
       </div>
       <div className="flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2">
         <label className="flex items-center gap-2 text-sm">
-          新 variant 的名称
+          New variant name
           <input
-            aria-label="新 variant 的名称"
+            aria-label="New variant name"
             className="h-8 w-64 rounded-md border bg-background px-2 text-sm"
             value={name}
             required
@@ -358,11 +359,11 @@ export function PatchReview({
           />
         </label>
         <label className="flex min-w-64 flex-1 items-center gap-2 text-sm">
-          描述
+          Description
           <input
-            aria-label="新 variant 的描述"
+            aria-label="New variant description"
             className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2 text-sm"
-            placeholder="这一版改了什么"
+            placeholder="What this version changes"
             value={description}
             required
             onChange={(e) => {
@@ -381,12 +382,12 @@ export function PatchReview({
             save.mutate();
           }}
         >
-          {save.isPending ? '正在保存…' : '另存为 variant'}
+          {save.isPending ? 'Saving…' : 'Save as variant'}
         </Button>
         <span className="text-xs text-muted-foreground" data-testid="changed-files">
           {changed.length === 0
-            ? '还没有接受任何修改'
-            : `${String(changed.length)} 个文件有修改；保存后不构建，到 variant 页面再构建`}
+            ? 'No changes accepted yet'
+            : `${String(changed.length)} ${changed.length === 1 ? 'file' : 'files'} changed. Saving does not build; build it on the variant page`}
         </span>
         {save.isError && (
           <p role="alert" className="w-full text-sm text-destructive">

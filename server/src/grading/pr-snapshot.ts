@@ -2,23 +2,22 @@ import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import { artifacts, type runs } from '../db/schema.js';
 import { PrSnapshot, readPrSnapshot } from '../external/github.js';
-import { isLocalRepo, repoLocation } from '../external/run-repos.js';
+import { repoLocation } from '../external/run-repos.js';
 
 type Run = typeof runs.$inferSelect;
 
-// artifacts.snapshot 的内容：快照时间与 PR（仓库中还没有 PR 时为 null）
+// Content of artifacts.snapshot: capture time and the PR (null while the repo has no PR yet)
 export const StoredPrSnapshot = z.object({
   capturedAt: z.iso.datetime(),
   pr: PrSnapshot.nullable(),
 });
 export type StoredPrSnapshot = z.infer<typeof StoredPrSnapshot>;
 
-// run 进入 grading 时：PR 的 reviews、review thread、评论与 checks 存进 artifacts（kind pr_snapshot，Contracts 15.2）。
-// 本地仓库模式的仓库（Contracts 7.2）没有 PR，快照为 null
+// When a run enters grading: store the PR's reviews, review threads, comments and checks in artifacts (kind pr_snapshot, Contracts 15.2)
 export async function recordPrSnapshot(db: Db, run: Run): Promise<void> {
   if (run.githubRepo === null) return;
   const repo = run.githubRepo;
-  storePrSnapshot(db, run.id, repo, isLocalRepo(repo) ? null : await readPrSnapshot(repo));
+  storePrSnapshot(db, run.id, repo, await readPrSnapshot(repo));
 }
 
 export function storePrSnapshot(db: Db, runId: string, repo: string, pr: PrSnapshot | null) {

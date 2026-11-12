@@ -6,10 +6,10 @@ import { parseDocument } from 'yaml';
 import { z } from 'zod';
 import type { WorkflowAnalysis, WorkflowJob, WorkflowJobStatus } from './import-schema.js';
 
-// 副本仓库（createRunRepo）的默认分支，agent 的 PR 都以它为 base
+// The default branch of copied repos (createRunRepo); every agent PR uses it as base
 const RUN_BRANCH = 'main';
 
-// GitHub 托管 runner 的标签（docs.github.com/actions/reference/runners/github-hosted-runners 与 larger-runners）
+// Labels of GitHub-hosted runners (docs.github.com/actions/reference/runners/github-hosted-runners and larger-runners)
 const HOSTED_LABELS = new Set([
   'ubuntu-slim',
   'ubuntu-latest',
@@ -42,7 +42,7 @@ const HOSTED_LABELS = new Set([
   'macos-14-xlarge',
   'xcode-27-xlarge',
 ]);
-// 已停用的托管 runner：job 拿不到 runner
+// Retired hosted runners: jobs get no runner
 const RETIRED_LABELS = new Set([
   'ubuntu-18.04',
   'ubuntu-20.04',
@@ -57,7 +57,7 @@ const RETIRED_LABELS = new Set([
   'macos-13-xlarge',
 ]);
 
-// workflow 表达式可用的 context（docs.github.com/actions/reference/workflows-and-actions/contexts）
+// Contexts available in workflow expressions (docs.github.com/actions/reference/workflows-and-actions/contexts)
 const CONTEXTS = [
   'github',
   'inputs',
@@ -73,11 +73,11 @@ const CONTEXTS = [
   'env',
 ];
 
-// reusable workflow 的嵌套层数上限，与 GitHub 相同
+// The nesting limit of reusable workflows, as on GitHub
 const MAX_REUSABLE_DEPTH = 4;
 
 export interface WorkflowFile {
-  // 相对仓库根目录，例如 .github/workflows/ci.yml
+  // Relative to the repo root, e.g. .github/workflows/ci.yml
   path: string;
   content: string;
 }
@@ -90,10 +90,10 @@ export interface RemoteWorkflowRef {
   version: string;
 }
 
-// 读取其他仓库的 reusable workflow
+// Reads a reusable workflow from another repo
 export type RemoteWorkflowReader = (ref: RemoteWorkflowRef) => Promise<string>;
 
-// 只认 .github/workflows/ 下一层的 yml / yaml，与 GitHub 相同
+// Only yml / yaml directly under .github/workflows/, as on GitHub
 export const isWorkflowPath = (p: string) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(p);
 
 type Value = string | number | boolean | null | Value[] | { [key: string]: Value };
@@ -102,7 +102,7 @@ type Combo = Record<string, Value>;
 const isObject = (v: unknown): v is Record<string, Value> =>
   v !== null && typeof v === 'object' && !Array.isArray(v);
 
-// 字符串中的 ${{ … }}（docs.github.com/actions/reference/workflows-and-actions/expressions）
+// ${{ … }} in a string (docs.github.com/actions/reference/workflows-and-actions/expressions)
 const EXPRESSION = /\$\{\{([\s\S]*?)\}\}/g;
 
 function hasExpression(value: Value): boolean {
@@ -141,23 +141,25 @@ class ContextNames implements ExprVisitor<string[]> {
 
 type Evaluated = { ok: true; value: Value } | { ok: false; reason: string };
 
-// 只用 matrix 的表达式在这里求值；用到其他 context（inputs、github、needs…）的值只有运行时才知道
+// Only expressions using matrix alone are evaluated here; values using other contexts (inputs, github, needs…) are
+// known only at run time
 function evaluate(expression: string, matrix: Combo): Evaluated {
   const ast = new Parser(new Lexer(expression).lex().tokens, CONTEXTS, []).parse();
   const others = [...new Set(ast.accept(new ContextNames()))].filter((c) => c !== 'matrix');
   if (others.length > 0) {
-    return { ok: false, reason: `\${{ ${expression.trim()} }} 用到 ${others.join('、')}` };
+    return { ok: false, reason: `\${{ ${expression.trim()} }} uses ${others.join(', ')}` };
   }
   const context = JSON.parse(JSON.stringify({ matrix }), data.reviver) as data.Dictionary;
   const result = new Evaluator(ast, context).evaluate();
   return { ok: true, value: JSON.parse(JSON.stringify(result, data.replacer)) as Value };
 }
 
-// 表达式的值嵌入字符串时的写法，与 GitHub 相同（null 为空字符串）
+// How an expression's value is written when embedded in a string, as on GitHub (null is an empty string)
 const asText = (v: Value): string | null =>
   v === null ? '' : typeof v === 'object' ? null : String(v);
 
-// 整个字符串只有一个表达式时取它的值（可以是列表或对象）；否则把每个表达式的值嵌入字符串
+// A string that is a single expression takes its value (which may be a list or an object); otherwise each
+// expression's value is embedded in the string
 function resolveString(text: string, matrix: Combo): Evaluated {
   const pieces = [...text.matchAll(EXPRESSION)];
   if (pieces.length === 0) return { ok: true, value: text };
@@ -171,7 +173,7 @@ function resolveString(text: string, matrix: Combo): Evaluated {
     const r = evaluate(piece[1] ?? '', matrix);
     if (!r.ok) return r;
     const t = asText(r.value);
-    if (t === null) return { ok: false, reason: `\${{${piece[1] ?? ''}}} 的值不是标量` };
+    if (t === null) return { ok: false, reason: `\${{${piece[1] ?? ''}}} is not a scalar` };
     out += text.slice(last, piece.index) + t;
     last = piece.index + piece[0].length;
   }
@@ -201,7 +203,7 @@ function resolve(value: Value, matrix: Combo): Evaluated {
   return { ok: true, value };
 }
 
-// exclude 的一项与组合中对应的键全部相等（对象值按部分匹配）
+// An exclude item equals the combination on all its keys (object values match partially)
 function matchesPartial(combo: Combo, pattern: Record<string, Value>): boolean {
   return Object.entries(pattern).every(([k, v]) => {
     const actual = combo[k];
@@ -213,16 +215,18 @@ function matchesPartial(combo: Combo, pattern: Record<string, Value>): boolean {
 
 const MatrixEntries = z.array(z.record(z.string(), z.unknown()));
 
-// matrix 的展开规则（docs.github.com/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations）：
-// 各维度取笛卡尔积 → 去掉 exclude 匹配的组合 → include 的每一项加进不改写原始值的每个组合，一个都加不进时成为新组合；
-// 加进来的值可以被之后的 include 改写，原始值不会；include 产生的新组合不再接受之后的 include
+// Matrix expansion (docs.github.com/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations):
+// the Cartesian product of the dimensions -> drop combinations matched by exclude -> each include item is added to
+// every combination whose original values it does not overwrite, or becomes a new combination when it fits none;
+// added values may be overwritten by later includes, original values may not; new combinations from include take no
+// later includes
 export function expandMatrix(matrix: Record<string, Value>): Combo[] {
   const { include, exclude, ...dimensions } = matrix;
   const includes = (include === undefined ? [] : MatrixEntries.parse(include)) as Combo[];
   const excludes = (exclude === undefined ? [] : MatrixEntries.parse(exclude)) as Combo[];
   let combos: Combo[] = Object.keys(dimensions).length === 0 ? [] : [{}];
   for (const [key, values] of Object.entries(dimensions)) {
-    if (!Array.isArray(values)) throw new Error(`matrix.${key} 不是列表`);
+    if (!Array.isArray(values)) throw new Error(`matrix.${key} is not a list`);
     combos = combos.flatMap((c) => values.map((v) => ({ ...c, [key]: v })));
   }
   combos = combos.filter((c) => !excludes.some((e) => matchesPartial(c, e)));
@@ -245,7 +249,7 @@ export function expandMatrix(matrix: Record<string, Value>): Combo[] {
   return [...combos, ...added];
 }
 
-// 过滤条件可以写成一个字符串或字符串列表
+// A filter can be a string or a list of strings
 const Patterns = z
   .union([z.string(), z.array(z.string())])
   .transform((p) => (typeof p === 'string' ? [p] : p))
@@ -263,7 +267,7 @@ const EventFilter = z
   .loose();
 type EventFilter = z.infer<typeof EventFilter>;
 
-// on 可以是事件名、事件名列表或映射（值为空或过滤条件）
+// on can be an event name, a list of event names or a mapping (values empty or filters)
 const On = z
   .union([z.string(), z.array(z.string()), z.record(z.string(), z.unknown())])
   .transform((on): Record<string, unknown> => {
@@ -284,22 +288,22 @@ const Job = z
     uses: z.string().optional(),
   })
   .loose()
-  .refine((j) => j['runs-on'] !== undefined || j.uses !== undefined, '没有 runs-on 也没有 uses');
+  .refine((j) => j['runs-on'] !== undefined || j.uses !== undefined, 'has neither runs-on nor uses');
 type Job = z.infer<typeof Job>;
 
 const Workflow = z.object({ on: On, jobs: z.record(z.string(), Job) }).loose();
 type Workflow = z.infer<typeof Workflow>;
 
-// yaml 1.2 的解析结果；YAML 错误与结构错误都是 GitHub 不会运行的 workflow
+// The yaml 1.2 parse result; YAML errors and structure errors both mean GitHub will not run the workflow
 function parseWorkflow(content: string): { ok: true; workflow: Workflow } | { ok: false; errors: string[] } {
-  // GitHub 的 workflow 是 YAML 1.2，on 不会被读成布尔值
+  // GitHub workflows are YAML 1.2, where on is not read as a boolean
   const doc = parseDocument(content, { version: '1.2' });
   if (doc.errors.length > 0) return { ok: false, errors: doc.errors.map((e) => e.message) };
   const result = Workflow.safeParse(doc.toJS());
   if (!result.success) {
     return {
       ok: false,
-      errors: result.error.issues.map((i) => `${i.path.join('.') || '（整体）'}：${i.message}`),
+      errors: result.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`),
     };
   }
   return { ok: true, workflow: result.data };
@@ -307,7 +311,7 @@ function parseWorkflow(content: string): { ok: true; workflow: Workflow } | { ok
 
 function filterMatches(include: string[] | undefined, ignore: string[] | undefined, ref: string) {
   if (include !== undefined) {
-    // 列表中靠后的模式优先，! 开头的模式排除
+    // Later patterns in the list win; patterns starting with ! exclude
     let matched = false;
     for (const pattern of include) {
       if (pattern.startsWith('!')) {
@@ -322,7 +326,8 @@ function filterMatches(include: string[] | undefined, ignore: string[] | undefin
   return true;
 }
 
-// PR 的 head 推送新 commit 时是 synchronize；types 不含 opened / synchronize / reopened 时普通 PR 不触发
+// A new commit pushed to the PR head is synchronize; when types lacks opened / synchronize / reopened, ordinary PRs
+// do not trigger it
 const PR_TYPES = ['opened', 'synchronize', 'reopened'];
 
 type PrTrigger = { on: false; reason: string } | { on: true; pathFiltered: boolean };
@@ -339,7 +344,7 @@ function prTrigger(events: Record<string, unknown>): PrTrigger {
     const names = Object.keys(events);
     return {
       on: false,
-      reason: `workflow 只由 ${names.length > 0 ? names.join('、') : '（没有事件）'} 触发，PR 上不会运行`,
+      reason: `the workflow is triggered only by ${names.length > 0 ? names.join(', ') : '(no events)'} and does not run on PRs`,
     };
   }
   const usable = configs.filter(
@@ -350,7 +355,7 @@ function prTrigger(events: Record<string, unknown>): PrTrigger {
   if (usable.length === 0) {
     return {
       on: false,
-      reason: `pull_request 的 types 或 branches 过滤不包含指向 ${RUN_BRANCH} 的 PR`,
+      reason: `the pull_request types or branches filter excludes PRs to ${RUN_BRANCH}`,
     };
   }
   return {
@@ -359,7 +364,8 @@ function prTrigger(events: Record<string, unknown>): PrTrigger {
   };
 }
 
-// 推送到 main 时运行：只定义了 tags 过滤的 push 不由分支推送触发；带 paths 过滤的不算（起始代码的推送不一定命中）
+// Runs on pushes to main: a push with only a tags filter is not triggered by branch pushes; one with a paths filter
+// does not count (pushing the starting code may not hit it)
 function pushTrigger(events: Record<string, unknown>): boolean {
   const push = eventFilter(events, 'push');
   if (push === undefined) return false;
@@ -372,20 +378,21 @@ function pushTrigger(events: Record<string, unknown>): boolean {
 
 type Named = { ok: true; name: string } | { ok: false; reason: string };
 
-// check 名：name 含表达式时按 matrix 求值；否则 matrix 的值以 "name (a, b)" 附在后面
+// Check name: a name with expressions is evaluated with the matrix; otherwise the matrix values are appended as
+// "name (a, b)"
 function checkName(name: string, combo: Combo): Named {
   if (hasExpression(name)) {
     const r = resolve(name, combo);
-    if (!r.ok) return { ok: false, reason: `job 名 ${r.reason}` };
+    if (!r.ok) return { ok: false, reason: `job name ${r.reason}` };
     const text = asText(r.value);
-    if (text === null) return { ok: false, reason: 'job 名不是字符串' };
+    if (text === null) return { ok: false, reason: 'job name is not a string' };
     return { ok: true, name: text };
   }
   const values = Object.values(combo);
   if (values.length === 0) return { ok: true, name };
   const texts = values.map((v) => (v === null ? null : asText(v)));
   if (texts.some((t) => t === null)) {
-    return { ok: false, reason: 'matrix 的值不是标量，check 名无法确定' };
+    return { ok: false, reason: 'a matrix value is not a scalar, so the check name cannot be determined' };
   }
   return { ok: true, name: `${name} (${texts.join(', ')})` };
 }
@@ -396,8 +403,9 @@ type Runner =
 
 const Labels = z.union([z.string(), z.array(z.string())]).transform((l) => (typeof l === 'string' ? [l] : l));
 
-// 副本中可用的 runner（Contracts 第 13 节）：runs-on 的每个标签都是 GitHub 托管 runner 的标签、self-hosted，
-// 或在 copyRunnerLabels 中（txehq 组织级的自托管 runner）。runner group 是组织另行配置的 runner，不在范围内
+// Runners available in copies (Contracts section 13): every runs-on label is a GitHub-hosted runner label,
+// self-hosted, or in copyRunnerLabels (the txehq organisation's self-hosted runners). Runner groups are runners the
+// organisation configures separately and are out of scope
 function runner(runsOn: unknown, combo: Combo, copyRunnerLabels: string[]): Runner {
   const r = resolve(runsOn as Value, combo);
   if (!r.ok) return { kind: 'unresolved', reason: `runs-on ${r.reason}` };
@@ -413,7 +421,7 @@ function runner(runsOn: unknown, combo: Combo, copyRunnerLabels: string[]): Runn
   const labels = Labels.parse(value);
   const text = labels.join(', ');
   if (labels.some((l) => RETIRED_LABELS.has(l))) return { kind: 'retired', labels: text };
-  if (labels.length === 0) return { kind: 'unresolved', reason: 'runs-on 为空' };
+  if (labels.length === 0) return { kind: 'unresolved', reason: 'runs-on is empty' };
   if (labels.every((l) => HOSTED_LABELS.has(l))) return { kind: 'hosted', labels: text };
   const allowed = (l: string) =>
     HOSTED_LABELS.has(l) || l === 'self-hosted' || copyRunnerLabels.includes(l);
@@ -421,7 +429,8 @@ function runner(runsOn: unknown, combo: Combo, copyRunnerLabels: string[]): Runn
 }
 
 interface Instance {
-  // 这个实例属于哪些 job：自己，以及调用它的 reusable workflow job（needs 可以指向其中任何一个）
+  // Which jobs this instance belongs to: itself and the reusable workflow job calling it (needs may point at any of
+  // them)
   keys: string[];
   workflow: string;
   jobId: string;
@@ -435,27 +444,27 @@ type Combos = { ok: true; combos: Combo[] } | { ok: false; reason: string };
 
 function combos(strategy: unknown): Combos {
   if (strategy === undefined) return { ok: true, combos: [{}] };
-  if (!isObject(strategy)) return { ok: false, reason: 'strategy 用到运行时才知道的值' };
+  if (!isObject(strategy)) return { ok: false, reason: 'strategy uses values known only at run time' };
   const matrix = strategy.matrix;
   if (matrix === undefined) return { ok: true, combos: [{}] };
-  if (hasExpression(matrix)) return { ok: false, reason: 'strategy.matrix 用到运行时才知道的值' };
-  if (!isObject(matrix)) return { ok: false, reason: 'strategy.matrix 不是映射' };
+  if (hasExpression(matrix)) return { ok: false, reason: 'strategy.matrix uses values known only at run time' };
+  if (!isObject(matrix)) return { ok: false, reason: 'strategy.matrix is not a mapping' };
   return { ok: true, combos: expandMatrix(matrix) };
 }
 
 const intrinsicOf = (r: Runner): Instance['intrinsic'] => {
   switch (r.kind) {
     case 'hosted':
-      return { status: 'ok', reason: `GitHub 托管 runner ${r.labels}` };
+      return { status: 'ok', reason: `GitHub-hosted runner ${r.labels}` };
     case 'copy':
-      return { status: 'ok', reason: `副本可用的自托管 runner ${r.labels}（设置中的 copyRunnerLabels）` };
+      return { status: 'ok', reason: `self-hosted runner ${r.labels} available to copies (copyRunnerLabels in Settings)` };
     case 'unavailable':
       return {
         status: 'runner-unavailable',
-        reason: `runs-on ${r.labels} 不在副本可用的 runner 范围内（GitHub 托管 runner 与设置中的 copyRunnerLabels）`,
+        reason: `runs-on ${r.labels} is not among the runners available to copies (GitHub-hosted runners and copyRunnerLabels in Settings)`,
       };
     case 'retired':
-      return { status: 'retired', reason: `runs-on ${r.labels} 是 GitHub 已停用的托管 runner` };
+      return { status: 'retired', reason: `runs-on ${r.labels} is a hosted runner GitHub has retired` };
     case 'unresolved':
       return { status: 'unresolved', reason: r.reason };
   }
@@ -470,26 +479,27 @@ interface Context {
   copyRunnerLabels: string[];
 }
 
-// reusable workflow 的 jobs；读不到或不合法时给出原因
+// The jobs of a reusable workflow; the reason when it cannot be read or is invalid
 async function calledJobs(uses: string, ctx: Context): Promise<{ ok: true; jobs: Record<string, Job> } | { ok: false; reason: string }> {
   let content: string;
   if (uses.startsWith('./')) {
     const local = ctx.files.find((f) => f.path === uses.slice(2));
-    if (local === undefined) return { ok: false, reason: `仓库中没有被调用的 workflow ${uses}` };
+    if (local === undefined) return { ok: false, reason: `the called workflow ${uses} is not in the repo` };
     content = local.content;
   } else {
     const m = REMOTE_USES.exec(uses);
     if (m?.[1] === undefined || m[2] === undefined || m[3] === undefined || m[4] === undefined) {
-      return { ok: false, reason: `uses 不是 reusable workflow 的引用：${uses}` };
+      return { ok: false, reason: `uses is not a reusable workflow reference: ${uses}` };
     }
     content = await ctx.readRemote({ owner: m[1], repository: m[2], path: m[3], version: m[4] });
   }
   const parsed = parseWorkflow(content);
-  if (!parsed.ok) return { ok: false, reason: `被调用的 workflow ${uses} 不合法：${parsed.errors.join('；')}` };
+  if (!parsed.ok) return { ok: false, reason: `the called workflow ${uses} is invalid: ${parsed.errors.join('; ')}` };
   return { ok: true, jobs: parsed.workflow.jobs };
 }
 
-// 一个 job 的全部实例：matrix 展开；reusable workflow 的 job 展开为被调用 workflow 中的 job（check 名 "调用方 / 被调用方"）
+// Every instance of a job: the matrix expanded; a reusable workflow job expands to the jobs of the called workflow
+// (check name "caller / callee")
 async function instances(
   id: string,
   job: Job,
@@ -526,7 +536,7 @@ async function instances(
     if (job.uses !== undefined) {
       const depth = (caller?.depth ?? 0) + 1;
       if (depth > MAX_REUSABLE_DEPTH) {
-        out.push(...unresolved(`reusable workflow 嵌套超过 ${String(MAX_REUSABLE_DEPTH)} 层`));
+        out.push(...unresolved(`reusable workflows nest deeper than ${String(MAX_REUSABLE_DEPTH)} levels`));
         continue;
       }
       const called = await calledJobs(job.uses, ctx);
@@ -536,7 +546,7 @@ async function instances(
       }
       for (const [innerId, inner] of Object.entries(called.jobs)) {
         const nested = await instances(innerId, inner, ctx, { keys, name: fullName, depth });
-        // 被调用 workflow 中的 job 也要等调用方的 needs
+        // Jobs in the called workflow also wait for the caller's needs
         out.push(...nested.map((i) => ({ ...i, needs: [...i.needs, ...needs] })));
       }
       continue;
@@ -555,8 +565,8 @@ async function instances(
   return out;
 }
 
-// 静态分析 workflow：哪些 job 能在副本仓库的 PR 上运行（Contracts 第 13 节）；
-// copyRunnerLabels 为设置中副本可用的自托管 runner 标签
+// Static analysis of workflows: which jobs can run on PRs in the copied repo (Contracts section 13);
+// copyRunnerLabels are the self-hosted runner labels available to copies from Settings
 export async function analyzeWorkflows(
   files: WorkflowFile[],
   readRemote: RemoteWorkflowReader,
@@ -575,7 +585,7 @@ export async function analyzeWorkflows(
         checkName: null,
         runsOn: null,
         status: 'invalid',
-        reason: `GitHub 不会运行这个 workflow：${parsed.errors.join('；')}`,
+        reason: `GitHub will not run this workflow: ${parsed.errors.join('; ')}`,
         onPush: false,
       });
       continue;
@@ -586,14 +596,14 @@ export async function analyzeWorkflows(
     for (const [id, job] of Object.entries(parsed.workflow.jobs)) {
       all.push(...(await instances(id, job, ctx, null)));
     }
-    // needs 的 job（任一实例）不能运行时，它也不会运行；按依赖传递
+    // When a job in needs (any instance) cannot run, this one does not either; transitive along dependencies
     const runnable = new Map<string, boolean>();
     const canRun = (key: string, seen: Set<string>): boolean => {
       const known = runnable.get(key);
       if (known !== undefined) return known;
-      if (seen.has(key)) throw new Error(`${file.path} 的 needs 有环：${key}`);
+      if (seen.has(key)) throw new Error(`${file.path} has a needs cycle: ${key}`);
       const own = all.filter((i) => i.keys.includes(key));
-      if (own.length === 0) throw new Error(`${file.path} 中 needs 指向不存在的 job：${key}`);
+      if (own.length === 0) throw new Error(`${file.path}: needs points at a missing job: ${key}`);
       const next = new Set(seen).add(key);
       const ok = own.every(
         (i) => i.intrinsic.status === 'ok' && i.needs.every((n) => canRun(n, next)),
@@ -607,7 +617,7 @@ export async function analyzeWorkflows(
       const blockedBy = i.needs.filter((n) => !canRun(n, new Set()));
       let status: WorkflowJobStatus;
       let reason: string;
-      // 副本中没有 runner 的 job 无论如何触发都不会运行，先于触发条件列出
+      // A job with no runner in the copy never runs whatever triggers it, so it is listed before trigger conditions
       if (i.intrinsic.status === 'runner-unavailable' || i.intrinsic.status === 'retired') {
         status = i.intrinsic.status;
         reason = i.intrinsic.reason;
@@ -616,13 +626,13 @@ export async function analyzeWorkflows(
         reason = pr.reason;
       } else if (pr.pathFiltered) {
         status = 'path-filtered';
-        reason = 'pull_request 带 paths 过滤，只在改动特定路径时运行';
+        reason = 'pull_request has a paths filter and runs only when particular paths change';
       } else if (i.intrinsic.status === 'unresolved') {
         status = 'unresolved';
         reason = i.intrinsic.reason;
       } else if (blockedBy.length > 0) {
         status = 'blocked';
-        reason = `needs 的 ${blockedBy.join('、')} 无法在副本中运行`;
+        reason = `${blockedBy.join(', ')} in needs cannot run in the copy`;
       } else {
         status = 'required';
         reason = i.intrinsic.reason;

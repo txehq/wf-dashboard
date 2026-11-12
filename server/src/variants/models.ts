@@ -11,7 +11,7 @@ const envKey: Record<ModelAlias, string> = {
   fable: 'ANTHROPIC_DEFAULT_FABLE_MODEL',
 };
 
-// claude 的 --model 接受别名，由 settings.json env 中的 ANTHROPIC_DEFAULT_*_MODEL 解析为 gateway 模型名
+// claude's --model accepts aliases, resolved to gateway model names by ANTHROPIC_DEFAULT_*_MODEL in settings.json env
 export function modelChoices(): { alias: ModelAlias; model: string }[] {
   const env = claudeSettingsEnv();
   return modelAliases.map((alias) => ({ alias, model: z.string().parse(env[envKey[alias]]) }));

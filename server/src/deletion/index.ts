@@ -29,7 +29,7 @@ export interface DeletionDeps {
   live: Live;
   // data/workflow-drafts
   draftsDir: string;
-  // 数据目录：优化草稿的目录是其中的 analyses/<id>/
+  // Data directory: optimisation drafts live in its analyses/<id>/
   dataDir: string;
 }
 
@@ -38,9 +38,9 @@ const ACTIVE_ANALYSES = ['queued', 'running'] as const;
 
 type DraftRow = typeof workflowDrafts.$inferSelect;
 
-// 删除 variant 与 workflow（Contracts 第 24 节）：能否删除、关联 session 的两种处理、保留的记录、删除的文件
+// Deleting variants and workflows (Contracts section 24): whether deletion is allowed, the two ways to handle associated sessions, retained records, deleted files
 export function createDeletion({ db, variants, live, draftsDir, dataDir }: DeletionDeps) {
-  // 关联的 session（24.2）：绑定到这些 variant、不是 run 的 session
+  // Associated sessions (24.2): non-run sessions bound to these variants
   function boundSessions(ids: string[]) {
     if (ids.length === 0) return [];
     return db
@@ -55,9 +55,9 @@ export function createDeletion({ db, variants, live, draftsDir, dataDir }: Delet
       .all();
   }
 
-  // 本机配置的 Magi Agent 的 session（Contracts 23.6）：它可能被自动绑定到某个 variant，但用的是本机的 ~/.claude，
-  // 不随 variant 删除，它的 Live 项也不删；选一起删除时这些 session 改为本机配置。用 variant 配置的 Magi Agent 的
-  // session 与这个 variant 的其他 session 相同处理
+  // Local-config Magi Agent sessions (Contracts 23.6): may be auto-bound to a variant but use this machine's ~/.claude, so
+  // they are not deleted with the variant and neither is their Live item; on delete together they switch to local config.
+  // Sessions of a Magi Agent configured with a variant are handled like that variant's other sessions
   function isLocalAgentSession(s: typeof sessions.$inferSelect): boolean {
     if (s.liveId === null) return false;
     const item = db
@@ -68,7 +68,7 @@ export function createDeletion({ db, variants, live, draftsDir, dataDir }: Delet
     return item?.purpose === 'agent' && item.agentConfig === 'local';
   }
 
-  // 用这些 variant 配置的 Magi Agent 的 Live 项：还没有提交过消息时没有 session，也一起删除或改绑
+  // Live items of Magi Agents configured with these variants: without a submitted message there is no session; deleted or rebound too
   function agentItemsUsing(ids: string[]): string[] {
     if (ids.length === 0) return [];
     return db
@@ -79,10 +79,10 @@ export function createDeletion({ db, variants, live, draftsDir, dataDir }: Delet
       .map((i) => i.id);
   }
 
-  // 一个 session 在磁盘上的原始文件（与 Sessions 页面的删除共用，Contracts 25.3）
+  // A session's original files on disk (shared with deletion on the Sessions page, Contracts 25.3)
   const sessionFiles = claudeSessionFiles;
 
-  // 草稿要删的目录：普通草稿是整个草稿目录；优化草稿的目录是分析目录（分析保留），只删优化用的部分
+  // Draft directories to delete: the whole directory for a normal draft; an optimisation draft lives in the analysis directory (kept), so only its optimisation part
   function draftDirs(d: DraftRow): string[] {
     if (d.analysisId === null) return [path.join(draftsDir, d.id)];
     const layout = draftLayout(analysisLayout(dataDir, d.analysisId).dir, 'optimize');
@@ -93,13 +93,14 @@ export function createDeletion({ db, variants, live, draftsDir, dataDir }: Delet
       layout.claudeDir,
       path.dirname(layout.agentSkills),
       path.dirname(layout.claudeSkills),
-      layout.skillsLock,
       layout.platform,
-      path.dirname(layout.example),
+      // Optimisation drafts before 0027 also wrote skills-lock.json and examples/
+      path.join(layout.dir, 'skills-lock.json'),
+      path.join(layout.dir, 'examples'),
     ];
   }
 
-  // 运行中的使用者（24.1）：进行中的 run、运行中的交互进程、进行中的分析、正在准备或有运行中进程的草稿
+  // Running users (24.1): active runs, running interactive processes, active analyses, drafts preparing or with a running process
   function activeUsers(ids: string[], drafts: DraftRow[]): DeletionBlocker[] {
     const blockers: DeletionBlocker[] = [];
     if (ids.length > 0) {
@@ -108,7 +109,7 @@ export function createDeletion({ db, variants, live, draftsDir, dataDir }: Delet
         .from(runs)
         .where(and(inArray(runs.variantId, ids), inArray(runs.status, ACTIVE_RUNS)))
         .all()) {
-        blockers.push({ kind: 'run', id: r.id, label: `run ${r.id}（${r.status}）` });
+        blockers.push({ kind: 'run', id: r.id, label: `run ${r.id} (${r.status})` });
       }
       for (const p of db
         .select({ liveId: liveProcesses.liveId, title: liveSessions.title })
@@ -116,7 +117,7 @@ export function createDeletion({ db, variants, live, draftsDir, dataDir }: Delet
         .innerJoin(liveSessions, eq(liveSessions.id, liveProcesses.liveId))
         .where(and(inArray(liveProcesses.variantId, ids), eq(liveProcesses.status, 'running')))
         .all()) {
-        blockers.push({ kind: 'live', id: p.liveId, label: `交互 ${p.title}（运行中）` });
+        blockers.push({ kind: 'live', id: p.liveId, label: `Interactive ${p.title} (running)` });
       }
       for (const a of db
         .select({ id: analyses.id, status: analyses.status })
@@ -128,7 +129,7 @@ export function createDeletion({ db, variants, live, draftsDir, dataDir }: Delet
           ),
         )
         .all()) {
-        blockers.push({ kind: 'analysis', id: a.id, label: `分析 ${a.id}（${a.status}）` });
+        blockers.push({ kind: 'analysis', id: a.id, label: `Analysis ${a.id} (${a.status})` });
       }
     }
     for (const d of drafts) {
@@ -143,17 +144,19 @@ export function createDeletion({ db, variants, live, draftsDir, dataDir }: Delet
         blockers.push({
           kind: 'draft',
           id: d.id,
-          label: `草稿 ${d.id}（${d.status === 'preparing' ? '正在准备' : '会话运行中'}）`,
+          label: `Draft ${d.id} (${d.status === 'preparing' ? 'preparing' : 'session running'})`,
         });
       }
     }
     return blockers;
   }
 
-  // 用到这些 variant 的草稿（底子是它们）；删除 workflow 时另加属于它的草稿
+  // Drafts using these variants (as their base, or in their session, Contracts 33.2); deleting a workflow adds its own drafts
   function draftsUsing(ids: string[], workflowId: string | null): DraftRow[] {
     const conditions = [
-      ...(ids.length > 0 ? [inArray(workflowDrafts.baseVariantId, ids)] : []),
+      ...(ids.length > 0
+        ? [inArray(workflowDrafts.baseVariantId, ids), inArray(workflowDrafts.designVariantId, ids)]
+        : []),
       ...(workflowId === null ? [] : [eq(workflowDrafts.workflowId, workflowId)]),
     ];
     if (conditions.length === 0) return [];
@@ -172,7 +175,7 @@ export function createDeletion({ db, variants, live, draftsDir, dataDir }: Delet
   ): DeletionPlan {
     const ids = rows.map((v) => v.id);
     const relatedDrafts = draftsUsing(ids, workflowId);
-    // 删除 workflow 时属于它的草稿一并删除；只删 variant 时草稿保留
+    // Deleting a workflow deletes its drafts too; deleting only variants keeps the drafts
     const removedDrafts = workflowId === null ? [] : relatedDrafts;
     const all = boundSessions(ids);
     const bound = all.filter((s) => !isLocalAgentSession(s));
@@ -185,7 +188,7 @@ export function createDeletion({ db, variants, live, draftsDir, dataDir }: Delet
     ];
     const liveItems = sessionLiveIds.map((id) => {
       const item = db.select().from(liveSessions).where(eq(liveSessions.id, id)).get();
-      if (item === undefined) throw new Error(`session 指向的交互项不存在：${id}`);
+      if (item === undefined) throw new Error(`Interactive item of session not found: ${id}`);
       return { id, title: item.title };
     });
     const installs = variants.installsOf(ids);
@@ -194,11 +197,11 @@ export function createDeletion({ db, variants, live, draftsDir, dataDir }: Delet
         blockers.push({
           kind: 'install',
           id: i.variantId,
-          label: `装在本机的 skill 在安装后被改过，卸载会被拒绝：${i.modified.join('、')}`,
+          label: `Skills installed on this machine were changed after installation, so uninstalling is refused: ${i.modified.join(', ')}`,
         });
       }
     }
-    // 保留的 Live 项：用过这些 variant 的进程所在的项，减去随 session 一起删除的
+    // Live items kept: items whose processes used these variants, minus those deleted with their sessions
     const usedLive =
       ids.length === 0
         ? []
@@ -273,7 +276,7 @@ export function createDeletion({ db, variants, live, draftsDir, dataDir }: Delet
       blockers.push({
         kind: 'last-variant',
         id: row.workflowId,
-        label: `${row.name} 是 workflow ${row.workflowId} 的最后一个 variant，不能单独删除；要删就删除 workflow`,
+        label: `${row.name} is the last variant of workflow ${row.workflowId} and cannot be deleted alone; delete the workflow instead`,
       });
     }
     return plan(
@@ -288,18 +291,22 @@ export function createDeletion({ db, variants, live, draftsDir, dataDir }: Delet
     const w = workflowRow(db, id);
     const blockers: DeletionBlocker[] = [];
     if (isBuiltinWorkflow(id)) {
-      blockers.push({ kind: 'builtin', id, label: `${id} 是内置的 workflow，不能删除` });
+      blockers.push({
+        kind: 'builtin',
+        id,
+        label: `${id} is a built-in workflow and cannot be deleted`,
+      });
     }
     const rows = variants.list().filter((v) => v.workflowId === id);
     return plan({ kind: 'workflow', id, name: w.name, workflowId: id }, rows, id, blockers);
   }
 
-  // 改绑的目标（24.2）：本机配置（null），或没有删除、不在这次删除之内的任何 variant
+  // The rebind target (24.2): the local configuration (null), or any variant not deleted and not part of this deletion
   function rebindTarget(choice: SessionsChoice, p: DeletionPlan): string | null {
     if (choice === 'delete' || choice.rebindTo === null) return null;
     const target = variants.get(choice.rebindTo);
     if (p.variants.some((v) => v.id === target.id)) {
-      throw new HttpError(400, `不能改绑到要删除的 variant ${target.name}`);
+      throw new HttpError(400, `Cannot rebind to variant ${target.name}, which is being deleted`);
     }
     return target.id;
   }
@@ -309,7 +316,7 @@ export function createDeletion({ db, variants, live, draftsDir, dataDir }: Delet
     if (p.blockers.length > 0) {
       throw new HttpError(
         409,
-        `不能删除 ${subject}：\n${p.blockers.map((b) => `- ${b.label}`).join('\n')}`,
+        `Cannot delete ${subject}:\n${p.blockers.map((b) => `- ${b.label}`).join('\n')}`,
       );
     }
     const ids = p.variants.map((v) => v.id);
@@ -317,7 +324,7 @@ export function createDeletion({ db, variants, live, draftsDir, dataDir }: Delet
     const all = boundSessions(ids);
     const bound = all.filter((s) => !isLocalAgentSession(s));
     const agent = all.filter(isLocalAgentSession);
-    // 一起删除的 Live 项要先结束进程：在改动任何东西之前检查
+    // Live items deleted along must have their processes stopped: checked before changing anything
     const liveToRemove = [
       ...new Set([
         ...(body.sessions === 'delete' ? p.sessions.liveItems.map((i) => i.id) : []),
@@ -335,13 +342,13 @@ export function createDeletion({ db, variants, live, draftsDir, dataDir }: Delet
     if (runningItems.length > 0) {
       throw new HttpError(
         409,
-        `不能删除 ${subject}：要一起删除的交互项有运行中的进程，先结束进程：${runningItems.join('、')}`,
+        `Cannot delete ${subject}: Live items to delete along have running processes; stop them first: ${runningItems.join(', ')}`,
       );
     }
-    // 1. 本机安装先卸载：被改过时拒绝，什么都还没有改
+    // 1. Uninstall local installs first: refused when changed, with nothing changed yet
     variants.removeFiles(ids, []);
-    // 2. 关联的 session：一起删除（连同 Live 项与磁盘上的原始文件），或改绑；
-    // 3. 删除 workflow 时属于它的草稿的 Live 项
+    // 2. Linked sessions: deleted along (with their Live items and the original files on disk), or rebound;
+    // 3. when deleting a workflow, the Live items of its drafts
     for (const id of liveToRemove) live.removeItem(id);
     const rebind = (rows: typeof all, variantId: string | null) => {
       if (rows.length === 0) return;
@@ -357,11 +364,11 @@ export function createDeletion({ db, variants, live, draftsDir, dataDir }: Delet
     };
     if (body.sessions === 'delete') {
       deleteClaudeSessions(db, bound);
-      // 本机配置的 Magi Agent 的 session 不删除，改为本机配置
+      // Magi Agent sessions of the local configuration are not deleted; they become local configuration
       rebind(agent, null);
     } else {
       rebind(all, rebindTo);
-      // 用这些 variant 配置的 Magi Agent 的项改用改绑的配置
+      // Magi Agent items configured with these variants switch to the rebind configuration
       const agentItems = agentItemsUsing(ids);
       if (agentItems.length > 0) {
         db.update(liveSessions)
@@ -375,16 +382,16 @@ export function createDeletion({ db, variants, live, draftsDir, dataDir }: Delet
     db.$client.transaction(() => {
       if (p.drafts.length > 0) {
         const draftIds = p.drafts.map((d) => d.id);
-        // 由这些草稿保存出的 variant 保留一行（24.3），它们的 draft_id 置空：草稿随 workflow 删除（24.5），
-        // 保留的行只用于显示名字，不再指向草稿。数据库中这一列的外键没有 ON DELETE 动作（0013 用 ALTER TABLE 加列），
-        // 不置空时删除草稿外键失败
+        // Variants saved from these drafts keep a row (24.3) with draft_id set to null: drafts are deleted with the
+        // workflow (24.5) and the kept rows only show names. This column's foreign key has no ON DELETE action in the
+        // database (0013 added it with ALTER TABLE), so deleting the drafts fails unless it is cleared
         db.update(variantsTable)
           .set({ draftId: null })
           .where(inArray(variantsTable.draftId, draftIds))
           .run();
         db.delete(workflowDrafts).where(inArray(workflowDrafts.id, draftIds)).run();
       }
-      // 4. 保留一行记录，只用于显示名字
+      // 4. Keep one row, only to show the name
       variants.markDeleted(ids, at);
       if (p.target.kind === 'workflow') {
         db.update(workflowTable)
@@ -393,10 +400,10 @@ export function createDeletion({ db, variants, live, draftsDir, dataDir }: Delet
           .run();
       }
     })();
-    // 5. 文件：variant 的目录与存档（共用的最后一个引用删除时才删）、草稿目录
+    // 5. Files: variant directories and archives (shared ones only when the last reference goes), draft directories
     variants.removeFiles([], p.dirs);
     console.info(
-      `[delete] ${subject}：variant ${ids.join(', ')}；session ${String(bound.length)} 个${body.sessions === 'delete' ? '一起删除' : `改绑到 ${rebindTo ?? '本机配置'}`}，Magi Agent 的 session ${String(agent.length)} 个保留；目录 ${p.dirs.join(', ')}`,
+      `[delete] ${subject}: variants ${ids.join(', ')}; ${String(bound.length)} sessions ${body.sessions === 'delete' ? 'deleted' : `rebound to ${rebindTo ?? 'local configuration'}`}, ${String(agent.length)} Magi Agent sessions kept; directories ${p.dirs.join(', ')}`,
     );
     for (const id of ids) events.publish({ type: 'variant.deleted', variantId: id });
     if (p.target.kind === 'workflow') {

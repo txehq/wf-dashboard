@@ -19,8 +19,9 @@ import {
 
 const SESSION_ORDER = ['claude', 'codex'] as const;
 
-// 上面：导入与清除（Contracts 25.1）。三列中勾选的在下面的管理表格中；改动先暂存，"应用"时先导入再清除，不需要确认（清除不动磁盘）。
-// 任一步失败时以原文显示，已完成的部分保留，暂存中只留下没完成的
+// Top: import and clear (Contracts 25.1). Sessions checked in the three columns are in the manage table below;
+// changes are staged, and Apply imports first, then clears, with no confirmation (clear leaves the disk alone).
+// A failed step is shown as returned; completed parts stay and only the unfinished changes remain staged
 function ImportPanel({ engine }: { engine: SessionEngine }) {
   const client = useQueryClient();
   const [changes, setChanges] = useState<ImportChanges>(new Map());
@@ -56,28 +57,27 @@ function ImportPanel({ engine }: { engine: SessionEngine }) {
     },
   });
   return (
-    <section aria-label="导入" className="flex flex-col gap-2" data-testid="import-panel">
+    <section aria-label="Import" className="flex flex-col gap-2" data-testid="import-panel">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 className="text-sm font-semibold">导入</h2>
+        <h2 className="text-sm font-semibold">Import</h2>
         <p className="text-xs text-muted-foreground">
-          勾选的 session 在下面的表格中：勾选导入，取消勾选清除，改好后点应用。
+          Checked sessions appear in the table below. Check to import, uncheck to clear, then click
+          Apply.
         </p>
         <div className="ml-auto flex items-center gap-3">
           {applying.isError && (
             <p role="alert" className="text-xs whitespace-pre-wrap text-destructive">
-              应用失败：{applying.error.message}
+              Apply failed: {applying.error.message}
             </p>
           )}
           {applying.isSuccess && changes.size === 0 && (
             <p className="text-xs text-muted-foreground" data-testid="import-result">
               {[
                 ...(applying.data.imported > 0
-                  ? [`已导入 ${String(applying.data.imported)} 个`]
+                  ? [`Imported ${String(applying.data.imported)}`]
                   : []),
-                ...(applying.data.cleared > 0
-                  ? [`已清除 ${String(applying.data.cleared)} 个`]
-                  : []),
-              ].join('，')}
+                ...(applying.data.cleared > 0 ? [`Cleared ${String(applying.data.cleared)}`] : []),
+              ].join(', ')}
             </p>
           )}
           {changes.size > 0 && (
@@ -91,7 +91,7 @@ function ImportPanel({ engine }: { engine: SessionEngine }) {
               }}
             >
               <Undo2 />
-              撤销改动
+              Undo changes
             </Button>
           )}
           <Button
@@ -103,7 +103,7 @@ function ImportPanel({ engine }: { engine: SessionEngine }) {
             }}
           >
             <Check />
-            {applying.isPending ? '正在应用…' : applyLabel(imports.length, clears.length)}
+            {applying.isPending ? 'Applying…' : applyLabel(imports.length, clears.length)}
           </Button>
         </div>
       </div>
@@ -112,8 +112,9 @@ function ImportPanel({ engine }: { engine: SessionEngine }) {
   );
 }
 
-// 下面：管理表格。选中的 session：清除、删除、归档与恢复，一起分析（本机配置的或绑定同一个 variant 的，由分析表单检查）。
-// 分析的 id 放进本标签页的 sessionStorage，地址只带一个键（Contracts 25.5）
+// Bottom: the manage table. Selected sessions: clear, delete, archive and restore, or analyze together (local
+// config ones or ones bound to the same variant; the analysis form checks). The ids to analyze go into this tab's
+// sessionStorage and the URL carries only a key (Contracts 25.5)
 function SessionList({ engine }: { engine: SessionEngine }) {
   const navigate = useNavigate();
   return (
@@ -128,7 +129,7 @@ function SessionList({ engine }: { engine: SessionEngine }) {
               void navigate(`/analyses/new?picked=${rememberPicked(targets.map((t) => t.id))}`);
             }}
           >
-            分析这些 session
+            Analyze these sessions
           </Button>
         </>
       )}
@@ -145,10 +146,10 @@ export function SessionsPage() {
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold">Sessions</h1>
           <p className="text-sm text-muted-foreground">
-            上面从磁盘导入 session，下面查看、分析与管理导入的 session。
+            Import sessions from disk above; view, analyze and manage imported sessions below.
           </p>
         </div>
-        <EngineChoice value={engine} onChange={setEngine} order={SESSION_ORDER} label="视图" />
+        <EngineChoice value={engine} onChange={setEngine} order={SESSION_ORDER} label="View" />
       </header>
       <ImportPanel engine={engine} />
       <SessionList engine={engine} />

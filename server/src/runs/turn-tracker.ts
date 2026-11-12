@@ -1,10 +1,10 @@
 import { isType, type StreamEvent } from './stream.js';
 
-// 一轮的状态（Spikes/Claude CLI 第 8 节）：
-// running             —— 用户消息已写入或 agent 被后台通知唤起，尚未出现 result
-// awaiting_host       —— 有未回答的 control_request（AskUserQuestion 或权限请求）
-// awaiting_background —— 已出现 result，但仍有后台任务，完成后 agent 会自行开始下一轮
-// idle                —— 已出现 result 且没有后台任务：等待用户输入
+// Turn states (Spikes/Claude CLI section 8):
+// running             - a user message was written or a background notification woke the agent; no result yet
+// awaiting_host       - an unanswered control_request (AskUserQuestion or a permission request)
+// awaiting_background - result seen but background tasks remain; the agent starts the next turn on its own when they finish
+// idle                - result seen and no background tasks: waiting for user input
 export type TurnState = 'running' | 'awaiting_host' | 'awaiting_background' | 'idle';
 
 export interface TurnTransition {
@@ -21,19 +21,19 @@ export class TurnTracker {
 
   constructor(private readonly onChange: (t: TurnTransition) => void = () => undefined) {}
 
-  // 宿主写入用户消息时调用
+  // Called when the host writes a user message
   userSent(): void {
     this.resultSeen = false;
     this.set('running', 'user message');
   }
 
-  // 宿主回答 control_request 时调用
+  // Called when the host answers a control_request
   controlAnswered(requestId: string): void {
     if (!this.pendingControl.delete(requestId)) {
-      throw new Error(`回答了不存在的 control_request：${requestId}`);
+      throw new Error(`Answered a control_request that does not exist: ${requestId}`);
     }
     if (this.pendingControl.size > 0) return;
-    // 回答之前一轮已经结束（例如中断后）时直接回到结束状态
+    // If the turn already ended before the answer (e.g. after an interrupt), return to the settled state
     if (this.resultSeen) this.settle('control_response');
     else this.set('running', 'control_response');
   }
@@ -49,7 +49,7 @@ export class TurnTracker {
       this.backgroundTasks = e.tasks?.length ?? 0;
       if (this.resultSeen) this.settle('background_tasks_changed');
     } else if (isType(e, 'system') && e.subtype === 'task_notification') {
-      // 后台任务完成后 agent 会被唤起开始新的一轮
+      // After a background task finishes the agent is woken to start a new turn
       if (this.resultSeen) {
         this.resultSeen = false;
         this.set('running', 'task_notification');

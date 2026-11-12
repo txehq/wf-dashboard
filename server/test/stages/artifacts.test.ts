@@ -13,23 +13,23 @@ import {
 import { EVAL_KINDS } from '../../src/workflows/eval-kinds.js';
 import { rubricOf, type RubricArtifactSpec } from '../../src/workflows/schema.js';
 
-// vault 中真实 feature 目录的副本（只有 rubric 产物的候选文件）
+// Copies of real feature directories from the vault (only the candidate files of rubric artifacts)
 const VAULT = fileURLToPath(new URL('../fixtures/vault/', import.meta.url));
 const work = path.join(config.repoRoot, '.work', 'stages-artifacts');
 fs.rmSync(work, { recursive: true, force: true });
 fs.mkdirSync(work, { recursive: true });
 
-// lfg 评测类型的 rubric 产物：brief、research、plan、tickets
+// Rubric artifacts of the lfg eval kind: brief, research, plan, tickets
 const specs = rubricOf(EVAL_KINDS.lfg) ?? [];
 function spec(id: string): RubricArtifactSpec {
   const found = specs.find((s) => s.id === id);
-  if (found === undefined) throw new Error(`lfg 评测类型没有产物 ${id}`);
+  if (found === undefined) throw new Error(`The lfg eval kind has no artifact ${id}`);
   return found;
 }
 
-describe('rubric 产物：vault 中真实 feature 目录', () => {
-  // 三个计算器 run 写到 Project Magi Eval 的产物：dqva52 走完四个阶段（Research.md 中 plan 已锁定），
-  // i6vxt1 停在 research，a9piql 停在 interview
+describe('rubric artifacts: real feature directories in the vault', () => {
+  // Artifacts three calculator runs wrote to Project Magi Eval: dqva52 went through all four stages (plan locked in
+  // Research.md), i6vxt1 stopped at research, a9piql stopped at interview
   const expected: [string, [boolean, boolean, string | null, boolean]][] = [
     ['r-20261009-dqva52', [true, true, 'Status: locked · 2026-10-10 · From: Research.md §7', true]],
     ['r-20261009-i6vxt1', [true, true, null, false]],
@@ -41,7 +41,7 @@ describe('rubric 产物：vault 中真实 feature 目录', () => {
     const present = (id: string) => candidateDocs(dir, feature, spec(id)).some((d) => d !== null);
     expect(present('brief')).toBe(brief);
     expect(present('research')).toBe(research);
-    // Research.md 优先，其次 System Design.md
+    // Research.md first, then System Design.md
     const docs = candidateDocs(dir, feature, spec('research'));
     const line = docs[0]?.planLockLine ?? docs[1]?.planLockLine ?? null;
     if (lock === null) expect(line).toBeNull();
@@ -49,23 +49,26 @@ describe('rubric 产物：vault 中真实 feature 目录', () => {
     expect(present('tickets')).toBe(tickets);
   });
 
-  test('feature 不符的文件不算', () => {
+  test('files with another feature do not count', () => {
     const dir = featureDir(VAULT, 'Magi Eval', 'r-20261009-dqva52');
     expect(specs.flatMap((s) => candidateDocs(dir, 'other-run', s)).every((d) => d === null)).toBe(
       true,
     );
   });
 
-  test('中文的 Plan 一节与锁定行', () => {
+  test('a Plan section and lock line written in Chinese', () => {
     const src = featureDir(VAULT, 'Magi Eval', 'r-20261009-i6vxt1');
     const body = fs.readFileSync(path.join(src, 'Research.md'), 'utf8');
     expect(planLockedLine(body)).toBeNull();
+    // The escapes are the Chinese "plan" heading, "status" and a full-width colon
     expect(
-      planLockedLine(`${body}\n## 计划\n\n状态： locked · 2026-09-18 · 来源： §6 规格\n`),
-    ).toBe('状态： locked · 2026-09-18 · 来源： §6 规格');
+      planLockedLine(
+        `${body}\n## \u{8BA1}\u{5212}\n\n\u{72B6}\u{6001}\u{FF1A} locked · 2026-09-18\n`,
+      ),
+    ).toBe('\u{72B6}\u{6001}\u{FF1A} locked · 2026-09-18');
   });
 
-  test('首次出现就带锁定标记只算 research，改写后才算 plan', () => {
+  test('a lock marker present on first appearance counts only as research; plan needs a rewrite', () => {
     const feature = 'r-20261009-dqva52';
     const src = featureDir(VAULT, 'Magi Eval', feature);
     const dir = path.join(work, 'live', feature);
@@ -85,7 +88,7 @@ describe('rubric 产物：vault 中真实 feature 目录', () => {
     expect(tracker.observe().get('plan')?.planLockLine).toMatch(/^Status: locked/);
   });
 
-  test('slugify 与 wf obsidian 一致', () => {
+  test('slugify matches wf obsidian', () => {
     expect(slugify('Run_01ABC xyz')).toBe('run-01abc-xyz');
     expect(featureDir('/v', 'Magi Eval', 'run-1')).toBe('/v/Project Magi Eval/Features/run-1');
   });

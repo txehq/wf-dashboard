@@ -11,7 +11,7 @@ import {
 } from '../db/schema.js';
 import type { ExportedRow } from './export.js';
 
-// Contracts 15.2、19.2：引擎输出文件的格式与 dashboard 的校验；不满足时以原文失败
+// Contracts 15.2, 19.2: format of the engine's output files and the dashboard's validation; fails with the original text when unmet
 
 const Evidence = z.object({
   sessionId: z.string().min(1),
@@ -31,7 +31,7 @@ export type EngineFinding = z.infer<typeof EngineFinding>;
 
 export interface ValidatedFinding extends EngineFinding {
   findingId: string;
-  // 方面即 session-analysis 的小阶段
+  // The aspect is a session-analysis sub-stage
   aspect: string;
   evidence: FindingEvidence[];
 }
@@ -39,12 +39,12 @@ export interface ValidatedFinding extends EngineFinding {
 export const findingsFile = (aspect: string) => `findings-${aspect}.json`;
 
 function readJson(file: string): unknown {
-  if (!fs.existsSync(file)) throw new Error(`引擎没有写出 ${file}`);
+  if (!fs.existsSync(file)) throw new Error(`The engine did not write ${file}`);
   const text = fs.readFileSync(file, 'utf8');
   return JSON.parse(text);
 }
 
-// 一行导出内容中的全部字符串值（递归），quote 必须是其中某一个的子串
+// All string values in an exported row (recursive); a quote must be a substring of one of them
 function strings(value: unknown, out: string[]) {
   if (typeof value === 'string') out.push(value);
   else if (Array.isArray(value)) for (const v of value) strings(v, out);
@@ -52,7 +52,7 @@ function strings(value: unknown, out: string[]) {
     for (const v of Object.values(value)) strings(v, out);
 }
 
-// 每个 session 中每个主 agent seq 可以引用的内容：该行与 parentSeq 指向它的子代理行
+// What each main-agent seq of each session may cite: that row and the subagent rows whose parentSeq points to it
 export type EvidenceIndex = Map<string, Map<number, string[]>>;
 
 export function evidenceIndex(exported: Map<string, ExportedRow[]>): EvidenceIndex {
@@ -64,7 +64,7 @@ export function evidenceIndex(exported: Map<string, ExportedRow[]>): EvidenceInd
       const list = bySeq.get(r.parentSeq);
       if (list === undefined)
         throw new Error(
-          `session ${sessionId} 中子代理行的 parentSeq ${String(r.parentSeq)} 不存在`,
+          `parentSeq ${String(r.parentSeq)} of a subagent row in session ${sessionId} does not exist`,
         );
       strings(r, list);
     }
@@ -73,7 +73,7 @@ export function evidenceIndex(exported: Map<string, ExportedRow[]>): EvidenceInd
   return index;
 }
 
-// 校验一个方面的输出：zod 格式，以及每条证据的 seq 存在、quote 是该行导出内容的子串
+// Validate one aspect's output: zod format, and each evidence's seq exists and its quote is a substring of that row's export
 export function validateFindings(
   file: string,
   aspect: string,
@@ -81,35 +81,41 @@ export function validateFindings(
 ): ValidatedFinding[] {
   const parsed = z.array(EngineFinding).safeParse(readJson(file));
   if (!parsed.success) {
-    throw new Error(`${path.basename(file)} 的格式不对：${z.prettifyError(parsed.error)}`);
+    throw new Error(
+      `${path.basename(file)} has an invalid format: ${z.prettifyError(parsed.error)}`,
+    );
   }
   const problems: string[] = [];
   const findings = parsed.data.map((f, i): ValidatedFinding => {
     for (const e of f.evidence) {
-      const where = `第 ${String(i + 1)} 条发现「${f.title}」的证据 ${e.sessionId}#${String(e.seq)}`;
+      const where = `Evidence ${e.sessionId}#${String(e.seq)} of finding ${String(i + 1)} "${f.title}"`;
       const session = index.get(e.sessionId);
       if (session === undefined) {
-        problems.push(`${where}：session 不在这次分析的范围内`);
+        problems.push(`${where}: session is not in this analysis's scope`);
         continue;
       }
       const texts = session.get(e.seq);
       if (texts === undefined) {
-        problems.push(`${where}：主 agent 中没有 seq ${String(e.seq)}`);
+        problems.push(`${where}: main agent has no seq ${String(e.seq)}`);
         continue;
       }
       if (!texts.some((t) => t.includes(e.quote))) {
-        problems.push(`${where}：quote 不是该行导出内容的子串：${JSON.stringify(e.quote)}`);
+        problems.push(
+          `${where}: quote is not a substring of the row's export: ${JSON.stringify(e.quote)}`,
+        );
       }
     }
     return { ...f, findingId: `${aspect}-${String(i + 1)}`, aspect };
   });
   if (problems.length > 0) {
-    throw new Error(`${path.basename(file)} 的证据校验失败：\n${problems.join('\n')}`);
+    throw new Error(
+      `Evidence validation of ${path.basename(file)} failed:\n${problems.join('\n')}`,
+    );
   }
   return findings;
 }
 
-// 把带 id 的发现写回输出目录，供综合步骤引用
+// Write the findings with ids back to the output dir for the synthesize step to cite
 export function writeFindingsWithIds(file: string, findings: ValidatedFinding[]) {
   fs.writeFileSync(
     file,
@@ -159,11 +165,11 @@ export const EngineReport = z.strictObject({
   ),
 });
 
-// 校验 output/report.json（Contracts 19.2）：zod 格式，每个 findingId 都存在
+// Validate output/report.json (Contracts 19.2): zod format, every findingId exists
 export function validateReport(file: string, findingIds: Set<string>): AnalysisReport {
   const parsed = EngineReport.safeParse(readJson(file));
   if (!parsed.success) {
-    throw new Error(`report.json 的格式不对：${z.prettifyError(parsed.error)}`);
+    throw new Error(`report.json has an invalid format: ${z.prettifyError(parsed.error)}`);
   }
   const report = parsed.data;
   const referenced = [
@@ -172,12 +178,12 @@ export function validateReport(file: string, findingIds: Set<string>): AnalysisR
   ];
   const unknown = [...new Set(referenced.filter((id) => !findingIds.has(id)))];
   if (unknown.length > 0) {
-    throw new Error(`report.json 校验失败：findingIds 不存在：${unknown.join(', ')}`);
+    throw new Error(`report.json validation failed: unknown findingIds: ${unknown.join(', ')}`);
   }
   return report;
 }
 
-// 一处改动：在原文第 start 行（0 起）删除 remove，插入 insert；行含换行符
+// One change: at original line start (0-based) remove `remove` and insert `insert`; lines include the newline
 export interface Hunk {
   index: number;
   start: number;
@@ -187,7 +193,7 @@ export interface Hunk {
 }
 
 export interface FileProposal {
-  // 相对 src/ 的路径，例如 skills/ic/SKILL.md
+  // Path relative to src/, e.g. skills/ic/SKILL.md
   path: string;
   original: string;
   proposed: string;
@@ -196,7 +202,7 @@ export interface FileProposal {
 
 const splitLines = (text: string) => text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
 
-// 原文与修改后之间的改动，相邻的删除与插入合为一处
+// Changes between original and proposed; adjacent removals and insertions merge into one
 export function hunksOf(original: string, proposed: string): Omit<Hunk, 'index' | 'findingIds'>[] {
   const hunks: Omit<Hunk, 'index' | 'findingIds'>[] = [];
   let line = 0;
@@ -218,7 +224,7 @@ export function hunksOf(original: string, proposed: string): Omit<Hunk, 'index' 
   return hunks;
 }
 
-// 按选择的改动生成结果（页面同样的算法）
+// Build the result from the selected changes (same algorithm as the page)
 export function applyHunks(original: string, hunks: Omit<Hunk, 'index' | 'findingIds'>[]): string {
   const lines = splitLines(original);
   const out: string[] = [];
@@ -231,7 +237,7 @@ export function applyHunks(original: string, hunks: Omit<Hunk, 'index' | 'findin
   return out.join('');
 }
 
-// 分析目录内的 git 操作不能落到包含它的 dashboard 仓库：GIT_CEILING_DIRECTORIES 阻止向上查找仓库
+// git in the analysis dir must not reach the dashboard repo containing it: GIT_CEILING_DIRECTORIES stops the upward search
 async function gitApply(cwd: string, ceiling: string, args: string[]) {
   return execa('git', ['apply', ...args], {
     cwd,
@@ -243,8 +249,8 @@ async function gitApply(cwd: string, ceiling: string, args: string[]) {
 const stripPrefix = (name: string | undefined) =>
   name === undefined || name === '/dev/null' ? null : name.replace(/^[ab]\//, '');
 
-// 校验 patches.json：格式、findingIds 存在、每个 patch 只改 file 一个文件且不删除文件、
-// 在 input/skills 的副本上 git apply --check -p1；之后按顺序全部应用，得到每个文件的修改结果与逐处改动
+// Validate patches.json: format, findingIds exist, each patch changes only its one file and deletes none,
+// git apply --check -p1 on a copy of input/skills; then apply all in order to get each file's result and its changes
 export async function validatePatches(
   file: string,
   skillsDir: string,
@@ -253,7 +259,7 @@ export async function validatePatches(
 ): Promise<{ patches: EnginePatch[]; files: FileProposal[] }> {
   const parsed = z.array(EnginePatch).safeParse(readJson(file));
   if (!parsed.success) {
-    throw new Error(`patches.json 的格式不对：${z.prettifyError(parsed.error)}`);
+    throw new Error(`patches.json has an invalid format: ${z.prettifyError(parsed.error)}`);
   }
   const patches = parsed.data;
   fs.rmSync(workDir, { recursive: true, force: true });
@@ -268,37 +274,40 @@ export async function validatePatches(
     changed: { start: number; end: number }[];
   }[] = [];
   for (const [i, p] of patches.entries()) {
-    const where = `第 ${String(i + 1)} 个 patch（${p.file}）`;
+    const where = `Patch ${String(i + 1)} (${p.file})`;
     const unknown = p.findingIds.filter((id) => !findingIds.has(id));
-    if (unknown.length > 0) problems.push(`${where}：findingIds 不存在：${unknown.join(', ')}`);
+    if (unknown.length > 0) problems.push(`${where}: unknown findingIds: ${unknown.join(', ')}`);
     const parts = parsePatch(p.patch);
     const targets = parts.map((d) => ({
       old: stripPrefix(d.oldFileName),
       new: stripPrefix(d.newFileName),
     }));
     if (targets.length !== 1 || targets[0]?.new !== p.file) {
-      problems.push(`${where}：patch 必须只修改 ${p.file}，实际为 ${JSON.stringify(targets)}`);
+      problems.push(
+        `${where}: patch must change only ${p.file}, but changes ${JSON.stringify(targets)}`,
+      );
       continue;
     }
     if (targets[0].old !== null && targets[0].old !== p.file) {
-      problems.push(`${where}：patch 的原文件是 ${targets[0].old}，与 file 不同`);
+      problems.push(`${where}: patch's original file is ${targets[0].old}, not file`);
       continue;
     }
     const patchFile = path.join(workDir, `patch-${String(i + 1)}.diff`);
     fs.writeFileSync(patchFile, p.patch.endsWith('\n') ? p.patch : `${p.patch}\n`);
     const check = await gitApply(original, workDir, ['--check', '-p1', patchFile]);
     if (check.exitCode !== 0) {
-      problems.push(`${where}：git apply --check 失败：${check.stderr.trim()}`);
+      problems.push(`${where}: git apply --check failed: ${check.stderr.trim()}`);
       continue;
     }
-    // 单独应用到一份只含该文件的副本，得到它在原文中改动的行
+    // Apply alone to a copy holding only that file to get the lines it changes in the original
     const single = path.join(workDir, `single-${String(i + 1)}`);
     const before = path.join(original, p.file);
     const beforeText = fs.existsSync(before) ? fs.readFileSync(before, 'utf8') : '';
     fs.mkdirSync(path.dirname(path.join(single, p.file)), { recursive: true });
     if (fs.existsSync(before)) fs.copyFileSync(before, path.join(single, p.file));
     const alone = await gitApply(single, workDir, ['-p1', patchFile]);
-    if (alone.exitCode !== 0) throw new Error(`${where}：单独应用失败：${alone.stderr.trim()}`);
+    if (alone.exitCode !== 0)
+      throw new Error(`${where}: applying alone failed: ${alone.stderr.trim()}`);
     const afterText = fs.readFileSync(path.join(single, p.file), 'utf8');
     perPatchRanges.push({
       file: p.file,
@@ -309,7 +318,8 @@ export async function validatePatches(
       })),
     });
   }
-  if (problems.length > 0) throw new Error(`patches.json 校验失败：\n${problems.join('\n')}`);
+  if (problems.length > 0)
+    throw new Error(`patches.json validation failed:\n${problems.join('\n')}`);
 
   for (const [i, p] of patches.entries()) {
     const applied = await gitApply(proposed, workDir, [
@@ -318,7 +328,7 @@ export async function validatePatches(
     ]);
     if (applied.exitCode !== 0) {
       throw new Error(
-        `第 ${String(i + 1)} 个 patch（${p.file}）与之前的 patch 修改了重叠的内容，依次应用失败：${applied.stderr.trim()}`,
+        `Patch ${String(i + 1)} (${p.file}) overlaps content changed by an earlier patch; applying in order failed: ${applied.stderr.trim()}`,
       );
     }
   }
@@ -330,7 +340,7 @@ export async function validatePatches(
     const ranges = perPatchRanges.filter((r) => r.file === f);
     const hunks = hunksOf(originalText, proposedText).map((h, index): Hunk => {
       const end = h.start + h.remove.length;
-      // 与这处改动重叠或相接的单个 patch 的改动，即它对应的发现
+      // Changes of single patches that overlap or touch this change, i.e. its findings
       const ids = ranges
         .filter((r) => r.changed.some((c) => c.start <= end && h.start <= c.end))
         .flatMap((r) => r.ids);

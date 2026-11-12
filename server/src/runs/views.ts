@@ -4,7 +4,7 @@ import { CrossRunRef, SourceRef } from '../grading/schema.js';
 import { StageReport } from '../stages/report.js';
 import { evalKinds } from '../workflows/schema.js';
 
-// Runs API 与 run.* 事件共用的形状（Contracts 7.6）
+// Shapes shared by the Runs API and run.* events (Contracts 7.6)
 
 export const AskQuestionView = z.object({
   question: z.string(),
@@ -24,7 +24,7 @@ export const RunMessageView = z.object({
 });
 export type RunMessageView = z.infer<typeof RunMessageView>;
 
-// 待回答的提问：一轮结束时的文字，或 AskUserQuestion
+// The question waiting for an answer: the text at turn end, or AskUserQuestion
 export const Pending = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('text'), text: z.string(), since: z.number() }),
   z.object({
@@ -37,7 +37,7 @@ export const Pending = z.discriminatedUnion('kind', [
 export type Pending = z.infer<typeof Pending>;
 
 export const ArtifactView = z.object({
-  // rubric 产物 id 或固定的种类（db/schema 的 fixedArtifactKinds）
+  // Rubric artifact id or a fixed kind (fixedArtifactKinds in db/schema)
   kind: z.string(),
   location: z.string(),
   snapshot: z.string().nullable(),
@@ -57,20 +57,20 @@ export const RunSummary = z.object({
   id: z.string(),
   batchId: z.string(),
   taskId: z.string(),
-  // variant 所属的 workflow（Contracts 16.4）与 task 的评测类型（16.3）
+  // Workflow of the variant (Contracts 16.4) and eval kind of the task (16.3)
   workflowId: z.string(),
   kind: z.enum(evalKinds),
   taskTitle: z.string(),
   variantId: z.string(),
   variantName: z.string(),
-  // 发起 batch 时选的模型与 effort（Contracts 16.5）
+  // Model and effort chosen when starting the batch (Contracts 16.5)
   model: z.string(),
   effort: z.string(),
   repeatIndex: z.number(),
   status: z.enum(runStatuses),
   currentStage: CurrentStage,
   costUsd: z.number(),
-  // 从开始准备到结束（未结束时到现在）
+  // From the start of prepare to the end (to now while not ended)
   durationMs: z.number().nullable(),
   humanIntervened: z.boolean(),
   crossRunRefs: z.array(CrossRunRef),
@@ -106,7 +106,7 @@ export const RunDetail = RunSummary.extend({
     pr: z.string().nullable(),
     vault: z.string().nullable(),
   }),
-  // 被测 agent 在 txehq/txe-workflow 提的 issue 与评论（Contracts 7.10）
+  // Issues and comments the agent under test filed on txehq/txe-workflow (Contracts 7.10)
   friction: z.array(z.object({ url: z.string(), title: z.string() })),
 });
 export type RunDetail = z.infer<typeof RunDetail>;
@@ -118,7 +118,7 @@ export const BatchSummary = z.object({
   taskIds: z.array(z.string()),
   createdAt: z.number(),
   runs: z.number(),
-  // 每种 status 的 run 数
+  // Number of runs per status
   statusCounts: z.record(z.string(), z.number()),
   costUsd: z.number(),
 });

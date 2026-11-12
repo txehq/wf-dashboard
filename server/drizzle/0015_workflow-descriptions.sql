@@ -25,5 +25,5 @@ PRAGMA foreign_keys=ON;--> statement-breakpoint
 ALTER TABLE `variants` ADD `description` text;--> statement-breakpoint
 ALTER TABLE `workflows` ADD `description` text;--> statement-breakpoint
 ALTER TABLE `workflows` DROP COLUMN `copied_from`;--> statement-breakpoint
--- 只有内置的 lfg、ic 有评测类型（Contracts 16.1、18.5）
+-- Only the built-in lfg and ic have an eval kind (Contracts 16.1, 18.5)
 UPDATE `workflows` SET `eval_kind` = NULL WHERE `id` NOT IN ('lfg', 'ic');

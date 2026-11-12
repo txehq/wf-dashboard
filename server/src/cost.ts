@@ -7,15 +7,15 @@ import type { CostBreakdown } from './grading/schema.js';
 const sum = (column: SQLiteColumn) => ({ value: sql<number>`coalesce(sum(${column}), 0)` });
 
 function value(row: { value: number } | undefined): number {
-  if (row === undefined) throw new Error('聚合查询没有返回行');
+  if (row === undefined) throw new Error('Aggregate query returned no row');
   return row.value;
 }
 
-// Contracts 7.8：三项成本都从来源表现算；runs.cost_usd 只是 total 的缓存
+// Contracts 7.8: all three costs are computed from the source tables; runs.cost_usd only caches the total
 export function runCostBreakdown(db: Db, runId: string): CostBreakdown {
   const run = db.select({ sessionId: runs.sessionId }).from(runs).where(eq(runs.id, runId)).get();
-  if (run === undefined) throw new Error(`没有 run ${runId}`);
-  // requests 按 session_id 取，主 session 与子代理的请求都在其中
+  if (run === undefined) throw new Error(`No run ${runId}`);
+  // requests are selected by session_id, which covers both main-session and subagent requests
   const agent = value(
     db
       .select(sum(requests.costUsd))
