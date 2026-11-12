@@ -5,7 +5,6 @@ import { InlineRename } from '@/components/inline-rename';
 import { PageShell } from '@/components/page-shell';
 import { AddHostForm, HostCheckList } from '@/components/ssh/ssh-parts';
 import { Button } from '@/components/ui/button';
-import { VscodeServers } from '@/components/vscode-servers';
 import { formatDateTime } from '@/lib/format';
 import { saveSettings, settingsQuery } from '@/lib/runs-api';
 import {
@@ -219,7 +218,6 @@ export function SettingsPage() {
     <div className="flex max-w-5xl flex-col gap-6">
       <PageShell title="Settings" description="Settings for the dashboard itself, in sections." />
       <SshHostsSection />
-      <VscodeServers />
       <TeamStatsSection />
     </div>
   );

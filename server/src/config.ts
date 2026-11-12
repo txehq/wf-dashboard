@@ -9,8 +9,9 @@ const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
 // WFD_DATA_DIR (relative to the repo root or absolute) points at another data directory; tests use their own
 const dataDir = path.resolve(repoRoot, process.env.WFD_DATA_DIR ?? 'data');
 
-// A release package (Contracts 39.2) carries release.json at its root; a git checkout has none. The LaunchAgent the
-// installer writes passes the install root (the directory holding app/, current and data/) as WFD_INSTALL_ROOT
+// A release package (Contracts 39.2) carries release.json at its root (WF Dashboard.app/Contents/Resources/server/); a
+// git checkout has none. The app starts the server with the install root (the directory holding data/, logs/ and
+// updates/) as WFD_INSTALL_ROOT and its own process id as WFD_APP_PID
 const ReleaseFile = z.object({ version: z.string().min(1), commit: z.string().min(1) });
 export const RELEASE_FILE = 'release.json';
 
@@ -18,13 +19,25 @@ function readInstall() {
   const file = path.join(repoRoot, RELEASE_FILE);
   if (!fs.existsSync(file)) return null;
   const release = ReleaseFile.parse(JSON.parse(fs.readFileSync(file, 'utf8')));
-  const root = process.env.WFD_INSTALL_ROOT;
-  if (root === undefined || root === '') {
+  const root = process.env.WFD_INSTALL_ROOT ?? '';
+  const appPid = process.env.WFD_APP_PID ?? '';
+  if (root === '' || appPid === '') {
     throw new Error(
-      `${file} marks this as an installed release package, but WFD_INSTALL_ROOT is not set; start the dashboard through the LaunchAgent that install.sh writes`,
+      `${file} marks this as the server of WF Dashboard.app, but WFD_INSTALL_ROOT or WFD_APP_PID is not set; open WF Dashboard.app to start it`,
     );
   }
-  return { ...release, root: path.resolve(root), packageDir: path.resolve(repoRoot) };
+  const packageDir = path.resolve(repoRoot);
+  const appPath = path.resolve(packageDir, '../../..');
+  if (path.extname(appPath) !== '.app') {
+    throw new Error(`The release package ${packageDir} is not inside an app's Contents/Resources/`);
+  }
+  return {
+    ...release,
+    root: path.resolve(root),
+    packageDir,
+    appPath,
+    appPid: z.coerce.number().int().positive().parse(appPid),
+  };
 }
 
 export const install = readInstall();
@@ -61,10 +74,8 @@ export const config = {
   runsDir: path.join(dataDir, 'runs'),
   // Interactive session directories (hooks.json, pty.log, isolated workspace)
   liveDir: path.join(dataDir, 'live'),
-  // VS Code for the Web (Contracts section 32): connection token, extensions and settings, local server ports and logs
-  vscodeDir: path.join(dataDir, 'vscode'),
-  // Server packages cached by commit and platform (about 200 MB)
-  vscodeServersDir: path.join(dataDir, 'vscode', 'servers'),
+  // What the web VS Code of earlier versions kept (Contracts section 32), deleted at startup
+  oldVscodeDir: path.join(dataDir, 'vscode'),
   // Playwright browsers installed for grading
   playwrightBrowsersDir: path.join(dataDir, 'playwright-browsers'),
   // Task definitions are written by the page and by Linear imports: an installed package keeps them in data/tasks/

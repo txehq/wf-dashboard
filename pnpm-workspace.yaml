@@ -1,7 +1,10 @@
 packages:
   - server
   - web
+  - desktop
 allowBuilds:
+  # Downloads the Electron binary the release packages into WF Dashboard.app
+  electron: true
   esbuild: true
   # The install script only checks the bundled darwin prebuild and arranges build/; nothing is compiled locally
   node-pty: true

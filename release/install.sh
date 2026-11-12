@@ -1,35 +1,35 @@
 #!/bin/bash
-# Installs wf-dashboard @VERSION@ for this user (Contracts 39.3). Run it as:
+# Installs WF Dashboard @VERSION@ for this user (Contracts 39.3). Run it as:
 #   gh release download --repo txehq/wf-dashboard --pattern install.sh --output - | bash
-# It installs under ~/Library/Application Support/wf-dashboard/ (app/<version>/, current, data/), starts the LaunchAgent
-# dev.engapp.wf-dashboard through your login shell, and serves http://127.0.0.1:7317.
+# It puts WF Dashboard.app in /Applications and opens it; the app runs the dashboard on http://127.0.0.1:7317 with its
+# data in ~/Library/Application Support/wf-dashboard/data/.
 # To try it beside another install, these override the defaults:
-#   WFD_INSTALL_ROOT     the install directory
-#   WFD_INSTALL_LABEL    the LaunchAgent label
-#   WFD_INSTALL_PORT     the port
-#   WFD_INSTALL_TARBALL  a local wf-dashboard-<version>-darwin-arm64.tar.gz instead of the Release asset
-#   WFD_INSTALL_NO_OPEN  set to 1 to not open the browser
+#   WFD_INSTALL_APP        where the app goes
+#   WFD_INSTALL_PORT       the port
+#   WFD_INSTALL_DATA_DIR   the data directory (logs/, updates/ and the txe-workflow clone go next to it)
+#   WFD_INSTALL_ZIP        a local WF-Dashboard-<version>-arm64.zip instead of the Release asset
+#   WFD_INSTALL_OLD_LABEL  the LaunchAgent of a 0.1.0 install to remove
 set -euo pipefail
 
 main() {
   local version='@VERSION@'
   local repo=txehq/wf-dashboard
-  local root="${WFD_INSTALL_ROOT:-$HOME/Library/Application Support/wf-dashboard}"
-  local label="${WFD_INSTALL_LABEL:-dev.engapp.wf-dashboard}"
+  local app="${WFD_INSTALL_APP:-/Applications/WF Dashboard.app}"
   local port="${WFD_INSTALL_PORT:-7317}"
-  local tarball="${WFD_INSTALL_TARBALL:-}"
-  local asset="wf-dashboard-$version-darwin-arm64.tar.gz"
-  local plist="$HOME/Library/LaunchAgents/$label.plist"
-  local domain
-  domain="gui/$(id -u)"
+  local data="${WFD_INSTALL_DATA_DIR:-$HOME/Library/Application Support/wf-dashboard/data}"
+  local zip="${WFD_INSTALL_ZIP:-}"
+  local old_label="${WFD_INSTALL_OLD_LABEL:-dev.engapp.wf-dashboard}"
+  local root
+  root=$(dirname "$data")
+  local asset="WF-Dashboard-$version-arm64.zip"
   local url="http://127.0.0.1:$port"
   local out
 
-  say "Installing wf-dashboard $version into $root"
+  say "Installing WF Dashboard $version into $app"
 
   # Platform and prerequisites (39.1): each failure shows the command's own output and how to fix it
   [[ "$(uname -s)" == Darwin && "$(uname -m)" == arm64 ]] ||
-    fail "This package runs on macOS on Apple Silicon; this machine is $(uname -sm)." \
+    fail "WF Dashboard runs on macOS on Apple Silicon; this machine is $(uname -sm)." \
       "Install on a Mac with an Apple Silicon (M-series) chip."
   command -v gh >/dev/null ||
     fail "gh (GitHub CLI) is not on PATH." \
@@ -50,7 +50,7 @@ main() {
   out=$(wf --version 2>&1) ||
     fail "wf --version failed:"$'\n'"$out" \
       "Install the Magi workflow: follow the Install section of https://github.com/txehq/txe-workflow"
-  # The service starts through your login shell, as a terminal does: it must find the same tools there
+  # The app starts the server through your login shell, as a terminal does: it must find the same tools there
   out=$("$SHELL" -l -i -c 'for t in gh claude wf; do command -v "$t" >/dev/null || echo "wfd-missing: $t"; done' </dev/null 2>&1) ||
     fail "Your login shell $SHELL -l -i failed:"$'\n'"$out" "Fix the error in your shell configuration (~/.zshrc for zsh)."
   out=$(printf '%s\n' "$out" | sed -n 's/^wfd-missing: //p' | tr '\n' ' ')
@@ -58,109 +58,85 @@ main() {
     fail "Your login shell ($SHELL -l -i) does not find: $out" \
       "Add the directories of these commands to PATH in your shell configuration (~/.zshrc for zsh), then run the install again."
 
-  # Reinstalling: stop this install's own service first, so its port is free again
-  if launchctl print "$domain/$label" >/dev/null 2>&1; then
-    say "Stopping the running service $label"
-    launchctl bootout "$domain/$label"
-    wait_port_free "$port"
+  # A 0.1.0 install (a LaunchAgent serving app/<version> through current) is stopped and removed; data/ stays
+  local domain
+  domain="gui/$(id -u)"
+  if launchctl print "$domain/$old_label" >/dev/null 2>&1; then
+    say "Stopping and removing the 0.1.0 service $old_label"
+    launchctl bootout "$domain/$old_label"
   fi
+  rm -f "$HOME/Library/LaunchAgents/$old_label.plist"
+  rm -rf "$root/app" "$root/downloads" "$root/current" "$root/current.next" "$root/install.env"
+
+  # Reinstalling: quit the app this install replaces, which stops its server
+  quit_app "$app"
   out=$(lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>&1) && {
     fail "Port $port is already in use:"$'\n'"$out" \
       "Stop the program listening on $port (for example a dashboard started from the repository with pnpm start), then run the install again."
   }
 
-  # The package: app/<version>/ is extracted, checked with its own Node, and current points at it
-  mkdir -p "$root/app" "$root/data" "$root/logs" "$root/downloads"
-  if [[ -z "$tarball" ]]; then
-    local downloads="$root/downloads/$version"
-    rm -rf "$downloads"
-    mkdir -p "$downloads"
-    say "Downloading $asset"
-    gh release download "v$version" --repo "$repo" --pattern "$asset" --dir "$downloads"
-    tarball="$downloads/$asset"
-  fi
-  local staging="$root/app/.staging-$version"
+  # The app: extracted next to the data, checked with its own Node, then moved into place
+  mkdir -p "$data" "$root/logs"
+  local staging="$root/updates/install-$version"
   rm -rf "$staging"
   mkdir -p "$staging"
-  tar -xzf "$tarball" -C "$staging" --strip-components 1
-  out=$("$staging/bin/node" -p 'require(process.argv[1]).version' "$staging/release.json")
-  [[ "$out" == "$version" ]] || fail "$tarball contains version $out, not $version." \
-    "Download the matching package, or use the install.sh of version $out."
+  if [[ -z "$zip" ]]; then
+    say "Downloading $asset"
+    gh release download "v$version" --repo "$repo" --pattern "$asset" --dir "$staging"
+    zip="$staging/$asset"
+  fi
+  ditto -x -k "$zip" "$staging"
+  local package="$staging/WF Dashboard.app/Contents/Resources/server"
+  out=$("$package/bin/node" -p 'require(process.argv[1]).version' "$package/release.json")
+  [[ "$out" == "$version" ]] || fail "$zip contains version $out, not $version." \
+    "Download the matching app, or use the install.sh of version $out."
   say "Checking native modules with the bundled Node"
-  "$staging/bin/node" "$staging/server/dist/install/check-native.js"
-  rm -rf "$root/app/$version"
-  mv "$staging" "$root/app/$version"
-  ln -sfn "app/$version" "$root/current"
-  rm -rf "$root/downloads"
+  "$package/bin/node" "$package/server/dist/install/check-native.js"
+  out=$({ mkdir -p "$(dirname "$app")" && rm -rf "$app" && mv "$staging/WF Dashboard.app" "$app"; } 2>&1) ||
+    fail "Cannot put the app at $app:"$'\n'"$out" \
+      "Make $(dirname "$app") writable for $(id -un) (an administrator can: sudo chown $(id -un) \"$(dirname "$app")\"), then run the install again."
+  rm -rf "$staging"
 
-  # txe-workflow: the service uses WFD_TXE_WORKFLOW or ~/Project/txe/txe-workflow; with neither, a clone next to data/
-  local txe=""
-  if [[ -z "${WFD_TXE_WORKFLOW:-}" && ! -d "$HOME/Project/txe/txe-workflow" ]]; then
-    txe="$root/txe-workflow"
-    if [[ ! -d "$txe/.git" ]]; then
-      say "Cloning txehq/txe-workflow into $txe"
-      gh repo clone txehq/txe-workflow "$txe"
-    fi
+  # txe-workflow: the server uses WFD_TXE_WORKFLOW or ~/Project/txe/txe-workflow; with neither, a clone next to data/
+  if [[ -z "${WFD_TXE_WORKFLOW:-}" && ! -d "$HOME/Project/txe/txe-workflow" && ! -d "$root/txe-workflow/.git" ]]; then
+    say "Cloning txehq/txe-workflow into $root/txe-workflow"
+    gh repo clone txehq/txe-workflow "$root/txe-workflow"
   fi
 
-  # The LaunchAgent: launchd reads no shell configuration, so the service runs inside your login shell
-  local command
-  command=$(printf 'exec env WFD_INSTALL_ROOT=%q WFD_DATA_DIR=%q WFD_PORT=%q' "$root" "$root/data" "$port")
-  [[ -z "$txe" ]] || command+=$(printf ' WFD_TXE_WORKFLOW=%q' "$txe")
-  command+=$(printf ' %q %q --web %q' "$root/current/bin/node" "$root/current/server/dist/main.js" "$root/current/web/dist")
-  mkdir -p "$(dirname "$plist")"
-  rm -f "$plist"
-  plutil -create xml1 "$plist"
-  plutil -insert Label -string "$label" "$plist"
-  plutil -insert ProgramArguments -array "$plist"
-  local i=0 arg
-  for arg in "$SHELL" -l -i -c "$command"; do
-    plutil -insert "ProgramArguments.$i" -string "$arg" "$plist"
-    i=$((i + 1))
-  done
-  plutil -insert WorkingDirectory -string "$root/current/server" "$plist"
-  plutil -insert RunAtLoad -bool true "$plist"
-  plutil -insert KeepAlive -bool true "$plist"
-  plutil -insert StandardOutPath -string "$root/logs/server.log" "$plist"
-  plutil -insert StandardErrorPath -string "$root/logs/server.log" "$plist"
-  printf 'label=%q\nport=%q\n' "$label" "$port" >"$root/install.env"
-  launchctl bootstrap "$domain" "$plist"
-
-  say "Waiting for the dashboard to answer on $url"
+  say "Opening $app"
+  open --env "WFD_PORT=$port" --env "WFD_DATA_DIR=$data" "$app"
   local tries=0
   until curl -fsS --max-time 2 "$url/api/health" >/dev/null 2>&1; do
     tries=$((tries + 1))
-    if ((tries > 120)); then
-      # A service that does not start is not left restarting in the background
-      launchctl bootout "$domain/$label"
-      fail "The service did not answer $url/api/health within 2 minutes and was stopped. Last lines of $root/logs/server.log:"$'\n'"$(tail -n 40 "$root/logs/server.log")" \
-        "Fix the error above, then run the install again."
-    fi
+    ((tries <= 120)) ||
+      fail "WF Dashboard did not answer $url/api/health within 2 minutes. Its window shows the error; the last lines of $root/logs/server.log:"$'\n'"$(tail -n 40 "$root/logs/server.log" 2>&1)" \
+        "Fix the error above, then open WF Dashboard again."
     sleep 1
   done
 
-  say "wf-dashboard $version is running at $url"
-  say "Data: $root/data"
-  say "Logs: $root/logs/server.log"
-  say "Uninstall: \"$root/current/uninstall.sh\""
-  [[ "${WFD_INSTALL_NO_OPEN:-}" == 1 ]] || open "$url"
+  say "WF Dashboard $version is running at $url"
+  say "Data: $data"
+  say "Logs: $root/logs"
+  say "Uninstall: \"$app/Contents/Resources/uninstall.sh\""
 }
 
 say() { printf '%s\n' "$1"; }
 
 fail() {
-  printf '\nwf-dashboard install failed: %s\n' "$1" >&2
+  printf '\nWF Dashboard install failed: %s\n' "$1" >&2
   printf 'Fix: %s\n' "$2" >&2
   exit 1
 }
 
-wait_port_free() {
-  local tries=0
-  while lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; do
-    tries=$((tries + 1))
-    ((tries <= 30)) || fail "Port $1 is still in use 30 seconds after stopping the service:"$'\n'"$(lsof -nP -iTCP:"$1" -sTCP:LISTEN)" \
-      "Stop the program listening on $1, then run the install again."
-    sleep 1
+# Quits the app at the given path when it is running (it asks first when a run or an interactive process is running)
+quit_app() {
+  local pid
+  pid=$(lsof -t "$1/Contents/MacOS/WF Dashboard" 2>/dev/null | head -n 1) || true
+  [[ -n "$pid" ]] || return 0
+  say "Quitting the running WF Dashboard"
+  osascript -e "tell application \"$1\" to quit" >/dev/null
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 0.2
   done
 }
 

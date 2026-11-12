@@ -21,7 +21,6 @@ import { type DraftControls, useDraftControls } from '@/components/live/draft-co
 import { FullscreenArea, FullscreenButton, useFullscreen } from '@/components/fullscreen';
 import { FinderMenu } from '@/components/live/finder-menu';
 import { OpenInVscode } from '@/components/live/open-in-vscode';
-import { LOCAL_SERVER_ID } from '@/lib/vscode-api';
 import { RemoteCopyMenu } from '@/components/live/remote-copy-menu';
 import { HostLabel } from '@/components/ssh/ssh-parts';
 import { ImportSessionsButton } from '@/components/live/import-sessions';
@@ -911,10 +910,7 @@ function ItemPanel({
         ) : (
           <RemoteCopyMenu target={data.host.target} cwd={data.cwd} />
         )}
-        <OpenInVscode
-          liveId={liveId}
-          serverId={data.host === null ? LOCAL_SERVER_ID : `ssh:${data.host.id}`}
-        />
+        <OpenInVscode liveId={liveId} />
         <Button
           size="sm"
           variant={side ? 'secondary' : 'ghost'}

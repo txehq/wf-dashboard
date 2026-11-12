@@ -22,18 +22,21 @@ Then run this one command (no clone, no pnpm, no build):
 gh release download --repo txehq/wf-dashboard --pattern install.sh --output - | bash
 ```
 
-It checks the prerequisites and stops with the failing command's output and the fix when one is missing, installs the latest release, starts it in the background (it also starts after you log in), and opens <http://127.0.0.1:7317>. The dashboard uses your own Claude Code, Codex, gh, Linear sign-in and Obsidian vault; the environment status at the bottom of the navigation lists anything still missing, with the command that fixes it.
+It checks the prerequisites and stops with the failing command's output and the fix when one is missing, installs the Mac app **WF Dashboard** in `/Applications`, and opens it. The app is a window and a menu bar icon: the window shows the dashboard, served by a local server on <http://127.0.0.1:7317> that the app starts for you. The dashboard uses your own Claude Code, Codex, gh, VS Code, Linear sign-in and Obsidian vault; the environment status at the bottom of the navigation lists anything still missing, with the command that fixes it.
 
-- Everything lives in `~/Library/Application Support/wf-dashboard/`: `app/<version>/` is the installed package, `current` points at the running version, and `data/` holds your data (database, variants, runs). Logs are in `logs/server.log`.
-- The background service is the LaunchAgent `~/Library/LaunchAgents/dev.engapp.wf-dashboard.plist`. It runs inside your login shell, so it sees the same `PATH`, `MAGI_VAULT` and proxy settings as a terminal.
-- It updates itself: at start and every 6 hours it reads the latest release and switches to it when no run or interactive session is running. The version is shown at the bottom of the navigation, with the reason when an update waits or fails.
+- Closing the window keeps the server running, so interactive sessions and runs continue; the menu bar icon opens the window again or quits. Quitting asks first when a run or an interactive session is still running, then stops the server.
+- The app starts when you log in, without a window.
+- The server runs inside your login shell, so it sees the same `PATH`, `MAGI_VAULT` and proxy settings as a terminal.
+- Your data (database, variants, runs) is in `~/Library/Application Support/wf-dashboard/data/`; logs are in `~/Library/Application Support/wf-dashboard/logs/`. Updates and reinstalls keep it.
+- It updates itself: at start and every 6 hours it reads the latest release, downloads it, and replaces and reopens the app when no run or interactive session is running. The version is shown at the bottom of the navigation, with the reason when an update waits or fails.
 - When txe-workflow is not at `~/Project/txe/txe-workflow` (and `WFD_TXE_WORKFLOW` is not set), the installer clones it into `~/Library/Application Support/wf-dashboard/txe-workflow/`.
 - Port 7317 must be free: stop a dashboard started from the repository first.
+- A 0.1.0 install (the background service `dev.engapp.wf-dashboard`) is removed by the installer; its `data/` is used as is.
 
-Uninstall (keeps `data/`):
+Uninstall (keeps `data/` and tells you where it is):
 
 ```sh
-"$HOME/Library/Application Support/wf-dashboard/current/uninstall.sh"
+"/Applications/WF Dashboard.app/Contents/Resources/uninstall.sh"
 ```
 
 ## Running from the repository
@@ -194,18 +197,21 @@ After changing `server/src/db/schema.ts`, run `pnpm db:generate --name <migratio
 
 ### Releasing
 
-The version is in the root `package.json`. `pnpm release` builds the release package into `.work/release/`:
-`wf-dashboard-<version>-darwin-arm64.tar.gz` (the built server and pages, production `node_modules`, this machine's
-Node 22 binary, `tasks/`, the server sources with the built-in workflows and skills, `agent/MAGI.md`) and `install.sh`.
-It checks with the bundled Node that every native module loads. Run it with Node 22 on Apple Silicon.
+The version is in the root `package.json`. `pnpm release` builds into `.work/release/`: `WF Dashboard.app` (Electron,
+from `desktop/`, signed ad hoc) whose `Contents/Resources/server/` holds the built server and pages, production
+`node_modules`, this machine's Node 22 binary, `tasks/`, the server sources with the built-in workflows and skills and
+`agent/MAGI.md`; the app zipped as `WF-Dashboard-<version>-arm64.zip`; and `install.sh`. It checks with the bundled
+Node that every native module loads. Run it with Node 22 on Apple Silicon; behind a proxy, set
+`ELECTRON_GET_USE_PROXY=true` and `HTTPS_PROXY` so the Electron download goes through it.
 `pnpm release --publish --commit <sha>` also creates the GitHub Release `v<version>` on txehq/wf-dashboard at that
-commit (the snapshot commit on GitHub) and uploads both files; installed dashboards pick it up within 6 hours.
+commit (the snapshot commit on GitHub) and uploads the zip and `install.sh`; installed apps pick it up within 6 hours.
 
-To try a package without touching an existing install, give the installer another directory, label and port, and the
-local tarball:
+To try the app without touching an existing install, give the installer another app location, port and data
+directory, and the local zip; the uninstaller takes the same port and data directory:
 
 ```sh
-cat .work/release/install.sh | WFD_INSTALL_ROOT="$PWD/.work/try" WFD_INSTALL_LABEL=dev.engapp.wf-dashboard-try \
-  WFD_INSTALL_PORT=7377 WFD_INSTALL_TARBALL="$PWD/.work/release/wf-dashboard-0.1.0-darwin-arm64.tar.gz" bash
-"$PWD/.work/try/current/uninstall.sh"
+WFD_INSTALL_APP="$PWD/.work/try/WF Dashboard.app" WFD_INSTALL_PORT=7377 WFD_INSTALL_DATA_DIR="$PWD/.work/try/root/data" \
+  WFD_INSTALL_ZIP="$PWD/.work/release/WF-Dashboard-0.2.0-arm64.zip" bash .work/release/install.sh
+WFD_INSTALL_PORT=7377 WFD_INSTALL_DATA_DIR="$PWD/.work/try/root/data" \
+  "$PWD/.work/try/WF Dashboard.app/Contents/Resources/uninstall.sh"
 ```

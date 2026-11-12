@@ -13,7 +13,6 @@
     "./magi-agent/views": "./src/magi-agent/views.ts",
     "./remote/views": "./src/remote/views.ts",
     "./dirs/views": "./src/dirs/views.ts",
-    "./vscode/views": "./src/vscode/views.ts",
     "./workflows/schema": "./src/workflows/schema.ts",
     "./workflows/eval-kinds": "./src/workflows/eval-kinds.ts",
     "./variants/model-names": "./src/variants/model-names.ts",

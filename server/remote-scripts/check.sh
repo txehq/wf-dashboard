@@ -17,6 +17,14 @@ tool() {
   out=$("$p" "$2" 2>&1 | head -n 1)
   printf '@@wfd %s 0\n%s\n%s\n' "$1" "$p" "$out"
 }
+# The web VS Code of earlier versions (Contracts section 32): its tmux session and files are removed on connecting
+old_vscode="$HOME/.wf-dashboard/vscode"
+if [ -d "$old_vscode" ]; then
+  if [ -S "$old_vscode/tmux.sock" ] && command -v tmux >/dev/null 2>&1; then
+    tmux -S "$old_vscode/tmux.sock" kill-session -t wfd-vscode >/dev/null 2>&1
+  fi
+  rm -rf "$old_vscode"
+fi
 item uname uname -sm
 item home printf '%s' "$HOME"
 tool claude --version

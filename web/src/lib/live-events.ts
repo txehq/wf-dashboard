@@ -33,7 +33,6 @@ const EVENT_TYPES = [
   'magi.updated',
   'magi.deploy',
   'ssh-hosts.updated',
-  'vscode.servers',
   'team.sync',
   'install.updated',
 ] as const;
@@ -169,11 +168,6 @@ export function useLiveConnection() {
       for (const queryKey of [['workflows'], ['variants']]) {
         void client.invalidateQueries({ queryKey });
       }
-      return;
-    }
-    // vscode.servers (Contracts 32.4): VS Code server progress, start and exit
-    if (type === 'vscode.servers') {
-      void client.invalidateQueries({ queryKey: ['vscode', 'servers'] });
       return;
     }
     // install.updated (Contracts 39.4): the installed package's self-update changed

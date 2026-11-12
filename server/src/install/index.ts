@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
@@ -11,20 +12,19 @@ import { events } from '../events.js';
 import { bootTime, paneProcessAlive } from '../live/orca-panes.js';
 import type { InstallView, UpdateView } from './views.js';
 
-// Running from an installed release package (Contracts 39.3–39.5)
+// Running as the server of WF Dashboard.app (Contracts 39.2a–39.5)
 
 export const PACKAGE_REPO = 'txehq/wf-dashboard';
 export const UPDATE_CHECK_MS = 6 * 60 * 60 * 1000;
 // While a downloaded version waits for running work to finish, how often it looks again
 const IDLE_POLL_MS = 60_000;
+export const APP_NAME = 'WF Dashboard.app';
 
-export const packageAsset = (version: string) => `wf-dashboard-${version}-darwin-arm64.tar.gz`;
+export const appAsset = (version: string) => `WF-Dashboard-${version}-arm64.zip`;
 
-// The check run with a package's own Node after extracting it
-export const nativeCheck = (packageDir: string) => ({
-  node: path.join(packageDir, 'bin', 'node'),
-  script: path.join(packageDir, 'server', 'dist', 'install', 'check-native.js'),
-});
+// The server package inside an app bundle
+export const packageDirOf = (appPath: string) =>
+  path.join(appPath, 'Contents', 'Resources', 'server');
 
 // Runs a command that must succeed; on failure the error carries the command and its output as written
 async function must(file: string, args: string[]): Promise<string> {
@@ -42,7 +42,7 @@ const removeTree = (dir: string) => {
 };
 
 // At startup: tasks shipped in the package that data/tasks/ does not have yet are copied there (ones already there keep
-// the user's edits), and every other version under app/ and leftover downloads are deleted
+// the user's edits), and updates downloaded by an earlier run are deleted (a newer one is downloaded again)
 export function prepareInstall(install: Install, tasks: { bundled: string; data: string }) {
   fs.mkdirSync(tasks.data, { recursive: true });
   for (const entry of fs.readdirSync(tasks.bundled, { withFileTypes: true })) {
@@ -51,19 +51,14 @@ export function prepareInstall(install: Install, tasks: { bundled: string; data:
     if (fs.existsSync(target)) continue;
     fs.cpSync(path.join(tasks.bundled, entry.name), target, { recursive: true });
   }
-  const appDir = path.join(install.root, 'app');
-  for (const name of fs.readdirSync(appDir)) {
-    const dir = path.join(appDir, name);
-    if (dir !== install.packageDir) removeTree(dir);
-  }
-  removeTree(path.join(install.root, 'downloads'));
-  fs.rmSync(path.join(install.root, 'current.next'), { force: true });
+  removeTree(path.join(install.root, 'updates'));
 }
 
 // The same conditions as restarting the user's instance (.work/restart-user.sh): runs that are queued, preparing,
 // running or grading, and this machine's interactive processes that are still alive. Processes on SSH hosts run in tmux
-// and reconnect after a restart (Contracts 31.4); agents in Orca terminals are reattached by the topology sync (35.3)
-function runningWork(db: Db): string[] {
+// and reconnect after a restart (Contracts 31.4); agents in Orca terminals are reattached by the topology sync (35.3).
+// Also what quitting the app asks about (39.2a)
+export function runningWork(db: Db): string[] {
   const active = db
     .select({ id: runs.id, status: runs.status })
     .from(runs)
@@ -101,11 +96,14 @@ const PackageRelease = z.object({ version: z.string().min(1) });
 export interface UpdaterOptions {
   db: Db;
   install: Install;
-  // Ends the service after current is switched; launchd starts it again from the new version
+  // Passed to the relaunched app, so it serves the same port and data directory
+  port: number;
+  dataDir: string;
+  // Ends the service once the app replacement is under way; the app quits when its server exits with this code
   restart: () => void;
 }
 
-export function createUpdater({ db, install, restart }: UpdaterOptions) {
+export function createUpdater({ db, install, port, dataDir, restart }: UpdaterOptions) {
   const state: UpdateView = {
     step: null,
     checkedAt: null,
@@ -118,6 +116,7 @@ export function createUpdater({ db, install, restart }: UpdaterOptions) {
   let checkTimer: ReturnType<typeof setInterval> | undefined;
   let idleTimer: ReturnType<typeof setInterval> | undefined;
   let switched = false;
+  const updatesDir = path.join(install.root, 'updates');
 
   const publish = () => {
     events.publish({ type: 'install.updated' });
@@ -127,13 +126,14 @@ export function createUpdater({ db, install, restart }: UpdaterOptions) {
     publish();
   };
 
-  // Downloads the version's tarball, extracts it to app/<version>/ and loads its native modules with its own Node
+  // Downloads the version's app zip into updates/<version>/, extracts it there and loads its native modules with its
+  // own Node
   async function fetchVersion(version: string) {
     step('downloading');
-    const downloads = path.join(install.root, 'downloads', version);
-    removeTree(downloads);
-    fs.mkdirSync(downloads, { recursive: true });
-    const asset = packageAsset(version);
+    const dir = path.join(updatesDir, version);
+    removeTree(dir);
+    fs.mkdirSync(dir, { recursive: true });
+    const asset = appAsset(version);
     await must('gh', [
       'release',
       'download',
@@ -143,35 +143,25 @@ export function createUpdater({ db, install, restart }: UpdaterOptions) {
       '--pattern',
       asset,
       '--dir',
-      downloads,
+      dir,
     ]);
-    const staging = path.join(install.root, 'app', `.staging-${version}`);
-    removeTree(staging);
-    fs.mkdirSync(staging, { recursive: true });
-    await must('tar', [
-      '-xzf',
-      path.join(downloads, asset),
-      '-C',
-      staging,
-      '--strip-components',
-      '1',
-    ]);
+    await must('ditto', ['-x', '-k', path.join(dir, asset), dir]);
+    fs.rmSync(path.join(dir, asset));
     step('verifying');
+    const packageDir = packageDirOf(path.join(dir, APP_NAME));
     const release = PackageRelease.parse(
-      JSON.parse(fs.readFileSync(path.join(staging, 'release.json'), 'utf8')),
+      JSON.parse(fs.readFileSync(path.join(packageDir, 'release.json'), 'utf8')),
     );
     if (release.version !== version) {
       throw new Error(`${asset} contains version ${release.version}, not ${version}`);
     }
-    const check = nativeCheck(staging);
-    await must(check.node, [check.script]);
-    const target = path.join(install.root, 'app', version);
-    removeTree(target);
-    fs.renameSync(staging, target);
-    removeTree(downloads);
+    await must(path.join(packageDir, 'bin', 'node'), [
+      path.join(packageDir, 'server', 'dist', 'install', 'check-native.js'),
+    ]);
   }
 
-  // Switches current to the pending version once nothing is running, then restarts; otherwise looks again every minute
+  // Once nothing is running: a detached script waits for the app to quit, replaces it with the pending version and
+  // opens it; the server exits so the app quits. Otherwise looks again every minute
   function trySwitch() {
     const version = state.pending;
     if (version === null || switched) return;
@@ -183,12 +173,31 @@ export function createUpdater({ db, install, restart }: UpdaterOptions) {
     }
     clearInterval(idleTimer);
     idleTimer = undefined;
-    const next = path.join(install.root, 'current.next');
-    fs.rmSync(next, { force: true });
-    fs.symlinkSync(path.join('app', version), next);
-    fs.renameSync(next, path.join(install.root, 'current'));
+    // The script runs from updates/, which outlives the app it replaces
+    const script = path.join(updatesDir, 'replace-app.sh');
+    fs.copyFileSync(
+      path.join(install.packageDir, 'server', 'src', 'install', 'replace-app.sh'),
+      script,
+    );
+    const logs = path.join(install.root, 'logs');
+    fs.mkdirSync(logs, { recursive: true });
+    const log = fs.openSync(path.join(logs, 'update.log'), 'a');
+    const child = spawn(
+      '/bin/bash',
+      [
+        script,
+        String(install.appPid),
+        install.appPath,
+        path.join(updatesDir, version, APP_NAME),
+        `WFD_PORT=${String(port)}`,
+        `WFD_DATA_DIR=${dataDir}`,
+      ],
+      { detached: true, stdio: ['ignore', log, log] },
+    );
+    child.unref();
+    fs.closeSync(log);
     switched = true;
-    console.log(`[update] current is now ${version}; restarting`);
+    console.log(`[update] replacing ${install.appPath} with ${version} once the app quits`);
     restart();
   }
 
@@ -237,12 +246,13 @@ export function createUpdater({ db, install, restart }: UpdaterOptions) {
       clearInterval(idleTimer);
     },
 
-    view(dataDir: string): InstallView {
+    view(): InstallView {
       return {
         installed: true,
         version: install.version,
         commit: install.commit,
         root: install.root,
+        app: install.appPath,
         dataDir,
         update: { ...state, waitingFor: [...state.waitingFor] },
       };

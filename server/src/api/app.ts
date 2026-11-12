@@ -52,13 +52,12 @@ import { createMagiAgent } from '../magi-agent/index.js';
 import { magiAgentRoutes } from './magi-agent.js';
 import { createHosts } from '../remote/hosts.js';
 import { sshHostRoutes } from './ssh-hosts.js';
-import { createVscode } from '../vscode/index.js';
 import { vscodeRoutes } from './vscode.js';
 import { createLocalDirs } from '../dirs/local.js';
 import { localDirRoutes } from './local-dirs.js';
 import { createTeamSync } from '../team/sync.js';
 import { teamRoutes } from './team.js';
-import { createUpdater } from '../install/index.js';
+import { createUpdater, runningWork } from '../install/index.js';
 import { installRoutes } from './install.js';
 
 export interface AppOptions {
@@ -265,9 +264,13 @@ export async function buildApp({
   });
 
   // The installed version and its self-update (Contracts 39.4); a git checkout has neither
-  const updater = install === null ? null : createUpdater({ db, install, restart });
+  const updater =
+    install === null
+      ? null
+      : createUpdater({ db, install, port: config.port, dataDir: config.dataDir, restart });
   await app.register(installRoutes, {
-    view: () => (updater === null ? { installed: false as const } : updater.view(config.dataDir)),
+    view: () => (updater === null ? { installed: false as const } : updater.view()),
+    running: () => runningWork(db),
   });
   if (updater !== null && selfUpdate === true) {
     app.addHook('onListen', () => {
@@ -344,27 +347,8 @@ export async function buildApp({
     };
   });
 
-  // Open a Live item's working directory in VS Code for the Web (Contracts section 32): the server stops when the
-  // dashboard exits
-  const vscode = createVscode({
-    dir: config.vscodeDir,
-    serversDir: config.vscodeServersDir,
-    itemOf: (liveId) => {
-      const item = live.get(liveId);
-      return { cwd: item.cwd, hostId: item.host?.id ?? null };
-    },
-    hosts,
-    stopGraceMs: 10_000,
-  });
-  await app.register(vscodeRoutes, { vscode });
-  // Once the service listens, list the VS Code servers still running on SSH hosts in the background (Contracts 32.3),
-  // without blocking startup
-  app.addHook('onListen', () => {
-    void vscode.restoreRemote();
-  });
-  app.addHook('onClose', async () => {
-    await vscode.shutdown();
-  });
+  // Open a Live item's working directory in the user's VS Code (Contracts section 32)
+  await app.register(vscodeRoutes, { live });
   // Working directories of the local real environment: browse and create folders (Contracts 34.1), starting at home
   await app.register(localDirRoutes, {
     dirs: createLocalDirs({ home: os.homedir() }),

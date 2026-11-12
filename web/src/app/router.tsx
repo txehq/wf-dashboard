@@ -15,7 +15,6 @@ import { TaskDetailPage } from '@/pages/tasks-detail';
 import { TaskNewPage } from '@/pages/tasks-new';
 import { TeamPage } from '@/pages/team';
 import { VariantPage, VariantsRedirect } from '@/pages/variants';
-import { VscodeOpenPage } from '@/pages/vscode-open';
 import { WorkflowPage } from '@/pages/workflow-detail';
 import { WorkflowsPage } from '@/pages/workflows';
 
@@ -45,6 +44,4 @@ export const router = createBrowserRouter([
       { path: 'team', element: <TeamPage /> },
     ],
   },
-  // The "Open in VS Code" tab (Contracts 32.4): no navigation; becomes VS Code once ready
-  { path: '/vscode-open/:liveId', element: <VscodeOpenPage /> },
 ]);

@@ -63,8 +63,6 @@ export type AppEvent =
   | { type: 'install.updated' }
   // An SSH host was added, renamed, checked or deleted (Contracts 31.1); pages reload /api/ssh-hosts
   | { type: 'ssh-hosts.updated' }
-  // VS Code for the Web server preparation progress, start and stop (Contracts 32.4); pages reload /api/vscode/servers
-  | { type: 'vscode.servers' }
   // Linear stats sync progress and its end (Contracts 37.2); pages reload /api/team/* when it ends
   | {
       type: 'team.sync';

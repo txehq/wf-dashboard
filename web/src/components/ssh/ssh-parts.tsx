@@ -1,6 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { CircleCheck, CircleX, Server } from 'lucide-react';
-import { platformOfUname } from '@wf-dashboard/server/vscode/views';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,30 +17,6 @@ export function HostLabel({ label, className }: { label: string | null; classNam
       <Server className="size-3.5 shrink-0" aria-label="SSH" />
       <span className="truncate">{label ?? 'Deleted host'}</span>
     </span>
-  );
-}
-
-// Whether a VS Code for the web server package exists for this host's platform (Contracts 32.3); without one, interactions still start
-function VscodePackageItem({ platform }: { platform: string | null }) {
-  const found = platform === null ? null : platformOfUname(platform);
-  return (
-    <li
-      className="flex min-w-0 items-center gap-1.5"
-      data-testid="host-vscode"
-      data-found={found !== null}
-    >
-      {found !== null ? (
-        <CircleCheck className="size-3.5 shrink-0 text-status-good" aria-label="Passed" />
-      ) : (
-        <CircleX className="size-3.5 shrink-0 text-destructive" aria-label="Missing" />
-      )}
-      <span className="font-medium whitespace-nowrap">VS Code server package</span>
-      <span
-        className={cn('truncate', found !== null ? 'text-muted-foreground' : 'text-destructive')}
-      >
-        {found ?? 'No package for this platform; cannot open in VS Code'}
-      </span>
-    </li>
   );
 }
 
@@ -74,7 +49,6 @@ export function HostCheckList({ check }: { check: HostCheck }) {
         <span className="font-medium">Platform</span>
         <span className="truncate text-muted-foreground">{check.platform}</span>
       </li>
-      <VscodePackageItem platform={check.platform} />
       <li className="flex min-w-0 items-center gap-1.5">
         <CircleCheck className="size-3.5 shrink-0 text-status-good" aria-label="Passed" />
         <span className="font-medium">HOME</span>

@@ -18,7 +18,9 @@ if (webDir !== undefined && !fs.existsSync(path.join(webDir, 'index.html'))) {
 }
 
 const db = openDatabase(config.dbPath, config.migrationsDir);
-// An installed package (Contracts 39): tasks live in data/tasks/, older versions under app/ are removed
+// What the web VS Code of earlier versions kept (Contracts section 32)
+fs.rmSync(config.oldVscodeDir, { recursive: true, force: true });
+// The server of WF Dashboard.app (Contracts 39): tasks live in data/tasks/, earlier downloaded updates are removed
 if (install !== null) {
   prepareInstall(install, { bundled: config.bundledTasksDir, data: config.tasksDir });
 }
@@ -39,8 +41,9 @@ const app = await buildApp({
   releaseCheck: true,
   scheduledTeamSync: true,
   selfUpdate: true,
-  // After a Magi Agent deploy (Contracts 23.5) or a switch to an updated package (39.4): stop all child processes, then
-  // exit with code 75; the pnpm start daemon rebuilds and restarts, launchd starts the installed service again
+  // After a Magi Agent deploy (Contracts 23.5) or once an updated app is ready to replace this one (39.4): stop all
+  // child processes, then exit with code 75; the pnpm start daemon rebuilds and restarts, WF Dashboard.app quits and the
+  // replacement script opens the new app
   onRestart: () => {
     shutdown(RESTART_EXIT_CODE);
   },

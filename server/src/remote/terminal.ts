@@ -74,7 +74,6 @@ const sleep = (ms: number) =>
 // targets a pane, so with other sessions on the same server it reports can't find pane), or the server has exited
 // (no server running: the socket file remains; error connecting … No such file or directory: the socket file is gone too).
 // pane-died closes the session when the interactive process ends and the server exits with its last session, so any step may meet this.
-// The VS Code tmux server (vscode/remote.ts) uses it too
 export function tmuxGone(result: SshResult, socket: string): boolean {
   if (result.exitCode !== 1) return false;
   return result.stderr

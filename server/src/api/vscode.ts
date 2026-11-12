@@ -4,15 +4,12 @@ import {
   validatorCompiler,
 } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import type { Vscode } from '../vscode/index.js';
-import { VscodeOpenResult, VscodeServerView } from '../vscode/views.js';
+import type { Live } from '../live/index.js';
+import { HttpError } from '../variants/errors.js';
+import { openInVscode } from '../vscode/index.js';
 
-// Open the working directory of a Live item in web VS Code (Contracts 32.4)
-export const vscodeRoutes: FastifyPluginCallbackZod<{ vscode: Vscode }> = (
-  app,
-  { vscode },
-  done,
-) => {
+// "Open in VS Code" on a Live item (Contracts section 32): opens its working directory in the user's VS Code
+export const vscodeRoutes: FastifyPluginCallbackZod<{ live: Live }> = (app, { live }, done) => {
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
@@ -21,22 +18,16 @@ export const vscodeRoutes: FastifyPluginCallbackZod<{ vscode: Vscode }> = (
     {
       schema: {
         body: z.object({ liveId: z.string().min(1) }),
-        response: { 200: VscodeOpenResult },
+        response: { 200: z.object({}) },
       },
     },
-    (request) => vscode.open(request.body.liveId),
-  );
-
-  app.get('/api/vscode/servers', { schema: { response: { 200: z.array(VscodeServerView) } } }, () =>
-    vscode.list(),
-  );
-
-  app.delete(
-    '/api/vscode/servers/:id',
-    { schema: { params: z.object({ id: z.string().min(1) }) } },
-    async (request, reply) => {
-      await vscode.stop(request.params.id);
-      return reply.code(204).send();
+    async (request) => {
+      const item = live.get(request.body.liveId);
+      if (item.host !== null && item.host.target === null) {
+        throw new HttpError(400, `The SSH host of Live item ${item.id} was deleted`);
+      }
+      await openInVscode({ cwd: item.cwd, hostTarget: item.host?.target ?? null });
+      return {};
     },
   );
 
