@@ -93,6 +93,11 @@ export const AnyRecord = z.object({
 export const SubagentMeta = z.object({
   agentType: z.string(),
   description: z.string().optional(),
-  toolUseId: z.string(),
+  // Claude Code sometimes leaves it out; the parent session's tool_result naming the agent carries it then
+  toolUseId: z.string().optional(),
   isFork: z.boolean().optional(),
 });
+export type SubagentMeta = z.infer<typeof SubagentMeta>;
+
+// The user record answering a call that started a subagent: toolUseResult.agentId names the agent
+export const AgentResultRecord = UserRecord.extend({ toolUseResult: z.unknown() });

@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -8,18 +9,94 @@ import { app, BrowserWindow, dialog, Menu, nativeImage, screen, shell, Tray } fr
 
 // WF Dashboard.app (Contracts 39.2a): a window and a menu bar icon over the dashboard's local server. The server runs
 // with the bundled Node 22 inside the user's login interactive shell; the window shows http://127.0.0.1:<port>, the
-// same pages a browser shows. WFD_PORT and WFD_DATA_DIR override the port and the data directory (trying the app
-// beside another install); install.sh and the self-update pass them with open --env
+// same pages a browser shows. WFD_PORT and WFD_DATA_DIR set the port and the data directory (install.sh and the
+// self-update pass them with open --env); the app remembers them for its bundle path and uses them when opened without
+// them (Contracts 39.3)
 
 const launchedAt = Date.now() - process.uptime() * 1000;
-const port = Number(process.env.WFD_PORT ?? '7317');
-if (!Number.isInteger(port) || port < 1 || port > 65535) {
-  throw new Error(`WFD_PORT is not a port: ${String(process.env.WFD_PORT)}`);
+
+// ---- Port and data directory
+
+// The .app directory this process runs from
+const bundlePath = path.resolve(app.getPath('exe'), '..', '..', '..');
+if (path.extname(bundlePath) !== '.app') {
+  throw new Error(`${app.getPath('exe')} is not inside an .app bundle`);
 }
-const dataDir = path.resolve(
-  process.env.WFD_DATA_DIR ??
-    path.join(os.homedir(), 'Library', 'Application Support', 'wf-dashboard', 'data'),
+const DEFAULT_BUNDLE = '/Applications/WF Dashboard.app';
+const DEFAULT_PORT = 7317;
+const DEFAULT_DATA_DIR = path.join(
+  os.homedir(),
+  'Library',
+  'Application Support',
+  'wf-dashboard',
+  'data',
 );
+const sharedUserData = app.getPath('userData');
+const settingsPath = path.join(sharedUserData, 'settings.json');
+// A copy elsewhere (trying a build beside the installed app) gets its own Chromium data and single-instance lock, so
+// opening it never reaches the installed app
+if (bundlePath !== DEFAULT_BUNDLE) {
+  const key = createHash('sha256').update(bundlePath).digest('hex').slice(0, 16);
+  app.setPath('userData', path.join(sharedUserData, 'apps', key));
+}
+
+// settings.json: { "<bundle path>": { "port": 7318, "dataDir": "/…/data" } }
+interface AppSettings {
+  port?: number;
+  dataDir?: string;
+}
+
+function readSettings(): Record<string, AppSettings> {
+  if (!fs.existsSync(settingsPath)) return {};
+  const parsed: unknown = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`${settingsPath} is not a JSON object`);
+  }
+  for (const [bundle, entry] of Object.entries(parsed as Record<string, unknown>)) {
+    const valid =
+      typeof entry === 'object' &&
+      entry !== null &&
+      (!('port' in entry) || typeof entry.port === 'number') &&
+      (!('dataDir' in entry) || typeof entry.dataDir === 'string');
+    if (!valid) {
+      throw new Error(`${settingsPath}: the entry for ${bundle} is not { port?, dataDir? }`);
+    }
+  }
+  return parsed as Record<string, AppSettings>;
+}
+
+const parsePort = (value: string | number, source: string) => {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+    throw new Error(`${source} is not a port: ${String(value)}`);
+  }
+  return parsed;
+};
+
+const settings = readSettings();
+const saved = settings[bundlePath] ?? {};
+const envPort = process.env.WFD_PORT;
+const envDataDir = process.env.WFD_DATA_DIR;
+const port =
+  envPort !== undefined
+    ? parsePort(envPort, 'WFD_PORT')
+    : saved.port !== undefined
+      ? parsePort(saved.port, `The port in ${settingsPath}`)
+      : DEFAULT_PORT;
+const dataDir = path.resolve(envDataDir ?? saved.dataDir ?? DEFAULT_DATA_DIR);
+if (envPort !== undefined || envDataDir !== undefined) {
+  settings[bundlePath] = {
+    ...saved,
+    ...(envPort === undefined ? {} : { port }),
+    ...(envDataDir === undefined ? {} : { dataDir }),
+  };
+  // Written whole and renamed into place, so a reader never sees half a file
+  fs.mkdirSync(sharedUserData, { recursive: true });
+  const partial = `${settingsPath}.${String(process.pid)}.partial`;
+  fs.writeFileSync(partial, `${JSON.stringify(settings, null, 2)}\n`);
+  fs.renameSync(partial, settingsPath);
+}
+
 // The install root holds data/, logs/, updates/ and the txe-workflow clone install.sh makes
 const root = path.dirname(dataDir);
 const origin = `http://127.0.0.1:${String(port)}`;
@@ -388,20 +465,31 @@ if (!unregister && !app.requestSingleInstanceLock()) {
   });
 
   void app.whenReady().then(() => {
+    // macOS keeps one login item per bundle id, shared by every copy: only the installed app reads or changes it, so a
+    // copy elsewhere (trying a build) leaves it to the installed app (Contracts 39.3)
+    const ownsLoginItem = bundlePath === DEFAULT_BUNDLE;
     if (unregister) {
-      app.setLoginItemSettings({ openAtLogin: false });
-      log(`Login item removed: ${JSON.stringify(app.getLoginItemSettings())}`);
+      if (ownsLoginItem) {
+        app.setLoginItemSettings({ openAtLogin: false });
+        log(`Login item removed: ${JSON.stringify(app.getLoginItemSettings())}`);
+      } else log(`Login item left to ${DEFAULT_BUNDLE}`);
+      // uninstall.sh tells the user where the data stays
+      fs.writeSync(1, `${dataDir}\n`);
       app.exit(0);
       return;
     }
     // Start at login without a window (Contracts 39.2a); a login item the user turned off (requires-approval) stays off
-    const login = app.getLoginItemSettings();
-    if (login.status === 'not-registered' || login.status === 'not-found') {
-      app.setLoginItemSettings({ openAtLogin: true });
-    }
-    log(
-      `Launched from ${app.getAppPath()}; login item: ${JSON.stringify(app.getLoginItemSettings())}`,
-    );
+    let openedAtLogin = false;
+    if (ownsLoginItem) {
+      const login = app.getLoginItemSettings();
+      if (login.status === 'not-registered' || login.status === 'not-found') {
+        app.setLoginItemSettings({ openAtLogin: true });
+      }
+      openedAtLogin = login.wasOpenedAtLogin;
+      log(
+        `Launched from ${app.getAppPath()}; login item: ${JSON.stringify(app.getLoginItemSettings())}`,
+      );
+    } else log(`Launched from ${app.getAppPath()}; login item left to ${DEFAULT_BUNDLE}`);
 
     Menu.setApplicationMenu(
       Menu.buildFromTemplate([
@@ -435,7 +523,7 @@ if (!unregister && !app.requestSingleInstanceLock()) {
       ]),
     );
 
-    if (login.wasOpenedAtLogin) {
+    if (openedAtLogin) {
       app.dock?.hide();
       void ensureServer().then(undefined, (error: unknown) => {
         log(

@@ -30,7 +30,13 @@ import { commandArgs, sessionTitle } from '../api/user-text.js';
 import { rebindSession, SKILL_PREFIX } from '../bindings/index.js';
 import { publishStageChanges, type StageChange, updateStages } from '../stages/report.js';
 import { inputString } from '../stages/rows.js';
-import { AnyRecord, AssistantRecord, SubagentMeta, UserRecord } from './records.js';
+import {
+  AgentResultRecord,
+  AnyRecord,
+  AssistantRecord,
+  SubagentMeta,
+  UserRecord,
+} from './records.js';
 import { clearImportFailure, setSpillWait } from './import-problems.js';
 import { markImported } from './imports.js';
 import { detectFromToolCall, detectFromUserText, type WorkflowFlags } from './workflows.js';
@@ -563,10 +569,52 @@ function subagentMap(db: Db, sessionId: string): Map<string, string> {
   return new Map(rows.map((r) => [r.parent, r.agentId]));
 }
 
-// Register new agent-<id>.jsonl files; subagents whose meta.json is not written yet wait for the next time
-function registerSubagents(db: Db, sessionId: string, dir: string): boolean {
+// The tool_use_id of the calls that started these agents, from the parsed part of the parent session: the user record
+// answering such a call has toolUseResult.agentId naming the agent. An agent whose call has not finished is absent
+function agentToolUses(
+  file: string,
+  parsedEnd: number,
+  agentIds: readonly string[],
+): Map<string, string> {
+  const found = new Map<string, string>();
+  for (const line of readCompleteLines(file, 0, parsedEnd).lines) {
+    if (!line.includes('"toolUseResult"')) continue;
+    const agentId = agentIds.find((id) => line.includes(`"${id}"`));
+    if (agentId === undefined) continue;
+    const record: unknown = JSON.parse(line);
+    if (AnyRecord.parse(record).type !== 'user') continue;
+    const { toolUseResult, message } = AgentResultRecord.parse(record);
+    if (
+      typeof toolUseResult !== 'object' ||
+      toolUseResult === null ||
+      !('agentId' in toolUseResult) ||
+      toolUseResult.agentId !== agentId
+    )
+      continue;
+    const results = Array.isArray(message.content)
+      ? message.content.filter((b) => b.type === 'tool_result')
+      : [];
+    const [result] = results;
+    if (result === undefined || results.length > 1)
+      throw new Error(
+        `The record naming subagent ${agentId} in ${file} has ${String(results.length)} tool_result blocks, expected 1`,
+      );
+    found.set(agentId, result.tool_use_id);
+  }
+  return found;
+}
+
+// Register new agent-<id>.jsonl files; subagents whose meta.json is not written yet, or whose meta.json has no
+// toolUseId while the parent call has not finished, wait for the next time
+function registerSubagents(
+  db: Db,
+  sessionId: string,
+  dir: string,
+  parentFile: string,
+  parsedEnd: number,
+): boolean {
   if (!existsSync(dir)) return false;
-  let added = false;
+  const pending: { agentId: string; filePath: string; meta: SubagentMeta }[] = [];
   for (const name of readdirSync(dir).sort()) {
     const match = /^agent-(.+)\.jsonl$/.exec(name);
     if (match?.[1] === undefined) continue;
@@ -580,22 +628,36 @@ function registerSubagents(db: Db, sessionId: string, dir: string): boolean {
     if (known !== undefined) continue;
     const metaPath = path.join(dir, `agent-${agentId}.meta.json`);
     if (!existsSync(metaPath)) continue;
-    const meta = SubagentMeta.parse(JSON.parse(readFileSync(metaPath, 'utf8')));
+    pending.push({
+      agentId,
+      filePath,
+      meta: SubagentMeta.parse(JSON.parse(readFileSync(metaPath, 'utf8'))),
+    });
+  }
+  const unnamed = pending.filter((p) => p.meta.toolUseId === undefined).map((p) => p.agentId);
+  const fromParent =
+    unnamed.length === 0
+      ? new Map<string, string>()
+      : agentToolUses(parentFile, parsedEnd, unnamed);
+  let added = false;
+  for (const { agentId, filePath, meta } of pending) {
+    const toolUseId = meta.toolUseId ?? fromParent.get(agentId);
+    if (toolUseId === undefined) continue;
     db.insert(subagents)
       .values({
         sessionId,
         agentId,
         filePath,
-        parentToolUseId: meta.toolUseId,
+        parentToolUseId: toolUseId,
         agentType: meta.agentType,
         description: meta.description ?? null,
         parseState:
           meta.isFork === true
-            ? { ...initialParseState(), forkToolUseId: meta.toolUseId }
+            ? { ...initialParseState(), forkToolUseId: toolUseId }
             : initialParseState(),
       })
       .run();
-    linkSubagent(db, sessionId, meta.toolUseId, agentId);
+    linkSubagent(db, sessionId, toolUseId, agentId);
     added = true;
   }
   return added;
@@ -702,7 +764,8 @@ export function ingestFile(db: Db, file: string, limit = Infinity): IngestResult
       skillsAdded = out.skillLoads.length > 0;
     } else if (existing === undefined) return { ...unchanged, waiting: stopped };
 
-    if (registerSubagents(db, sessionId, path.join(sessionDir, 'subagents'))) changed = true;
+    if (registerSubagents(db, sessionId, path.join(sessionDir, 'subagents'), absolute, end))
+      changed = true;
     const sub = ingestSubagents(db, sessionId, spillDir);
     if (sub.changed) changed = true;
     if (sub.skillsAdded) skillsAdded = true;

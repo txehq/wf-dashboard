@@ -207,11 +207,11 @@ Node that every native module loads. Run it with Node 22 on Apple Silicon; behin
 commit (the snapshot commit on GitHub) and uploads the zip and `install.sh`; installed apps pick it up within 6 hours.
 
 To try the app without touching an existing install, give the installer another app location, port and data
-directory, and the local zip; the uninstaller takes the same port and data directory:
+directory, and the local zip. The app remembers the port and data directory for its own location, so the uninstaller
+and later opens need neither:
 
 ```sh
 WFD_INSTALL_APP="$PWD/.work/try/WF Dashboard.app" WFD_INSTALL_PORT=7377 WFD_INSTALL_DATA_DIR="$PWD/.work/try/root/data" \
-  WFD_INSTALL_ZIP="$PWD/.work/release/WF-Dashboard-0.2.0-arm64.zip" bash .work/release/install.sh
-WFD_INSTALL_PORT=7377 WFD_INSTALL_DATA_DIR="$PWD/.work/try/root/data" \
-  "$PWD/.work/try/WF Dashboard.app/Contents/Resources/uninstall.sh"
+  WFD_INSTALL_ZIP="$PWD/.work/release/WF-Dashboard-0.2.1-arm64.zip" bash .work/release/install.sh
+"$PWD/.work/try/WF Dashboard.app/Contents/Resources/uninstall.sh"
 ```

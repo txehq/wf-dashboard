@@ -104,7 +104,8 @@ main() {
   fi
 
   say "Opening $app"
-  open --env "WFD_PORT=$port" --env "WFD_DATA_DIR=$data" "$app"
+  # -n: a new instance of this copy, never another running copy with the same bundle id; the app remembers both values
+  open -n --env "WFD_PORT=$port" --env "WFD_DATA_DIR=$data" "$app"
   local tries=0
   until curl -fsS --max-time 2 "$url/api/health" >/dev/null 2>&1; do
     tries=$((tries + 1))
@@ -128,13 +129,14 @@ fail() {
   exit 1
 }
 
-# Quits the app at the given path when it is running (it asks first when a run or an interactive process is running)
+# Quits the app at the given path when it is running (it asks first when a run or an interactive process is running).
+# SIGTERM reaches this copy only: an Apple event to the path can reach another copy with the same bundle id
 quit_app() {
   local pid
   pid=$(lsof -t "$1/Contents/MacOS/WF Dashboard" 2>/dev/null | head -n 1) || true
   [[ -n "$pid" ]] || return 0
   say "Quitting the running WF Dashboard"
-  osascript -e "tell application \"$1\" to quit" >/dev/null
+  kill "$pid"
   while kill -0 "$pid" 2>/dev/null; do
     sleep 0.2
   done

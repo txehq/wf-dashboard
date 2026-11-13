@@ -21,4 +21,5 @@ done
 rm -rf "$app"
 mv "$next" "$app"
 printf '[%s] replaced %s; opening it\n' "$(date -u +%FT%TZ)" "$app"
-open "${env_args[@]}" "$app"
+# -n: a new instance of this copy, never another running copy with the same bundle id
+open -n "${env_args[@]}" "$app"
