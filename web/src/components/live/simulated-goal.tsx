@@ -25,10 +25,13 @@ export function GoalField({
       <Label htmlFor={id} className={hideLabel ? 'sr-only' : undefined}>
         Goal for the simulated user
       </Label>
+      {/* A prefilled first request can run to tens of KB: the input grows with it up to 40% of the
+          window height and scrolls inside beyond that (Contracts 34.2) */}
       <Textarea
         id={id}
         data-testid="goal-input"
         rows={3}
+        className="max-h-[40vh] overflow-y-auto"
         value={value}
         placeholder="The simulated user steers the agent by this and hands back to you when it's done"
         onChange={(e) => {
@@ -58,12 +61,13 @@ export function GoalDialog({
 }) {
   const [goal, setGoal] = useState(initial);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+    // The dialog always fits in the window with its buttons visible
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div
         role="dialog"
         aria-modal="true"
         aria-label={heading}
-        className="flex w-[36rem] max-w-[95vw] flex-col gap-4 rounded-lg border bg-background p-5 shadow-lg"
+        className="flex max-h-full w-[36rem] max-w-[95vw] flex-col gap-4 overflow-y-auto rounded-lg border bg-background p-5 shadow-lg"
         data-testid="goal-dialog"
       >
         <h2 className="text-base font-semibold">{heading}</h2>
@@ -92,6 +96,15 @@ export function GoalDialog({
   );
 }
 
+// Hover text of the Goal button: the first 200 characters of the goal
+const GOAL_HINT_CHARS = 200;
+function goalHint(goal: string): string {
+  const head = goal.slice(0, GOAL_HINT_CHARS * 2);
+  const chars = Array.from(head);
+  if (head === goal && chars.length <= GOAL_HINT_CHARS) return goal;
+  return `${chars.slice(0, GOAL_HINT_CHARS).join('')}…`;
+}
+
 // The goal in the toolbar: items without a task show this button, which opens it for viewing and editing (Contracts 34.2)
 export function GoalButton({ live }: { live: LiveDetail }) {
   const [open, setOpen] = useState(false);
@@ -108,7 +121,7 @@ export function GoalButton({ live }: { live: LiveDetail }) {
         size="sm"
         variant="ghost"
         data-testid="goal-open"
-        title={goal ?? 'No goal for the simulated user yet'}
+        title={goal === null ? 'No goal for the simulated user yet' : goalHint(goal)}
         onClick={() => {
           setOpen(true);
         }}

@@ -1,4 +1,4 @@
-import fs from 'node:fs';
+import { lstat, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { HttpError } from '../variants/errors.js';
 import { type DirList, existsMessage, folderNameProblem, type NewDir } from './views.js';
@@ -13,10 +13,9 @@ function absolute(dir: string): string {
 export function createLocalDirs(deps: { home: string }) {
   return {
     // Empty dir means home; a missing or unreadable directory yields readdir's own error
-    list(dir: string): DirList {
+    async list(dir: string): Promise<DirList> {
       const resolved = absolute(dir === '' ? deps.home : dir);
-      const names = fs
-        .readdirSync(resolved, { withFileTypes: true })
+      const names = (await readdir(resolved, { withFileTypes: true }))
         .filter((entry) => entry.isDirectory())
         .map((entry) => entry.name)
         .sort((a, b) => a.localeCompare(b));
@@ -27,14 +26,20 @@ export function createLocalDirs(deps: { home: string }) {
       };
     },
     // Not recursive; 400 for an invalid name, 409 if it exists, mkdir's own error when it fails (e.g. no permission)
-    mkdir(parent: string, name: string): NewDir {
+    async mkdir(parent: string, name: string): Promise<NewDir> {
       const problem = folderNameProblem(name);
       if (problem !== null) throw new HttpError(400, problem);
       const target = path.join(absolute(parent), name);
-      if (fs.lstatSync(target, { throwIfNoEntry: false }) !== undefined) {
-        throw new HttpError(409, existsMessage(target));
-      }
-      fs.mkdirSync(target);
+      const existing = await lstat(target).then(
+        () => true,
+        (error: unknown) => {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === 'ENOENT' || code === 'ENOTDIR') return false;
+          throw error;
+        },
+      );
+      if (existing) throw new HttpError(409, existsMessage(target));
+      await mkdir(target);
       return { path: target };
     },
   };

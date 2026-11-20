@@ -7,6 +7,8 @@ import type {
 } from '@anthropic-ai/sdk/resources/messages';
 import { z } from 'zod';
 import { config } from '../config.js';
+import type { PaidCheckId } from '../db/schema.js';
+import { type PaidUsage, reportPaidUsage } from '../paid-usage.js';
 import { costUsd, fromApiUsage, type TokenUsage } from './pricing.js';
 
 // Claude Code on this machine authenticates through the gateway; URL, credentials and model aliases are in settings.json env (config.claudeSettingsPath)
@@ -139,15 +141,48 @@ export function parseStructuredResponse<T>(
   return { value: schema.parse(call.input), usage, costUsd: costUsd(usage, model), model };
 }
 
-export async function parseStructured<T>(
+// The environment check each role's real calls report into (Contracts 8)
+export const roleCheckIds: Record<keyof Models, PaidCheckId> = {
+  simulatedUser: 'model-simulated-user',
+  judge: 'model-judge',
+};
+
+export function parseStructured<T>(
   args: StructuredRequest<T> & {
+    // The role the call is made for; its outcome is that role's environment check. null for a probe outside any role
+    role: keyof Models | null;
     // Abort the in-flight request when grading is cancelled
     signal?: AbortSignal;
   },
 ): Promise<StructuredResult<T>> {
-  const response = await anthropic().messages.create(
-    structuredRequest(args),
-    args.signal === undefined ? {} : { signal: args.signal },
+  const started = performance.now();
+  const outcome = anthropic()
+    .messages.create(
+      structuredRequest(args),
+      args.signal === undefined ? {} : { signal: args.signal },
+    )
+    .then((response) => parseStructuredResponse(response, args.schema, args.model));
+  const role = args.role;
+  if (role === null) return outcome;
+  // Only a call with the role's current model is real use of its check; a cancelled call says nothing about it. An
+  // answer whose content does not match the schema still proves the model answered with respond
+  const report = (usage: PaidUsage) => {
+    if (args.model === models[role]) reportPaidUsage(roleCheckIds[role], usage);
+  };
+  const answered = () =>
+    `${args.model} answered with respond in ${String(Math.round(performance.now() - started))} ms`;
+  void outcome.then(
+    () => {
+      report({ ok: true, detail: answered() });
+    },
+    (error: unknown) => {
+      if (args.signal?.aborted === true) return;
+      if (error instanceof z.ZodError) {
+        report({ ok: true, detail: `${answered()}; its content did not match the schema` });
+        return;
+      }
+      report({ ok: false, detail: error instanceof Error ? error.message : String(error) });
+    },
   );
-  return parseStructuredResponse(response, args.schema, args.model);
+  return outcome;
 }

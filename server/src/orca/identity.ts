@@ -1,6 +1,6 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
+import { realOrSelf } from '../dirs/exists.js';
 import { type OrcaPlace, orcaCall, orcaStatus } from './cli.js';
 
 // A Live item's Orca identity (Contracts 35.2): the dashboard creates a dedicated Orca terminal per process; in the Live process's environment
@@ -28,10 +28,12 @@ export async function orcaWorkspaceOf(place: OrcaPlace, dir: string): Promise<st
       'orca worktree list output was truncated, cannot find the workspace of the working directory',
     );
   }
-  const real = (p: string) => (place.kind === 'local' && fs.existsSync(p) ? fs.realpathSync(p) : p);
-  const target = real(dir);
-  const inside = list.worktrees
-    .map((w) => ({ id: w.id, path: real(w.path) }))
+  const real = (p: string) => (place.kind === 'local' ? realOrSelf(p) : Promise.resolve(p));
+  const target = await real(dir);
+  const worktrees = await Promise.all(
+    list.worktrees.map(async (w) => ({ id: w.id, path: await real(w.path) })),
+  );
+  const inside = worktrees
     .filter((w) => target === w.path || target.startsWith(`${w.path}${path.sep}`))
     .sort((a, b) => b.path.length - a.path.length);
   return inside[0]?.id ?? null;

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
-import { teamReplay } from '../helpers/team-replay.js';
+import { TEAM_NOW, teamReplay } from '../helpers/team-replay.js';
 
 // The counting rules of Contracts 37.3 on recorded real Linear and GitHub responses (test/fixtures/team/*). Expected
 // numbers were derived from the fixture JSON independently of the implementation (.work/w114/expected.ts in W114)
@@ -17,8 +17,7 @@ afterAll(async () => {
   await closeLinearClient();
 });
 
-// Open started intervals end at "now", so every count is taken at one fixed time
-const NOW = Date.parse('2026-11-04T12:00:00Z');
+const NOW = TEAM_NOW;
 const dir = path.join(config.dataDir, 'team-stats');
 fs.rmSync(dir, { recursive: true, force: true });
 
@@ -111,6 +110,22 @@ describe('team stats', { timeout: 60_000 }, () => {
       completed: 4,
       handled: 4,
     });
+  });
+
+  test('time to complete runs from the first started state, and from the creation, to the completion (37.7)', async () => {
+    const report = await stats('unassigned', '2026-11-02', '2026-11-04');
+    // From the recorded get_issue answers of Ding's six issues completed Nov 2 to 4 (.work/w144/expected-close-times.jq);
+    // P90 lies halfway between the two longest, TXE-5713 and TXE-5714
+    expect(person(report, 'Ding').timeToComplete).toEqual({
+      started: { count: 6, mean: 61211166.833333336, median: 53871817.5, p90: 87296871 },
+      created: { count: 6, mean: 61968326.666666664, median: 54991627.5, p90: 87296871 },
+    });
+    // With TXE-5734 and TXE-5766 of Unassigned; nothing was canceled
+    expect(report.closeTimes).toMatchObject({ completed: 8, canceled: 0, createdToCanceled: null });
+    const row = (await issues('unassigned', { from: '2026-11-02', to: '2026-11-04' })).find(
+      (i) => i.identifier === 'TXE-5719',
+    );
+    expect(row).toMatchObject({ createdToClosed: 46267072, startedToClosed: 43253022 });
   });
 
   test('an issue with no assignee counts as Unassigned, and its creator still counts for Created', async () => {
@@ -242,6 +257,35 @@ describe('team stats', { timeout: 60_000 }, () => {
     });
     // Nothing merged on Nov 4
     expect(cell(report, 'eluo@txehq.com', '2026-11-04')?.prsMerged).toBe(0);
+  });
+
+  test('every merged PR a person authored counts on the day it merged, linked to an issue or not', async () => {
+    const report = await stats('epic', '2026-11-03', '2026-11-04');
+    // From the recorded search pages and PR reads: on Nov 3 and 4 (Shanghai) connorwang authored 43 merged PRs and
+    // elowenluo 13, of which 19 and 12 on Nov 3. Linear attributes PRs of connorwang to Connor Wang; it attributes none
+    // to eluo, whose linked merged PRs are mostly by elowenluo
+    expect(person(report, 'Connor Wang')).toMatchObject({
+      prsAuthored: 43,
+      github: { login: 'connorwang', source: 'linear' },
+    });
+    expect(person(report, 'eluo@txehq.com')).toMatchObject({
+      prsMerged: 11,
+      prsAuthored: 13,
+      // Commits of the same PRs: the 11 linked hold 96, the 13 authored 122
+      commits: 96,
+      commitsAuthored: 122,
+      commitsUnread: 0,
+      commitsAuthoredUnread: 0,
+      github: { login: 'elowenluo', source: 'prs' },
+    });
+    expect(cell(report, 'Connor Wang', '2026-11-03')?.prsAuthored).toBe(19);
+    expect(cell(report, 'eluo@txehq.com', '2026-11-03')?.prsAuthored).toBe(12);
+    // Issues without an assignee have no author: the second number is unknown, with the reason
+    const unassigned = await stats('unassigned', '2026-11-02', '2026-11-04');
+    expect(unassigned.people.find((p) => p.key === UNASSIGNED)).toMatchObject({
+      prsAuthored: null,
+      github: { login: null, reason: 'Issues without an assignee have no author' },
+    });
   });
 
   test('a PR that could not be read is listed under PR problems and counts for nothing', async () => {

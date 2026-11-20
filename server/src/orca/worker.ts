@@ -83,6 +83,34 @@ export function structuredWorker(
   };
 }
 
+// A Dispatch whose worker never got a terminal or a workspace (it failed before starting, Contracts 40.2): the
+// Dispatch it follows up, whose worker's conversation it was sent to, and the worktree it was to start in
+const DispatchShow = z.object({
+  dispatch: z.object({ followUpOf: z.string().nullable() }),
+  worker: z.object({
+    startOptions: z.object({ resolvedWorktreeId: z.string().nullable().optional() }),
+  }),
+});
+
+export interface UnstartedDispatch {
+  followUpOf: string | null;
+  worktreeId: string | null;
+}
+
+export async function unstartedDispatch(
+  place: OrcaPlace,
+  version: string,
+  dispatchId: string,
+): Promise<UnstartedDispatch> {
+  const shown = DispatchShow.parse(
+    await orcaRead(place, version, ['orchestration', 'worker-show', '--dispatch', dispatchId]),
+  );
+  return {
+    followUpOf: shown.dispatch.followUpOf,
+    worktreeId: shown.worker.startOptions.resolvedWorktreeId ?? null,
+  };
+}
+
 // One piece of a turn: the text the agent or the sender wrote, or one tool call with its result
 export const WorkerPart = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('text'), text: z.string() }),

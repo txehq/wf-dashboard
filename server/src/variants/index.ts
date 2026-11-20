@@ -1417,12 +1417,12 @@ export function createVariants({
     },
 
     // Called before an interactive process starts or resumes in cwd (Contracts 14.2): the dashboard owns the variant's config dir
-    trustDirectory(id: string, cwd: string) {
+    trustDirectory(id: string, cwd: string, realCwd: string) {
       const row = get(id);
       if (row.buildStatus !== 'built') {
         throw new HttpError(409, `Variant ${row.name} is not built yet and has no .claude.json`);
       }
-      trustDirectory(dirsOf(row).claudeDir, cwd);
+      trustDirectory(dirsOf(row).claudeDir, cwd, realCwd);
     },
 
     runtimeEnv(id: string): RuntimeEnv {

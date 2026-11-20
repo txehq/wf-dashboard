@@ -136,6 +136,7 @@ export async function judgeArtifact(
 ): Promise<JudgeResult> {
   const result = await parseStructured({
     ...judgeRequest(task, judging, group, content, models.judge),
+    role: 'judge',
     signal,
   });
   const items = readJudgment(group, result.value);

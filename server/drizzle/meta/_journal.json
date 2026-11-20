@@ -225,6 +225,41 @@
       "when": 1793761688772,
       "tag": "0031_team-stats",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1794643719993,
+      "tag": "0032_team-prs-authored",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1795006558998,
+      "tag": "0033_team-pr-commits",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1795012673267,
+      "tag": "0034_team-pr-timings",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "6",
+      "when": 1795061141359,
+      "tag": "0035_paid-checks",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1795090321038,
+      "tag": "0036_team-pr-slowest-run",
+      "breakpoints": true
     }
   ]
 }

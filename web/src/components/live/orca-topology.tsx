@@ -11,45 +11,26 @@ import {
   orcaSyncOnOpenQuery,
   orcaTopologyQuery,
 } from '@/lib/live-api';
+import {
+  engineOf,
+  type GroupKey,
+  groups,
+  type OrcaState,
+  stateLabel,
+  stateTone,
+} from '@/lib/orca-states';
 import { cn } from '@/lib/utils';
 
 // Topology drawer (Contracts 35.4): each Run as a compact tree, its main agent on top and its workers in collapsible
 // groups by state, one row per worker with its state, title, engine and start time; clicking a row opens that
 // item's tab. Below the tree, the Run's messages, with unanswered questions marked
 
-type OrcaState = OrcaRunView['coordinator']['state'];
 type Worker = OrcaRunView['workers'][number];
-
-const stateLabel: Record<OrcaState, string> = {
-  working: 'Working',
-  idle: 'Idle',
-  waiting: 'Waiting for answer',
-  succeeded: 'Succeeded',
-  failed: 'Failed',
-  exited: 'Exited',
-};
-
-// The groups a Run's workers fall into, in the order they are shown
-const groups = [
-  { key: 'working', label: 'Working', states: ['working'] },
-  { key: 'waiting', label: 'Waiting', states: ['waiting', 'idle'] },
-  { key: 'exited', label: 'Exited', states: ['succeeded', 'failed', 'exited'] },
-] as const satisfies readonly { key: string; label: string; states: readonly OrcaState[] }[];
-type GroupKey = (typeof groups)[number]['key'];
 
 // A Run with more workers than this opens with its exited group collapsed
 const MANY_WORKERS = 20;
 
-const stateTone: Record<OrcaState, string> = {
-  working: 'bg-[var(--viz-status-good)]',
-  idle: 'bg-muted-foreground/50',
-  waiting: 'bg-amber-500',
-  succeeded: 'bg-[var(--viz-status-good)]/60',
-  failed: 'bg-[var(--viz-status-serious)]',
-  exited: 'bg-muted-foreground/30',
-};
-
-function StateBadge({ state }: { state: OrcaState }) {
+export function StateBadge({ state }: { state: OrcaState }) {
   return (
     <Badge variant="outline" className="shrink-0 gap-1 font-normal" data-state={state}>
       <span className={cn('size-1.5 rounded-full', stateTone[state])} aria-hidden />
@@ -57,8 +38,6 @@ function StateBadge({ state }: { state: OrcaState }) {
     </Badge>
   );
 }
-
-const engineOf = (agent: string | null) => (agent === 'claude' || agent === 'codex' ? agent : null);
 
 export function OrcaTopologyPanel({
   live,

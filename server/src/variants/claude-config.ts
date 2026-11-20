@@ -63,11 +63,11 @@ export function markOnboardingDone(claudeDir: string) {
 }
 
 // Before start and resume, marks cwd as trusted (Contracts 14.2) so Claude Code does not ask; no change when already trusted.
-// When cwd goes through a symlink, both the given and the real path are recorded
-export function trustDirectory(claudeDir: string, cwd: string) {
+// When cwd goes through a symlink, both the given and the real path (realCwd) are recorded
+export function trustDirectory(claudeDir: string, cwd: string, realCwd: string) {
   const file = path.join(claudeDir, '.claude.json');
   const state = ClaudeState.parse(JSON.parse(fs.readFileSync(file, 'utf8')));
-  const dirs = [...new Set([path.resolve(cwd), fs.realpathSync(cwd)])];
+  const dirs = [...new Set([path.resolve(cwd), realCwd])];
   const projects = { ...state.projects };
   if (dirs.every((d) => projects[d]?.hasTrustDialogAccepted === true)) return;
   for (const d of dirs) projects[d] = { ...projects[d], hasTrustDialogAccepted: true };
@@ -110,7 +110,8 @@ export function writeSessionClaudeConfig(
     settings.claudeMdExcludes = realClaudeMdExcludes();
   });
   markOnboardingDone(claudeDir);
-  trustDirectory(claudeDir, cwd);
+  // A design or optimize session's working directory is the dashboard's own, under its data directory
+  trustDirectory(claudeDir, cwd, fs.realpathSync(cwd));
   const state = path.join(claudeDir, '.claude.json');
   writeAtomic(state, {
     ...ClaudeState.parse(JSON.parse(fs.readFileSync(state, 'utf8'))),

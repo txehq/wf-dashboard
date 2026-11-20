@@ -20,8 +20,8 @@
     "./install/views": "./src/install/views.ts"
   },
   "scripts": {
-    "dev": "tsx watch src/main.ts",
-    "start": "node dist/main.js --web ../web/dist",
+    "dev": "UV_THREADPOOL_SIZE=64 tsx watch src/main.ts",
+    "start": "UV_THREADPOOL_SIZE=64 node dist/main.js --web ../web/dist",
     "build": "tsc --project tsconfig.build.json",
     "typecheck": "tsc --project tsconfig.json",
     "test": "taskpolicy -c utility vitest run",

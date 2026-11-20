@@ -23,6 +23,7 @@ import { sessionTitles } from '../api/session-titles.js';
 import { events } from '../events.js';
 import { models } from '../llm/client.js';
 import { writeCodexHome } from '../variants/codex-home.js';
+import type { RequireChecks } from '../environment.js';
 import { HttpError } from '../variants/errors.js';
 import type { Variants } from '../variants/index.js';
 import { displayName } from '../variants/names.js';
@@ -65,6 +66,8 @@ export interface InsightsOptions {
   dirs?: SourceDirs | undefined;
   codexAuthPath?: string | undefined;
   codexConfigPath?: string | undefined;
+  // Paid environment checks (Contracts 8): Codex before a Codex analysis starts
+  requireChecks: RequireChecks;
 }
 
 const ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -194,6 +197,7 @@ export function createInsights({
   dirs: sourceDirs = configSourceDirs,
   codexAuthPath = config.codexAuthPath,
   codexConfigPath = config.codexConfigPath,
+  requireChecks,
 }: InsightsOptions) {
   const controllers = new Map<string, AbortController>();
   // Shared CODEX_HOME for the Codex engine; the Claude Code engine uses the chosen variant's own config dir (Contracts 18.6)
@@ -743,6 +747,7 @@ export function createInsights({
     async create(input: NewAnalysisInput): Promise<Analysis> {
       const { scope: s, pending } = resolve(input);
       const values = newRow(input, s);
+      if (input.engine === 'codex') await requireChecks(['codex']);
       for (const entry of pending) await readForAnalysis(db, entry.engine, entry.file, entry.id);
       db.insert(analyses).values(values).run();
       const row = get(values.id);

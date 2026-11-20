@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { X } from 'lucide-react';
-import { type ReactNode, useState } from 'react';
+import { useState } from 'react';
 import { Pager } from '@/components/pager';
+import { Section } from '@/components/team/section';
 import { Button } from '@/components/ui/button';
 import { formatInteger, formatNoun } from '@/lib/format';
 import {
@@ -13,9 +14,11 @@ import {
   teamIssuesQuery,
 } from '@/lib/team-api';
 import { dateTime, shortDate } from '@/lib/team-days';
+import { duration } from '@/lib/team-durations';
 import { cn } from '@/lib/utils';
 
-const PAGE_SIZE = 50;
+// The Issues list and the txe PRs list page alike
+export const PAGE_SIZE = 50;
 
 function prState(pr: TeamIssuePr): { label: string; className: string } {
   if (pr.error !== null) return { label: 'unreadable', className: 'text-destructive' };
@@ -115,6 +118,18 @@ function IssueTable({
             <th className="px-3 py-2 font-medium">Creator</th>
             <th className="px-3 py-2 font-medium">Status</th>
             <th className="px-3 py-2 font-medium">Completed</th>
+            <th
+              className="px-3 py-2 text-right font-medium whitespace-nowrap"
+              title="From creation to completion or cancellation"
+            >
+              Created → closed
+            </th>
+            <th
+              className="px-3 py-2 text-right font-medium whitespace-nowrap"
+              title="From first entering a started state to completion or cancellation"
+            >
+              Started → closed
+            </th>
             <th className="px-3 py-2 font-medium">PRs</th>
           </tr>
         </thead>
@@ -147,6 +162,12 @@ function IssueTable({
               <td className="px-3 py-1.5 whitespace-nowrap text-muted-foreground">
                 {i.completedAt === null ? '—' : dateTime(i.completedAt, timeZone)}
               </td>
+              <td className="px-3 py-1.5 text-right whitespace-nowrap tabular-nums">
+                {i.createdToClosed === null ? '—' : duration(i.createdToClosed)}
+              </td>
+              <td className="px-3 py-1.5 text-right whitespace-nowrap tabular-nums">
+                {i.startedToClosed === null ? '—' : duration(i.startedToClosed)}
+              </td>
               <td className="px-3 py-1.5 text-xs">
                 <PrLinks prs={i.prs} timeZone={timeZone} />
               </td>
@@ -155,28 +176,6 @@ function IssueTable({
         </tbody>
       </table>
     </div>
-  );
-}
-
-function Section({
-  title,
-  action,
-  children,
-  testId,
-}: {
-  title: ReactNode;
-  action?: ReactNode;
-  children: ReactNode;
-  testId: string;
-}) {
-  return (
-    <section className="flex flex-col gap-2" data-testid={testId}>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <h2 className="text-base font-semibold">{title}</h2>
-        {action}
-      </div>
-      {children}
-    </section>
   );
 }
 

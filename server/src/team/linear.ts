@@ -123,3 +123,21 @@ export type TeamUser = z.infer<typeof User>;
 export function listTeamUsers(): Promise<TeamUser[]> {
   return listAll('list_users', { limit: 250 }, 'users', User);
 }
+
+// Linear has no GitHub account field on a user. Its diffs name the Linear user who authored a PR (creator), which
+// Linear knows through the GitHub account the user linked; the PRs' author login is that account (37.3)
+export const DIFFS_PER_USER = 20;
+
+export function listDiffsArgs(userId: string) {
+  return { author: userId, status: 'merged', limit: DIFFS_PER_USER };
+}
+
+const DiffPage = z.object({
+  diffs: z.array(z.object({ url: z.string(), creator: z.object({ id: z.string() }).nullable() })),
+});
+
+// URLs of merged PRs Linear attributes to the user
+export async function listUserDiffs(userId: string): Promise<string[]> {
+  const { diffs } = await callLinear('list_diffs', listDiffsArgs(userId), DiffPage);
+  return diffs.filter((d) => d.creator?.id === userId).map((d) => d.url);
+}

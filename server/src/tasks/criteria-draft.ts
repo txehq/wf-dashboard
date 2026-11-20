@@ -113,7 +113,10 @@ export async function draftCriteria(title: string, body: string): Promise<Criter
   if (body.trim() === '') {
     return { criteria: [], model: models.judge, inputTokens: 0, outputTokens: 0, costUsd: 0 };
   }
-  const result = await parseStructured(criteriaDraftRequest(title, body, models.judge));
+  const result = await parseStructured({
+    ...criteriaDraftRequest(title, body, models.judge),
+    role: 'judge',
+  });
   return {
     criteria: readCriteriaDraft(body, result.value),
     model: result.model,

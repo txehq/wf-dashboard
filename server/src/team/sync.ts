@@ -1,4 +1,4 @@
-import { and, desc, eq, isNotNull, isNull, or } from 'drizzle-orm';
+import { and, desc, eq, gt, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import pLimit from 'p-limit';
 import type { Db } from '../db/index.js';
 import {
@@ -6,6 +6,9 @@ import {
   teamIssueStates,
   teamIssues,
   teamPrs,
+  teamPrTimings,
+  teamPrTimingWindows,
+  teamRepoSearches,
   teamSync,
   type TeamSyncProgress,
   type TeamSyncStatus,
@@ -13,18 +16,46 @@ import {
 } from '../db/schema.js';
 import { events } from '../events.js';
 import { HttpError } from '../variants/errors.js';
-import { type PrRead, type PrRef, prRef, readPr } from './github.js';
-import { listTeamIssues, listTeamUsers, readTeamIssue, type TeamIssue } from './linear.js';
+import {
+  MERGED_PRS,
+  PR_BATCH,
+  PR_TIMINGS,
+  type PrRead,
+  type PrRef,
+  prRef,
+  prTiming,
+  readCommits,
+  readPr,
+  readRepoName,
+  readTimings,
+  type SearchedPr,
+  searchMergedPrs,
+  type TimedPr,
+  TIMINGS_BATCH,
+} from './github.js';
+import {
+  listTeamIssues,
+  listTeamUsers,
+  listUserDiffs,
+  readTeamIssue,
+  type TeamIssue,
+} from './linear.js';
+import { mostCommon } from './stats.js';
 import { type TeamSyncView, teamSyncView } from './views.js';
 
 // The Linear stats sync (Contracts 37.2). The listing gives each issue's updatedAt; an issue whose saved updatedAt is the
 // same is not read again, so a sync stopped halfway continues where it stopped: each issue is saved with its PRs in one
 // transaction once its get_issue and PR reads are done. Merged and closed PRs are read once; open ones (and ones that
-// failed with 404 or 403) on every sync
+// failed with 404 or 403) on every sync. Then every merged PR of the team's repos is searched for, each repo from where
+// its last search ended to this sync's start; the PRs saved without a commit count get theirs, and Linear users get
+// the GitHub login Linear attributes PRs to (37.3). Last, the timed repo's merged PRs get their timings (37.6)
 
 const CONCURRENCY = 4;
 // Progress is written and pushed at most this often
 const PROGRESS_MS = 500;
+// The earliest day the page can show is the day of the first issue in the timezone setting, which starts at most a day
+// before that issue in any timezone: the first search of a repo goes back that far
+const DAY_MS = 86_400_000;
 
 export interface TeamSyncOptions {
   db: Db;
@@ -35,6 +66,9 @@ export interface TeamSyncOptions {
   firstUpdatedAfter?: Date | null;
   // Extra list_issues filters; tests list one epic's children (parentId)
   scope?: Record<string, unknown>;
+  // The repo whose merged PRs' timings the sync reads (37.6, owner/name); null reads none (the counting tests replay
+  // one epic's recorded responses)
+  timedRepo?: string | null;
 }
 
 const date = (iso: string | null) => (iso === null ? null : new Date(iso));
@@ -61,10 +95,12 @@ function savePr(tx: Db | Tx, ref: PrRef, read: PrRead, at: Date) {
     closedAt: date(pr.closed_at),
     additions: pr.additions,
     deletions: pr.deletions,
+    commits: pr.commits,
     authorLogin: pr.user.login,
     createdAt: new Date(pr.created_at),
     readAt: at,
     readError: null,
+    readBy: 'pull' as const,
   };
   tx.insert(teamPrs).values(row).onConflictDoUpdate({ target: teamPrs.url, set: row }).run();
 }
@@ -117,6 +153,87 @@ function saveIssue(db: Db, issue: TeamIssue, refs: PrRef[], reads: [PrRef, PrRea
   });
 }
 
+// The timings search stops this long before the sync's start: GitHub's search index lists a merged PR a little after
+// the merge, and a window once read is not searched again (37.6)
+const SEARCH_LAG_MS = 10 * 60_000;
+const SECOND = 1_000;
+
+function timingRow(repo: string, pr: TimedPr, at: Date) {
+  const t = prTiming(pr);
+  const ms = (v: number | null) => (v === null ? null : new Date(v));
+  return {
+    url: pr.url,
+    repo,
+    number: pr.number,
+    title: pr.title,
+    authorLogin: pr.author?.login ?? null,
+    createdAt: new Date(pr.createdAt),
+    readyAt: ms(t.readyAt),
+    mergedAt: new Date(pr.mergedAt),
+    ciStartedAt: ms(t.ciStartedAt),
+    ciEndedAt: ms(t.ciEndedAt),
+    ciRuns: t.ciRuns,
+    ciAllSucceeded: t.ciAllSucceeded,
+    slowestWorkflow: t.slowest?.workflow ?? null,
+    slowestMs: t.slowest?.ms ?? null,
+    slowestAfterMerge: t.slowest?.afterMerge ?? null,
+    readAt: at,
+    readError: null,
+  };
+}
+
+// Windows to the second with both ends included, joined where they meet or overlap
+function joinWindows(windows: [number, number][]): [number, number][] {
+  const joined: [number, number][] = [];
+  for (const [from, to] of [...windows].sort((a, b) => a[0] - b[0])) {
+    const last = joined.at(-1);
+    if (last !== undefined && from <= last[1] + SECOND) last[1] = Math.max(last[1], to);
+    else joined.push([from, to]);
+  }
+  return joined;
+}
+
+// The parts of from..to (ms, both included) no saved window of repo covers
+function timingGaps(db: Db, repo: string, from: number, to: number): [number, number][] {
+  const end = Math.floor(to / SECOND) * SECOND;
+  let cursor = Math.floor(from / SECOND) * SECOND;
+  const gaps: [number, number][] = [];
+  const saved = db
+    .select()
+    .from(teamPrTimingWindows)
+    .where(eq(teamPrTimingWindows.repo, repo))
+    .all()
+    .map((w): [number, number] => [w.from.getTime(), w.to.getTime()]);
+  for (const [start, stop] of joinWindows(saved)) {
+    if (cursor > end) break;
+    if (start > cursor) gaps.push([cursor, Math.min(start - SECOND, end)]);
+    cursor = Math.max(cursor, stop + SECOND);
+  }
+  if (cursor <= end) gaps.push([cursor, end]);
+  return gaps;
+}
+
+function saveTimingWindow(db: Db, repo: string, from: number, to: number) {
+  db.transaction((tx) => {
+    const saved = tx
+      .select()
+      .from(teamPrTimingWindows)
+      .where(eq(teamPrTimingWindows.repo, repo))
+      .all()
+      .map((w): [number, number] => [w.from.getTime(), w.to.getTime()]);
+    tx.delete(teamPrTimingWindows).where(eq(teamPrTimingWindows.repo, repo)).run();
+    tx.insert(teamPrTimingWindows)
+      .values(
+        joinWindows([...saved, [from, to]]).map(([f, t]) => ({
+          repo,
+          from: new Date(f),
+          to: new Date(t),
+        })),
+      )
+      .run();
+  });
+}
+
 // The distinct PRs an issue's attachments link to
 function issuePrs(issue: TeamIssue): PrRef[] {
   const refs = new Map<string, PrRef>();
@@ -146,6 +263,7 @@ export function createTeamSync({
   now = () => new Date(),
   firstUpdatedAfter = null,
   scope = {},
+  timedRepo = null,
 }: TeamSyncOptions) {
   // A sync left running by a process that ended without shutting down
   db.update(teamSync)
@@ -164,10 +282,12 @@ export function createTeamSync({
     return r;
   };
 
-  // progress is the sync's own object: finish writes its final state, however the sync ended
+  // progress is the sync's own object: finish writes its final state, however the sync ended. until is the sync's
+  // start: the search reads PRs merged up to then
   async function run(
     id: number,
     updatedAfter: Date | null,
+    until: number,
     progress: TeamSyncProgress,
     signal: AbortSignal,
     stop: (reason: unknown) => void,
@@ -212,12 +332,14 @@ export function createTeamSync({
     progress.toRead = toRead.length;
     report(true);
 
-    // Merged and closed PRs read without an error are not read again
+    // Merged and closed PRs read whole without an error are not read again
     const kept = new Set(
       db
         .select({ url: teamPrs.url })
         .from(teamPrs)
-        .where(and(eq(teamPrs.state, 'closed'), isNull(teamPrs.readError)))
+        .where(
+          and(eq(teamPrs.state, 'closed'), isNull(teamPrs.readError), eq(teamPrs.readBy, 'pull')),
+        )
         .all()
         .map((p) => p.url),
     );
@@ -288,6 +410,250 @@ export function createTeamSync({
         saves += 1;
       }),
     );
+
+    // Every merged PR of the team's repos: the repos of the PRs read without an error, under their current names
+    const names = db
+      .selectDistinct({ repo: teamPrs.repo })
+      .from(teamPrs)
+      .where(isNull(teamPrs.readError))
+      .all()
+      .map((r) => r.repo);
+    const repos = new Set<string>();
+    await settle(
+      names.map(async (name) => {
+        const current = await github(() => {
+          signal.throwIfAborted();
+          return readRepoName(name);
+        });
+        if (current !== null) repos.add(current);
+      }),
+    );
+    const searched = new Map(
+      db
+        .select()
+        .from(teamRepoSearches)
+        .all()
+        .map((r) => [r.repo, r.searchedUntil.getTime()]),
+    );
+    const first = db
+      .select({ at: sql<number | null>`min(${teamIssues.createdAt})` })
+      .from(teamIssues)
+      .get()?.at;
+    // A PR saved under another URL (a renamed repo) is the same PR by its GitHub id
+    const savedPrs = db
+      .select({ url: teamPrs.url, githubId: teamPrs.githubId })
+      .from(teamPrs)
+      .all();
+    const savedUrls = new Set(savedPrs.map((p) => p.url));
+    const savedIds = new Set(savedPrs.map((p) => p.githubId));
+    const saveSearched = (repo: string, prs: SearchedPr[]) => {
+      const fresh = prs.filter((p) => !savedUrls.has(p.url) && !savedIds.has(p.databaseId));
+      if (fresh.length === 0) return;
+      const at = now();
+      db.transaction((tx) => {
+        for (const p of fresh) {
+          tx.insert(teamPrs)
+            .values({
+              url: p.url,
+              repo,
+              number: p.number,
+              githubId: p.databaseId,
+              state: 'closed',
+              draft: false,
+              mergedAt: new Date(p.mergedAt),
+              closedAt: new Date(p.closedAt),
+              commits: p.commits.totalCount,
+              authorLogin: p.author?.login ?? null,
+              createdAt: new Date(p.createdAt),
+              readAt: at,
+              readError: null,
+              readBy: 'search',
+            })
+            .run();
+          savedUrls.add(p.url);
+          savedIds.add(p.databaseId);
+        }
+      });
+      saves += 1;
+      progress.prsSearched += fresh.length;
+      report();
+    };
+    await settle(
+      [...repos].map(async (repo) => {
+        const from = searched.get(repo) ?? (first == null ? null : first - DAY_MS);
+        if (from === null) throw new Error(`${repo} has saved PRs but no issue is saved`);
+        await searchMergedPrs(
+          MERGED_PRS,
+          repo,
+          from,
+          until,
+          github,
+          (prs) => {
+            saveSearched(repo, prs);
+          },
+          signal,
+        );
+        signal.throwIfAborted();
+        const row = { repo, searchedUntil: new Date(until) };
+        db.insert(teamRepoSearches)
+          .values(row)
+          .onConflictDoUpdate({ target: teamRepoSearches.repo, set: row })
+          .run();
+      }),
+    );
+
+    // Saved PRs read again by number, size to a request; each batch is saved in one transaction as it is read, so a sync
+    // that fails halfway leaves the rest to the next. read fails the sync on anything but a PR GitHub cannot find or
+    // show, which save records as that PR's read error (37.2)
+    const reread = async <R>(
+      refs: PrRef[],
+      size: number,
+      read: (refs: PrRef[]) => Promise<[PrRef, R][]>,
+      save: (tx: Tx, ref: PrRef, read: R) => void,
+      onBatch: (refs: PrRef[]) => void,
+    ) => {
+      const batches: PrRef[][] = [];
+      for (let i = 0; i < refs.length; i += size) batches.push(refs.slice(i, i + size));
+      await settle(
+        batches.map(async (batch) => {
+          const reads = await github(() => {
+            signal.throwIfAborted();
+            return read(batch);
+          });
+          signal.throwIfAborted();
+          db.transaction((tx) => {
+            for (const [ref, r] of reads) save(tx, ref, r);
+          });
+          saves += 1;
+          onBatch(batch);
+          report();
+        }),
+      );
+    };
+
+    // Commit counts of the PRs saved before team_prs held them
+    const uncounted = db
+      .select({ url: teamPrs.url, repo: teamPrs.repo, number: teamPrs.number })
+      .from(teamPrs)
+      .where(and(isNull(teamPrs.commits), isNull(teamPrs.readError)))
+      .orderBy(teamPrs.repo, teamPrs.number)
+      .all();
+    progress.commitsToRead = uncounted.length;
+    report(true);
+    await reread(
+      uncounted,
+      PR_BATCH,
+      readCommits,
+      (tx, ref, read) => {
+        tx.update(teamPrs)
+          .set(read.ok ? { commits: read.commits } : { readAt: now(), readError: read.error })
+          .where(eq(teamPrs.url, ref.url))
+          .run();
+      },
+      (refs) => {
+        progress.commitsRead += refs.length;
+      },
+    );
+
+    // Timings of the timed repo's merged PRs (37.6): the merge-time gaps between the windows already read, from the
+    // earliest day the page can show to a little before this sync's start; then, by number, the saved PRs whose CI
+    // still ran when they were read or that were saved before the slowest run was kept. Each page and batch is saved as
+    // it is read
+    if (timedRepo !== null && first != null) {
+      const saveTiming = (tx: Tx, pr: TimedPr, at: Date) => {
+        const row = timingRow(timedRepo, pr, at);
+        tx.insert(teamPrTimings)
+          .values(row)
+          .onConflictDoUpdate({ target: teamPrTimings.url, set: row })
+          .run();
+      };
+      await settle(
+        timingGaps(db, timedRepo, first - DAY_MS, until - SEARCH_LAG_MS).map(([from, to]) =>
+          searchMergedPrs(
+            PR_TIMINGS,
+            timedRepo,
+            from,
+            to,
+            github,
+            (prs) => {
+              if (prs.length === 0) return;
+              const at = now();
+              db.transaction((tx) => {
+                for (const pr of prs) saveTiming(tx, pr, at);
+              });
+              saves += 1;
+              progress.timingsRead += prs.length;
+              report();
+            },
+            signal,
+            (start, end) => {
+              saveTimingWindow(db, timedRepo, start, end);
+            },
+          ),
+        ),
+      );
+      const again = db
+        .select({ url: teamPrTimings.url, repo: teamPrTimings.repo, number: teamPrTimings.number })
+        .from(teamPrTimings)
+        .where(
+          and(
+            eq(teamPrTimings.repo, timedRepo),
+            gt(teamPrTimings.ciRuns, 0),
+            isNull(teamPrTimings.readError),
+            or(isNull(teamPrTimings.ciEndedAt), isNull(teamPrTimings.slowestWorkflow)),
+          ),
+        )
+        .orderBy(teamPrTimings.number)
+        .all();
+      await reread(
+        again,
+        TIMINGS_BATCH,
+        readTimings,
+        (tx, ref, read) => {
+          if (read.ok) saveTiming(tx, read.pr, now());
+          else {
+            tx.update(teamPrTimings)
+              .set({ readAt: now(), readError: read.error })
+              .where(eq(teamPrTimings.url, ref.url))
+              .run();
+          }
+        },
+        (refs) => {
+          progress.timingsRead += refs.length;
+        },
+      );
+    }
+
+    // The GitHub login of each Linear user Linear attributes merged PRs to: their author, as saved or read from GitHub
+    const unlinked = db
+      .select({ id: teamUsers.id })
+      .from(teamUsers)
+      .where(isNull(teamUsers.githubLogin))
+      .all();
+    const authorOf = (url: string) =>
+      db
+        .select({ login: teamPrs.authorLogin })
+        .from(teamPrs)
+        .where(and(eq(teamPrs.url, url), isNull(teamPrs.readError)))
+        .get()?.login ?? null;
+    await settle(
+      unlinked.map(async ({ id }) => {
+        const urls = await linear(() => {
+          signal.throwIfAborted();
+          return listUserDiffs(id);
+        });
+        let login = mostCommon(urls.flatMap((u) => authorOf(u) ?? []));
+        const ref = urls.map(prRef).find((r) => r !== null);
+        if (login === null && ref !== undefined) {
+          const read = await readOnce(ref);
+          if (read.ok) login = read.pr.user.login;
+        }
+        signal.throwIfAborted();
+        if (login === null) return;
+        db.update(teamUsers).set({ githubLogin: login }).where(eq(teamUsers.id, id)).run();
+        saves += 1;
+      }),
+    );
   }
 
   function finish(
@@ -320,10 +686,20 @@ export function createTeamSync({
       .limit(1)
       .get();
     const updatedAfter = last?.startedAt ?? firstUpdatedAfter;
-    const progress: TeamSyncProgress = { listed: 0, toRead: 0, read: 0, prsRead: 0 };
+    const progress: TeamSyncProgress = {
+      listed: 0,
+      toRead: 0,
+      read: 0,
+      prsRead: 0,
+      prsSearched: 0,
+      commitsToRead: 0,
+      commitsRead: 0,
+      timingsRead: 0,
+    };
+    const startedAt = now();
     const { id } = db
       .insert(teamSync)
-      .values({ startedAt: now(), status: 'running', updatedAfter, progress, issues: 0 })
+      .values({ startedAt, status: 'running', updatedAfter, progress, issues: 0 })
       .returning({ id: teamSync.id })
       .get();
     const controller = new AbortController();
@@ -334,7 +710,7 @@ export function createTeamSync({
       controller.abort(reason);
     };
     events.publish({ type: 'team.sync', syncId: id, status: 'running', progress });
-    const done = run(id, updatedAfter, progress, controller.signal, stop).then(
+    const done = run(id, updatedAfter, startedAt.getTime(), progress, controller.signal, stop).then(
       () => finish(id, 'succeeded', null, progress),
       (error: unknown) => {
         const reason = cause ?? error;

@@ -63,6 +63,9 @@ export type AppEvent =
   | { type: 'install.updated' }
   // An SSH host was added, renamed, checked or deleted (Contracts 31.1); pages reload /api/ssh-hosts
   | { type: 'ssh-hosts.updated' }
+  // A paid environment check got a new state from real use, a check or a model change (Contracts 8); pages reload
+  // /api/environment, which runs no paid check
+  | { type: 'environment.updated' }
   // Linear stats sync progress and its end (Contracts 37.2); pages reload /api/team/* when it ends
   | {
       type: 'team.sync';

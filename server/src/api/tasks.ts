@@ -7,6 +7,7 @@ import {
 } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
+import type { RequireChecks } from '../environment.js';
 import { ensureImportedBundle } from '../tasks/linear-import.js';
 import { getTaskRecord, listTaskRecords, saveTask } from '../tasks/loader.js';
 import { draftRubric } from '../tasks/rubric-draft.js';
@@ -24,7 +25,15 @@ const BadTaskRequest = createError<[string]>('BAD_TASK_REQUEST', '%s', 400);
 
 const IdParams = z.object({ id: z.string() });
 
-export function taskRoutes({ db, tasksDir }: { db: Db; tasksDir: string }) {
+export function taskRoutes({
+  db,
+  tasksDir,
+  requireChecks,
+}: {
+  db: Db;
+  tasksDir: string;
+  requireChecks: RequireChecks;
+}) {
   const requireTask = (id: string) => {
     const record = getTaskRecord(db, id);
     if (!record) throw new TaskNotFound(id);
@@ -82,10 +91,14 @@ export function taskRoutes({ db, tasksDir }: { db: Db; tasksDir: string }) {
       },
     );
 
+    // The judge drafts the rubric, so its environment check comes first (Contracts 8)
     app.post(
       '/api/tasks/rubric-draft',
       { schema: { body: RubricDraftRequest, response: { 200: RubricDraft } } },
-      (request) => draftRubric(request.body),
+      async (request) => {
+        await requireChecks(['model-judge']);
+        return draftRubric(request.body);
+      },
     );
     done();
   };

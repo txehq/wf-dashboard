@@ -305,6 +305,28 @@ export const OrcaMessageView = z.object({
   answered: z.boolean().nullable(),
 });
 
+// Where a session works (Contracts 40.1): working directory, the worktree holding it, branch and the Orca repo it
+// belongs to
+export const OrcaLocationView = z.object({
+  cwd: z.string().nullable(),
+  worktree: z.object({ path: z.string(), name: z.string(), main: z.boolean() }).nullable(),
+  branch: z.string().nullable(),
+  project: z.object({ id: z.string(), name: z.string() }).nullable(),
+});
+
+// Where a session on the topology page works: every one there has a working directory and sits in a worktree box
+// (Contracts 40.2)
+export const OrcaGraphLocationView = OrcaLocationView.extend({
+  cwd: z.string(),
+  worktree: z.object({ path: z.string(), name: z.string(), main: z.boolean() }),
+});
+
+// The session record of an Orca coordinator or worker on this machine, found from what Orca told it (Contracts 40.2)
+export const OrcaSessionView = z.object({
+  id: z.string(),
+  engine: z.enum(['claude', 'codex']),
+});
+
 export const OrcaRunView = z.object({
   id: z.string(),
   objective: z.string(),
@@ -315,6 +337,11 @@ export const OrcaRunView = z.object({
     agent: z.string().nullable(),
     state: z.enum(orcaStates),
     liveId: z.string().nullable(),
+    // The terminal Orca shows it in now: its own handle while Orca lists it, or the listed terminal its session runs in
+    // (Orca issues new handles when it restarts); null when no terminal shows it
+    openTerminal: z.string().nullable(),
+    session: OrcaSessionView.nullable(),
+    location: OrcaLocationView,
   }),
   workers: z.array(
     z.object({
@@ -331,6 +358,9 @@ export const OrcaRunView = z.object({
       startedAt: z.number().nullable(),
       lastMessage: OrcaMessageView.nullable(),
       liveId: z.string().nullable(),
+      openTerminal: z.string().nullable(),
+      session: OrcaSessionView.nullable(),
+      location: OrcaLocationView,
     }),
   ),
   messages: z.array(OrcaMessageView),
@@ -343,6 +373,88 @@ export const OrcaTopology = z.object({
   runs: z.array(OrcaRunView),
 });
 export type OrcaTopology = z.infer<typeof OrcaTopology>;
+
+// The Orca topology page (Contracts 40): GET /api/orca/graph. A node is a session: a Run's main agent, a worker, or a
+// session that sent one of them a cross-session message (peer). One session in several Runs is one node. Edges are
+// dispatch (main agent to worker, count is the tasks) and message (both directions between two sessions, count is
+// the messages)
+export const OrcaGraphNode = z.object({
+  id: z.string(),
+  kind: z.enum(['coordinator', 'worker', 'peer']),
+  title: z.string(),
+  agent: z.string().nullable(),
+  // Null for a peer whose state nothing reports
+  state: z.enum(orcaStates).nullable(),
+  location: OrcaGraphLocationView,
+  host: z.object({ id: z.string(), label: z.string().nullable() }).nullable(),
+  // Its Orca terminal; pane says Orca shows it in a terminal tab (a worker in a structured session has none)
+  handle: z.string().nullable(),
+  pane: z.boolean(),
+  // The terminal Orca shows it in now, whatever state its agent is in: the window is still open in Orca
+  openTerminal: z.string().nullable(),
+  liveId: z.string().nullable(),
+  // Its session record on this machine, for a session that is not a Live item yet
+  session: OrcaSessionView.nullable(),
+  // Why each way to open it does not work; null when it does
+  open: z.object({
+    live: z.string().nullable(),
+    orca: z.string().nullable(),
+    vscode: z.string().nullable(),
+  }),
+  runIds: z.array(z.string()),
+  model: z.string().nullable(),
+  effort: z.string().nullable(),
+  // Of its session; null without one
+  costUsd: z.number().nullable(),
+});
+export type OrcaGraphNode = z.infer<typeof OrcaGraphNode>;
+
+export const OrcaGraphEdge = z.object({
+  id: z.string(),
+  kind: z.enum(['dispatch', 'message']),
+  source: z.string(),
+  target: z.string(),
+  // The latest task's title on a dispatch edge; null on a message edge
+  label: z.string().nullable(),
+  count: z.number().int(),
+  // The latest message between the two sessions (for a dispatch edge without one, the latest task): its time and
+  // first 200 characters
+  last: z.object({ at: z.number(), text: z.string() }).nullable(),
+});
+export type OrcaGraphEdge = z.infer<typeof OrcaGraphEdge>;
+
+export const OrcaGraph = z.object({
+  local: z.object({ running: z.boolean(), reason: z.string().nullable() }),
+  nodes: z.array(OrcaGraphNode),
+  edges: z.array(OrcaGraphEdge),
+});
+export type OrcaGraph = z.infer<typeof OrcaGraph>;
+
+// The messages between one node and others (GET /api/orca/messages), oldest first: Orca's own (orca) and cross-session
+// messages from session records (peer)
+export const OrcaGraphMessage = z.object({
+  id: z.string(),
+  source: z.enum(['orca', 'peer']),
+  type: z.string(),
+  from: z.string(),
+  to: z.string(),
+  subject: z.string(),
+  body: z.string(),
+  at: z.number(),
+  // Whether a question has been answered; null for other types
+  answered: z.boolean().nullable(),
+});
+export type OrcaGraphMessage = z.infer<typeof OrcaGraphMessage>;
+
+// "Open in Orca" (Contracts 40.2): the desktop Orca switches to this terminal
+export const OrcaSwitchBody = z.strictObject({
+  handle: z.string().min(1),
+  hostId: z.string().nullable(),
+});
+export type OrcaSwitchBody = z.infer<typeof OrcaSwitchBody>;
+
+// "Open in Live" (Contracts 40.2): the node's Live item, imported from its session record when it has none yet
+export const OrcaOpenLiveBody = z.strictObject({ nodeId: z.string().min(1) });
 
 // One page of a structured worker's transcript (Contracts 35.4): GET /api/live/:id/worker?cursor=. The cursor goes
 // back unchanged on the next read, which then returns only what the worker wrote since

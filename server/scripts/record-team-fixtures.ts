@@ -5,12 +5,13 @@ import { format, resolveConfig } from 'prettier';
 import { z } from 'zod';
 import { config } from '../src/config.js';
 import { closeLinearClient, linearClient } from '../src/external/linear.js';
-import { prArgs, prRef } from '../src/team/github.js';
-import { ISSUE_FIELDS, listIssuesArgs } from '../src/team/linear.js';
+import { prRef } from '../src/team/github.js';
+import { ISSUE_FIELDS, listDiffsArgs, listIssuesArgs } from '../src/team/linear.js';
 
 // Record the real responses the Linear stats sync reads (Contracts 37.2) for a few TXE issues chosen by list_issues
 // filters (parentId=TXE-123 for an epic's children, query=<text> state=<state> for a title search), replayed in tests
-// by test/fixtures/team/linear-stand-in.mjs and test/fixtures/team/bin/gh. Only reads Linear and GitHub.
+// by test/fixtures/team/linear-stand-in.mjs and test/fixtures/team/bin/gh. This records the Linear calls, then
+// record-team-sync.ts runs the sync on them to record every gh call. Only reads Linear and GitHub.
 // The incremental listing uses updatedAfter = the 4th most recent issue's updatedAt, so it lists the most recent ones
 // Run: pnpm --filter @wf-dashboard/server record:team-fixtures <name> <filter>=<value>...
 const [name, ...filters] = process.argv.slice(2);
@@ -56,11 +57,15 @@ async function pages(
   }
 }
 
-await pages(
-  'list_users',
-  (cursor) => ({ limit: 250, ...(cursor === undefined ? {} : { cursor }) }),
-  'users',
-);
+const users = z
+  .array(z.object({ id: z.string() }))
+  .parse(
+    await pages(
+      'list_users',
+      (cursor) => ({ limit: 250, ...(cursor === undefined ? {} : { cursor }) }),
+      'users',
+    ),
+  );
 const Listed = z.array(z.object({ id: z.string(), updatedAt: z.string() }));
 const listed = Listed.parse(
   await pages('list_issues', (cursor) => listIssuesArgs('TXE', scope, null, cursor), 'issues'),
@@ -84,14 +89,9 @@ for (const issue of listed) {
     if (ref !== null) refs.set(ref.url, ref);
   }
 }
+// The sync asks Linear which merged PRs each user authored, to find their GitHub login (37.3)
+for (const user of users) await call('list_diffs', listDiffsArgs(user.id));
 await closeLinearClient();
-
-const commands = [];
-for (const ref of refs.values()) {
-  const args = prArgs(ref);
-  const result = await execa('gh', args, { reject: false });
-  commands.push({ args, exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr });
-}
 
 const writeJson = async (file: string, value: unknown) => {
   const options = await resolveConfig(file);
@@ -99,7 +99,7 @@ const writeJson = async (file: string, value: unknown) => {
 };
 fs.mkdirSync(dir, { recursive: true });
 await writeJson(path.join(dir, 'linear.json'), { calls });
-await writeJson(path.join(dir, 'gh.json'), { commands });
+await writeJson(path.join(dir, 'gh.json'), { commands: [] });
 await writeJson(path.join(dir, 'meta.json'), {
   scope,
   updatedAfter: updatedAfter.toISOString(),
@@ -111,3 +111,7 @@ await writeJson(path.join(dir, 'meta.json'), {
 console.log(
   `${name}: ${String(listed.length)} issues, ${String(incremental.length)} updated after ${updatedAfter.toISOString()}, ${String(refs.size)} PRs`,
 );
+await execa('tsx', [path.join(import.meta.dirname, 'record-team-sync.ts'), name], {
+  preferLocal: true,
+  stdio: 'inherit',
+});

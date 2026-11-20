@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 // gh for the Linear stats tests: replays, by arguments, the gh api output WFD_TEAM_GH_REPLAY points to (real output
-// recorded by scripts/record-team-fixtures.ts: { commands: [{ args, exitCode, stdout, stderr }] }), with the
-// recorded exit code. WFD_TEAM_GH_LOG, when set, gets one JSON line per call. A command with no recording fails with
-// its text
+// recorded by scripts/record-team-sync.ts: { commands: [{ args, exitCode, stdout, stderr }] }), with the recorded exit
+// code. WFD_TEAM_GH_LOG, when set, gets one JSON line per call. A command with no recording fails with its text; with
+// WFD_TEAM_GH_RECORD set, it runs the real gh (the next gh on PATH) instead and appends its output to that file as one
+// JSON line
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import path from 'node:path';
 
 const file = process.env.WFD_TEAM_GH_REPLAY;
 if (file === undefined)
@@ -14,10 +17,33 @@ if (process.env.WFD_TEAM_GH_LOG !== undefined) {
 }
 const { commands } = JSON.parse(fs.readFileSync(file, 'utf8'));
 const recorded = commands.find((c) => JSON.stringify(c.args) === JSON.stringify(args));
-if (recorded === undefined) {
+const record = process.env.WFD_TEAM_GH_RECORD;
+if (recorded !== undefined) {
+  process.stdout.write(recorded.stdout);
+  process.stderr.write(recorded.stderr);
+  process.exitCode = recorded.exitCode;
+} else if (record === undefined) {
   process.stderr.write(`${file} has no recording of gh ${args.join(' ')}\n`);
-  process.exit(1);
+  process.exitCode = 1;
+} else {
+  const self = path.dirname(fs.realpathSync(process.argv[1]));
+  const dirs = (process.env.PATH ?? '').split(path.delimiter).filter((d) => d !== '' && d !== self);
+  const real = dirs.map((d) => path.join(d, 'gh')).find((p) => fs.existsSync(p));
+  if (real === undefined) throw new Error('No real gh on PATH');
+  const result = spawnSync(real, args, { encoding: 'utf8', maxBuffer: 1 << 28 });
+  if (result.status === null)
+    throw new Error(`gh ${args.join(' ')} was killed by ${String(result.signal)}`);
+  // Recordings hold what execa returns, without the final newline
+  const trim = (s) => s.replace(/\n$/, '');
+  const line = {
+    args,
+    exitCode: result.status,
+    stdout: trim(result.stdout),
+    stderr: trim(result.stderr),
+  };
+  fs.appendFileSync(record, `${JSON.stringify(line)}\n`);
+  process.stdout.write(result.stdout);
+  process.stderr.write(result.stderr);
+  // exitCode, not process.exit: piped output is written out in full before the process ends
+  process.exitCode = result.status;
 }
-process.stdout.write(recorded.stdout);
-process.stderr.write(recorded.stderr);
-process.exitCode = recorded.exitCode;

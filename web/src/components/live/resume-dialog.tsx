@@ -352,12 +352,13 @@ export function ResumeButton({
         resume
       </Button>
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+        // With a long goal prefilled the dialog still fits in the window and scrolls inside
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div
             role="dialog"
             aria-modal="true"
             aria-label="Resume this session"
-            className="flex w-[32rem] max-w-[90vw] flex-col gap-4 rounded-lg border bg-background p-5 shadow-lg"
+            className="flex max-h-full w-[32rem] max-w-[90vw] flex-col gap-4 overflow-y-auto rounded-lg border bg-background p-5 shadow-lg"
             data-testid="resume-dialog"
           >
             <h2 className="text-base font-semibold">Resume this session</h2>

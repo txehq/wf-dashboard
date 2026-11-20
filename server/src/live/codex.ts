@@ -15,6 +15,7 @@ import { events } from '../events.js';
 import { ingestCodexFile } from '../ingest/codex.js';
 import { sessionConversation } from '../ingest/conversation.js';
 import { type SessionWatcher, watchSession } from '../ingest/watch.js';
+import { reportPaidUsage } from '../paid-usage.js';
 import type { SettingsStore } from '../runs/settings.js';
 import type { SimulatedGoal, SimulatedPersona, TranscriptEntry } from '../runs/simulated-user.js';
 import type { RemoteSessionSync } from '../remote/sync.js';
@@ -118,18 +119,21 @@ export function rolloutFiles(codexHome: string): string[] {
     .map((e) => path.join(e.parentPath, e.name));
 }
 
-// Session id of a rollout not in known whose cwd is this directory; null before its first line is written
-export function newSessionId(codexHome: string, cwd: string, known: Set<string>): string | null {
-  const real = fs.realpathSync(cwd);
+// Session id of a rollout not in known whose cwd is this directory; null before its first line is written. Codex
+// records its process's working directory, a real path; other rollouts' directories are not touched (W139: a folder
+// macOS protects holds every access until the user answers)
+export async function newSessionId(
+  codexHome: string,
+  cwd: string,
+  known: Set<string>,
+): Promise<string | null> {
+  const real = await fs.promises.realpath(cwd);
   for (const file of rolloutFiles(codexHome)) {
     if (known.has(file)) continue;
     const first = fs.readFileSync(file, 'utf8').split('\n')[0] ?? '';
     if (first.trim() === '') continue;
     const meta = SessionMeta.parse(JSON.parse(first));
-    // The user's own ~/.codex has sessions from elsewhere whose cwd may no longer exist
-    if (fs.existsSync(meta.payload.cwd) && fs.realpathSync(meta.payload.cwd) === real) {
-      return meta.payload.id;
-    }
+    if (meta.payload.cwd === real || meta.payload.cwd === cwd) return meta.payload.id;
   }
   return null;
 }
@@ -178,24 +182,37 @@ const TaskComplete = z.looseObject({
 export interface CodexTurn {
   turnId: string | null;
   text: string;
+  // When Codex wrote the record; a resumed rollout holds the turns of earlier processes too
+  at: number;
 }
 
-// Incrementally reads new turn-end records from a rollout: only content after the last read, a half-written last line waits
+// An error event Codex wrote into the rollout: the original text of a failed model call
+const RolloutError = z.looseObject({ type: z.literal('error'), message: z.string() });
+
+const RolloutRecord = z.looseObject({
+  timestamp: z.string(),
+  type: z.string(),
+  payload: z.unknown(),
+});
+
+// Incrementally reads new turn-end and error records from a rollout: only content after the last read, a half-written
+// last line waits
 export class RolloutTurns {
   private offset = 0;
   private partial = '';
 
   constructor(private readonly file: string) {}
 
-  next(): CodexTurn[] {
-    if (!fs.existsSync(this.file)) return [];
+  next(): { turns: CodexTurn[]; errors: { message: string; at: number }[] } {
+    const none = { turns: [], errors: [] };
+    if (!fs.existsSync(this.file)) return none;
     const size = fs.statSync(this.file).size;
     if (size < this.offset) {
       // File was overwritten (remote copy re-synced): read from the start
       this.offset = 0;
       this.partial = '';
     }
-    if (size === this.offset) return [];
+    if (size === this.offset) return none;
     const buffer = Buffer.alloc(size - this.offset);
     const fd = fs.openSync(this.file, 'r');
     fs.readSync(fd, buffer, 0, buffer.length, this.offset);
@@ -205,20 +222,23 @@ export class RolloutTurns {
     const lines = text.split('\n');
     this.partial = lines.pop() ?? '';
     const turns: CodexTurn[] = [];
+    const errors: { message: string; at: number }[] = [];
     for (const line of lines) {
       if (line.trim() === '') continue;
-      const record = z
-        .looseObject({ type: z.string(), payload: z.unknown() })
-        .safeParse(JSON.parse(line));
+      const record = RolloutRecord.safeParse(JSON.parse(line));
       if (!record.success || record.data.type !== 'event_msg') continue;
+      const at = Date.parse(record.data.timestamp);
+      const error = RolloutError.safeParse(record.data.payload);
+      if (error.success) errors.push({ message: error.data.message, at });
       const complete = TaskComplete.safeParse(record.data.payload);
       if (!complete.success) continue;
       turns.push({
         turnId: complete.data.turn_id ?? null,
         text: complete.data.last_agent_message ?? '',
+        at,
       });
     }
-    return turns;
+    return { turns, errors };
   }
 }
 
@@ -232,7 +252,7 @@ export async function waitForSession(
 ): Promise<string> {
   const deadline = Date.now() + timeoutMs;
   while (pty.alive && Date.now() < deadline) {
-    const id = newSessionId(codexHome, cwd, known);
+    const id = await newSessionId(codexHome, cwd, known);
     if (id !== null) return id;
     await sleep(200);
   }
@@ -282,6 +302,7 @@ export class CodexRunner {
   private tail: string | null = null;
   private turns: RolloutTurns | null = null;
   private readonly turnTimer: NodeJS.Timeout;
+  private readonly startedAt = Date.now();
 
   constructor(opts: CodexRunnerOptions) {
     this.db = opts.db;
@@ -372,9 +393,24 @@ export class CodexRunner {
     this.simulated.release();
   }
 
-  // Turn-end records: the latest is the input Codex is waiting for
+  // Turn-end records: the latest is the input Codex is waiting for. Each turn end or error this local process wrote is
+  // real use of the Codex environment check (Contracts 8); a remote host's Codex is not this machine's
   private readTurns() {
-    const turns = this.turns?.next() ?? [];
+    const { turns, errors } = this.turns?.next() ?? { turns: [], errors: [] };
+    if (!this.pty.remote) {
+      const own = [
+        ...turns.map((t) => ({
+          at: t.at,
+          ok: true,
+          detail: `Codex turn ended in Live item ${this.liveId}`,
+        })),
+        ...errors.map((e) => ({ at: e.at, ok: false, detail: e.message })),
+      ]
+        .filter((u) => u.at >= this.startedAt)
+        .sort((a, b) => a.at - b.at);
+      const latest = own.at(-1);
+      if (latest !== undefined) reportPaidUsage('codex', { ok: latest.ok, detail: latest.detail });
+    }
     const last = turns.at(-1);
     if (last === undefined) return;
     this.simulated.setWaiting({ kind: 'text', text: last.text });

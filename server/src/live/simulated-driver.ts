@@ -94,14 +94,14 @@ export class SimulatedDriver {
     if (driver === 'simulated') this.respond();
   }
 
-  // "Hand back": the driver becomes the simulated user; answers at once if the agent is waiting for input
+  // Switching the driver to Simulated user: answers at once if the agent is waiting for input
   release() {
     if (this.opts.starting())
       throw new HttpError(409, 'Starting: the driver stays human until SessionStart arrives');
     if (!this.opts.pty.connected) {
       throw new HttpError(
         409,
-        'The remote connection is down and the simulated user drives only while connected; hand back after it reconnects',
+        'The remote connection is down and the simulated user drives only while connected; switch the driver to Simulated user after it reconnects',
       );
     }
     this.setDriver('simulated', 'release');

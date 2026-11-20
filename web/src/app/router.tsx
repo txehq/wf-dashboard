@@ -5,6 +5,7 @@ import { AnalysisDetailPage } from '@/pages/analyses-detail';
 import { AnalysisNewPage } from '@/pages/analyses-new';
 import { ComparePage } from '@/pages/compare';
 import { LivePage } from '@/pages/live';
+import { OrcaPage } from '@/pages/orca';
 import { RunsPage } from '@/pages/runs';
 import { RunDetailPage } from '@/pages/runs-detail';
 import { SessionsPage } from '@/pages/sessions';
@@ -29,6 +30,7 @@ export const router = createBrowserRouter([
       { path: 'runs', element: <RunsPage /> },
       { path: 'runs/:id', element: <RunDetailPage /> },
       { path: 'live', element: <LivePage /> },
+      { path: 'orca', element: <OrcaPage /> },
       { path: 'workflows', element: <WorkflowsPage /> },
       { path: 'workflows/:id', element: <WorkflowPage /> },
       { path: 'variants', element: <VariantsRedirect /> },

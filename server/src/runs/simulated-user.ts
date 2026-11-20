@@ -432,6 +432,7 @@ export async function simulateUser(
   const goal = isGoal(role);
   const call = {
     model: models.simulatedUser,
+    role: 'simulatedUser' as const,
     system: systemPrompt(ctx),
     user: userPrompt(transcript, prompt, goal ? role : undefined),
     maxTokens: 4096,

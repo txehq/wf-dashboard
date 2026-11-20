@@ -15,6 +15,8 @@ import { execa } from 'execa';
 const REPO = 'txehq/wf-dashboard';
 const APP_NAME = 'WF Dashboard';
 const BUNDLE_ID = 'dev.engapp.wf-dashboard';
+const FOLDER_USAGE =
+  'WF Dashboard reads the folders your agent sessions work in and your Obsidian vault, to show and continue those sessions.';
 const INSTALL_COMMAND = `gh release download --repo ${REPO} --pattern install.sh --output - | bash`;
 
 const { values } = parseArgs({
@@ -172,6 +174,17 @@ const [appDir] = await packager({
   buildVersion: version,
   appBundleId: BUNDLE_ID,
   appCategoryType: 'public.app-category.developer-tools',
+  // What macOS shows when the server first touches a protected folder holding a session's working directory or the
+  // vault (Contracts 39, W139); it asks once
+  extendInfo: Object.fromEntries(
+    [
+      'NSDesktopFolderUsageDescription',
+      'NSDocumentsFolderUsageDescription',
+      'NSDownloadsFolderUsageDescription',
+      'NSNetworkVolumesUsageDescription',
+      'NSRemovableVolumesUsageDescription',
+    ].map((key) => [key, FOLDER_USAGE]),
+  ),
   icon,
   asar: true,
   prune: false,

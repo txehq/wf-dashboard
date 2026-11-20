@@ -1,18 +1,40 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, ChevronRight, CircleCheck, CircleX, RefreshCw, X } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  CircleCheck,
+  CircleDashed,
+  CircleX,
+  RefreshCw,
+  X,
+} from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { Dialog } from 'radix-ui';
 import { Button } from '@/components/ui/button';
 import {
   type EnvironmentCheck,
+  paidName,
   refreshEnvironment,
   useEnvironment,
+  verifiedText,
 } from '@/components/environment/environment-api';
+
+const stateIcons = {
+  ok: <CircleCheck className="size-4 shrink-0 text-status-good" aria-label="Passed" />,
+  failed: <CircleX className="size-4 shrink-0 text-destructive" aria-label="Failed" />,
+  unverified: (
+    <CircleDashed className="size-4 shrink-0 text-muted-foreground" aria-label="Unverified" />
+  ),
+};
+
+// Failed first, then unverified, then passed
+const stateOrder = { failed: 0, unverified: 1, ok: 2 };
 
 function CheckRow({ check }: { check: EnvironmentCheck }) {
   // Failed checks start expanded so the cause and fix are visible
-  const [open, setOpen] = useState(!check.ok);
+  const [open, setOpen] = useState(check.state === 'failed');
   const Chevron = open ? ChevronDown : ChevronRight;
+  const paid = paidName(check) !== undefined;
   return (
     <li className="border-b last:border-b-0" data-testid={`env-check-${check.id}`}>
       <button
@@ -24,12 +46,13 @@ function CheckRow({ check }: { check: EnvironmentCheck }) {
         }}
       >
         <Chevron className="size-4 shrink-0 text-muted-foreground" />
-        {check.ok ? (
-          <CircleCheck className="size-4 shrink-0 text-status-good" aria-label="Passed" />
-        ) : (
-          <CircleX className="size-4 shrink-0 text-destructive" aria-label="Failed" />
-        )}
+        {stateIcons[check.state]}
         <span className="min-w-0 truncate">{check.label}</span>
+        {paid && (
+          <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+            {verifiedText(check)}
+          </span>
+        )}
       </button>
       {open && (
         <div className="flex flex-col gap-2 pb-3 pl-7 text-xs">
@@ -39,7 +62,7 @@ function CheckRow({ check }: { check: EnvironmentCheck }) {
           >
             {check.detail === '' ? '(no output)' : check.detail}
           </pre>
-          {!check.ok && (
+          {check.state === 'failed' && (
             <div data-testid="env-fix">
               <span className="font-medium">Fix: </span>
               <code className="break-all whitespace-pre-wrap">{check.fix}</code>
@@ -51,7 +74,8 @@ function CheckRow({ check }: { check: EnvironmentCheck }) {
   );
 }
 
-// Environment checklist: failed checks first; "Recheck" bypasses the server's 10-minute cache
+// Environment checklist: failed checks first; "Recheck" bypasses the server's 10-minute cache and runs the paid
+// checks too
 export function EnvironmentDialog({ trigger }: { trigger: ReactNode }) {
   const client = useQueryClient();
   const { query, queryKey } = useEnvironment();
@@ -61,7 +85,9 @@ export function EnvironmentDialog({ trigger }: { trigger: ReactNode }) {
       client.setQueryData(queryKey, report);
     },
   });
-  const checks = [...(query.data?.checks ?? [])].sort((a, b) => Number(a.ok) - Number(b.ok));
+  const checks = [...(query.data?.checks ?? [])].sort(
+    (a, b) => stateOrder[a.state] - stateOrder[b.state],
+  );
   const checking = query.isPending || refresh.isPending;
 
   return (
@@ -79,7 +105,7 @@ export function EnvironmentDialog({ trigger }: { trigger: ReactNode }) {
               <Dialog.Description className="text-xs text-muted-foreground">
                 {query.data === undefined
                   ? 'Checking what this machine needs to run evaluations…'
-                  : `Checked ${new Date(query.data.checkedAt).toLocaleString('en-US', { hour12: false })}. Results are kept for 10 minutes.`}
+                  : `Checked ${new Date(query.data.checkedAt).toLocaleString('en-US', { hour12: false })}, kept for 10 minutes. Model and Codex checks update when they are used; Recheck runs them too.`}
               </Dialog.Description>
             </div>
             <div className="flex items-center gap-2">

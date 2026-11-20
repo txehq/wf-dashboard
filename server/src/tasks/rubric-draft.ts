@@ -79,7 +79,7 @@ export function rubricDraftRequest(
 }
 
 export async function draftRubric(task: RubricDraftRequest): Promise<RubricDraft> {
-  const result = await parseStructured(rubricDraftRequest(task, models.judge));
+  const result = await parseStructured({ ...rubricDraftRequest(task, models.judge), role: 'judge' });
   const rubric = Rubric.parse(result.value.rubric);
   const issues = taskFieldIssues({ ...task, rubric }).filter((i) => i.includes('rubric'));
   if (issues.length > 0) throw new Error(`The drafted rubric does not fit the eval kind: ${issues.join('; ')}`);

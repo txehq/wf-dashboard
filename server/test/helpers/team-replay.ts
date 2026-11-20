@@ -11,6 +11,10 @@ const current = path.join(work, 'linear.json');
 const linearLog = path.join(work, 'linear.log');
 const ghLog = path.join(work, 'gh.log');
 
+// Every count of the tests is taken at this time (open started intervals end at "now"), and the fixtures' merged PR
+// search reads up to it: scripts/record-team-sync.ts records with the same time
+export const TEAM_NOW = Date.parse('2026-11-04T12:00:00Z');
+
 export interface TeamCall {
   name: string;
   args: Record<string, unknown>;

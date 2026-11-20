@@ -1,14 +1,26 @@
+import { isNotNull } from 'drizzle-orm';
 import { DateTime } from 'luxon';
 import type { Db } from '../db/index.js';
-import { teamIssuePrs, teamIssueStates, teamIssues, teamPrs, teamUsers } from '../db/schema.js';
 import {
+  teamIssuePrs,
+  teamIssueStates,
+  teamIssues,
+  teamPrs,
+  teamPrTimings,
+  teamUsers,
+} from '../db/schema.js';
+import { between, spread } from './durations.js';
+import {
+  type CloseTimes,
   type DayCell,
+  type GithubAccount,
   type Person,
   type PersonStats,
   type PrProblem,
   type TeamIssuePr,
   type TeamIssueRow,
   type TeamStats,
+  type TimeToComplete,
   UNASSIGNED,
 } from './views.js';
 
@@ -31,23 +43,133 @@ export interface Issue {
   completedAt: number | null;
   // Intervals in a started state, [start, end) in ms
   started: [number, number][];
+  // From the creation and from the first start to the completion and to the cancellation (37.7); null when not
+  // completed (canceled), never started, or the recorded times are reversed
+  createdToCompleted: number | null;
+  startedToCompleted: number | null;
+  createdToCanceled: number | null;
+  startedToCanceled: number | null;
 }
+
+type TimingError = Pick<
+  typeof teamPrTimings.$inferSelect,
+  'url' | 'repo' | 'number' | 'readAt' | 'readError'
+>;
 
 export interface TeamData {
   issues: Issue[];
   prs: PrRow[];
+  // Timed PRs a read again by number could not find or show (37.6)
+  timingErrors: TimingError[];
   // Issue identifiers linking to each PR url
   linkedBy: Map<string, string[]>;
+  // Each person's GitHub account, and the person of each login (lowercase: GitHub logins ignore case)
+  accounts: Map<string, GithubAccount>;
+  authors: Map<string, Person>;
+}
+
+// The value that occurs most often; a tie goes to the first in alphabetical order
+export function mostCommon(values: string[]): string | null {
+  return ranked(values)[0]?.value ?? null;
+}
+
+function ranked(values: string[]) {
+  const counts = new Map<string, number>();
+  for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
+  return [...counts]
+    .map(([value, count]) => ({ value, count }))
+    .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value));
+}
+
+const mergedRead = (p: PrRow) => p.readError === null && p.mergedAt !== null;
+
+// GitHub accounts (37.3): the login Linear attributes a user's PRs to; for anyone else, the most common author of the
+// merged PRs linked to the issues assigned to them, unless that login is already someone's. Of two people guessed to
+// one login, the one with more of its PRs gets it
+function githubAccounts(
+  people: Map<string, Person>,
+  linked: Map<string, string>,
+  issues: Issue[],
+): Pick<TeamData, 'accounts' | 'authors'> {
+  const accounts = new Map<string, GithubAccount>();
+  const authors = new Map<string, Person>();
+  const personOf = (key: string) => {
+    const p = people.get(key);
+    if (p === undefined) throw new Error(`Person ${key} is not known`);
+    return p;
+  };
+  for (const [key, login] of linked) {
+    const owner = authors.get(login.toLowerCase());
+    if (owner !== undefined) {
+      accounts.set(key, {
+        login: null,
+        reason: `Linear attributes PRs of ${login} to both ${owner.name} and ${personOf(key).name}`,
+      });
+      continue;
+    }
+    authors.set(login.toLowerCase(), personOf(key));
+    accounts.set(key, { login, source: 'linear' });
+  }
+  // Each PR once per person, by its GitHub id (one PR under two URLs)
+  const prLogins = new Map<string, Map<string, string>>();
+  for (const issue of issues) {
+    const key = issue.assignee.key;
+    if (key === UNASSIGNED || accounts.has(key)) continue;
+    const logins = prLogins.get(key) ?? new Map<string, string>();
+    for (const p of issue.prs) {
+      if (mergedRead(p) && p.authorLogin !== null)
+        logins.set(String(p.githubId ?? p.url), p.authorLogin);
+    }
+    prLogins.set(key, logins);
+  }
+  const guesses = [...prLogins]
+    .flatMap(([key, logins]) => {
+      const [top] = ranked([...logins.values()]);
+      return top === undefined ? [] : [{ key, login: top.value, count: top.count }];
+    })
+    .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+  for (const { key, login } of guesses) {
+    const owner = authors.get(login.toLowerCase());
+    if (owner !== undefined) {
+      accounts.set(key, {
+        login: null,
+        reason: `${login}, the most common author of the merged PRs linked to their issues, is ${owner.name}'s account`,
+      });
+      continue;
+    }
+    authors.set(login.toLowerCase(), personOf(key));
+    accounts.set(key, { login, source: 'prs' });
+  }
+  for (const [key, p] of people) {
+    if (accounts.has(key)) continue;
+    accounts.set(key, {
+      login: null,
+      reason: `Linear attributes no PR to ${p.name}, and no merged PR is linked to their issues`,
+    });
+  }
+  accounts.set(UNASSIGNED, { login: null, reason: 'Issues without an assignee have no author' });
+  return { accounts, authors };
 }
 
 export function loadTeamData(db: Db, now: number): TeamData {
   // One read transaction: a sync saving issues meanwhile is seen whole or not at all
-  const { userRows, prs, links, stateRows, rows } = db.transaction((tx) => ({
+  const { userRows, prs, links, stateRows, rows, timingErrors } = db.transaction((tx) => ({
     userRows: tx.select().from(teamUsers).all(),
     prs: tx.select().from(teamPrs).all(),
     links: tx.select().from(teamIssuePrs).all(),
     stateRows: tx.select().from(teamIssueStates).orderBy(teamIssueStates.seq).all(),
     rows: tx.select().from(teamIssues).all(),
+    timingErrors: tx
+      .select({
+        url: teamPrTimings.url,
+        repo: teamPrTimings.repo,
+        number: teamPrTimings.number,
+        readAt: teamPrTimings.readAt,
+        readError: teamPrTimings.readError,
+      })
+      .from(teamPrTimings)
+      .where(isNotNull(teamPrTimings.readError))
+      .all(),
   }));
   const users = new Map(userRows.map((u) => [u.id, u.name]));
   const prByUrl = new Map(prs.map((p) => [p.url, p]));
@@ -98,6 +220,10 @@ export function loadTeamData(db: Db, now: number): TeamData {
         : row.startedAt === null
           ? []
           : [[row.startedAt.getTime(), completedAt ?? row.canceledAt?.getTime() ?? now]];
+    const createdAt = row.createdAt.getTime();
+    // The start of the first started interval: of the state history, or else Linear's startedAt
+    const firstStart = started.length === 0 ? null : Math.min(...started.map(([s]) => s));
+    const canceledAt = row.canceledAt?.getTime() ?? null;
     return {
       row,
       assignee: person(row.assigneeId, row.assigneeName),
@@ -106,9 +232,21 @@ export function loadTeamData(db: Db, now: number): TeamData {
       doneNotClosed,
       completedAt,
       started,
+      createdToCompleted: completedAt === null ? null : between(createdAt, completedAt),
+      startedToCompleted:
+        completedAt === null || firstStart === null ? null : between(firstStart, completedAt),
+      createdToCanceled: canceledAt === null ? null : between(createdAt, canceledAt),
+      startedToCanceled:
+        canceledAt === null || firstStart === null ? null : between(firstStart, canceledAt),
     };
   });
-  return { issues, prs, linkedBy };
+  const people = new Map(userRows.map((u) => [u.id, { key: u.id, name: u.name }]));
+  for (const i of issues)
+    for (const p of [i.assignee, i.creator]) if (p.key !== UNASSIGNED) people.set(p.key, p);
+  const linked = new Map(
+    userRows.flatMap((u) => (u.githubLogin === null ? [] : [[u.id, u.githubLogin] as const])),
+  );
+  return { issues, prs, timingErrors, linkedBy, ...githubAccounts(people, linked, issues) };
 }
 
 // Days of one timezone as yyyy-mm-dd
@@ -235,7 +373,8 @@ export function mergedPrs(data: TeamData, range: DayRange): MergedPr[] {
           (a.completedAt ?? Infinity) - (b.completedAt ?? Infinity) || a.row.number - b.row.number,
       );
     const [issue] = issues;
-    const [pr] = urls;
+    // The URL an issue links to, read whole with its lines; the search may hold the same PR under its current URL
+    const pr = urls.find((p) => data.linkedBy.has(p.url));
     if (issue === undefined || pr?.mergedAt == null) continue;
     result.push({ pr, issue, day: range.of(pr.mergedAt.getTime()) });
   }
@@ -258,6 +397,11 @@ const zero = () => ({
   prsMerged: 0,
   additions: 0,
   deletions: 0,
+  prsAuthored: 0,
+  commits: 0,
+  commitsUnread: 0,
+  commitsAuthored: 0,
+  commitsAuthoredUnread: 0,
 });
 
 export function teamStats(
@@ -285,6 +429,9 @@ export function teamStats(
   const doneNotClosed = new Map<string, number>();
   const open = new Map<string, number>();
   const everyone = new Map<string, string>();
+  // Issues completed in the range, by assignee, and issues canceled in it (37.7)
+  const completedBy = new Map<string, Issue[]>();
+  const canceled: Issue[] = [];
   for (const issue of data.issues) {
     everyone.set(issue.assignee.key, issue.assignee.name);
     everyone.set(issue.creator.key, issue.creator.name);
@@ -299,17 +446,47 @@ export function teamStats(
     for (const d of counted.handled) cell(issue.assignee, d).handled += 1;
     if (counted.completed !== null) {
       cell(issue.assignee, counted.completed).completed += 1;
+      completedBy.set(issue.assignee.key, [...(completedBy.get(issue.assignee.key) ?? []), issue]);
       if (issue.doneNotClosed)
         doneNotClosed.set(issue.assignee.key, (doneNotClosed.get(issue.assignee.key) ?? 0) + 1);
     }
-    if (counted.canceled !== null) cell(issue.assignee, counted.canceled).canceled += 1;
+    if (counted.canceled !== null) {
+      cell(issue.assignee, counted.canceled).canceled += 1;
+      canceled.push(issue);
+    }
   }
+  // A PR's commit count by its GitHub id, from whichever of its URLs has it; a PR without one is unread (37.3)
+  const prId = (pr: PrRow) => String(pr.githubId ?? pr.url);
+  const commitsOf = new Map<string, number>();
+  for (const pr of data.prs)
+    if (mergedRead(pr) && pr.commits !== null) commitsOf.set(prId(pr), pr.commits);
   for (const { pr, issue, day } of mergedPrs(data, range)) {
     if (day === null || !wanted(issue.assignee.key)) continue;
     const c = cell(issue.assignee, day);
     c.prsMerged += 1;
     c.additions += pr.additions ?? 0;
     c.deletions += pr.deletions ?? 0;
+    const commits = commitsOf.get(prId(pr));
+    if (commits === undefined) c.commitsUnread += 1;
+    else c.commits += commits;
+  }
+  // Every merged PR of the team's repos on its author, once each by GitHub id (37.3)
+  const authored = new Set<string>();
+  for (const pr of data.prs) {
+    if (!mergedRead(pr) || pr.authorLogin === null || pr.mergedAt === null) continue;
+    const id = prId(pr);
+    if (authored.has(id)) continue;
+    authored.add(id);
+    const author = data.authors.get(pr.authorLogin.toLowerCase());
+    if (author === undefined) continue;
+    everyone.set(author.key, author.name);
+    const day = range.of(pr.mergedAt.getTime());
+    if (day === null || !wanted(author.key)) continue;
+    const c = cell(author, day);
+    c.prsAuthored += 1;
+    const commits = commitsOf.get(id);
+    if (commits === undefined) c.commitsAuthoredUnread += 1;
+    else c.commitsAuthored += commits;
   }
   const daily = [...cells.values()].sort(
     (a, b) => a.day.localeCompare(b.day) || a.person.localeCompare(b.person),
@@ -320,16 +497,29 @@ export function teamStats(
       if (c.person !== key) continue;
       for (const k of Object.keys(total) as (keyof typeof total)[]) total[k] += c[k];
     }
+    const github = data.accounts.get(key);
+    if (github === undefined) throw new Error(`${name} (${key}) has no GitHub account entry`);
     return {
       key,
       name,
       ...total,
+      prsAuthored: github.login === null ? null : total.prsAuthored,
+      commitsAuthored: github.login === null ? null : total.commitsAuthored,
+      github,
       handledPerDay: total.handled / dayList.length,
       doneNotClosed: doneNotClosed.get(key) ?? 0,
       openInProgress: open.get(key) ?? 0,
+      timeToComplete: timeToComplete(completedBy.get(key) ?? []),
     };
   });
   rows.sort((a, b) => b.handled - a.handled || a.name.localeCompare(b.name));
+  const completed = [...completedBy.values()].flat();
+  const closeTimes: CloseTimes = {
+    completed: completed.length,
+    ...timeToComplete(completed),
+    canceled: canceled.length,
+    createdToCanceled: spread(canceled.map((i) => i.createdToCanceled)),
+  };
   const first = Math.min(...data.issues.map((i) => i.row.createdAt.getTime()));
   return {
     team,
@@ -343,13 +533,19 @@ export function teamStats(
       .map(([key, name]) => ({ key, name }))
       .sort((a, b) => a.name.localeCompare(b.name)),
     people: rows,
+    closeTimes,
     daily,
     prProblems: prProblems(data),
   };
 }
 
+const timeToComplete = (issues: Issue[]): TimeToComplete => ({
+  started: spread(issues.map((i) => i.startedToCompleted)),
+  created: spread(issues.map((i) => i.createdToCompleted)),
+});
+
 function prProblems(data: TeamData): PrProblem[] {
-  return data.prs
+  return [...data.prs, ...data.timingErrors]
     .filter((p) => p.readError !== null)
     .map((p) => ({
       url: p.url,
@@ -418,6 +614,10 @@ export function teamIssueRows(data: TeamData, selection: IssueSelection): TeamIs
       completedAt: issue.completedAt,
       canceledAt: issue.row.canceledAt?.getTime() ?? null,
       doneNotClosed: issue.doneNotClosed,
+      // An issue counted as completed is closed by its completion
+      ...(issue.completedAt === null
+        ? { createdToClosed: issue.createdToCanceled, startedToClosed: issue.startedToCanceled }
+        : { createdToClosed: issue.createdToCompleted, startedToClosed: issue.startedToCompleted }),
       prs: issue.prs.map(prView),
       ...flags,
     });

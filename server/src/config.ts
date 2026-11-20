@@ -153,6 +153,8 @@ export const config = {
       : z.array(z.string().min(1)).min(1).parse(JSON.parse(process.env.WFD_LINEAR_MCP)),
   // Linear stats (Contracts section 37): the team counted, and the sync at startup and every 30 minutes (37.2)
   teamStatsTeam: 'TXE',
+  // The repo whose merged PRs are timed from open to merge and through their CI (37.6)
+  teamStatsTimedRepo: 'txehq/txe',
   teamSyncIntervalMs: 30 * 60_000,
   // Obsidian vault and product written by evaluation runs (wf obsidian writes to <vault>/Project <product>/);
   // read once at startup; tests set MAGI_VAULT to a directory under .work/

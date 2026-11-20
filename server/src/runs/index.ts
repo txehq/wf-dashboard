@@ -8,6 +8,7 @@ import {
   batches,
   batchTasks,
   batchVariants,
+  type PaidCheckId,
   type RunStatus,
   runs,
   stageSpans,
@@ -15,6 +16,7 @@ import {
   terminalRunStatuses,
   variants as variantsTable,
 } from '../db/schema.js';
+import type { RequireChecks } from '../environment.js';
 import { events } from '../events.js';
 import { featureDir } from '../stages/artifacts.js';
 import {
@@ -61,6 +63,12 @@ function modeOf(messages: ReturnType<typeof listMessages>): RunMode {
 
 type RunRow = typeof runs.$inferSelect;
 
+// Paid environment checks a run needs (Contracts 8): the simulated user answers and the judge grades every run; an ic
+// run's /review-pr also calls codex exec
+function runChecks(kinds: Set<string>): PaidCheckId[] {
+  return ['model-simulated-user', 'model-judge', ...(kinds.has('ic') ? (['codex'] as const) : [])];
+}
+
 export interface RunFilter {
   batch?: string | undefined;
   status?: RunStatus | undefined;
@@ -68,7 +76,7 @@ export interface RunFilter {
   variant?: string | undefined;
 }
 
-export function createRuns(deps: RunnerDeps) {
+export function createRuns(deps: RunnerDeps & { requireChecks: RequireChecks }) {
   const { db, settings } = deps;
   const drivers = new Map<string, RunDriver>();
   let stopped = false;
@@ -260,13 +268,13 @@ export function createRuns(deps: RunnerDeps) {
   return {
     // Freeze every variant, then create the batch and all runs (queued); model and effort apply to all of them
     // (Contracts 16.5)
-    createBatch(input: {
+    async createBatch(input: {
       variantIds: string[];
       taskIds: string[];
       repeats: number;
       model: string;
       effort: string;
-    }): BatchDetail {
+    }): Promise<BatchDetail> {
       // The eval kind of the variant's workflow: a workflow without one cannot be evaluated (evalSpecOf's 400)
       const kindOf = new Map<string, string>();
       for (const id of input.variantIds) {
@@ -289,6 +297,7 @@ export function createRuns(deps: RunnerDeps) {
           }
         }
       }
+      await deps.requireChecks(runChecks(new Set(kindOf.values())));
       for (const id of input.variantIds) deps.variants.freeze(id);
       const batchId = newId('b');
       db.transaction((tx) => {
@@ -452,11 +461,18 @@ export function createRuns(deps: RunnerDeps) {
 
     // Contracts 10: create a new run for the same task × variant in the same batch and queue it; the original run is
     // unchanged. The variant was frozen when the batch was created and is reused
-    rerun(id: string): RunSummary {
+    async rerun(id: string): Promise<RunSummary> {
       const row = runRow(id);
       if (!terminalStatuses.has(row.status)) {
         throw new HttpError(409, `Run ${id} has not finished (${row.status}); it cannot be rerun`);
       }
+      const task = db
+        .select({ kind: tasks.kind })
+        .from(tasks)
+        .where(eq(tasks.id, row.taskId))
+        .get();
+      if (task === undefined) throw new Error(`Run ${id} has no task ${row.taskId}`);
+      await deps.requireChecks(runChecks(new Set([task.kind])));
       const rerunId = newId('r');
       db.transaction((tx) => {
         const last = tx

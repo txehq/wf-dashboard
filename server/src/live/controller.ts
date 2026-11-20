@@ -290,7 +290,7 @@ export class LiveController {
     this.simulated.setDriver(driver, reason);
   }
 
-  // "Hand back": the driver becomes the simulated user, which answers at once if Claude Code is waiting for input
+  // Switching the driver to Simulated user: it answers at once if Claude Code is waiting for input
   release() {
     const waiting = this.waiting;
     // Do not wait on an AskUserQuestion the human already answered in the terminal

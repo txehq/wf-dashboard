@@ -6,7 +6,8 @@ import {
 import { z } from 'zod';
 import { type Environment, EnvironmentReport } from '../environment.js';
 
-// Contracts section 8: results are cached for 10 minutes, ?refresh=1 checks again
+// Contracts section 8: free checks are cached for 10 minutes and paid checks are read from their records; ?refresh=1
+// runs every check, paid ones included
 export const environmentRoutes: FastifyPluginCallbackZod<{ environment: Environment }> = (
   app,
   { environment },

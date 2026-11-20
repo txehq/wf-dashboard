@@ -86,6 +86,11 @@
   --viz-status-good: #0ca30c;
   --viz-status-serious: #ec835a;
   --viz-status-good-text: #006300;
+  /* txe PRs with slow CI (Contracts 37.6): a darker step of series 4, the PRs per day bars (validated as an ordinal pair
+     with series 4); the PR list's row and CI cell are series 4 washes */
+  --viz-slow-ci: #a36a00;
+  --slow-ci-row: color-mix(in oklab, var(--series-4) 12%, transparent);
+  --slow-ci-cell: color-mix(in oklab, var(--series-4) 32%, transparent);
 }
 
 .dark {
@@ -94,6 +99,7 @@
   --viz-axis: #383835;
   --viz-muted-ink: #898781;
   --viz-status-good-text: #3fb950;
+  --viz-slow-ci: #8c5c00;
 }
 
 /* Indeterminate progress bar during analysis stages */

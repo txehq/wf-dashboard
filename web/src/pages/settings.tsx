@@ -162,7 +162,7 @@ function TeamStatsSection() {
       className="flex flex-col gap-3 rounded-lg border p-4"
       data-testid="settings-team-stats"
     >
-      <h2 className="text-base font-semibold">Linear stats</h2>
+      <h2 className="text-base font-semibold">Engineering stats</h2>
       {settings.isError && <p className="text-sm text-destructive">{settings.error.message}</p>}
       <form
         className="flex flex-wrap items-center gap-3"
@@ -197,7 +197,7 @@ function TeamStatsSection() {
           {save.isPending ? 'Saving…' : 'Save'}
         </Button>
         <span className="text-xs text-muted-foreground">
-          Days on the Linear stats page end at midnight here.
+          Days on the Engineering stats page end at midnight here.
         </span>
       </form>
       {save.isError && (

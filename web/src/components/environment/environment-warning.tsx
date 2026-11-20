@@ -2,10 +2,11 @@ import { CircleAlert } from 'lucide-react';
 import { EnvironmentDialog } from '@/components/environment/environment-dialog';
 import { useEnvironment } from '@/components/environment/environment-api';
 
-// Next to the Start batch button: lists failed checks; opens the checklist
+// Next to the Start batch button: lists failed checks (unverified ones are checked when the batch starts); opens the
+// checklist
 export function EnvironmentWarning() {
   const { query } = useEnvironment();
-  const failed = query.data?.checks.filter((c) => !c.ok) ?? [];
+  const failed = query.data?.checks.filter((c) => c.state === 'failed') ?? [];
   if (failed.length === 0) return null;
   return (
     <div

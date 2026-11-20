@@ -30,8 +30,8 @@ export const localDirRoutes: FastifyPluginCallbackZod<{ dirs: LocalDirs }> = (
   app.post(
     '/api/local/dirs',
     { schema: { body: NewDirBody, response: { 201: NewDir } } },
-    (request, reply) => {
-      const created = dirs.mkdir(request.body.parent, request.body.name);
+    async (request, reply) => {
+      const created = await dirs.mkdir(request.body.parent, request.body.name);
       void reply.code(201);
       return created;
     },

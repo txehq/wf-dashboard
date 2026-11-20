@@ -6,9 +6,17 @@ import {
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import type { SettingsStore } from '../runs/settings.js';
+import { prTimingsView } from '../team/pr-timings.js';
 import { Days, loadTeamData, type TeamData, teamIssueRows, teamStats } from '../team/stats.js';
 import type { TeamSync } from '../team/sync.js';
-import { IsoDay, TeamIssues, TeamStats, TeamSyncState, TeamSyncView } from '../team/views.js';
+import {
+  IsoDay,
+  TeamIssues,
+  TeamPrTimings,
+  TeamStats,
+  TeamSyncState,
+  TeamSyncView,
+} from '../team/views.js';
 import { HttpError } from '../variants/errors.js';
 
 // Linear stats (Contracts 37.5). Days are counted in the teamStatsTimezone setting; from and to default to the last 30
@@ -26,10 +34,12 @@ const Range = z.object({ from: IsoDay.optional(), to: IsoDay.optional() });
 export const teamRoutes: FastifyPluginCallbackZod<{
   db: Db;
   team: string;
+  // The repo of the PR timings (37.6)
+  timedRepo: string;
   sync: TeamSync;
   settings: SettingsStore;
   now?: () => number;
-}> = (app, { db, team, sync, settings, now = Date.now }, done) => {
+}> = (app, { db, team, timedRepo, sync, settings, now = Date.now }, done) => {
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
@@ -92,6 +102,25 @@ export const teamRoutes: FastifyPluginCallbackZod<{
           doneNotClosed: doneNotClosed === '1',
         }),
       };
+    },
+  );
+
+  // txe PR timings (37.6): day narrows the PR list to one day of the range; the summary and the days cover the range
+  app.get(
+    '/api/team/prs',
+    {
+      schema: {
+        querystring: Range.extend({ people: keys, day: IsoDay.optional() }),
+        response: { 200: TeamPrTimings },
+      },
+    },
+    (request) => {
+      const { people, day } = request.query;
+      const range = selection(request.query);
+      if (day !== undefined && (day < range.from || day > range.to)) {
+        throw new HttpError(400, `day ${day} is outside ${range.from}..${range.to}`);
+      }
+      return prTimingsView(db, data(), timedRepo, { ...range, people }, day ?? null);
     },
   );
 

@@ -1,11 +1,17 @@
 import { CircleAlert, CircleCheck, LoaderCircle } from 'lucide-react';
 import { EnvironmentDialog } from '@/components/environment/environment-dialog';
-import { useEnvironment } from '@/components/environment/environment-api';
+import { paidName, useEnvironment, verifiedText } from '@/components/environment/environment-api';
 
-// Bottom of the side nav: all passed / N failed; opens the checklist
+// Bottom of the side nav: all passed / N failed, then when each paid check was last verified; opens the checklist.
+// Unverified does not count as failed
 export function EnvironmentStatus() {
   const { query } = useEnvironment();
-  const failed = query.data?.checks.filter((c) => !c.ok).length ?? 0;
+  const checks = query.data?.checks ?? [];
+  const failed = checks.filter((c) => c.state === 'failed').length;
+  const paid = checks.flatMap((c) => {
+    const name = paidName(c);
+    return name === undefined ? [] : [{ id: c.id, name, text: verifiedText(c) }];
+  });
   const label = query.isError
     ? 'Environment check failed'
     : query.data === undefined
@@ -31,14 +37,25 @@ export function EnvironmentStatus() {
       trigger={
         <button
           type="button"
-          className={`mx-2 flex items-center gap-2 rounded-md px-3 py-1.5 text-left text-xs hover:bg-background ${tone}`}
+          className="mx-2 flex flex-col gap-0.5 rounded-md px-3 py-1.5 text-left text-xs hover:bg-background"
           data-testid="environment-status"
         >
-          <Icon
-            className={`size-4 shrink-0 ${Icon === LoaderCircle ? 'animate-spin' : ''}`}
-            aria-hidden
-          />
-          {label}
+          <span className={`flex items-center gap-2 ${tone}`}>
+            <Icon
+              className={`size-4 shrink-0 ${Icon === LoaderCircle ? 'animate-spin' : ''}`}
+              aria-hidden
+            />
+            {label}
+          </span>
+          {paid.map((p) => (
+            <span
+              key={p.id}
+              className="truncate pl-6 text-[11px] text-muted-foreground"
+              data-testid={`environment-paid-${p.id}`}
+            >
+              {p.name}: {p.text}
+            </span>
+          ))}
         </button>
       }
     />

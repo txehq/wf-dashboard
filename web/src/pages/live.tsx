@@ -11,12 +11,12 @@ import {
   Power,
   RotateCcw,
   Server,
-  Undo2,
+  Waypoints,
   X,
 } from 'lucide-react';
 import { DropdownMenu } from 'radix-ui';
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { type DraftControls, useDraftControls } from '@/components/live/draft-controls';
 import { FullscreenArea, FullscreenButton, useFullscreen } from '@/components/fullscreen';
 import { FinderMenu } from '@/components/live/finder-menu';
@@ -455,9 +455,9 @@ function ImportedSide({
   );
 }
 
-// Driver switch and "Hand back" (Contracts 34.2): available for every purpose, both engines, local and
-// SSH host items. An item without a task records this time's goal first (prefilled with the first
-// request) the first time it is handed to the simulated user
+// The driver switch (Contracts 14.4, 34.2) is the only driver control: available for every purpose, both
+// engines, local and SSH host items. An item without a task records this time's goal first (prefilled
+// with the first request) the first time it is handed to the simulated user
 function DriverControls({
   data,
   onDriver,
@@ -503,17 +503,6 @@ function DriverControls({
           </button>
         ))}
       </div>
-      <Button
-        size="sm"
-        variant="outline"
-        data-testid="hand-back"
-        title="Hand back to the simulated user"
-        disabled={!running || data.starting || data.driver === 'simulated' || driverPending}
-        onClick={toSimulated}
-      >
-        <Undo2 />
-        <span data-toolbar-label>Hand back</span>
-      </Button>
       {data.taskId === null && <GoalButton live={data} />}
       {asking && (
         <GoalDialog
@@ -556,7 +545,7 @@ function Notices({ live }: { live: LiveDetail }) {
       )}
       {live.handedBack === 'disconnected' && live.connected !== false && (
         <p role="status" className={notice}>
-          The connection dropped, so the driver switched to you. Hand back to the simulated user
+          The connection dropped, so the driver switched to you. Switch the driver to Simulated user
           when needed.
         </p>
       )}
@@ -698,20 +687,40 @@ function useInOrcaRun(data: LiveSummary): boolean {
   return data.orca.runId !== null || (list.data ?? []).some((l) => l.orca.parentLiveId === data.id);
 }
 
-// The toolbar's "Topology" button (Contracts 35.4): opens a drawer the same way as "Stages and requests"
-function TopologyButton({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+// The toolbar's "Topology" button (Contracts 35.4): opens a drawer the same way as "Stages and requests"; beside
+// it, "View in topology" opens the topology page on this item's node (Contracts 40.2)
+function TopologyButton({
+  liveId,
+  open,
+  onToggle,
+}: {
+  liveId: string;
+  open: boolean;
+  onToggle: () => void;
+}) {
   return (
-    <Button
-      size="sm"
-      variant={open ? 'secondary' : 'ghost'}
-      aria-pressed={open}
-      data-testid="toggle-topology"
-      title="Topology"
-      onClick={onToggle}
-    >
-      <Network />
-      <span data-toolbar-label>Topology</span>
-    </Button>
+    <>
+      <Button
+        size="sm"
+        variant={open ? 'secondary' : 'ghost'}
+        aria-pressed={open}
+        data-testid="toggle-topology"
+        title="Topology"
+        onClick={onToggle}
+      >
+        <Network />
+        <span data-toolbar-label>Topology</span>
+      </Button>
+      <Button asChild size="sm" variant="ghost" title="View in topology">
+        <Link
+          to={`/orca?node=${encodeURIComponent(`live:${liveId}`)}`}
+          data-testid="view-in-topology"
+        >
+          <Waypoints />
+          <span data-toolbar-label>View in topology</span>
+        </Link>
+      </Button>
+    </>
   );
 }
 
@@ -800,7 +809,8 @@ function ItemPanel({
   const effort = data.process?.effort ?? null;
   let resume: ReactNode = null;
   if (draft !== null) resume = draft.resume;
-  else if (data.process !== null && sessionId !== null) {
+  else if (sessionId !== null) {
+    // Items that have run and items imported but never run share the toolbar spot (Contracts 14.5, 20.3)
     resume = <ResumeButton sessionId={sessionId} onResumed={onResumed} />;
   }
   const finder =
@@ -851,19 +861,15 @@ function ItemPanel({
       </p>
     );
   } else {
-    // Imported locally and never run (Contracts 14.5): show the session's conversation and the resume button
+    // Imported locally and never run (Contracts 14.5): show the session's conversation; resume is in the toolbar
     work = (
       <div
         className="flex min-w-0 flex-1 flex-col gap-3 overflow-y-auto rounded-md border p-4"
         data-testid="live-idle"
       >
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-muted-foreground">
-            This session hasn't run in the workspace yet. Resume it to continue the conversation
-            here.
-          </span>
-          <ResumeButton sessionId={sessionId} onResumed={onResumed} />
-        </div>
+        <p className="text-sm text-muted-foreground">
+          This session hasn't run in the workspace yet.
+        </p>
         <SessionConversation
           sessionId={sessionId}
           onJump={() => {
@@ -881,16 +887,16 @@ function ItemPanel({
       data-purpose={data.purpose}
     >
       {/* Toolbar (Contracts 20.3, 26.1): all buttons on one row, kept in full screen. When the panel is
-          too narrow for every label (72rem for interaction items, 81rem for design and optimize items,
-          which add Save and Cost), the driver switch, Hand back, Goal, Stop process, resume, Stages and
-          requests, Topology and Full screen show only icons with the name on hover, and cost shows only
-          its number */}
+          too narrow for every label (65rem for interaction items, 74rem for design and optimize items,
+          which add Save and Cost), the driver switch, Goal, Stop process, resume, Stages and requests,
+          Topology and Full screen show only icons with the name on hover, and cost shows only its
+          number */}
       <div
         className={cn(
           'flex flex-wrap items-center gap-2',
           draft === null
-            ? '@max-[72rem]:[&_[data-toolbar-label]]:sr-only @max-[72rem]:[&_[data-driver-label]]:sr-only'
-            : '@max-[81rem]:[&_[data-toolbar-label]]:sr-only @max-[81rem]:[&_[data-driver-label]]:sr-only',
+            ? '@max-[65rem]:[&_[data-toolbar-label]]:sr-only @max-[65rem]:[&_[data-driver-label]]:sr-only'
+            : '@max-[74rem]:[&_[data-toolbar-label]]:sr-only @max-[74rem]:[&_[data-driver-label]]:sr-only',
         )}
         data-testid="live-toolbar"
       >
@@ -898,7 +904,6 @@ function ItemPanel({
         {!structured && (
           <DriverControls data={data} onDriver={onDriver} driverPending={driverPending} />
         )}
-        {running ? stopButton : resume}
         {model !== null && (
           <span className="text-xs text-muted-foreground" data-testid="live-model">
             {model} · {effort}
@@ -911,6 +916,8 @@ function ItemPanel({
           <RemoteCopyMenu target={data.host.target} cwd={data.cwd} />
         )}
         <OpenInVscode liveId={liveId} />
+        {/* Stop process and resume share this spot right after Open in VS Code (Contracts 20.3) */}
+        {running ? stopButton : resume}
         <Button
           size="sm"
           variant={side ? 'secondary' : 'ghost'}
@@ -926,6 +933,7 @@ function ItemPanel({
         </Button>
         {inOrca && (
           <TopologyButton
+            liveId={liveId}
             open={drawer === 'topology'}
             onToggle={() => {
               setDrawer(drawer === 'topology' ? null : 'topology');
@@ -1029,7 +1037,7 @@ function ItemPanel({
   );
 }
 
-// Magi Agent sessions (Contracts 23.6, 34.2): the toolbar has engine, config, driver and Hand back,
+// Magi Agent sessions (Contracts 23.6, 34.2): the toolbar has engine, config, the driver switch,
 // Stop process or resume, worktree and branch status, deploy progress and the last deploy's result;
 // the terminal can go full screen. On first open the terminal spot shows worktree preparation progress
 function AgentPanel({
@@ -1058,9 +1066,9 @@ function AgentPanel({
       data-live={data.id}
       data-purpose="agent"
     >
-      {/* When the panel is narrow, Hand back, Goal and Stop process show only icons with the name on hover; the toolbar stays on one row */}
+      {/* When the panel is narrow, Goal and Stop process show only icons with the name on hover; the toolbar stays on one row */}
       <div
-        className="flex items-center gap-2 whitespace-nowrap @max-[54rem]:[&_[data-toolbar-label]]:sr-only"
+        className="flex items-center gap-2 whitespace-nowrap @max-[47rem]:[&_[data-toolbar-label]]:sr-only"
         data-testid="live-toolbar"
       >
         <StatusBadge live={data} />
@@ -1100,6 +1108,7 @@ function AgentPanel({
         <OpenInVscode liveId={data.id} />
         {inOrca && (
           <TopologyButton
+            liveId={data.id}
             open={topology}
             onToggle={() => {
               setTopology(!topology);

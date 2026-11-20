@@ -90,6 +90,48 @@ export async function orcaCall(
   return parseEnvelope(result.stdout, args, result.stderr);
 }
 
+// Remote Orca runtimes the desktop Orca on this machine has paired with (orca environment list)
+export const OrcaEnvironments = z.object({
+  environments: z.array(z.object({ id: z.string(), name: z.string() })),
+});
+
+// What orca terminal switch did in the desktop app: the worktree and tab it put on screen
+const TerminalFocus = z.object({
+  focus: z.object({
+    handle: z.string(),
+    tabId: z.string(),
+    worktreeId: z.string(),
+    navigated: z.boolean(),
+  }),
+});
+
+// The desktop Orca app (macOS bundle id). macOS keeps a background process from bringing another app forward (open -b
+// and AppleScript's activate leave it behind), but Orca answers a second launch by raising its own window, and that
+// launch exits right away
+const ORCA_APP_BUNDLE = 'com.stablyai.orca';
+
+// "Open in Orca" (Contracts 40.2): the desktop Orca on this machine opens the terminal's worktree and tab (orca
+// terminal switch does both), then comes to the front. environment names the paired Orca server a terminal on an SSH
+// host belongs to
+export async function showOrcaTerminal(
+  place: Extract<OrcaPlace, { kind: 'local' }>,
+  handle: string,
+  environment: string | null,
+): Promise<void> {
+  const args = [
+    'terminal',
+    'switch',
+    '--terminal',
+    handle,
+    ...(environment === null ? [] : ['--environment', environment]),
+  ];
+  const { focus } = TerminalFocus.parse(await orcaCall(place, args));
+  if (!focus.navigated) {
+    throw new OrcaError('not_navigated', `Orca did not show the tab of ${handle}`, args);
+  }
+  await execa('open', ['-n', '-b', ORCA_APP_BUNDLE]);
+}
+
 const Status = z.object({
   runtime: z.object({
     reachable: z.boolean(),

@@ -1,12 +1,17 @@
 import { queryOptions, useQueryClient } from '@tanstack/react-query';
 import type {
+  CloseTimes,
   DayCell,
   Person,
   PersonStats,
   PrProblem,
+  PrTimingDay,
+  PrTimingRow,
+  Spread,
   TeamIssuePr,
   TeamIssueRow,
   TeamIssues,
+  TeamPrTimings,
   TeamStats,
   TeamSyncState,
   TeamSyncView,
@@ -16,12 +21,17 @@ import { invalidateThrottled, useLiveEvent } from '@/lib/live-events';
 
 // Linear stats (Contracts 37.5)
 export type {
+  CloseTimes,
   DayCell,
   Person,
   PersonStats,
   PrProblem,
+  PrTimingDay,
+  PrTimingRow,
+  Spread,
   TeamIssuePr,
   TeamIssueRow,
+  TeamPrTimings,
   TeamStats,
   TeamSyncState,
   TeamSyncView,
@@ -74,6 +84,17 @@ export const teamIssuesQuery = (q: IssuesQuery) =>
           })}`,
         )) as TeamIssues
       ).issues,
+  });
+
+// txe PR timings (37.6): the summary and days of the range, and the PRs of day (or of the range)
+export const teamPrsQuery = (q: StatsQuery & { day: string | null }) =>
+  queryOptions({
+    queryKey: ['team', 'prs', q],
+    queryFn: async () =>
+      (await requestJson(
+        'GET',
+        `/api/team/prs${search({ from: q.from, to: q.to, people: q.people.join(','), day: q.day })}`,
+      )) as TeamPrTimings,
   });
 
 export const teamSyncQuery = queryOptions({

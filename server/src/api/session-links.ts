@@ -1,9 +1,10 @@
-import fs from 'node:fs';
+import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { and, asc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import { artifacts, fixedArtifactKinds, liveEvents, liveSessions, runs } from '../db/schema.js';
+import { isDirectory } from '../dirs/exists.js';
 import { featureDir } from '../stages/artifacts.js';
 import { issueIdentifier } from '../tasks/import-schema.js';
 
@@ -30,11 +31,11 @@ export interface VaultLocation {
   product: string;
 }
 
-export function sessionLinks(
+export async function sessionLinks(
   db: Db,
   session: { id: string; runId: string | null; liveId: string | null },
   vault: VaultLocation,
-): SessionLinks {
+): Promise<SessionLinks> {
   const github = new Map<string, string>();
   const linear = new Map<string, string>();
   const obsidian = new Set<string>();
@@ -84,8 +85,8 @@ export function sessionLinks(
       if (payload.repoUrl !== undefined) addUrl(payload.repoUrl);
       if (payload.ticketUrl !== undefined) addUrl(payload.ticketUrl);
       const dir = featureDir(vault.dir, vault.product, session.liveId);
-      if (fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory()) {
-        for (const name of fs.readdirSync(dir).sort()) {
+      if (await isDirectory(dir)) {
+        for (const name of (await readdir(dir)).sort()) {
           if (name.endsWith('.md')) obsidian.add(path.join(dir, name));
         }
       }

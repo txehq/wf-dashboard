@@ -239,11 +239,14 @@ async function startServer(): Promise<void> {
     await stopPid(pid);
   }
 
+  // UV_THREADPOOL_SIZE: a folder macOS protects holds each access until the user answers its dialog, keeping a libuv
+  // thread meanwhile; more threads keep the server's other file access going (W139)
   const env = [
     `WFD_INSTALL_ROOT=${root}`,
     `WFD_DATA_DIR=${dataDir}`,
     `WFD_PORT=${String(port)}`,
     `WFD_APP_PID=${String(process.pid)}`,
+    'UV_THREADPOOL_SIZE=64',
   ];
   const txe = path.join(root, 'txe-workflow');
   if (fs.existsSync(path.join(txe, '.git'))) env.push(`WFD_TXE_WORKFLOW=${txe}`);

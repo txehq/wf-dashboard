@@ -210,7 +210,7 @@ export const liveRoutes: FastifyPluginCallbackZod<{ live: Live }> = (app, { live
     },
   );
 
-  // The driver switch; driver simulated means "hand back to the simulated user". An item with no task writes down its
+  // The driver switch (Human or Simulated user). An item with no task writes down its
   // goal the first time it is handed to the simulated user (Contracts 34.2)
   app.post(
     '/api/live/:id/driver',

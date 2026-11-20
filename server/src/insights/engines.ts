@@ -5,6 +5,7 @@ import { execa } from 'execa';
 import treeKill from 'tree-kill';
 import { z } from 'zod';
 import type { AnalysisEngine, AnalysisTokens } from '../db/schema.js';
+import { reportPaidUsage } from '../paid-usage.js';
 
 // Contracts 15.2: both engines run headless in a sandbox; tokens and cost come from the event stream
 
@@ -208,14 +209,23 @@ export async function runEngine(o: EngineRunOptions): Promise<EngineResult> {
   o.signal.removeEventListener('abort', kill);
   log.end();
   o.signal.throwIfAborted();
-  if (result.exitCode !== 0) {
-    throw new Error(
-      `${o.engine} exit code ${String(result.exitCode ?? result.signal)}: ${errors.join('\n')}\n${stderr.trim()}`,
+  const failure =
+    result.exitCode !== 0
+      ? `${o.engine} exit code ${String(result.exitCode ?? result.signal)}: ${errors.join('\n')}\n${stderr.trim()}`
+      : errors.length > 0
+        ? errors.join('\n')
+        : !finished
+          ? `${o.engine} produced no final event: ${stderr.trim()}`
+          : null;
+  // A codex exec of an analysis step is real use of the Codex environment check (Contracts 8)
+  if (o.engine === 'codex') {
+    reportPaidUsage(
+      'codex',
+      failure === null
+        ? { ok: true, detail: 'codex exec of an analysis step completed' }
+        : { ok: false, detail: failure },
     );
   }
-  if (errors.length > 0) throw new Error(errors.join('\n'));
-  if (!finished) {
-    throw new Error(`${o.engine} produced no final event: ${stderr.trim()}`);
-  }
+  if (failure !== null) throw new Error(failure);
   return { tokens, costUsd };
 }

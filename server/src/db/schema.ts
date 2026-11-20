@@ -296,6 +296,20 @@ export const settings = sqliteTable('settings', {
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 });
 
+// The three paid environment checks (Contracts 8): the last real use or check of each, which survives a restart.
+// No row means unverified; changing a role's model in Settings deletes its row
+export const paidCheckIds = ['model-simulated-user', 'model-judge', 'codex'] as const;
+export type PaidCheckId = (typeof paidCheckIds)[number];
+
+export const paidChecks = sqliteTable('paid_checks', {
+  id: text('id', { enum: paidCheckIds }).primaryKey(),
+  ok: integer('ok', { mode: 'boolean' }).notNull(),
+  // On success, what answered; on failure, the original error text
+  detail: text('detail').notNull(),
+  fix: text('fix').notNull(),
+  checkedAt: integer('checked_at', { mode: 'timestamp_ms' }).notNull(),
+});
+
 export const runStatuses = [
   'queued',
   'preparing',
@@ -1227,9 +1241,13 @@ export const teamIssuePrs = sqliteTable(
 );
 
 export const teamPrStates = ['open', 'closed'] as const;
+// pull: read whole with gh api repos/<owner>/<repo>/pulls/<n> (the PRs issues link to); search: a merged PR found by the
+// GitHub search of the team's repos, with no additions or deletions (37.2). An issue linking a searched PR reads it whole
+export const teamPrSources = ['pull', 'search'] as const;
 
-// A PR as gh api repos/<owner>/<repo>/pulls/<n> returned it. readError holds gh's text for a 404 or 403, and the PR
-// is then left out of the counts (37.2). githubId identifies the same PR linked by two URLs (a renamed org or repo)
+// A PR as gh api repos/<owner>/<repo>/pulls/<n> returned it, or as the merged PR search found it. readError holds gh's
+// text for a 404 or 403, and the PR is then left out of the counts (37.2). githubId identifies the same PR under two
+// URLs (a renamed org or repo)
 export const teamPrs = sqliteTable('team_prs', {
   url: text('url').primaryKey(),
   repo: text('repo').notNull(),
@@ -1241,18 +1259,76 @@ export const teamPrs = sqliteTable('team_prs', {
   closedAt: integer('closed_at', { mode: 'timestamp_ms' }),
   additions: integer('additions'),
   deletions: integer('deletions'),
+  // The PR's commit count; null for a PR saved before team_prs held it, until the sync reads it (37.2)
+  commits: integer('commits'),
   authorLogin: text('author_login'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }),
   readAt: integer('read_at', { mode: 'timestamp_ms' }).notNull(),
   readError: text('read_error'),
+  readBy: text('read_by', { enum: teamPrSources }).notNull().default('pull'),
 });
 
+// githubLogin is the author of the merged PRs Linear attributes to this user (list_diffs), which Linear does through the
+// GitHub account the user linked; null while Linear attributes none (37.3)
 export const teamUsers = sqliteTable('team_users', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   email: text('email'),
   active: integer('active', { mode: 'boolean' }).notNull(),
+  githubLogin: text('github_login'),
 });
+
+// How far the merged PR search of each team repo (its current owner/name) has read: PRs merged up to searchedUntil are
+// in team_prs. A repo with no row is searched from the earliest day the page can show (37.2)
+export const teamRepoSearches = sqliteTable('team_repo_searches', {
+  repo: text('repo').primaryKey(),
+  searchedUntil: integer('searched_until', { mode: 'timestamp_ms' }).notNull(),
+});
+
+// A merged PR of the timed repo (Contracts 37.6): when it opened, was last marked ready for review (null when it never
+// was a draft) and merged, and the GitHub Actions runs of its last head commit created up to the merge: the earliest
+// run's creation, the latest one's last update, how many runs, and whether every one succeeded. ciStartedAt is null for
+// a PR without runs; ciEndedAt and ciAllSucceeded are null while a run is still going, and the sync reads the PR again
+export const teamPrTimings = sqliteTable(
+  'team_pr_timings',
+  {
+    url: text('url').primaryKey(),
+    repo: text('repo').notNull(),
+    number: integer('number').notNull(),
+    title: text('title').notNull(),
+    authorLogin: text('author_login'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    readyAt: integer('ready_at', { mode: 'timestamp_ms' }),
+    mergedAt: integer('merged_at', { mode: 'timestamp_ms' }).notNull(),
+    ciStartedAt: integer('ci_started_at', { mode: 'timestamp_ms' }),
+    ciEndedAt: integer('ci_ended_at', { mode: 'timestamp_ms' }),
+    ciRuns: integer('ci_runs').notNull(),
+    ciAllSucceeded: integer('ci_all_succeeded', { mode: 'boolean' }),
+    // The longest workflow run counted in CI: its workflow's name, createdAt to updatedAt in ms, and whether it ended
+    // after the merge (migration 0036). Null without runs, and for rows saved before 0036 until the sync reads them again
+    slowestWorkflow: text('slowest_workflow'),
+    slowestMs: integer('slowest_ms'),
+    slowestAfterMerge: integer('slowest_after_merge', { mode: 'boolean' }),
+    readAt: integer('read_at', { mode: 'timestamp_ms' }).notNull(),
+    // gh's text when a read again by number found the PR missing or hidden (NOT_FOUND, FORBIDDEN): the PR is not read
+    // again and is listed among the PR problems (37.2); the rest of the row is its last good read
+    readError: text('read_error'),
+  },
+  (t) => [index('team_pr_timings_merged_idx').on(t.mergedAt)],
+);
+
+// Merge-time windows of the timed repo whose PRs are all in team_pr_timings, both ends included, to the second. A sync
+// searches the gaps between them from the earliest day the page can show to its own start, so a failed sync leaves
+// only what it did not finish to the next (37.6)
+export const teamPrTimingWindows = sqliteTable(
+  'team_pr_timing_windows',
+  {
+    repo: text('repo').notNull(),
+    from: integer('from', { mode: 'timestamp_ms' }).notNull(),
+    to: integer('to', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.repo, t.from] })],
+);
 
 // running is in progress; interrupted was stopped by a server shutdown (or found running at startup); failed holds the
 // original error text. Only one sync runs at a time (37.2)
@@ -1266,6 +1342,13 @@ export interface TeamSyncProgress {
   read: number;
   // PRs read from GitHub
   prsRead: number;
+  // Merged PRs the search of the team's repos found that were not saved yet
+  prsSearched: number;
+  // Saved PRs without a commit count when the sync came to read them, and how many of those it has read
+  commitsToRead: number;
+  commitsRead: number;
+  // Merged PRs of the timed repo saved to team_pr_timings, found by its search or read again while their CI ran (37.6)
+  timingsRead: number;
 }
 
 export const teamSync = sqliteTable('team_sync', {

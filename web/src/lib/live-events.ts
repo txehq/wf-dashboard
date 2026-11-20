@@ -35,6 +35,7 @@ const EVENT_TYPES = [
   'ssh-hosts.updated',
   'team.sync',
   'install.updated',
+  'environment.updated',
 ] as const;
 export type LiveEventType = (typeof EVENT_TYPES)[number];
 
@@ -173,6 +174,11 @@ export function useLiveConnection() {
     // install.updated (Contracts 39.4): the installed package's self-update changed
     if (type === 'install.updated') {
       void client.invalidateQueries({ queryKey: ['install'] });
+      return;
+    }
+    // environment.updated (Contracts 8): a paid check got a new state; reading the environment runs no paid check
+    if (type === 'environment.updated') {
+      void client.invalidateQueries({ queryKey: ['environment'] });
       return;
     }
     if (type !== 'variant.build') return;

@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import { eq } from 'drizzle-orm';
 import { execa } from 'execa';
 import {
@@ -9,6 +8,7 @@ import {
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import { sessions } from '../db/schema.js';
+import { isDirectory } from '../dirs/exists.js';
 import type { Live } from '../live/index.js';
 import { HttpError } from '../variants/errors.js';
 import type { Variants } from '../variants/index.js';
@@ -37,7 +37,7 @@ function sessionCwd(db: Db, id: string): string {
 }
 
 // Directory of the target; 404 with the message when it does not exist
-export function openTargetDir(target: OpenTarget, deps: OpenDeps): string {
+export async function openTargetDir(target: OpenTarget, deps: OpenDeps): Promise<string> {
   const dir =
     target.kind === 'variant'
       ? deps.variants.layout(target.id).dir
@@ -46,7 +46,7 @@ export function openTargetDir(target: OpenTarget, deps: OpenDeps): string {
         : target.kind === 'live-config'
           ? deps.live.dirs(target.id).configDir
           : sessionCwd(deps.db, target.id);
-  if (!fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory()) {
+  if (!(await isDirectory(dir))) {
     throw new HttpError(404, `Directory not found: ${dir}`);
   }
   return dir;
@@ -66,7 +66,7 @@ export const openRoutes: FastifyPluginCallbackZod<OpenDeps> = (app, deps, done) 
       },
     },
     async (request) => {
-      const dir = openTargetDir(request.body.target, deps);
+      const dir = await openTargetDir(request.body.target, deps);
       await execa('open', [dir]);
       return { dir };
     },

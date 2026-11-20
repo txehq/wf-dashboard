@@ -34,6 +34,7 @@ import { ingestFile } from '../ingest/ingest.js';
 import { sessionConversation } from '../ingest/conversation.js';
 import { restoreCleared } from '../ingest/imports.js';
 import { codexHomeOf } from '../ingest/codex.js';
+import { importInChunks } from '../ingest/sources.js';
 import { newId } from '../runs/index.js';
 import type { SettingsStore } from '../runs/settings.js';
 import type { EvalFacts, SimulatedGoal, SimulatedPersona } from '../runs/simulated-user.js';
@@ -42,6 +43,7 @@ import { loadTask, withRepo, withTicket } from '../tasks/loader.js';
 import type { Task } from '../tasks/schema.js';
 import { type CodexSources, writeCodexHome } from '../variants/codex-home.js';
 import { isolatedBaseEnv, writeSessionClaudeConfig } from '../variants/claude-config.js';
+import type { RequireChecks } from '../environment.js';
 import { HttpError } from '../variants/errors.js';
 import type { Variants } from '../variants/index.js';
 import { codexMcpServers, readMcpServers } from '../variants/mcp.js';
@@ -85,10 +87,13 @@ import { localCopyOf, RemoteSessionSync, type SyncFailure } from '../remote/sync
 import { RemoteTerminal, remoteLive, remoteRoot } from '../remote/terminal.js';
 import { createRemoteVariants } from '../remote/variant.js';
 import type { OrcaPlace } from '../orca/cli.js';
-import { orcaCall, remoteOrcaUserData } from '../orca/cli.js';
+import { OrcaEnvironments, orcaCall, remoteOrcaUserData, showOrcaTerminal } from '../orca/cli.js';
 import { OrcaPaneTerminal } from '../orca/terminal.js';
 import { isPaneHandle } from '../orca/topology.js';
 import { workerRead, workerSend } from '../orca/worker.js';
+import { buildOrcaGraph, type GraphItem } from './orca-graph.js';
+import { createDirChecks } from './dir-checks.js';
+import { isDirectory, pathExists } from '../dirs/exists.js';
 import { type AttachedPane, createOrcaSync, type OrcaPaneSpec } from './orca-sync.js';
 import type { AttachedWorker, StructuredWorkerSpec } from './orca-sync.js';
 import { watchSession } from '../ingest/watch.js';
@@ -123,6 +128,8 @@ import {
   type LiveProcessView,
   type LiveStopSource,
   type LiveSummary,
+  type OrcaGraph,
+  type OrcaGraphMessage,
   type ResumeCopy,
   type ResumeDefaults,
   type ResumeLiveBody,
@@ -161,6 +168,9 @@ export interface LiveDeps {
   remote: { hosts: Hosts; dir: string; reconnectMs: number };
   // Orca (Contracts 35): the orca command and the topology poll interval while a page is connected
   orca: { bin: string; pollMs: number };
+  // Paid environment checks an operation needs (Contracts 8): the simulated user before it drives, Codex before a
+  // local Codex process starts
+  requireChecks: RequireChecks;
 }
 
 export const LIVE_ID = /^l-\d{8}-[a-z0-9]{6}$/;
@@ -210,6 +220,9 @@ const REMOTE_SYNC_MS = 3000;
 
 // Orca-hosted terminals: read the rendered screen once per second while the tab is in front and a page is connected (Contracts 35.4)
 const SCREEN_POLL_MS = 1000;
+
+// How long one Orca sync waits for its working directory checks; one still pending counts as unknown (W139)
+const ORCA_DIR_WAIT_MS = 3000;
 
 interface Launch {
   liveId: string;
@@ -342,10 +355,10 @@ export function createLive(deps: LiveDeps) {
     return path.join(deps.liveDir, id);
   }
 
-  const localOrca: OrcaPlace = {
-    kind: 'local',
+  const localOrca = {
+    kind: 'local' as const,
     bin: deps.orca.bin,
-  };
+  } satisfies OrcaPlace;
 
   // A variant's Orca skills belong to the Orca version it was built with (Contracts 35.5): after an Orca update it must be rebuilt before starting
   async function requireCurrentOrcaSkills(variantId: string) {
@@ -957,7 +970,7 @@ export function createLive(deps: LiveDeps) {
     } else {
       variants.refreshAuthEnv(spec.variantId);
       // Workspace trust prompt (Contracts 14.2): mark the directory trusted in the variant's config directory first
-      variants.trustDirectory(spec.variantId, spec.cwd);
+      variants.trustDirectory(spec.variantId, spec.cwd, await fs.promises.realpath(spec.cwd));
       const runtime = variants.runtimeEnv(spec.variantId);
       env = { ...runtime.env };
       configDir = runtime.env.CLAUDE_CONFIG_DIR;
@@ -1195,6 +1208,7 @@ export function createLive(deps: LiveDeps) {
 
   // Contracts 29.2, 16.7: config is a variant or local config; the initial message is /<entry> <input>, or the raw input without a command
   async function create(body: CreateLiveBody): Promise<LiveDetail> {
+    if (body.driver === 'simulated') await deps.requireChecks(['model-simulated-user']);
     if (body.hostId !== null) return createRemote(body, body.hostId);
     if (body.engine !== 'claude') {
       throw new HttpError(
@@ -1246,7 +1260,9 @@ export function createLive(deps: LiveDeps) {
       } else if (stage.kind === 'lfg') {
         const repo = await deps.repos.createEmpty(liveId, signal);
         // wf obsidian requires the product directory to exist
-        fs.mkdirSync(path.join(deps.vaultDir, `Project ${deps.product}`), { recursive: true });
+        await fs.promises.mkdir(path.join(deps.vaultDir, `Project ${deps.product}`), {
+          recursive: true,
+        });
         extraEnv.MAGI_PRODUCT = deps.product;
         initial = [
           initial,
@@ -1291,7 +1307,7 @@ export function createLive(deps: LiveDeps) {
       if (body.cwd === null)
         throw new HttpError(400, 'The real environment needs a working directory');
       cwd = path.resolve(body.cwd);
-      if (!fs.statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) {
+      if (!(await isDirectory(cwd))) {
         throw new HttpError(400, `Working directory does not exist: ${cwd}`);
       }
     }
@@ -1991,6 +2007,13 @@ export function createLive(deps: LiveDeps) {
     };
   }
 
+  // The Orca page's working directories on this machine, checked without holding the server (W139)
+  const orcaDirs = createDirChecks({
+    waitMs: ORCA_DIR_WAIT_MS,
+    changed: () => {
+      events.publish({ type: 'orca.updated' });
+    },
+  });
   const orcaSync = createOrcaSync({
     db,
     local: localOrca,
@@ -2001,7 +2024,128 @@ export function createLive(deps: LiveDeps) {
     attach: attachOrca,
     attachWorker: attachStructuredWorker,
     running: (id) => controllers.has(id),
+    // The graph of the new topology names the directories to check before pages read it
+    checkDirs: () => {
+      orcaGraphOf();
+      return orcaDirs.refresh();
+    },
   });
+
+  // A Live item as a node of the topology page (Contracts 40.2): the model actually used is the process's, or else
+  // the one its session's latest request went to; the cost is its session's
+  function graphItem(liveId: string): GraphItem | null {
+    const r = db.select().from(liveSessions).where(eq(liveSessions.id, liveId)).get();
+    if (r === undefined) return null;
+    const s = summary(r);
+    const sessionId = r.claudeSessionId;
+    const cost =
+      sessionId === null
+        ? undefined
+        : db
+            .select({ costUsd: sql<number>`sum(${requests.costUsd})`, n: sql<number>`count(*)` })
+            .from(requests)
+            .where(eq(requests.sessionId, sessionId))
+            .get();
+    const latestModel =
+      sessionId === null
+        ? undefined
+        : db
+            .select({ model: requests.model })
+            .from(requests)
+            .where(eq(requests.sessionId, sessionId))
+            .orderBy(desc(requests.timestamp))
+            .get();
+    return {
+      title: s.title,
+      engine: s.engine,
+      state: s.orca.state ?? (s.status === 'running' ? 'idle' : 'exited'),
+      cwd: s.cwd,
+      host: s.host === null ? null : { id: s.host.id, label: s.host.label },
+      model: s.process?.model ?? latestModel?.model ?? null,
+      effort: s.process?.effort ?? null,
+      costUsd: cost === undefined || cost.n === 0 ? null : cost.costUsd,
+    };
+  }
+
+  function orcaGraphOf() {
+    const items = new Map<string, GraphItem | null>();
+    return buildOrcaGraph({
+      topology: orcaSync.topology(),
+      peers: orcaSync.peers(),
+      item: (liveId) => {
+        if (!items.has(liveId)) items.set(liveId, graphItem(liveId));
+        return items.get(liveId) ?? null;
+      },
+      locate: (hostId, cwd) => orcaSync.locate(hostId, cwd),
+      itemOfSession: (sessionId) => itemOfSession(sessionId)?.id ?? null,
+      exists: (dir) => orcaDirs.exists(dir),
+      sessionDirs: orcaSync.sessionDirs,
+    });
+  }
+
+  function orcaNode(nodeId: string): OrcaGraph['nodes'][number] {
+    const node = orcaGraphOf().nodes.find((n) => n.id === nodeId);
+    if (node === undefined) throw new HttpError(404, `No session ${nodeId} on the Orca page`);
+    return node;
+  }
+
+  // "Open in Live" on the Orca page (Contracts 40.2): the node's Live item, shown again if it was closed; a node with
+  // only a session record gets one through the 14.5 import, its record imported into Sessions first if needed
+  async function orcaOpenLive(nodeId: string): Promise<string> {
+    const node = orcaNode(nodeId);
+    if (node.liveId !== null) {
+      unhide(node.liveId);
+      return node.liveId;
+    }
+    if (node.session === null || node.open.live !== null) {
+      throw new HttpError(409, node.open.live ?? `${nodeId} has no session record`);
+    }
+    const record = orcaSync.sessionRecord(node.session.id);
+    if (record === null)
+      throw new HttpError(409, `The record of session ${node.session.id} is gone`);
+    if (
+      db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, record.id)).get() ===
+      undefined
+    ) {
+      await importInChunks(db, record.engine, record.file);
+    }
+    const [item] = importSessions([record.id]);
+    if (item === undefined) throw new Error(`Importing session ${record.id} returned no item`);
+    // The record's first message is Orca's task text: the item takes the name the Orca page shows (the task's title)
+    rename(item.id, node.title);
+    events.publish({ type: 'orca.updated' });
+    return item.id;
+  }
+
+  // The directory "Open in VS Code" opens for a node of the Orca page (Contracts 40.2): its working directory, on the
+  // SSH host it ran on
+  function orcaNodeDir(nodeId: string): { cwd: string; hostTarget: string | null } {
+    const node = orcaNode(nodeId);
+    if (node.open.vscode !== null) throw new HttpError(409, node.open.vscode);
+    if (node.host === null) return { cwd: node.location.cwd, hostTarget: null };
+    const host = deps.remote.hosts.brief(node.host.id);
+    if (host === null) throw new HttpError(409, `The SSH host ${node.host.id} was deleted`);
+    return { cwd: node.location.cwd, hostTarget: host.target };
+  }
+
+  // The Orca environment the desktop Orca reaches an SSH host's runtime through: the paired one named after the host
+  // (its address in the ssh target, or its label)
+  async function orcaEnvironmentOf(hostId: string): Promise<string> {
+    const host = deps.remote.hosts.brief(hostId);
+    if (host === null) throw new HttpError(404, `No SSH host ${hostId}`);
+    const address = (host.target.split('@').at(-1) ?? host.target).split(':')[0] ?? host.target;
+    const { environments } = OrcaEnvironments.parse(
+      await orcaCall(localOrca, ['environment', 'list']),
+    );
+    const paired = environments.find((e) => e.name === address || e.name === host.label);
+    if (paired === undefined) {
+      throw new HttpError(
+        409,
+        `The Orca on this machine has no paired environment for ${host.label} (${host.target})`,
+      );
+    }
+    return paired.id;
+  }
 
   function dashboardPort(): number {
     return Number(new URL(deps.serverUrl()).port);
@@ -2040,6 +2184,8 @@ export function createLive(deps: LiveDeps) {
 
   // Items being started and not yet registered in controllers
   const launching = new Set<string>();
+  // Local sessions whose resume is between its preflight and its launch
+  const resuming = new Set<string>();
 
   // Called when the Sessions page resumes a Magi Agent session (the Magi Agent module is created after live; app.ts
   // sets it)
@@ -2052,6 +2198,7 @@ export function createLive(deps: LiveDeps) {
     if (!isDraftItem(item)) {
       throw new HttpError(400, `Live item ${item.id} is not a design or analysis-optimize session`);
     }
+    if (item.engine === 'codex') await deps.requireChecks(['codex']);
     if (launching.has(liveId) || controllers.has(liveId) || running(liveId)) {
       throw new HttpError(409, `Live item ${item.id} has a running process`);
     }
@@ -2280,7 +2427,7 @@ export function createLive(deps: LiveDeps) {
   // Start or resume a Magi Agent session (Contracts 23.3): the local configuration or a variant's, with MAGI.md
   // appended to the system prompt; with no conversation yet (nothing submitted since the start) the same session is
   // started again. message is the message submitted on resume (deploy finished)
-  function launchAgent(
+  async function launchAgent(
     liveId: string,
     opts: { instructions: string; message: string | null },
   ): Promise<LiveDetail> {
@@ -2288,6 +2435,7 @@ export function createLive(deps: LiveDeps) {
     if (item.purpose !== 'agent') {
       throw new HttpError(400, `Live item ${item.id} is not a Magi Agent session`);
     }
+    if (item.engine === 'codex') await deps.requireChecks(['codex']);
     if (launching.has(liveId) || controllers.has(liveId) || running(liveId)) {
       throw new HttpError(409, `Live item ${item.id} has a running process`);
     }
@@ -2300,8 +2448,14 @@ export function createLive(deps: LiveDeps) {
     if (sessionId === null)
       throw new Error(`Magi Agent Claude Code session ${liveId} has no session id`);
     const variantId = agentVariantOf(item);
-    // A variant that was deleted or never built fails here with its error
-    const kind = locate(configDirOf(variantId), sessionId) === null ? 'start' : 'resume';
+    // A variant that was deleted or never built fails here with its error; the item counts as launching while its
+    // copy is looked for
+    const configDir = configDirOf(variantId);
+    launching.add(liveId);
+    const copy = await locate(configDir, sessionId).finally(() => {
+      launching.delete(liveId);
+    });
+    const kind = copy === null ? 'start' : 'resume';
     // Continuing a closed session from the popover shows it again
     setHidden(liveId, false, { reason: kind });
     return launch({
@@ -2456,6 +2610,7 @@ export function createLive(deps: LiveDeps) {
     body: ResumeLiveBody,
   ): Promise<LiveDetail> {
     if (item !== null && isDraftItem(item)) return launchDraft(item.id, 'resume');
+    await deps.requireChecks(['codex']);
     const liveId = item?.id ?? newId('l');
     db.$client.transaction(() => {
       if (item === null) {
@@ -2509,11 +2664,11 @@ export function createLive(deps: LiveDeps) {
   ) {
     const cwd = row(liveId).cwd;
     // Once the worktree is deleted the process's cwd is gone; stop looking
-    while (runner.pty.alive && fs.existsSync(cwd)) {
+    while (runner.pty.alive && (await pathExists(cwd))) {
       const item = row(liveId);
       let sessionId = item.claudeSessionId;
       if (sessionId === null) {
-        sessionId = newSessionId(codexHome, cwd, known);
+        sessionId = await newSessionId(codexHome, cwd, known);
         if (sessionId !== null) {
           db.update(liveSessions)
             .set({ claudeSessionId: sessionId })
@@ -2535,13 +2690,14 @@ export function createLive(deps: LiveDeps) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
-  function locate(configDir: string, sessionId: string): string | null {
+  // The copy of a session in a configuration directory's projects/<project>/<session id>.jsonl
+  async function locate(configDir: string, sessionId: string): Promise<string | null> {
     const projects = path.join(configDir, 'projects');
-    if (!fs.existsSync(projects)) return null;
-    for (const entry of fs.readdirSync(projects, { withFileTypes: true })) {
+    if (!(await isDirectory(projects))) return null;
+    for (const entry of await fs.promises.readdir(projects, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       const file = path.join(projects, entry.name, `${sessionId}.jsonl`);
-      if (fs.existsSync(file)) return file;
+      if (await pathExists(file)) return file;
     }
     return null;
   }
@@ -2582,7 +2738,7 @@ export function createLive(deps: LiveDeps) {
     return title === '' ? `session ${sessionId.slice(0, 8)}` : title;
   }
 
-  function resumeDefaults(sessionId: string): ResumeDefaults {
+  async function resumeDefaults(sessionId: string): Promise<ResumeDefaults> {
     const session = db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
     if (session === undefined) throw new HttpError(404, `Session not found: ${sessionId}`);
     const item = itemOfSession(sessionId);
@@ -2602,7 +2758,8 @@ export function createLive(deps: LiveDeps) {
       variantId: bound?.deletedAt === null ? session.variantId : null,
       cwd: session.cwd,
       // A session on an SSH host: the working directory is remote and the preflight checks it over ssh
-      cwdExists: session.hostId !== null || (session.cwd !== null && fs.existsSync(session.cwd)),
+      cwdExists:
+        session.hostId !== null || (session.cwd !== null && (await pathExists(session.cwd))),
       liveId: item?.id ?? null,
       running: item !== null && running(item.id),
       hostId: session.hostId,
@@ -2617,11 +2774,11 @@ export function createLive(deps: LiveDeps) {
     };
   }
 
-  function copyOf(file: string): ResumeCopy {
-    const last = lastMessage(file);
+  async function copyOf(file: string): Promise<ResumeCopy> {
+    const last = await lastMessage(file);
     return {
       path: file,
-      bytes: fs.statSync(file).size,
+      bytes: (await fs.promises.stat(file)).size,
       lastAt: last.at,
       lastRole: last.role,
       lastText: last.text,
@@ -2629,7 +2786,7 @@ export function createLive(deps: LiveDeps) {
   }
 
   // The last message of a Codex rollout: the later of the last imported user input and the last reply
-  function codexCopyOf(session: typeof sessions.$inferSelect): ResumeCopy {
+  async function codexCopyOf(session: typeof sessions.$inferSelect): Promise<ResumeCopy> {
     const user = db
       .select({ at: userMessages.timestamp, text: userMessages.text })
       .from(userMessages)
@@ -2651,7 +2808,7 @@ export function createLive(deps: LiveDeps) {
     const flat = last?.text?.replace(/\s+/g, ' ').trim() ?? null;
     return {
       path: session.filePath,
-      bytes: fs.statSync(session.filePath).size,
+      bytes: (await fs.promises.stat(session.filePath)).size,
       lastAt: last?.at.toISOString() ?? null,
       lastRole: last?.role ?? null,
       lastText:
@@ -2660,11 +2817,11 @@ export function createLive(deps: LiveDeps) {
   }
 
   // Resume preflight of a Codex session (Contracts 25.2): codex resume in its own CODEX_HOME, no copy, no variant
-  function codexResumePlan(
+  async function codexResumePlan(
     session: typeof sessions.$inferSelect,
     variantId: string | null,
     item: ItemRow | null,
-  ): ResumePlan {
+  ): Promise<ResumePlan> {
     if (variantId !== null) {
       throw new HttpError(
         400,
@@ -2678,7 +2835,7 @@ export function createLive(deps: LiveDeps) {
         message:
           'This session has no recorded working directory, so there is nowhere to continue it.',
       });
-    } else if (!fs.statSync(session.cwd, { throwIfNoEntry: false })?.isDirectory()) {
+    } else if (!(await isDirectory(session.cwd))) {
       problems.push({
         code: 'cwd-missing',
         message: `Working directory ${session.cwd} no longer exists. Put it back, then resume.`,
@@ -2696,7 +2853,7 @@ export function createLive(deps: LiveDeps) {
         message: `This session is running in Live item "${item.title}". Stop the process there, then resume.`,
       });
     }
-    const exists = fs.existsSync(session.filePath);
+    const exists = await pathExists(session.filePath);
     if (!exists) {
       problems.push({
         code: 'file-missing',
@@ -2712,7 +2869,7 @@ export function createLive(deps: LiveDeps) {
       model: null,
       effort: null,
       action: problems.length > 0 ? 'blocked' : 'resume',
-      latest: exists ? codexCopyOf(session) : null,
+      latest: exists ? await codexCopyOf(session) : null,
       target: null,
       problems,
       notes: [],
@@ -2720,10 +2877,7 @@ export function createLive(deps: LiveDeps) {
   }
 
   // Resume preflight (Contracts 14.5, 31.3): a session on an SSH host is checked over ssh
-  function resumePlan(
-    sessionId: string,
-    variantId: string | null,
-  ): ResumePlan | Promise<ResumePlan> {
+  function resumePlan(sessionId: string, variantId: string | null): Promise<ResumePlan> {
     const session = db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
     if (session === undefined) throw new HttpError(404, `Session not found: ${sessionId}`);
     if (session.hostId !== null) {
@@ -2734,7 +2888,7 @@ export function createLive(deps: LiveDeps) {
 
   // Preflight of a local session (Contracts 14.5): which configuration and which jsonl it continues with, or why it
   // cannot resume
-  function localResumePlan(sessionId: string, variantId: string | null): ResumePlan {
+  async function localResumePlan(sessionId: string, variantId: string | null): Promise<ResumePlan> {
     const session = db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
     if (session === undefined) throw new HttpError(404, `Session not found: ${sessionId}`);
     const item = itemOfSession(sessionId);
@@ -2747,7 +2901,7 @@ export function createLive(deps: LiveDeps) {
         message:
           'This session has no recorded working directory, so there is nowhere to continue it.',
       });
-    } else if (!fs.statSync(session.cwd, { throwIfNoEntry: false })?.isDirectory()) {
+    } else if (!(await isDirectory(session.cwd))) {
       problems.push({
         code: 'cwd-missing',
         message: `Working directory ${session.cwd} no longer exists. Put it back, then resume.`,
@@ -2772,10 +2926,10 @@ export function createLive(deps: LiveDeps) {
         message: `This session is running in Live item "${item.title}". Stop the process there, then resume.`,
       });
     }
-    const latestExists = fs.existsSync(session.filePath);
-    const targetFile = locate(configDir, session.id);
-    const latest = latestExists ? copyOf(session.filePath) : null;
-    const target = targetFile === null ? null : copyOf(targetFile);
+    const latestExists = await pathExists(session.filePath);
+    const targetFile = await locate(configDir, session.id);
+    const latest = latestExists ? await copyOf(session.filePath) : null;
+    const target = targetFile === null ? null : await copyOf(targetFile);
     let action: ResumePlan['action'];
     if (!latestExists) {
       problems.push({
@@ -2789,7 +2943,7 @@ export function createLive(deps: LiveDeps) {
     } else if (targetFile === null) {
       action = 'copy';
     } else {
-      const relation = relationOf(session.filePath, targetFile);
+      const relation = await relationOf(session.filePath, targetFile);
       action = relation === 'behind' ? 'sync' : relation === 'diverged' ? 'diverged' : 'resume';
     }
     if (problems.length > 0) action = 'blocked';
@@ -2800,7 +2954,7 @@ export function createLive(deps: LiveDeps) {
       .where(eq(subagents.sessionId, session.id))
       .get()?.n;
     const sessionDir = path.join(path.dirname(session.filePath), session.id);
-    if ((subagentCount ?? 0) > 0 && latestExists && !fs.existsSync(sessionDir)) {
+    if ((subagentCount ?? 0) > 0 && latestExists && !(await pathExists(sessionDir))) {
       notes.push(
         `Subagent record directory ${sessionDir} is missing: the main conversation continues, but earlier subagent details are not carried into the target configuration.`,
       );
@@ -2917,8 +3071,8 @@ export function createLive(deps: LiveDeps) {
     if (remotePath === null)
       throw new Error(`Session ${session.id} on an SSH host has no recorded remote path`);
     const remote = `${host.label}:${remotePath}`;
-    const latest = fs.existsSync(session.filePath)
-      ? { ...copyOf(session.filePath), path: remote }
+    const latest = (await pathExists(session.filePath))
+      ? { ...(await copyOf(session.filePath)), path: remote }
       : null;
     let action: ResumePlan['action'] = 'resume';
     let target: ResumePlan['target'] = null;
@@ -3048,11 +3202,23 @@ export function createLive(deps: LiveDeps) {
   }
   // otherwise create an item for it. When the target configuration already has another copy, sync it per the preflight
   // or ask the user to choose
-  function resume(body: ResumeLiveBody): LiveDetail | Promise<LiveDetail> {
+  async function resume(body: ResumeLiveBody): Promise<LiveDetail> {
+    if (body.driver === 'simulated') await deps.requireChecks(['model-simulated-user']);
     const remoteSession = db.select().from(sessions).where(eq(sessions.id, body.sessionId)).get();
     if (remoteSession?.hostId != null)
       return resumeRemote(body, remoteSession, remoteSession.hostId);
-    const plan = localResumePlan(body.sessionId, body.variantId);
+    // The preflight and the copy wait on the filesystem: a second resume of the same session meanwhile is refused
+    if (resuming.has(body.sessionId)) {
+      throw new HttpError(409, `Session ${body.sessionId} is already being resumed`);
+    }
+    resuming.add(body.sessionId);
+    return resumeLocal(body).finally(() => {
+      resuming.delete(body.sessionId);
+    });
+  }
+
+  async function resumeLocal(body: ResumeLiveBody): Promise<LiveDetail> {
+    const plan = await localResumePlan(body.sessionId, body.variantId);
     const problem = plan.problems[0];
     if (problem !== undefined) throw new HttpError(409, problem.message);
     if (plan.action === 'diverged' && body.onDiverged !== 'use-latest') {
@@ -3086,20 +3252,20 @@ export function createLive(deps: LiveDeps) {
     const start: Record<string, unknown> = { copiedFrom: null };
     if (plan.target === null) {
       target = path.join(plan.configDir, 'projects', liveId, `${session.id}.jsonl`);
-      fs.mkdirSync(path.dirname(target), { recursive: true });
-      fs.copyFileSync(session.filePath, target);
-      syncSessionDir(session.filePath, target);
+      await fs.promises.mkdir(path.dirname(target), { recursive: true });
+      await fs.promises.copyFile(session.filePath, target);
+      await syncSessionDir(session.filePath, target);
       start.copiedFrom = session.filePath;
     } else {
       target = plan.target.path;
       if (plan.action === 'diverged') {
         const kept = divergedName(target, new Date());
-        fs.renameSync(target, kept);
+        await fs.promises.rename(target, kept);
         start.divergedKept = kept;
       }
       if (plan.action === 'sync' || plan.action === 'diverged') {
-        fs.copyFileSync(session.filePath, target);
-        syncSessionDir(session.filePath, target);
+        await fs.promises.copyFile(session.filePath, target);
+        await syncSessionDir(session.filePath, target);
         start.syncedFrom = session.filePath;
         start.overwrote = target;
       }
@@ -3423,7 +3589,7 @@ export function createLive(deps: LiveDeps) {
     },
     // The driver switch (Contracts 34.2): available for every purpose, both engines, local and SSH items; an item with
     // no task needs a goal first
-    setDriver(id: string, driver: LiveDriver, goal?: string) {
+    async setDriver(id: string, driver: LiveDriver, goal?: string) {
       const item = row(id);
       if (driver === 'simulated' && item.taskId === null) {
         if (goal !== undefined) setGoal(id, goal);
@@ -3433,8 +3599,10 @@ export function createLive(deps: LiveDeps) {
       }
       const controller = controllerOf(id);
       if (controller.driver === driver) throw new HttpError(409, `The driver is already ${driver}`);
-      if (driver === 'simulated') controller.release();
-      else controller.setDriver('human', 'manual' satisfies HandBackReason);
+      if (driver === 'simulated') {
+        await deps.requireChecks(['model-simulated-user']);
+        controller.release();
+      } else controller.setDriver('human', 'manual' satisfies HandBackReason);
       return detail(id);
     },
     // View and change the goal from the toolbar (Contracts 34.2)
@@ -3500,6 +3668,33 @@ export function createLive(deps: LiveDeps) {
       orcaSync.start();
     },
     orcaTopology: () => orcaSync.topology(),
+    // The Orca topology page (Contracts 40): the graph of the latest sync
+    orcaGraph(): OrcaGraph {
+      const { nodes, edges } = orcaGraphOf();
+      return { local: orcaSync.topology().local, nodes, edges };
+    },
+    orcaOpenLive,
+    orcaNodeDir,
+    // The messages between any node in a and any node in b, oldest first (clicking an edge, Contracts 40.2)
+    orcaMessages(a: string[], b: string[]): OrcaGraphMessage[] {
+      const left = new Set(a);
+      const right = new Set(b);
+      return orcaGraphOf().messages.filter(
+        (m) => (left.has(m.from) && right.has(m.to)) || (left.has(m.to) && right.has(m.from)),
+      );
+    },
+    // "Open in Orca" (Contracts 40.2): the desktop Orca on this machine comes to the front on that terminal's worktree and
+    // tab. A terminal on an SSH host belongs to the Orca environment paired with that host
+    async orcaSwitch(handle: string, hostId: string | null): Promise<void> {
+      if (!isPaneHandle(handle)) {
+        throw new HttpError(
+          409,
+          `${handle} is not an Orca terminal (a worker without a pane has none)`,
+        );
+      }
+      const environment = hostId === null ? null : await orcaEnvironmentOf(hostId);
+      await showOrcaTerminal(localOrca, handle, environment);
+    },
     // One page of a structured worker's transcript (Contracts 35.4): the page polls with the cursor it last got, so
     // each read returns only what the worker wrote since. Orca keeps the transcript readable after the worker ends
     async workerTranscript(id: string, cursor: string | null): Promise<WorkerTranscript> {

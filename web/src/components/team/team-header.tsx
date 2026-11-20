@@ -8,6 +8,45 @@ import { type Person, startTeamSync, teamSyncQuery, type TeamSyncView } from '@/
 import { presets, type RangeId } from '@/lib/team-days';
 import { cn } from '@/lib/utils';
 
+export type TeamView = 'linear' | 'prs';
+
+// Linear | txe PRs (Contracts 37.6), next to the range picker
+export function ViewSwitch({
+  view,
+  onChange,
+}: {
+  view: TeamView;
+  onChange: (view: TeamView) => void;
+}) {
+  return (
+    <div role="radiogroup" aria-label="View" className="inline-flex rounded-md border p-0.5">
+      {(
+        [
+          ['linear', 'Linear'],
+          ['prs', 'txe PRs'],
+        ] as const
+      ).map(([id, label]) => (
+        <button
+          key={id}
+          type="button"
+          role="radio"
+          aria-checked={view === id}
+          data-testid={`view-${id}`}
+          className={cn(
+            'rounded px-2.5 py-1 text-sm whitespace-nowrap text-muted-foreground',
+            view === id && 'bg-secondary font-medium text-foreground',
+          )}
+          onClick={() => {
+            onChange(id);
+          }}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function RangePicker({
   range,
   from,
@@ -147,10 +186,22 @@ function syncText(
 ) {
   if (latest?.status === 'running') {
     const p = latest.progress;
-    if (p.toRead === 0 && p.read === 0) {
+    if (
+      p.toRead === 0 &&
+      p.read === 0 &&
+      p.prsSearched === 0 &&
+      p.commitsToRead === 0 &&
+      p.timingsRead === 0
+    ) {
       return p.listed === 0 ? 'Syncing…' : `Syncing… listed ${formatInteger(p.listed)} issues`;
     }
-    return `Syncing… ${formatInteger(p.read)} of ${formatInteger(p.toRead)} issues · ${formatInteger(p.prsRead)} PRs`;
+    const searched = p.prsSearched > 0 ? ` · ${formatInteger(p.prsSearched)} merged PRs found` : '';
+    const commits =
+      p.commitsToRead > 0
+        ? ` · commits of ${formatInteger(p.commitsRead)} of ${formatInteger(p.commitsToRead)} PRs`
+        : '';
+    const timed = p.timingsRead > 0 ? ` · ${formatInteger(p.timingsRead)} txe PRs timed` : '';
+    return `Syncing… ${formatInteger(p.read)} of ${formatInteger(p.toRead)} issues · ${formatInteger(p.prsRead)} PRs${searched}${commits}${timed}`;
   }
   if (lastSucceeded === null) return 'Not synced yet';
   return `Synced ${time(lastSucceeded.endedAt ?? lastSucceeded.startedAt)}`;

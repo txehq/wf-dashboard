@@ -1,6 +1,7 @@
-import fs from 'node:fs';
+import { cp, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
+import { pathExists } from '../dirs/exists.js';
 
 // Before resume, compare a session's two jsonl copies (Contracts 14.5): the latest (sessions.file_path) and the target config's
 
@@ -9,10 +10,9 @@ import { z } from 'zod';
 // diverged: the two copies diverged
 export type CopyRelation = 'same' | 'behind' | 'ahead' | 'diverged';
 
-export function relationOf(latest: string, target: string): CopyRelation {
+export async function relationOf(latest: string, target: string): Promise<CopyRelation> {
   if (path.resolve(latest) === path.resolve(target)) return 'same';
-  const a = fs.readFileSync(latest);
-  const b = fs.readFileSync(target);
+  const [a, b] = await Promise.all([readFile(latest), readFile(target)]);
   if (a.equals(b)) return 'same';
   if (b.length < a.length && a.subarray(0, b.length).equals(b)) return 'behind';
   if (a.length < b.length && b.subarray(0, a.length).equals(a)) return 'ahead';
@@ -37,12 +37,12 @@ const Line = z.looseObject({
 export const SUMMARY_CHARS = 120;
 
 // The main agent's last message with text in a jsonl: time, speaker and summary. A last line without a newline is still being written and is skipped
-export function lastMessage(file: string): {
+export async function lastMessage(file: string): Promise<{
   at: string | null;
   role: 'user' | 'assistant' | null;
   text: string | null;
-} {
-  const lines = fs.readFileSync(file, 'utf8').split('\n');
+}> {
+  const lines = (await readFile(file, 'utf8')).split('\n');
   // Empty when the file ends with a newline; otherwise a half-written line
   lines.pop();
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -79,9 +79,9 @@ export function divergedName(file: string, now: Date): string {
 }
 
 // The subagent directory (named like the jsonl) follows the latest: its files overwrite, extra files only in the target are kept
-export function syncSessionDir(fromJsonl: string, toJsonl: string) {
+export async function syncSessionDir(fromJsonl: string, toJsonl: string): Promise<void> {
   const id = path.basename(fromJsonl, '.jsonl');
   const from = path.join(path.dirname(fromJsonl), id);
-  if (!fs.existsSync(from)) return;
-  fs.cpSync(from, path.join(path.dirname(toJsonl), id), { recursive: true, force: true });
+  if (!(await pathExists(from))) return;
+  await cp(from, path.join(path.dirname(toJsonl), id), { recursive: true, force: true });
 }

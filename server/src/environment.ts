@@ -1,7 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { eq, inArray } from 'drizzle-orm';
 import { execa } from 'execa';
 import { z } from 'zod';
+import type { Db } from './db/index.js';
+import { type PaidCheckId, paidCheckIds, paidChecks } from './db/schema.js';
+import { events } from './events.js';
 import {
   callLinear,
   LINEAR_MCP_URL,
@@ -14,18 +18,29 @@ import {
   anthropic,
   type Models,
   parseStructuredResponse,
+  roleCheckIds,
   structuredRequest,
 } from './llm/client.js';
 import type { VaultSource } from './config.js';
+import { pathExists } from './dirs/exists.js';
+import { onPaidUsage } from './paid-usage.js';
+import type { SettingsStore } from './runs/settings.js';
 import { writeCodexHome } from './variants/codex-home.js';
+import { HttpError } from './variants/errors.js';
 
 const LINUX_TARGET = 'x86_64-unknown-linux-gnu';
 
 // Contracts section 8: check each condition this machine needs to run evaluations, actually running each one
+export const checkStates = ['ok', 'failed', 'unverified'] as const;
+
 export const EnvironmentCheck = z.object({
   id: z.string(),
   label: z.string(),
   ok: z.boolean(),
+  // A paid check (simulated user model, judge model, Codex) is unverified until a real call or a check sets it
+  state: z.enum(checkStates),
+  // When the check last ran or, for a paid check, its last real use; null while unverified
+  checkedAt: z.number().nullable(),
   // On pass, the version, account etc. found; on failure, an excerpt of the real output
   detail: z.string(),
   // On failure, the command to run or the thing to do
@@ -33,7 +48,11 @@ export const EnvironmentCheck = z.object({
 });
 export type EnvironmentCheck = z.infer<typeof EnvironmentCheck>;
 
+// What running one check found
+type CheckOutcome = Pick<EnvironmentCheck, 'id' | 'label' | 'ok' | 'detail' | 'fix'>;
+
 export const EnvironmentReport = z.object({
+  // When the free checks last ran
   checkedAt: z.number(),
   checks: z.array(EnvironmentCheck),
 });
@@ -110,7 +129,7 @@ async function versionCheck(
   label: string,
   file: string,
   fix: string,
-): Promise<EnvironmentCheck> {
+): Promise<CheckOutcome> {
   const result = await command(file, ['--version']);
   return { id, label, ok: result.ok, detail: result.output, fix };
 }
@@ -120,16 +139,17 @@ const roleLabels: Record<keyof Models, string> = {
   judge: 'Grading (judge)',
 };
 
-const roleIds: Record<keyof Models, string> = {
-  simulatedUser: 'model-simulated-user',
-  judge: 'model-judge',
-};
+const modelLabel = (role: keyof Models, model: string) =>
+  `gateway: ${roleLabels[role]} model ${model}`;
+
+const modelFix = (role: keyof Models) =>
+  `In Settings on the Runs page, choose another model for "${roleLabels[role]}" and save; on 401, check ANTHROPIC_AUTH_TOKEN and ANTHROPIC_BASE_URL under env in ~/.claude/settings.json`;
 
 // A request of exactly the same shape as the simulated user's and judge's (strict tool respond, Contracts 4):
 // it fails too when the gateway routes the model to a channel that rejects strict tools (e.g. Bedrock's tools.0.custom.strict)
 const PingResult = z.object({ reply: z.string().min(1) });
 
-async function modelCheck(role: keyof Models, model: string): Promise<EnvironmentCheck> {
+async function modelCheck(role: keyof Models, model: string): Promise<CheckOutcome> {
   const started = performance.now();
   const result = await attempt(async () =>
     parseStructuredResponse(
@@ -147,13 +167,12 @@ async function modelCheck(role: keyof Models, model: string): Promise<Environmen
     ),
   );
   const ms = Math.round(performance.now() - started);
-  const fix = `In Settings on the Runs page, choose another model for "${roleLabels[role]}" and save; on 401, check ANTHROPIC_AUTH_TOKEN and ANTHROPIC_BASE_URL under env in ~/.claude/settings.json`;
   return {
-    id: roleIds[role],
-    label: `gateway: ${roleLabels[role]} model ${model}`,
+    id: roleCheckIds[role],
+    label: modelLabel(role, model),
     ok: result.ok,
     detail: result.ok ? `${String(ms)} ms, respond: ${result.value.value.reply}` : result.error,
-    fix,
+    fix: modelFix(role),
   };
 }
 
@@ -180,7 +199,7 @@ function ghFix(output: string): string {
   }
 }
 
-export async function githubCheck(): Promise<EnvironmentCheck> {
+export async function githubCheck(): Promise<CheckOutcome> {
   const base = { id: 'gh', label: `GitHub: gh logged in as a member of ${ORG}` };
   const status = await command('gh', ['auth', 'status']);
   const user = await command('gh', ['api', 'user', '--jq', '.login']);
@@ -228,7 +247,7 @@ export function linearFix(error: string): string {
   return 'detail holds the original text returned by Linear MCP; resolve it, then click "Recheck"';
 }
 
-async function linearCheck(): Promise<EnvironmentCheck> {
+async function linearCheck(): Promise<CheckOutcome> {
   const base = { id: 'linear', label: 'Linear MCP: list_teams' };
   if (!linearLoggedIn()) {
     return {
@@ -269,10 +288,10 @@ function reviewModel(txeWorkflowRepo: string): string {
   return model;
 }
 
-async function codexCheck(options: EnvironmentOptions): Promise<EnvironmentCheck> {
+async function codexCheck(options: EnvironmentOptions): Promise<CheckOutcome> {
   const codexHome = path.join(options.workDir, 'codex-home');
   const cwd = path.join(options.workDir, 'codex-work');
-  const base = { id: 'codex', label: 'Codex: codex exec under a separate CODEX_HOME' };
+  const base = { id: 'codex', label: CODEX_LABEL };
   const prepared = await attempt(() => {
     writeCodexHome(codexHome, {
       authPath: options.codexAuthPath,
@@ -308,20 +327,31 @@ async function codexCheck(options: EnvironmentOptions): Promise<EnvironmentCheck
   const seconds = Math.round((performance.now() - started) / 1000);
   const ok = result.ok && result.stdout.toLowerCase().includes('pong');
   const reproduce = `CODEX_HOME="${codexHome}" codex ${args.slice(0, -1).join(' ')} 'Reply with exactly: pong'`;
-  const hint = /quota exceeded/i.test(result.output)
-    ? 'Quota exceeded: restore the quota of the account behind model_provider in ~/.codex/config.toml, or switch to a provider with quota. '
-    : /401|unauthorized|missing bearer|not logged in/i.test(result.output)
-      ? 'Authentication failed: run codex login to log in again. '
-      : '';
   return {
     ...base,
     ok,
     detail: ok
       ? `codex exec -m ${model} returned ${result.stdout.trim()} (${String(seconds)} s)`
       : result.output,
-    fix: `${hint}Reproduce in a terminal and fix ~/.codex/auth.json or ~/.codex/config.toml from the output: ${reproduce}`,
+    fix: `${codexHint(result.output)}Reproduce in a terminal and fix ~/.codex/auth.json or ~/.codex/config.toml from the output: ${reproduce}`,
   };
 }
+
+const CODEX_LABEL = 'Codex: codex exec under a separate CODEX_HOME';
+
+function codexHint(output: string): string {
+  if (/quota exceeded/i.test(output)) {
+    return 'Quota exceeded: restore the quota of the account behind model_provider in ~/.codex/config.toml, or switch to a provider with quota. ';
+  }
+  if (/401|unauthorized|missing bearer|not logged in/i.test(output)) {
+    return 'Authentication failed: run codex login to log in again. ';
+  }
+  return '';
+}
+
+// The fix for a failed real Codex call: the check's reproduce command is known only once "Recheck" runs it
+const codexUseFix = (detail: string) =>
+  `${codexHint(detail)}Click "Recheck" to run codex exec under a separate CODEX_HOME, then fix ~/.codex/auth.json or ~/.codex/config.toml from its output`;
 
 // Vault location and source (Contracts section 30), e.g. "/Users/x/Documents/Obsidian Vault (from MAGI_VAULT)"
 function vaultLocation(vaultDir: string, source: VaultSource): string {
@@ -332,11 +362,21 @@ export async function vaultCheck(
   vaultDir: string,
   source: VaultSource,
   product: string,
-): Promise<EnvironmentCheck> {
+): Promise<CheckOutcome> {
   const productDir = path.join(vaultDir, `Project ${product}`);
   const base = { id: 'vault', label: `Obsidian vault and Project ${product}/` };
   const location = vaultLocation(vaultDir, source);
-  if (!fs.existsSync(vaultDir)) {
+  const found = await attempt(() => pathExists(vaultDir));
+  // macOS refuses a protected folder (Documents, Desktop) the user did not allow with EPERM
+  if (!found.ok) {
+    return {
+      ...base,
+      ok: false,
+      detail: `${location}: ${found.error}`,
+      fix: 'Allow WF Dashboard (or the terminal running the dashboard) the folder in System Settings > Privacy & Security > Files and Folders, then check again',
+    };
+  }
+  if (!found.value) {
     return {
       ...base,
       ok: false,
@@ -345,7 +385,7 @@ export async function vaultCheck(
     };
   }
   const fix = `mkdir -p "${productDir}" (wf obsidian requires the product directory to exist)`;
-  if (!fs.existsSync(productDir)) {
+  if (!(await pathExists(productDir))) {
     return { ...base, ok: false, detail: `${location}: no Project ${product}/`, fix };
   }
   const writable = await attempt(() => fs.promises.access(productDir, fs.constants.W_OK));
@@ -357,7 +397,7 @@ export async function vaultCheck(
       fix: `chmod u+w "${productDir}"`,
     };
   const features = path.join(productDir, 'Features');
-  const runs = fs.existsSync(features) ? fs.readdirSync(features).length : 0;
+  const runs = (await pathExists(features)) ? (await fs.promises.readdir(features)).length : 0;
   return {
     ...base,
     ok: true,
@@ -366,7 +406,7 @@ export async function vaultCheck(
   };
 }
 
-async function txeWorkflowCheck(repo: string): Promise<EnvironmentCheck> {
+async function txeWorkflowCheck(repo: string): Promise<CheckOutcome> {
   const base = {
     id: 'txe-workflow',
     label: 'txe-workflow repo',
@@ -375,10 +415,10 @@ async function txeWorkflowCheck(repo: string): Promise<EnvironmentCheck> {
   const head = await command('git', ['-C', repo, 'log', '-1', '--format=%h %s']);
   if (!head.ok) return { ...base, ok: false, detail: head.output };
   const skills = path.join(repo, 'skills');
-  if (!fs.existsSync(skills)) {
+  if (!(await pathExists(skills))) {
     return { ...base, ok: false, detail: `${skills} does not exist (HEAD ${head.stdout.trim()})` };
   }
-  const count = fs.readdirSync(skills).length;
+  const count = (await fs.promises.readdir(skills)).length;
   return {
     ...base,
     ok: true,
@@ -388,7 +428,7 @@ async function txeWorkflowCheck(repo: string): Promise<EnvironmentCheck> {
 
 // A variant on a remote Linux host needs wf cross-compiled on this machine (Contracts 31.5): cargo-zigbuild, zig and the
 // Linux target on the toolchain txe-workflow pins (rustup runs in the repo directory, taking the toolchain from rust-toolchain.toml)
-export async function crossCompileCheck(repo: string): Promise<EnvironmentCheck> {
+export async function crossCompileCheck(repo: string): Promise<CheckOutcome> {
   const base = {
     id: 'cross-compile',
     label: 'Cross-compile wf: variants on remote Linux hosts',
@@ -419,22 +459,17 @@ export async function crossCompileCheck(repo: string): Promise<EnvironmentCheck>
   };
 }
 
-export async function runEnvironmentChecks(
-  options: EnvironmentOptions,
-): Promise<EnvironmentReport> {
-  const models = options.models();
-  const checks = await Promise.all([
+// The free checks: run on read and cached (Contracts 8)
+function freeChecks(options: EnvironmentOptions): Promise<CheckOutcome[]> {
+  return Promise.all([
     versionCheck(
       'claude',
       'claude executable',
       'claude',
       'npm install --global @anthropic-ai/claude-code, and make sure claude is on PATH',
     ),
-    modelCheck('simulatedUser', models.simulatedUser),
-    modelCheck('judge', models.judge),
     githubCheck(),
     linearCheck(),
-    codexCheck(options),
     vaultCheck(options.vaultDir, options.vaultSource, options.product),
     txeWorkflowCheck(options.txeWorkflowRepo),
     versionCheck(
@@ -452,44 +487,190 @@ export async function runEnvironmentChecks(
     ),
     ...(options.remoteLinux?.() === true ? [crossCompileCheck(options.txeWorkflowRepo)] : []),
   ]);
-  return { checkedAt: Date.now(), checks };
 }
 
-// Results are cached 10 minutes; after the role models change (Settings saved) the next read checks again; only one check
-// per set of models runs at a time, and a model change during a check starts another, never returning old-model results
-export function createEnvironment(options: EnvironmentOptions) {
-  let cached: { report: EnvironmentReport; modelsKey: string } | undefined;
-  let inflight: { promise: Promise<EnvironmentReport>; modelsKey: string } | undefined;
+const paidRoles: Record<PaidCheckId, keyof Models | null> = {
+  'model-simulated-user': 'simulatedUser',
+  'model-judge': 'judge',
+  codex: null,
+};
 
-  function check(): Promise<EnvironmentReport> {
-    const modelsKey = JSON.stringify(options.models());
-    if (inflight?.modelsKey === modelsKey) return inflight.promise;
-    const promise = (async () => {
-      const report = await runEnvironmentChecks(options).finally(() => {
-        if (inflight?.promise === promise) inflight = undefined;
+// One paid check: a real gateway request or a real codex exec
+function paidCheck(id: PaidCheckId, options: EnvironmentOptions): Promise<CheckOutcome> {
+  const role = paidRoles[id];
+  return role === null ? codexCheck(options) : modelCheck(role, options.models()[role]);
+}
+
+const checked = (outcome: CheckOutcome, at: number): EnvironmentCheck => ({
+  ...outcome,
+  state: outcome.ok ? 'ok' : 'failed',
+  checkedAt: at,
+});
+
+// Every check once, paid ones included, bypassing the server and its records (scripts/check-environment.ts)
+export async function runEnvironmentChecks(
+  options: EnvironmentOptions,
+): Promise<EnvironmentReport> {
+  const outcomes = await Promise.all([
+    freeChecks(options),
+    Promise.all(paidCheckIds.map((id) => paidCheck(id, options))),
+  ]);
+  const at = Date.now();
+  return { checkedAt: at, checks: outcomes.flat().map((o) => checked(o, at)) };
+}
+
+// Free checks are cached 10 minutes, one run at a time. The paid checks never run on read (Contracts 8): their state
+// is the last real use or check, kept in paid_checks; they run only on "Recheck" and through require, before an
+// operation that needs one while it is unverified or failed
+export function createEnvironment(
+  options: EnvironmentOptions & {
+    db: Db;
+    settings: SettingsStore;
+    // Each paid check run and each real use recorded goes to the server log
+    log: (message: string) => void;
+  },
+) {
+  const { db, settings, log } = options;
+  let cached: { checkedAt: number; outcomes: CheckOutcome[] } | undefined;
+  let inflight: Promise<{ checkedAt: number; outcomes: CheckOutcome[] }> | undefined;
+  const paidInflight = new Map<PaidCheckId, Promise<CheckOutcome>>();
+
+  function runFree() {
+    inflight ??= freeChecks(options)
+      .then((outcomes) => {
+        cached = { checkedAt: Date.now(), outcomes };
+        return cached;
+      })
+      .finally(() => {
+        inflight = undefined;
       });
-      cached = { report, modelsKey };
-      return report;
-    })();
-    inflight = { promise, modelsKey };
+    return inflight;
+  }
+
+  // What a paid check is about right now: the role's model, or Codex
+  const subject = (id: PaidCheckId) => {
+    const role = paidRoles[id];
+    return role === null ? 'codex' : options.models()[role];
+  };
+
+  function label(id: PaidCheckId): string {
+    const role = paidRoles[id];
+    return role === null ? CODEX_LABEL : modelLabel(role, options.models()[role]);
+  }
+
+  function useFix(id: PaidCheckId, detail: string): string {
+    const role = paidRoles[id];
+    return role === null ? codexUseFix(detail) : modelFix(role);
+  }
+
+  function record(id: PaidCheckId, outcome: { ok: boolean; detail: string; fix: string }) {
+    const values = {
+      ok: outcome.ok,
+      detail: excerpt(outcome.detail),
+      fix: outcome.fix,
+      checkedAt: new Date(),
+    };
+    db.insert(paidChecks)
+      .values({ id, ...values })
+      .onConflictDoUpdate({ target: paidChecks.id, set: values })
+      .run();
+    events.publish({ type: 'environment.updated' });
+  }
+
+  function paidView(id: PaidCheckId): EnvironmentCheck {
+    const row = db.select().from(paidChecks).where(eq(paidChecks.id, id)).get();
+    if (row === undefined) {
+      return {
+        id,
+        label: label(id),
+        ok: false,
+        state: 'unverified',
+        checkedAt: null,
+        detail: 'Not verified yet: the next real call, or "Recheck", verifies it',
+        fix: useFix(id, ''),
+      };
+    }
+    return {
+      id,
+      label: label(id),
+      ok: row.ok,
+      state: row.ok ? 'ok' : 'failed',
+      checkedAt: row.checkedAt.getTime(),
+      detail: row.detail,
+      fix: row.fix,
+    };
+  }
+
+  // One run per check at a time; the result is recorded only if the role's model did not change meanwhile
+  function runPaid(id: PaidCheckId): Promise<CheckOutcome> {
+    const running = paidInflight.get(id);
+    if (running !== undefined) return running;
+    const before = subject(id);
+    log(`Paid environment check ${id} running`);
+    const promise = paidCheck(id, options)
+      .then((outcome) => {
+        log(`Paid environment check ${id} ${outcome.ok ? 'passed' : 'failed'}`);
+        if (subject(id) === before) record(id, outcome);
+        return outcome;
+      })
+      .finally(() => {
+        paidInflight.delete(id);
+      });
+    paidInflight.set(id, promise);
     return promise;
   }
 
+  onPaidUsage((id, usage) => {
+    log(`Paid environment check ${id} ${usage.ok ? 'passed' : 'failed'} in real use`);
+    record(id, { ...usage, fix: usage.ok ? useFix(id, '') : useFix(id, usage.detail) });
+  });
+
+  // Changing a role's model in Settings makes its check unverified; it is not checked automatically
+  let models = { ...settings.get().models };
+  settings.onChange((next) => {
+    const changed = paidCheckIds.filter((id) => {
+      const role = paidRoles[id];
+      return role !== null && next.models[role] !== models[role];
+    });
+    models = { ...next.models };
+    if (changed.length === 0) return;
+    db.delete(paidChecks).where(inArray(paidChecks.id, changed)).run();
+    events.publish({ type: 'environment.updated' });
+  });
+
   return {
-    get(refresh: boolean): Promise<EnvironmentReport> {
+    async get(refresh: boolean): Promise<EnvironmentReport> {
       // A recheck uses a new Linear connection: after a network interruption the old one may keep returning errors
       if (refresh) renewLinearClient();
-      if (
-        !refresh &&
-        cached !== undefined &&
-        Date.now() - cached.report.checkedAt < CACHE_MS &&
-        cached.modelsKey === JSON.stringify(options.models())
-      ) {
-        return Promise.resolve(cached.report);
-      }
-      return check();
+      const [free] = await Promise.all([
+        !refresh && cached !== undefined && Date.now() - cached.checkedAt < CACHE_MS
+          ? cached
+          : runFree(),
+        refresh ? Promise.all(paidCheckIds.map(runPaid)) : null,
+      ]);
+      return {
+        checkedAt: free.checkedAt,
+        checks: [
+          ...free.outcomes.map((o) => checked(o, free.checkedAt)),
+          ...paidCheckIds.map(paidView),
+        ],
+      };
+    },
+
+    // Before an operation that needs these paid checks: each one unverified or failed is checked first; any failure
+    // fails the operation with the original text and the fix
+    async require(ids: readonly PaidCheckId[]): Promise<void> {
+      const pending = ids.filter((id) => paidView(id).state !== 'ok');
+      const outcomes = await Promise.all(pending.map(runPaid));
+      const failed = outcomes.filter((o) => !o.ok);
+      if (failed.length === 0) return;
+      throw new HttpError(
+        409,
+        failed.map((o) => `${o.label} failed: ${o.detail}\nFix: ${o.fix}`).join('\n\n'),
+      );
     },
   };
 }
 
 export type Environment = ReturnType<typeof createEnvironment>;
+export type RequireChecks = Environment['require'];

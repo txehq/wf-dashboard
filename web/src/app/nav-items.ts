@@ -6,6 +6,7 @@ import {
   ListChecks,
   type LucideIcon,
   Microscope,
+  Network,
   Play,
   SquareTerminal,
   Users,
@@ -33,6 +34,8 @@ export const navEntries: (NavItem | NavGroup)[] = [
   // No separate Variants item (Contracts 16.7): the variant page /variants/:id belongs to Workflows
   { to: '/workflows', label: 'Workflows', icon: Workflow, also: ['/variants'] },
   { to: '/live', label: 'Live', icon: SquareTerminal },
+  // The Orca topology page (Contracts 40.2)
+  { to: '/orca', label: 'Orca', icon: Network },
   {
     label: 'Evaluate',
     icon: FlaskConical,
@@ -50,7 +53,7 @@ export const navEntries: (NavItem | NavGroup)[] = [
   {
     label: 'Team',
     icon: Users,
-    items: [{ to: '/team', label: 'Linear stats', icon: ChartColumn }],
+    items: [{ to: '/team', label: 'Engineering stats', icon: ChartColumn }],
   },
 ];
 

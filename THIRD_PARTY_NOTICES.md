@@ -33,7 +33,7 @@ SOFTWARE.
 ## React Flow
 
 - Source: [xyflow/xyflow](https://github.com/xyflow/xyflow), npm package `@xyflow/react` 12.12.0
-- Use: installed as a dependency; `web/src/components/workflow-flow.tsx` (stage flowchart) and `web/src/components/sessions/stage-graph.tsx` (stage graph) draw with it. Both remove the attribution in the canvas corner with `proOptions.hideAttribution`; the attribution and license are given here
+- Use: installed as a dependency; `web/src/components/workflow-flow.tsx` (stage flowchart), `web/src/components/sessions/stage-graph.tsx` (stage graph) and `web/src/components/orca/orca-graph.tsx` (the Orca topology page) draw with it. All three remove the attribution in the canvas corner with `proOptions.hideAttribution`; the attribution and license are given here
 - License: MIT
 
 ```text
@@ -59,6 +59,12 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Eclipse Layout Kernel (elkjs)
+
+- Source: [kieler/elkjs](https://github.com/kieler/elkjs), npm package `elkjs` 0.12.1, the JavaScript build of the [Eclipse Layout Kernel](https://eclipse.dev/elk/)
+- Use: installed as a dependency and bundled unchanged into the web pages; `web/src/components/orca/orca-graph.tsx` lays out the Orca topology page with its layered and rectangle-packing algorithms
+- License: Eclipse Public License 2.0 (or, at the recipient's choice, GPL-3.0-or-later); the full text is in the package's `LICENSE.md`, and the source is available at the repository above
 
 ## Three skills in the design and optimization baselines
 

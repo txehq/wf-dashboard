@@ -179,6 +179,7 @@ export async function judgeIcCriteria(
       },
       models.judge,
     ),
+    role: 'judge',
     signal,
   });
   return {

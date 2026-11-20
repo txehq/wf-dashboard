@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 // Orca's collaboration topology (Contracts 35.3): turns the --json output of orca terminal list, orchestration run-list, worker-list,
-// task-list, inbox and worktree ps into the Runs, main agents, workers and messages the page needs. Conversion only, no orca calls;
+// task-list, inbox, worktree ps, worktree list and repo list into the Runs, main agents, workers and messages the page needs. Conversion only, no orca calls;
 // the live module maps main agents and workers to Live items by terminal handle. The orchestration commands are read as full records
 // (orca/cli.ts), and the schemas take either generation's field names so one internal shape comes out of both
 
@@ -16,6 +16,8 @@ export const OrcaTerminal = z.object({
   worktreeId: z.string(),
   worktreePath: z.string(),
   title: z.string().nullable().optional(),
+  // The git branch of the terminal's worktree (refs/heads/<name>); absent on a detached head or a folder workspace
+  branch: z.string().nullable().optional(),
   connected: z.boolean(),
   // The agent Orca recognised (claude, codex, etc.); absent for terminals not running an agent
   agentIdentity: z.string().optional(),
@@ -63,8 +65,11 @@ export const WorkerList = z.object({
         workerState: z.string(),
         dispatchStatus: z.string(),
         agentTerminalHandle: z.string().nullable(),
-        // Orca's accounting of the worker's terminal resource: active, retained, reclaimable or released
-        terminalState: z.string(),
+        // Orca's accounting of the worker's terminal resource: active, retained, reclaimable or released; null when
+        // the worker has no terminal resource left (its handle is null then too)
+        terminalState: z.string().nullable(),
+        // The worktree Orca gave the worker (<repo id>::<path>), kept after its terminal is gone
+        resource: z.object({ worktreeId: z.string().nullable() }).nullable().optional(),
         projection: z.object({ provider: z.object({ id: z.string() }).nullable().optional() }),
       }),
     ),
@@ -123,6 +128,28 @@ export const WorktreePs = z.object({
 });
 export type WorktreePs = z.infer<typeof WorktreePs>;
 
+// Repos registered in Orca (orca repo list): the projects the topology page groups sessions by (Contracts 40.2)
+export const RepoList = z.object({
+  repos: z.array(z.object({ id: z.string(), displayName: z.string(), path: z.string() })),
+});
+export type RepoList = z.infer<typeof RepoList>;
+
+// Worktrees Orca manages (orca worktree list): each one's repo, current branch and name, and whether it is the repo's
+// own directory (Contracts 40.1, 40.2)
+export const WorktreeList = z.object({
+  worktrees: z.array(
+    z.object({
+      id: z.string(),
+      repoId: z.string(),
+      path: z.string(),
+      branch: z.string().nullable(),
+      displayName: z.string(),
+      isMainWorktree: z.boolean(),
+    }),
+  ),
+});
+export type WorktreeList = z.infer<typeof WorktreeList>;
+
 export interface OrcaInputs {
   terminals: z.infer<typeof TerminalList>;
   runs: z.infer<typeof RunList>['runs'];
@@ -131,6 +158,81 @@ export interface OrcaInputs {
   tasks: Record<string, TaskList['tasks']>;
   inbox: Inbox;
   ps: WorktreePs;
+  repos: RepoList;
+  worktrees: WorktreeList;
+}
+
+// The worktree a session works in (Contracts 40.2): its directory, its name (Orca's for a worktree it made, the
+// directory's own name otherwise) and whether it is the repo's own directory
+export interface OrcaWorktree {
+  path: string;
+  name: string;
+  main: boolean;
+}
+
+// Where a session works (Contracts 40.1): its working directory, the worktree and branch it is in and the Orca repo it
+// belongs to; each is null when Orca does not know it
+export interface OrcaLocation {
+  cwd: string | null;
+  worktree: OrcaWorktree | null;
+  branch: string | null;
+  project: { id: string; name: string } | null;
+}
+
+const branchName = (ref: string | null | undefined): string | null =>
+  ref == null || ref === '' ? null : ref.replace(/^refs\/heads\//, '');
+
+const within = (dir: string, root: string) => dir === root || dir.startsWith(`${root}/`);
+
+const baseName = (dir: string) =>
+  dir
+    .split('/')
+    .filter((s) => s !== '')
+    .at(-1) ?? dir;
+
+// The location of a session from what Orca says about it: the worktree id it was given (<repo id>::<path>), its
+// working directory, and the branch its terminal reports. The worktree is found by id, then by the deepest worktree
+// holding the directory; its repo names the project. A worktree Orca no longer lists (it was deleted) is the one the
+// id names, or else the working directory itself
+export function locate(
+  inputs: Pick<OrcaInputs, 'repos' | 'worktrees'>,
+  at: { worktreeId?: string | null; cwd?: string | null; branch?: string | null },
+): OrcaLocation {
+  const idPath = at.worktreeId == null ? null : (at.worktreeId.split('::')[1] ?? null);
+  const cwd = at.cwd ?? idPath ?? null;
+  const byId = inputs.worktrees.worktrees.find((w) => w.id === at.worktreeId);
+  const byPath =
+    cwd === null
+      ? undefined
+      : inputs.worktrees.worktrees
+          .filter((w) => within(cwd, w.path))
+          .sort((a, b) => b.path.length - a.path.length)[0];
+  const worktree = byId ?? byPath;
+  const idRepo = at.worktreeId == null ? undefined : at.worktreeId.split('::')[0];
+  const repoId =
+    worktree?.repoId ??
+    idRepo ??
+    (cwd === null ? null : (inputs.repos.repos.find((r) => within(cwd, r.path))?.id ?? null));
+  const repo = inputs.repos.repos.find((r) => r.id === repoId);
+  const listed: OrcaWorktree | null =
+    worktree === undefined
+      ? null
+      : {
+          path: worktree.path,
+          name: worktree.isMainWorktree ? baseName(worktree.path) : worktree.displayName,
+          main: worktree.isMainWorktree,
+        };
+  const gonePath = idPath ?? cwd;
+  return {
+    cwd,
+    worktree:
+      listed ??
+      (gonePath === null
+        ? null
+        : { path: gonePath, name: baseName(gonePath), main: gonePath === repo?.path }),
+    branch: branchName(worktree?.branch ?? at.branch),
+    project: repoId === null ? null : { id: repoId, name: repo?.displayName ?? repoId },
+  };
 }
 
 export interface OrcaMessageView {
@@ -160,13 +262,22 @@ export interface OrcaWorkerView {
   // When its task was created, which is when the Run dispatched it; null when the task was not read
   startedAt: number | null;
   lastMessage: OrcaMessageView | null;
+  // Orca lists its terminal right now (whatever state its agent is in): the desktop Orca can switch to it
+  terminalOpen: boolean;
+  location: OrcaLocation;
 }
 
 export interface OrcaRunView {
   id: string;
   objective: string;
   createdAt: number;
-  coordinator: { handle: string | null; agent: string | null; state: OrcaState };
+  coordinator: {
+    handle: string | null;
+    agent: string | null;
+    state: OrcaState;
+    terminalOpen: boolean;
+    location: OrcaLocation;
+  };
   workers: OrcaWorkerView[];
   messages: OrcaMessageView[];
 }
@@ -197,6 +308,17 @@ function terminalState(terminal: OrcaTerminal | undefined, agents: Map<string, s
   return state;
 }
 
+// The state of the agent in every terminal Orca lists, by handle
+export function terminalStates(
+  inputs: Pick<OrcaInputs, 'terminals' | 'ps'>,
+): Map<string, OrcaState> {
+  const agents = new Map<string, string>();
+  for (const w of inputs.ps.worktrees) {
+    for (const a of w.agents ?? []) agents.set(a.paneKey, a.state);
+  }
+  return new Map(inputs.terminals.terminals.map((t) => [t.handle, terminalState(t, agents)]));
+}
+
 // Handles orca terminal list carries: Orca issues them for panes. Since 1.4.246 a worker can also run as a structured
 // agent session, whose structworker_ handle no terminal verb accepts and no terminal list holds
 export const isPaneHandle = (handle: string): boolean => handle.startsWith('term_');
@@ -219,13 +341,23 @@ export function workerAlive(worker: OrcaWorker, listed: Set<string>): boolean {
   return !settled.has(worker.workerState) && worker.terminalState !== 'released';
 }
 
-// Runs the page shows: Runs whose main agent or any worker terminal still exists, plus those in keep (Runs that already have Live items)
-export function buildTopology(inputs: OrcaInputs, keep: Set<string>): OrcaRunView[] {
+// Every Run read, alive or not (the topology page shows the sessions of all of them, Contracts 40.1): a Run's main
+// agent and workers carry their state, and where they work
+export function buildTopology(inputs: OrcaInputs): OrcaRunView[] {
   const terminals = new Map(inputs.terminals.terminals.map((t) => [t.handle, t]));
   const agents = new Map<string, string>();
   for (const w of inputs.ps.worktrees) {
     for (const a of w.agents ?? []) agents.set(a.paneKey, a.state);
   }
+  // A listed terminal says where it is; otherwise the worktree Orca gave the worker
+  const locationOf = (terminal: OrcaTerminal | undefined, worktreeId: string | null) =>
+    terminal === undefined
+      ? locate(inputs, { worktreeId })
+      : locate(inputs, {
+          worktreeId: terminal.worktreeId,
+          cwd: terminal.worktreePath,
+          branch: terminal.branch ?? null,
+        });
   const views: OrcaRunView[] = [];
   for (const run of inputs.runs) {
     if (run.legacy !== 0) continue;
@@ -283,11 +415,10 @@ export function buildTopology(inputs: OrcaInputs, keep: Set<string>): OrcaRunVie
         state,
         startedAt: task === undefined ? null : orcaTime(task.created_at),
         lastMessage: own.at(-1) ?? null,
+        terminalOpen: terminal !== undefined,
+        location: locationOf(terminal, w.resource?.worktreeId ?? null),
       };
     });
-    const alive =
-      coordinatorTerminal?.connected === true || workerViews.some((w) => w.state !== 'exited');
-    if (!alive && !keep.has(run.id)) continue;
     views.push({
       id: run.id,
       objective: run.objective,
@@ -296,6 +427,8 @@ export function buildTopology(inputs: OrcaInputs, keep: Set<string>): OrcaRunVie
         handle: run.coordinator_handle,
         agent: coordinatorTerminal?.agentIdentity ?? null,
         state: terminalState(coordinatorTerminal, agents),
+        terminalOpen: coordinatorTerminal !== undefined,
+        location: locationOf(coordinatorTerminal, null),
       },
       workers: workerViews,
       messages,

@@ -11,6 +11,7 @@ for (const role of ['simulatedUser', 'judge'] as const) {
     user: 'Answer {"ok": true}',
     schema: z.object({ ok: z.boolean() }),
     maxTokens: 64,
+    role: null,
   });
   const ms = Math.round(performance.now() - started);
   console.log(role, model, JSON.stringify(result.value), `${String(ms)}ms`);

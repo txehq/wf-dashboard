@@ -25,7 +25,7 @@ import { linearImportRoutes } from './linear-import.js';
 import { variantRoutes } from './variants.js';
 import { compareRoutes } from './compare.js';
 import { gradeRoutes } from './grades.js';
-import { createEnvironment } from '../environment.js';
+import { createEnvironment, type RequireChecks } from '../environment.js';
 import { models } from '../llm/client.js';
 import { environmentRoutes } from './environment.js';
 import { liveRoutes } from './live.js';
@@ -53,6 +53,7 @@ import { magiAgentRoutes } from './magi-agent.js';
 import { createHosts } from '../remote/hosts.js';
 import { sshHostRoutes } from './ssh-hosts.js';
 import { vscodeRoutes } from './vscode.js';
+import { orcaRoutes } from './orca.js';
 import { createLocalDirs } from '../dirs/local.js';
 import { localDirRoutes } from './local-dirs.js';
 import { createTeamSync } from '../team/sync.js';
@@ -102,42 +103,15 @@ export async function buildApp({
 
   await app.register(sessionsRoutes, { prefix: '/api', db, dirs: defaultSourceDirs });
   registerStageRoutes(app, db);
-  await app.register(taskRoutes({ db, tasksDir }));
-
-  const variants = createVariants({
-    db,
-    dataDir: config.dataDir,
-    repo: config.txeWorkflowRepo,
-    ctxBin: config.ctxBin,
-    onSkillsChanged: () => {
-      rebindAll(db, config.dataDir);
-    },
-  });
-  await app.register(variantRoutes, { variants });
-
-  await app.register(gradeRoutes({ db }));
-  await app.register(compareRoutes({ db, variants }));
 
   const settings = createSettingsStore(db);
-  const repos = githubRepos;
-  const runs = createRuns({
-    db,
-    variants,
-    settings,
-    vaultDir: config.vaultDir,
-    product: config.evalProduct,
-    runsDir: config.runsDir,
-    repos,
-  });
-  await app.register(runRoutes, { runs, settings });
-  await app.register(settingsRoutes, { settings });
-  // Stop runs first (they may still be calling Linear), then close the mcp-remote child processes
-  app.addHook('onClose', async () => {
-    await runs.shutdown();
-    await closeLinearClient();
-  });
-
+  // Environment checks (Contracts 8): operations that need a paid check call environment.require before they start
   const environment = createEnvironment({
+    db,
+    settings,
+    log: (message) => {
+      app.log.info(message);
+    },
     models: () => models,
     vaultDir: config.vaultDir,
     vaultSource: config.vaultSource,
@@ -155,8 +129,45 @@ export async function buildApp({
         .all()
         .some((h) => h.check?.platform?.startsWith('Linux ') === true),
   });
+  const requireChecks: RequireChecks = (ids) => environment.require(ids);
   await app.register(environmentRoutes, { environment });
-  await app.register(linearImportRoutes({ settings }));
+
+  await app.register(taskRoutes({ db, tasksDir, requireChecks }));
+
+  const variants = createVariants({
+    db,
+    dataDir: config.dataDir,
+    repo: config.txeWorkflowRepo,
+    ctxBin: config.ctxBin,
+    onSkillsChanged: () => {
+      rebindAll(db, config.dataDir);
+    },
+  });
+  await app.register(variantRoutes, { variants });
+
+  await app.register(gradeRoutes({ db }));
+  await app.register(compareRoutes({ db, variants }));
+
+  const repos = githubRepos;
+  const runs = createRuns({
+    db,
+    variants,
+    settings,
+    vaultDir: config.vaultDir,
+    product: config.evalProduct,
+    runsDir: config.runsDir,
+    repos,
+    requireChecks,
+  });
+  await app.register(runRoutes, { runs, settings });
+  await app.register(settingsRoutes, { settings });
+  // Stop runs first (they may still be calling Linear), then close the mcp-remote child processes
+  app.addHook('onClose', async () => {
+    await runs.shutdown();
+    await closeLinearClient();
+  });
+
+  await app.register(linearImportRoutes({ settings, requireChecks }));
 
   // Analysis, design and optimize are driven by the built-in session-analysis, workflow-design and workflow-optimize
   // (Contracts 19.2, 33.1): their baseline variants are created and built at startup; earlier design and optimize
@@ -171,7 +182,7 @@ export async function buildApp({
   // Codex sessions imported before <skill> injections were read get their injections and stages (Contracts 16.6)
   backfillCodexInjections(db);
   await app.register(bindingRoutes, { db, variants, dataDir: config.dataDir });
-  const insights = createInsights({ db, variants, dataDir: config.dataDir });
+  const insights = createInsights({ db, variants, dataDir: config.dataDir, requireChecks });
   await app.register(analysisRoutes, { insights });
   app.addHook('onClose', async () => {
     await insights.shutdown();
@@ -208,6 +219,7 @@ export async function buildApp({
     autoStop: { idleMs: config.liveAutoStopMs, graceMs: config.liveStopGraceMs },
     remote: { hosts, dir: config.remoteDir, reconnectMs: config.sshReconnectMs },
     orca: config.orca,
+    requireChecks,
   });
   await app.register(liveRoutes, { live });
   // After a dashboard restart, reconnect running processes on SSH hosts (Contracts 31.4), then start syncing Orca's
@@ -349,14 +361,26 @@ export async function buildApp({
 
   // Open a Live item's working directory in the user's VS Code (Contracts section 32)
   await app.register(vscodeRoutes, { live });
+  // The Orca topology page (Contracts section 40)
+  await app.register(orcaRoutes, { live });
   // Working directories of the local real environment: browse and create folders (Contracts 34.1), starting at home
   await app.register(localDirRoutes, {
     dirs: createLocalDirs({ home: os.homedir() }),
   });
   // Linear stats (Contracts section 37): Sync now always works; the sync at startup and every 30 minutes only when
   // main.ts turns it on
-  const teamSync = createTeamSync({ db, team: config.teamStatsTeam });
-  await app.register(teamRoutes, { db, team: config.teamStatsTeam, sync: teamSync, settings });
+  const teamSync = createTeamSync({
+    db,
+    team: config.teamStatsTeam,
+    timedRepo: config.teamStatsTimedRepo,
+  });
+  await app.register(teamRoutes, {
+    db,
+    team: config.teamStatsTeam,
+    timedRepo: config.teamStatsTimedRepo,
+    sync: teamSync,
+    settings,
+  });
   if (scheduledTeamSync === true) {
     app.addHook('onListen', () => {
       teamSync.schedule(config.teamSyncIntervalMs);

@@ -24,7 +24,7 @@ import {
 import { sessionTitle } from '../api/user-text.js';
 import { HttpError } from '../variants/errors.js';
 import { DRAFT_WORKFLOWS } from '../workflows/schema.js';
-import { codexHead, codexHomeOf } from './codex.js';
+import { codexHead, codexHomeOf, readSessionMeta } from './codex.js';
 import { importProblemOf } from './import-problems.js';
 import { clearedSessionIds, managed } from './imports.js';
 import { claudeHead, readCompleteLines } from './ingest.js';
@@ -137,6 +137,12 @@ function headOf(engine: SessionEngine, file: string): FileHead & { size: number;
   }
   headCache.set(file, { size: stat.size, mtimeMs: stat.mtimeMs, head });
   return { ...head, size: stat.size, mtimeMs: stat.mtimeMs };
+}
+
+// The working directory a session record names: the first cwd in a Claude Code jsonl, the session_meta of a Codex
+// rollout; null when the record has none yet
+export function recordCwd(engine: SessionEngine, file: string): string | null {
+  return engine === 'claude' ? headOf('claude', file).cwd : (readSessionMeta(file)?.cwd ?? null);
 }
 
 // The working directory of a Claude Code project directory: as recorded in imported sessions, else read from the
