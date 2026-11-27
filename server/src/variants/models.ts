@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import { claudeSettingsEnv } from '../llm/client.js';
 import { type ModelAlias, modelAliases } from './model-names.js';
 
@@ -11,8 +10,9 @@ const envKey: Record<ModelAlias, string> = {
   fable: 'ANTHROPIC_DEFAULT_FABLE_MODEL',
 };
 
-// claude's --model accepts aliases, resolved to gateway model names by ANTHROPIC_DEFAULT_*_MODEL in settings.json env
+// claude's --model accepts aliases, resolved to gateway model names by ANTHROPIC_DEFAULT_*_MODEL in settings.json env;
+// without that key Claude Code resolves the alias itself, so the alias is shown as the model
 export function modelChoices(): { alias: ModelAlias; model: string }[] {
   const env = claudeSettingsEnv();
-  return modelAliases.map((alias) => ({ alias, model: z.string().parse(env[envKey[alias]]) }));
+  return modelAliases.map((alias) => ({ alias, model: env[envKey[alias]] ?? alias }));
 }

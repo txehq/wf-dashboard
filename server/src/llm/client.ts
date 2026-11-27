@@ -12,26 +12,55 @@ import { type PaidUsage, reportPaidUsage } from '../paid-usage.js';
 import { costUsd, fromApiUsage, type TokenUsage } from './pricing.js';
 
 // Claude Code on this machine authenticates through the gateway; URL, credentials and model aliases are in settings.json env (config.claudeSettingsPath)
-const Settings = z.object({
-  env: z
-    .object({
-      ANTHROPIC_BASE_URL: z.string(),
-      ANTHROPIC_AUTH_TOKEN: z.string(),
-      ANTHROPIC_DEFAULT_OPUS_MODEL: z.string(),
-      ANTHROPIC_DEFAULT_SONNET_MODEL: z.string(),
-      ANTHROPIC_DEFAULT_HAIKU_MODEL: z.string(),
-    })
-    .loose(),
-});
+const Settings = z.looseObject({ env: z.record(z.string(), z.string()).optional() });
+export type ClaudeSettingsEnv = Record<string, string>;
 
-export function claudeSettingsEnv(
-  file: string = config.claudeSettingsPath,
-): z.infer<typeof Settings>['env'] {
-  const raw: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
-  return Settings.parse(raw).env;
+const describe = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+// The settings file's env block, as Claude Code itself reads it: no file or no env block is an empty env. Read when a
+// gateway call or a Claude Code config needs it, never at import: a machine whose settings.json lacks the gateway env
+// still starts the dashboard, and only the features that call the gateway fail, saying which keys are missing
+export function claudeSettingsEnv(file: string = config.claudeSettingsPath): ClaudeSettingsEnv {
+  let text: string;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    throw new Error(`Cannot read ${file}: ${describe(error)}`, { cause: error });
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`${file} is not valid JSON: ${describe(error)}`, { cause: error });
+  }
+  const parsed = Settings.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(`env in ${file} must map names to strings: ${parsed.error.message}`);
+  }
+  return parsed.data.env ?? {};
 }
 
-const env = claudeSettingsEnv();
+export interface GatewayCredentials {
+  // undefined: the SDK default (ANTHROPIC_BASE_URL of the process, else the Anthropic API)
+  baseURL: string | undefined;
+  authToken: string | null;
+  apiKey: string | null;
+}
+
+// The dashboard's own calls (simulated user, judge, environment check) use the same URL and credential as Claude Code:
+// ANTHROPIC_AUTH_TOKEN (Authorization: Bearer) or, without it, ANTHROPIC_API_KEY (x-api-key)
+export function gatewayCredentials(file: string = config.claudeSettingsPath): GatewayCredentials {
+  const env = claudeSettingsEnv(file);
+  const authToken = env.ANTHROPIC_AUTH_TOKEN ?? null;
+  const apiKey = authToken === null ? (env.ANTHROPIC_API_KEY ?? null) : null;
+  if (authToken === null && apiKey === null) {
+    throw new Error(
+      `No gateway credential in ${file}: set env.ANTHROPIC_AUTH_TOKEN (or env.ANTHROPIC_API_KEY) and env.ANTHROPIC_BASE_URL`,
+    );
+  }
+  return { baseURL: env.ANTHROPIC_BASE_URL, authToken, apiKey };
+}
 
 // [1m] in an alias is Claude Code's context tag, which the Messages API rejects
 export const stripContextTag = (model: string) => model.replace(/\[[^\]]*\]$/, '');
@@ -58,11 +87,11 @@ export function setModels(next: Models) {
 
 let client: Anthropic | undefined;
 
-export function gatewayClient(baseURL: string, authToken: string): Anthropic {
+export function gatewayClient({ baseURL, authToken, apiKey }: GatewayCredentials): Anthropic {
   return new Anthropic({
-    baseURL,
+    ...(baseURL === undefined ? {} : { baseURL }),
     authToken,
-    apiKey: null,
+    apiKey,
     // No automatic retry: gateway 429 / 5xx / connection errors go straight to the caller
     maxRetries: 0,
     // A hung request fails with a timeout after 10 minutes (Contracts 4): settling a long ticket's acceptance criteria measured 84-132 seconds
@@ -71,7 +100,7 @@ export function gatewayClient(baseURL: string, authToken: string): Anthropic {
 }
 
 export function anthropic(): Anthropic {
-  client ??= gatewayClient(env.ANTHROPIC_BASE_URL, env.ANTHROPIC_AUTH_TOKEN);
+  client ??= gatewayClient(gatewayCredentials());
   return client;
 }
 
@@ -156,10 +185,13 @@ export function parseStructured<T>(
   },
 ): Promise<StructuredResult<T>> {
   const started = performance.now();
-  const outcome = anthropic()
-    .messages.create(
-      structuredRequest(args),
-      args.signal === undefined ? {} : { signal: args.signal },
+  // Started inside then: a missing gateway setting rejects the promise and is reported as the role's failed check
+  const outcome = Promise.resolve()
+    .then(() =>
+      anthropic().messages.create(
+        structuredRequest(args),
+        args.signal === undefined ? {} : { signal: args.signal },
+      ),
     )
     .then((response) => parseStructuredResponse(response, args.schema, args.model));
   const role = args.role;

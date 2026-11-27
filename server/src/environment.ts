@@ -143,7 +143,7 @@ const modelLabel = (role: keyof Models, model: string) =>
   `gateway: ${roleLabels[role]} model ${model}`;
 
 const modelFix = (role: keyof Models) =>
-  `In Settings on the Runs page, choose another model for "${roleLabels[role]}" and save; on 401, check ANTHROPIC_AUTH_TOKEN and ANTHROPIC_BASE_URL under env in ~/.claude/settings.json`;
+  `In Settings on the Runs page, choose another model for "${roleLabels[role]}" and save; on 401, check ANTHROPIC_AUTH_TOKEN (or ANTHROPIC_API_KEY) and ANTHROPIC_BASE_URL under env in ~/.claude/settings.json`;
 
 // A request of exactly the same shape as the simulated user's and judge's (strict tool respond, Contracts 4):
 // it fails too when the gateway routes the model to a channel that rejects strict tools (e.g. Bedrock's tools.0.custom.strict)
