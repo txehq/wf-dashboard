@@ -16,6 +16,8 @@ const FIRST_ISSUE = Date.parse('2026-10-01T08:00:00Z');
 const searches: { spec: 'timings' | 'merged'; from: number; to: number; issuesRead: boolean }[] =
   [];
 let issuesRead = false;
+// Repos the gh account cannot see (an account outside txehq)
+const hidden = new Set<string>();
 // The last issue read waits until the first timings window is read, so the test sees the search beside the issue reads
 let releaseIssue: () => void = () => undefined;
 const issueGate = new Promise<void>((resolve) => {
@@ -74,7 +76,7 @@ vi.mock('../../src/team/github.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../src/team/github.js')>();
   return {
     ...real,
-    readRepoName: (name: string) => Promise.resolve(name),
+    readRepoName: (name: string) => Promise.resolve(hidden.has(name) ? null : name),
     readCommits: () => Promise.resolve([]),
     readTimings: () => Promise.resolve([]),
     searchMergedPrs: async <T>(
@@ -170,4 +172,20 @@ test('a later sync searches only the new part, newest first', async () => {
   const timings = searches.slice(before).filter((s) => s.spec === 'timings');
   expect(timings).toHaveLength(1);
   expect(timings[0]).toMatchObject({ from: NOW - 10 * 60_000 + 1_000, to: later - 10 * 60_000 });
+});
+
+test('a gh account that cannot see the timed repo fails the sync instead of marking PRs Not Found', async () => {
+  const before = searches.length;
+  hidden.add(REPO);
+  const sync = createTeamSync({
+    db,
+    team: 'TXE',
+    now: () => new Date(NOW + 3 * DAY),
+    timedRepo: REPO,
+  });
+  const view = await sync.begin().done;
+  hidden.delete(REPO);
+  expect(view.status).toBe('failed');
+  expect(view.error).toMatch(/^The active gh account cannot see txehq\/txe/);
+  expect(searches).toHaveLength(before);
 });
