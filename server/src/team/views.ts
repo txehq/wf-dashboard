@@ -264,5 +264,9 @@ export const TeamPrTimings = z.object({
   people: z.array(PrTimingAuthor),
   // The PRs of the selected day, or of the range; longest open to merge first
   prs: z.array(PrTimingRow),
+  // The sync reads the timings newest first: every PR merged from fetchedFrom (ms) to the newest read window is in;
+  // null before the first window is read. fetched: the range is covered from its first day
+  fetchedFrom: z.number().nullable(),
+  fetched: z.boolean(),
 });
 export type TeamPrTimings = z.infer<typeof TeamPrTimings>;

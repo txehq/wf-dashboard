@@ -1,4 +1,5 @@
 import { and, desc, eq, gt, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import { setTimeout as sleep } from 'node:timers/promises';
 import pLimit from 'p-limit';
 import type { Db } from '../db/index.js';
 import {
@@ -48,9 +49,15 @@ import { type TeamSyncView, teamSyncView } from './views.js';
 // transaction once its get_issue and PR reads are done. Merged and closed PRs are read once; open ones (and ones that
 // failed with 404 or 403) on every sync. Then every merged PR of the team's repos is searched for, each repo from where
 // its last search ended to this sync's start; the PRs saved without a commit count get theirs, and Linear users get
-// the GitHub login Linear attributes PRs to (37.3). Last, the timed repo's merged PRs get their timings (37.6)
+// the GitHub login Linear attributes PRs to (37.3). The timed repo's merged PRs get their timings (37.6) newest first,
+// side by side with the issue reads, and those whose CI still ran are read again at the end
 
 const CONCURRENCY = 4;
+// The timings search walks back from the sync's start a week at a time, saving each week's window once read
+const TIMINGS_STEP_MS = 7 * 86_400_000;
+// While no issue is saved yet (a first sync still listing), the timings search does not know how far back to go: it
+// looks again this often
+const FLOOR_POLL_MS = 1_000;
 // Progress is written and pushed at most this often
 const PROGRESS_MS = 500;
 // The earliest day the page can show is the day of the first issue in the timezone setting, which starts at most a day
@@ -183,7 +190,7 @@ function timingRow(repo: string, pr: TimedPr, at: Date) {
 }
 
 // Windows to the second with both ends included, joined where they meet or overlap
-function joinWindows(windows: [number, number][]): [number, number][] {
+export function joinWindows(windows: [number, number][]): [number, number][] {
   const joined: [number, number][] = [];
   for (const [from, to] of [...windows].sort((a, b) => a[0] - b[0])) {
     const last = joined.at(-1);
@@ -251,6 +258,12 @@ class Shutdown extends Error {
   }
 }
 
+// The timings search of a sync: issuesRead tells it every issue is saved (the floor is final); done settles when it ends
+interface Timings {
+  issuesRead: boolean;
+  done: Promise<void>;
+}
+
 interface Running {
   id: number;
   stop: (reason: unknown) => void;
@@ -283,7 +296,8 @@ export function createTeamSync({
   };
 
   // progress is the sync's own object: finish writes its final state, however the sync ended. until is the sync's
-  // start: the search reads PRs merged up to then
+  // start: the search reads PRs merged up to then. The timings search runs beside the other steps: whichever fails
+  // first stops the other, and the sync ends only once both have
   async function run(
     id: number,
     updatedAfter: Date | null,
@@ -292,6 +306,27 @@ export function createTeamSync({
     signal: AbortSignal,
     stop: (reason: unknown) => void,
   ) {
+    const timings: Timings = { issuesRead: false, done: Promise.resolve() };
+    try {
+      await steps(id, updatedAfter, until, progress, signal, stop, timings);
+    } catch (error) {
+      stop(error);
+      throw error;
+    } finally {
+      timings.issuesRead = true;
+      await timings.done.catch(() => undefined);
+    }
+  }
+
+  async function steps(
+    id: number,
+    updatedAfter: Date | null,
+    until: number,
+    progress: TeamSyncProgress,
+    signal: AbortSignal,
+    stop: (reason: unknown) => void,
+    timings: Timings,
+  ) {
     let lastReport = 0;
     const report = (force = false) => {
       if (!force && Date.now() - lastReport < PROGRESS_MS) return;
@@ -299,6 +334,76 @@ export function createTeamSync({
       db.update(teamSync).set({ progress, issues: progress.read }).where(eq(teamSync.id, id)).run();
       events.publish({ type: 'team.sync', syncId: id, status: 'running', progress });
     };
+    const linear = pLimit(CONCURRENCY);
+    const github = pLimit(CONCURRENCY);
+
+    // The earliest day the page can show starts at most a day before the first saved issue
+    const floor = () => {
+      const first = db
+        .select({ at: sql<number | null>`min(${teamIssues.createdAt})` })
+        .from(teamIssues)
+        .get()?.at;
+      return first == null ? null : first - DAY_MS;
+    };
+    const saveTiming = (repo: string, tx: Tx, pr: TimedPr, at: Date) => {
+      const row = timingRow(repo, pr, at);
+      tx.insert(teamPrTimings)
+        .values(row)
+        .onConflictDoUpdate({ target: teamPrTimings.url, set: row })
+        .run();
+    };
+
+    // Timings of the timed repo's merged PRs (37.6), newest first: from a little before this sync's start back to the
+    // earliest day the page can show, a week at a time, only the parts no saved window covers. Each page is saved as it
+    // is read and each window once all its PRs are. While issues are still being read the first saved issue can move
+    // earlier, so the search waits for it at the end instead of stopping
+    const searchTimings = async (repo: string) => {
+      let end = until - SEARCH_LAG_MS;
+      for (;;) {
+        signal.throwIfAborted();
+        // Read before the floor: once every issue is saved, the floor read after it is final
+        const issuesRead = timings.issuesRead;
+        const from = floor();
+        if (from === null || end < from) {
+          if (issuesRead) return;
+          await sleep(FLOOR_POLL_MS, undefined, { signal });
+          continue;
+        }
+        const start = Math.max(end - TIMINGS_STEP_MS + SECOND, from);
+        for (const [gapFrom, gapTo] of timingGaps(db, repo, start, end).reverse()) {
+          await searchMergedPrs(
+            PR_TIMINGS,
+            repo,
+            gapFrom,
+            gapTo,
+            github,
+            (prs) => {
+              if (prs.length === 0) return;
+              const at = now();
+              db.transaction((tx) => {
+                for (const pr of prs) saveTiming(repo, tx, pr, at);
+              });
+              saves += 1;
+              progress.timingsRead += prs.length;
+              report();
+            },
+            signal,
+            (windowFrom, windowTo) => {
+              saveTimingWindow(db, repo, windowFrom, windowTo);
+            },
+          );
+        }
+        end = start - SECOND;
+      }
+    };
+    if (timedRepo !== null) {
+      timings.done = searchTimings(timedRepo).catch((error: unknown) => {
+        stop(error);
+        throw error;
+      });
+      // Handled here as well: a failure stops the other steps through stop, and is thrown where done is awaited
+      timings.done.catch(() => undefined);
+    }
 
     const users = await listTeamUsers();
     db.transaction((tx) => {
@@ -343,8 +448,6 @@ export function createTeamSync({
         .all()
         .map((p) => p.url),
     );
-    const linear = pLimit(CONCURRENCY);
-    const github = pLimit(CONCURRENCY);
     // One read per PR per sync, shared by the issues linking to it
     const prReads = new Map<string, Promise<PrRead>>();
     const readOnce = (ref: PrRef) => {
@@ -394,6 +497,8 @@ export function createTeamSync({
         report();
       }),
     );
+    // Every issue is saved: the timings search now knows how far back to go
+    timings.issuesRead = true;
 
     // Open and failed PRs of the issues that did not change
     const again = db
@@ -555,43 +660,10 @@ export function createTeamSync({
       },
     );
 
-    // Timings of the timed repo's merged PRs (37.6): the merge-time gaps between the windows already read, from the
-    // earliest day the page can show to a little before this sync's start; then, by number, the saved PRs whose CI
-    // still ran when they were read or that were saved before the slowest run was kept. Each page and batch is saved as
-    // it is read
-    if (timedRepo !== null && first != null) {
-      const saveTiming = (tx: Tx, pr: TimedPr, at: Date) => {
-        const row = timingRow(timedRepo, pr, at);
-        tx.insert(teamPrTimings)
-          .values(row)
-          .onConflictDoUpdate({ target: teamPrTimings.url, set: row })
-          .run();
-      };
-      await settle(
-        timingGaps(db, timedRepo, first - DAY_MS, until - SEARCH_LAG_MS).map(([from, to]) =>
-          searchMergedPrs(
-            PR_TIMINGS,
-            timedRepo,
-            from,
-            to,
-            github,
-            (prs) => {
-              if (prs.length === 0) return;
-              const at = now();
-              db.transaction((tx) => {
-                for (const pr of prs) saveTiming(tx, pr, at);
-              });
-              saves += 1;
-              progress.timingsRead += prs.length;
-              report();
-            },
-            signal,
-            (start, end) => {
-              saveTimingWindow(db, timedRepo, start, end);
-            },
-          ),
-        ),
-      );
+    // Once the newest-first timings search is done, the timed repo's saved PRs whose CI still ran when they were read or
+    // that were saved before the slowest run was kept are read again by number, newest first (37.6)
+    await timings.done;
+    if (timedRepo !== null) {
       const again = db
         .select({ url: teamPrTimings.url, repo: teamPrTimings.repo, number: teamPrTimings.number })
         .from(teamPrTimings)
@@ -603,14 +675,14 @@ export function createTeamSync({
             or(isNull(teamPrTimings.ciEndedAt), isNull(teamPrTimings.slowestWorkflow)),
           ),
         )
-        .orderBy(teamPrTimings.number)
+        .orderBy(desc(teamPrTimings.number))
         .all();
       await reread(
         again,
         TIMINGS_BATCH,
         readTimings,
         (tx, ref, read) => {
-          if (read.ok) saveTiming(tx, read.pr, now());
+          if (read.ok) saveTiming(timedRepo, tx, read.pr, now());
           else {
             tx.update(teamPrTimings)
               .set({ readAt: now(), readError: read.error })

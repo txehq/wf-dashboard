@@ -113,8 +113,9 @@ export function useTeamSyncEvents() {
     if (type !== 'team.sync') return;
     const event = data as Pick<TeamSyncView, 'status' | 'progress'> & { syncId: number };
     if (event.status === 'running') {
-      // The counts follow a long sync every few seconds
+      // The counts follow a long sync every few seconds, the txe PRs too: their timings are read beside the issues
       invalidateThrottled(client, ['team', 'stats'], 5_000);
+      invalidateThrottled(client, ['team', 'prs'], 5_000);
       client.setQueryData(teamSyncQuery.queryKey, (state) =>
         state?.latest?.id === event.syncId
           ? { ...state, latest: { ...state.latest, progress: event.progress } }
