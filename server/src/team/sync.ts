@@ -334,6 +334,13 @@ export function createTeamSync({
       db.update(teamSync).set({ progress, issues: progress.read }).where(eq(teamSync.id, id)).run();
       events.publish({ type: 'team.sync', syncId: id, status: 'running', progress });
     };
+    // A gh account outside the team's org reads every private PR as Not Found (HTTP 404), which the sync records as a
+    // PR GitHub cannot find and leaves out of the counts: the timed repo must be visible, or the sync fails saying why
+    if (timedRepo !== null && (await readRepoName(timedRepo)) === null) {
+      throw new Error(
+        `The active gh account cannot see ${timedRepo}, so every private PR would read as Not Found. Check it with gh auth status and switch to an account with access: gh auth switch --hostname github.com --user <login>`,
+      );
+    }
     const linear = pLimit(CONCURRENCY);
     const github = pLimit(CONCURRENCY);
 
