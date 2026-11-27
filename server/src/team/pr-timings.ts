@@ -1,8 +1,9 @@
 import { and, eq, gte, lt } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
-import { teamPrTimings } from '../db/schema.js';
+import { teamPrTimings, teamPrTimingWindows } from '../db/schema.js';
 import { between, spread } from './durations.js';
 import { DayRange, type Selection, type TeamData } from './stats.js';
+import { joinWindows } from './sync.js';
 import {
   type Person,
   type PrTimingAuthor,
@@ -23,6 +24,17 @@ const spreads = (rows: PrTimingRow[]) => ({
   ci: spread(rows.map((r) => r.ci)),
 });
 
+// Where the newest-first timings search has reached: the start of the joined saved windows that end latest
+export function timingsFetchedFrom(db: Db, repo: string): number | null {
+  const windows = db
+    .select()
+    .from(teamPrTimingWindows)
+    .where(eq(teamPrTimingWindows.repo, repo))
+    .all()
+    .map((w): [number, number] => [w.from.getTime(), w.to.getTime()]);
+  return joinWindows(windows).at(-1)?.[0] ?? null;
+}
+
 export function prTimingsView(
   db: Db,
   data: TeamData,
@@ -31,6 +43,7 @@ export function prTimingsView(
   day: string | null,
 ): TeamPrTimings {
   const range = new DayRange(zone, from, to);
+  const fetchedFrom = timingsFetchedFrom(db, repo);
   const logins = new Set(
     people.flatMap((key) => {
       const login = data.accounts.get(key)?.login;
@@ -125,5 +138,7 @@ export function prTimingsView(
     prs: (day === null ? rows : (byDay.get(day) ?? [])).sort(
       (a, b) => (b.openToMerge ?? -Infinity) - (a.openToMerge ?? -Infinity) || b.number - a.number,
     ),
+    fetchedFrom,
+    fetched: fetchedFrom !== null && fetchedFrom <= range.start,
   };
 }

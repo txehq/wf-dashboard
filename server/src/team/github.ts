@@ -101,6 +101,9 @@ export interface SearchSpec<T> {
   fields: string;
   node: z.ZodType<T>;
   page: number;
+  // Newest first: the pages come latest created first, and the newer half of a split window is searched first. The
+  // page shows a long first read's recent PRs while older ones are still being read
+  newestFirst?: boolean;
 }
 
 const SearchedPr = z.object({
@@ -167,7 +170,12 @@ const TIMED_FIELDS = `url number title createdAt mergedAt author { login } timel
 // The timed repo's merged PRs with their last ready for review and the Actions runs of their last head commit (37.6).
 // 25 per request: under the sync's 4 at once, a page of 50 takes 3-12 s and GitHub answers some with a 504 at its 10 s
 // limit, a page of 100 more often; a page of 25 takes 2.5-5.5 s
-export const PR_TIMINGS: SearchSpec<TimedPr> = { fields: TIMED_FIELDS, node: TimedPr, page: 25 };
+export const PR_TIMINGS: SearchSpec<TimedPr> = {
+  fields: TIMED_FIELDS,
+  node: TimedPr,
+  page: 25,
+  newestFirst: true,
+};
 
 // Conclusions of a run that did not fail
 const PASSED = new Set(['SUCCESS', 'SKIPPED', 'NEUTRAL']);
@@ -253,7 +261,7 @@ const searchQuery = (spec: SearchSpec<unknown>) => `query($q: String!, $after: S
 // GitHub search takes times to the second; both ends are included
 const searchTime = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 
-// Oldest first, so pages stay in place while the search runs
+// A window ends in the past, so the PRs it matches are fixed while its pages are read, in either order
 export function searchArgs(
   spec: SearchSpec<unknown>,
   repo: string,
@@ -261,7 +269,7 @@ export function searchArgs(
   to: number,
   after?: string,
 ): string[] {
-  const q = `repo:${repo} is:pr is:merged merged:${searchTime(from)}..${searchTime(to)} sort:created-asc`;
+  const q = `repo:${repo} is:pr is:merged merged:${searchTime(from)}..${searchTime(to)} sort:created-${spec.newestFirst === true ? 'desc' : 'asc'}`;
   return [
     'api',
     'graphql',
@@ -320,7 +328,12 @@ export async function searchMergedPrs<T>(
         );
       }
       const mid = start + seconds * 1_000;
-      await Promise.all([window(start, mid), window(mid + 1_000, end)]);
+      // The half called first queues its requests first
+      await Promise.all(
+        spec.newestFirst === true
+          ? [window(mid + 1_000, end), window(start, mid)]
+          : [window(start, mid), window(mid + 1_000, end)],
+      );
       return;
     }
     let page = first;

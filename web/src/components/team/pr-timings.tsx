@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, Check, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, LoaderCircle, X } from 'lucide-react';
 import { useState } from 'react';
 import {
   Bar,
@@ -29,6 +29,7 @@ import {
   type StatsQuery,
   teamPrsQuery,
   type TeamPrTimings,
+  teamSyncQuery,
 } from '@/lib/team-api';
 import { axisTick, chartMargin, Y_AXIS_WIDTH } from '@/lib/team-chart';
 import { dateTime, dayLabel } from '@/lib/team-days';
@@ -642,6 +643,27 @@ function PrList({
   );
 }
 
+// While the sync is still reading the range's PRs (newest first): instead of the numbers when none is in yet, else
+// under them
+function Fetching({ data }: { data: TeamPrTimings }) {
+  const text =
+    data.summary.prs === 0
+      ? `Fetching ${data.repo} PRs, newest first…`
+      : data.fetchedFrom === null
+        ? `Fetching older ${data.repo} PRs…`
+        : `Fetching older ${data.repo} PRs: those merged before ${dateTime(data.fetchedFrom, data.timezone)} are not in yet…`;
+  return (
+    <p
+      className="flex items-center gap-2 text-sm text-muted-foreground"
+      role="status"
+      data-testid="prs-fetching"
+    >
+      <LoaderCircle className="size-4 shrink-0 animate-spin" aria-hidden />
+      {text}
+    </p>
+  );
+}
+
 // The txe PRs view: day is the clicked day, and person the author of a clicked cell of the one-day grid (both in the
 // address); scope names the people and the range or day
 export function PrTimings({
@@ -660,18 +682,29 @@ export function PrTimings({
   // The range's summary and chart come with every answer; a clicked day only narrows the list
   const range = useQuery(teamPrsQuery({ ...query, day: null }));
   const list = useQuery({ ...teamPrsQuery({ ...query, day }), enabled: day !== null });
+  const sync = useQuery(teamSyncQuery);
   const data = range.data;
   if (range.isError) return <p className="text-sm text-destructive">{range.error.message}</p>;
   if (data === undefined) return <p className="text-sm text-muted-foreground">Loading…</p>;
   const cell = day !== null && person !== null ? { person, day } : null;
   const dayPrs = day === null ? data.prs : list.data?.prs;
   const author = data.people.find((a) => a.key === person);
+  const fetching = sync.data?.latest?.status === 'running' && !data.fetched;
+  if (fetching && data.summary.prs === 0) {
+    return (
+      <div className="flex flex-col gap-6" data-testid="prs-view">
+        <Fetching data={data} />
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-6" data-testid="prs-view">
       <Summary data={data} />
+      {fetching && <Fetching data={data} />}
       {data.summary.prs === 0 ? (
         <p className="text-sm text-muted-foreground">
-          No {data.repo} PR merged in this range yet. The sync reads them after the Linear issues.
+          No {data.repo} PR merged in this range
+          {data.fetched ? '.' : ' yet. The next sync reads them.'}
         </p>
       ) : (
         <>
